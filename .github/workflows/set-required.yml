@@ -1,0 +1,42 @@
+name: Marcar versão como obrigatória/opcional
+
+# Ferramenta de emergência: ajusta o campo "required" do manifest.json já publicado
+# na VPS sem precisar gerar um novo build. Útil porque o botão "Tornar obrigatória"
+# do painel admin grava no Supabase Storage, mas o app desktop e o site de download
+# lêem do manifest da VPS (download.vsstagepro.com.br) — os dois não estão plugados
+# ainda (ver TODO em supabase/functions/admin-releases/index.ts).
+on:
+  workflow_dispatch:
+    inputs:
+      required:
+        description: 'Marcar como obrigatória? (true/false)'
+        required: true
+        default: 'true'
+        type: choice
+        options: ['true', 'false']
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Atualizar manifest na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          REQUIRED: ${{ inputs.required }}
+        run: |
+          REMOTE_BASE="/var/www/download.vsstagepro.com.br"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_deploy_key
+          chmod 600 ~/.ssh/vps_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          PYBOOL="False"; [ "$REQUIRED" = "true" ] && PYBOOL="True"
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "python3 -c \"
+import json
+p = '$REMOTE_BASE/mac/manifest.json'
+m = json.load(open(p))
+m['required'] = $PYBOOL
+json.dump(m, open(p, 'w'))
+print('required agora:', m['required'], '— versão', m['version'], 'build', m['build'])
+\""
