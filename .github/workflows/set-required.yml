@@ -32,11 +32,5 @@ jobs:
           chmod 600 ~/.ssh/vps_deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           PYBOOL="False"; [ "$REQUIRED" = "true" ] && PYBOOL="True"
-          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "python3 -c \"
-import json
-p = '$REMOTE_BASE/mac/manifest.json'
-m = json.load(open(p))
-m['required'] = $PYBOOL
-json.dump(m, open(p, 'w'))
-print('required agora:', m['required'], '— versão', m['version'], 'build', m['build'])
-\""
+          CMD="python3 -c \"import json; p='$REMOTE_BASE/mac/manifest.json'; m=json.load(open(p)); m['required']=$PYBOOL; json.dump(m, open(p,'w')); print('required agora:', m['required'], '-', m['version'], 'build', m['build'])\""
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "$CMD"
