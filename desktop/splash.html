@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+<title>VS Stage</title>
+<style>
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; cursor: default; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .card {
+    position: absolute; inset: 0; border-radius: 22px;
+    background: linear-gradient(180deg, rgba(36, 38, 43, 0.55) 0%, rgba(12, 13, 16, 0.72) 100%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    animation: cardIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition: opacity 420ms ease, transform 420ms ease;
+  }
+  .leaving .card { opacity: 0; transform: scale(1.03); }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .pop { transform-box: fill-box; transform-origin: center; animation: pop 900ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both; }
+  .fade { animation: fade 600ms ease-out both; }
+  .draw { stroke-dasharray: 1; animation: draw 900ms cubic-bezier(0.65, 0, 0.35, 1) both; }
+  .rev { animation-name: drawRev; }
+  .breathe { animation: breathe 2.4s ease-in-out infinite; }
+  .play { transform-box: fill-box; transform-origin: 40% 50%; animation: play 700ms cubic-bezier(0.34, 1.56, 0.64, 1) 1050ms both; }
+  .letter { animation: fade 500ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .rise { animation: rise 600ms ease-out both; }
+  .status { animation: fade 300ms ease-out both; }
+  #bar { transform-box: fill-box; transform-origin: left center; transform: scaleX(0.04); transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1); }
+  @keyframes cardIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  @keyframes pop { from { opacity: 0; transform: scale(0.86); } to { opacity: 1; transform: scale(1); } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+  @keyframes drawRev { from { stroke-dashoffset: -1; } to { stroke-dashoffset: 0; } }
+  @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.72; } }
+  @keyframes play { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: scale(1); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="card">
+  <svg viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <linearGradient id="base" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#24262b" /><stop offset="100%" stop-color="#0f1013" /></linearGradient>
+      <radialGradient id="sphere" cx="45%" cy="30%" r="65%"><stop offset="0%" stop-color="#555861" /><stop offset="35%" stop-color="#15171c" /><stop offset="85%" stop-color="#000" /><stop offset="100%" stop-color="#030303" /></radialGradient>
+      <filter id="neon" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" /><feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
+      <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.7" /></filter>
+      <filter id="playShadow" x="-60%" y="-60%" width="220%" height="220%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000" flood-opacity="0.8" /></filter>
+      <filter id="barGlow" x="-20%" y="-200%" width="140%" height="500%"><feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#4ade80" flood-opacity="0.6" /></filter>
+    </defs>
+    <g transform="translate(280, 140) scale(0.72)">
+      <g class="pop">
+        <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#base)" stroke="#2c2f38" stroke-width="1" filter="url(#shadow)" />
+        <g class="fade" style="animation-delay: 350ms">
+          <ellipse transform="rotate(22)" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+          <ellipse transform="rotate(-18)" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+        </g>
+        <circle r="55" fill="url(#sphere)" filter="url(#shadow)" />
+        <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#fff" opacity="0.07" />
+        <path d="M -35 40 A 45 45 0 0 0 35 40 Q 0 30 -35 40" fill="#4ade80" opacity="0.08" />
+        <g transform="rotate(22)"><g class="breathe" style="animation-delay: 1300ms">
+          <path class="draw" style="animation-delay: 450ms" pathLength="1" d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#neon)" stroke-linecap="round" />
+          <path class="draw" style="animation-delay: 450ms" pathLength="1" d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.9" />
+        </g></g>
+        <g transform="rotate(-18)"><g class="breathe" style="animation-delay: 1700ms">
+          <path class="draw rev" style="animation-delay: 600ms" pathLength="1" d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#neon)" stroke-linecap="round" />
+          <path class="draw rev" style="animation-delay: 600ms" pathLength="1" d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.9" />
+        </g></g>
+        <polygon class="play" points="-8,-16 18,0 -8,16" fill="#fff" stroke="#fff" stroke-width="1" stroke-linejoin="round" filter="url(#playShadow)" />
+      </g>
+    </g>
+    <text id="title" x="280" y="270" text-anchor="middle" font-size="26" font-weight="800" fill="#fff" letter-spacing="4"></text>
+    <text class="rise" style="animation-delay: 1400ms" x="280" y="292" text-anchor="middle" font-size="10.5" font-weight="600" fill="#9ca3af" letter-spacing="5">LIVE PERFORMANCE ENGINE</text>
+    <g class="fade" style="animation-delay: 500ms">
+      <text id="status" class="status" x="280" y="320" text-anchor="middle" font-size="11" fill="#a1a8b3">Carregando motor de áudio...</text>
+      <g transform="translate(150, 332)">
+        <rect width="260" height="6" rx="3" fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
+        <rect id="bar" x="1" y="1" width="258" height="4" rx="2" fill="#4ade80" filter="url(#barGlow)" />
+      </g>
+    </g>
+    <g class="fade" style="animation-delay: 800ms">
+      <text x="24" y="364" font-size="10" font-weight="500" fill="#71717a">© 2026 VS Stage</text>
+      <text x="536" y="364" text-anchor="end" font-size="10" font-weight="600" fill="#f59e0b" id="version"></text>
+    </g>
+  </svg>
+</div>
+<script>
+  const NS = 'http://www.w3.org/2000/svg';
+  const title = document.getElementById('title');
+  'VS STAGE'.split('').forEach((ch, i) => {
+    const t = document.createElementNS(NS, 'tspan');
+    t.setAttribute('class', 'letter');
+    t.style.animationDelay = (900 + i * 55) + 'ms';
+    t.textContent = ch;
+    title.appendChild(t);
+  });
+  const version = new URLSearchParams(location.search).get('v');
+  if (version) document.getElementById('version').textContent = 'v' + version + ' PRO';
+  const status = document.getElementById('status');
+  const bar = document.getElementById('bar');
+  const steps = [
+    [0, 0.18, 'Carregando motor de áudio...'],
+    [750, 0.52, 'Preparando timecode e periféricos...'],
+    [1500, 0.84, 'Abrindo o show...'],
+  ];
+  const setStep = (progress, text) => {
+    bar.style.transform = 'scaleX(' + progress + ')';
+    if (status.textContent !== text) {
+      status.textContent = text;
+      status.classList.remove('status');
+      void status.getBBox();
+      status.classList.add('status');
+    }
+  };
+  steps.forEach(([at, p, text]) => setTimeout(() => setStep(p, text), at + 60));
+  const skip = () => { location.href = 'about:blank#skip'; };
+  window.addEventListener('mousedown', skip);
+  window.addEventListener('keydown', skip);
+  window.addEventListener('message', (e) => {
+    if (e.data !== 'vs:leave') return;
+    setStep(1, 'Pronto');
+    setTimeout(() => document.body.classList.add('leaving'), 180);
+  });
+</script>
+</body>
+</html>

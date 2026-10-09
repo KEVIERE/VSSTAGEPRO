@@ -1,0 +1,234 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    background-color: #0e0e0e;
+    color: #e8e8e8;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+  }
+}
+
+@layer components {
+  .logic-panel {
+    @apply bg-logic-bg-panel border border-logic-border;
+  }
+
+  .logic-panel-deep {
+    @apply bg-logic-bg-deep border border-logic-border-dark;
+  }
+
+  .logic-btn {
+    @apply px-3 py-1.5 text-xs font-medium bg-logic-bg-elevated border border-logic-border-light
+           rounded text-logic-text hover:bg-logic-bg-panel-light active:bg-logic-bg-panel
+           transition-colors duration-150 ease-logic select-none;
+  }
+
+  .logic-btn-accent {
+    @apply px-3 py-1.5 text-xs font-medium bg-logic-accent border border-logic-accent-hover
+           rounded text-white hover:bg-logic-accent-hover active:bg-logic-accent-dim
+           transition-colors duration-150 ease-logic select-none;
+  }
+
+  .logic-btn-transport {
+    @apply w-9 h-9 flex items-center justify-center bg-logic-bg-elevated border border-logic-border-light
+           rounded text-logic-text hover:bg-logic-bg-panel-light active:bg-logic-accent active:text-white
+           transition-all duration-100 ease-logic select-none;
+  }
+
+  .logic-lcd {
+    @apply bg-logic-lcd-bg font-sans text-logic-lcd-text rounded-sm border border-logic-border-dark
+           shadow-logic-inset;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.005em;
+  }
+
+  .logic-track-row {
+    @apply flex items-center h-10 px-2 border-b border-logic-border-dark
+           hover:bg-logic-bg-panel-light transition-colors duration-75 cursor-pointer;
+  }
+
+  .logic-scroll::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .logic-scroll::-webkit-scrollbar-track {
+    background: #1a1a1a;
+  }
+  .logic-scroll::-webkit-scrollbar-thumb {
+    background: #3a3a3a;
+    border-radius: 4px;
+  }
+  .logic-scroll::-webkit-scrollbar-thumb:hover {
+    background: #4a4a4a;
+  }
+}
+
+@layer utilities {
+  .text-shadow-lcd {
+    text-shadow: 0 0 4px rgba(212, 212, 212, 0.3);
+  }
+  .text-shadow-amber {
+    text-shadow: 0 0 6px rgba(255, 159, 10, 0.4);
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes prompterIn {
+  from { opacity: 0; transform: translateY(12%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes prompterFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes prompterUp {
+  from { opacity: 0; transform: translateY(4%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes prompterRise {
+  from { opacity: 0.32; transform: translateY(28cqh) scale(0.45); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes prompterLeave {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-12cqh) scale(0.9); }
+}
+
+@keyframes prompterNextIn {
+  from { opacity: 0; transform: translateY(3cqh); }
+  to { opacity: 0.32; transform: translateY(0); }
+}
+
+@keyframes noticePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes sectionEnter {
+  0%, 50%, 100% { filter: brightness(1); }
+  25%, 75% { filter: brightness(1.8); }
+}
+
+@keyframes sectionQueued {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@keyframes statusSweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+.splash-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splashPop 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.splash-fade { animation: splashFade 600ms ease-out both; }
+.splash-draw {
+  stroke-dasharray: 1;
+  animation: splashDraw 900ms cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+.splash-draw-rev { animation-name: splashDrawRev; }
+.splash-breathe { animation: splashBreathe 2.4s ease-in-out infinite; }
+.splash-play {
+  transform-box: fill-box;
+  transform-origin: 40% 50%;
+  animation: splashPlay 700ms cubic-bezier(0.34, 1.56, 0.64, 1) 1050ms both, splashPlayGlow 2.4s ease-in-out 1750ms infinite;
+}
+.splash-letter { animation: splashLetter 500ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.splash-rise { animation: splashRise 600ms ease-out both; }
+.splash-status { animation: splashStatus 300ms ease-out both; }
+
+@keyframes splashPop {
+  from { opacity: 0; transform: scale(0.86); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes splashFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes splashDraw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes splashDrawRev {
+  from { stroke-dashoffset: -1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes splashBreathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+@keyframes splashPlay {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes splashPlayGlow {
+  0%, 100% { filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.8)); }
+  50% { filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.55)); }
+}
+@keyframes splashLetter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes splashRise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes splashStatus {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash * { animation: none !important; transition: none !important; }
+}
+
+@keyframes salesRise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes salesGlow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.05); }
+}
+
+@keyframes salesFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+.sales-rise { animation: salesRise 700ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.sales-glow { animation: salesGlow 5s ease-in-out infinite; }
+.sales-float { animation: salesFloat 7s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sales-rise, .sales-glow, .sales-float { animation: none !important; }
+}

@@ -1,0 +1,101 @@
+name: Instalador para Mac
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Conexão com a nuvem
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
+            echo "::error::Cadastre VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+
+      - run: npm ci
+
+      - name: Gerar os .dmg
+        working-directory: desktop
+        run: |
+          npm install --no-audit --no-fund
+          npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VS-Stage-Mac
+          path: desktop/dist/*.dmg
+          retention-days: 30
+
+      # Publica os instaladores na VPS em partes de 45 MB.
+      # Configure os secrets VPS_HOST, VPS_USER e VPS_SSH_KEY no GitHub Actions.
+      - name: Publicar na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::warning::Cadastre VPS_HOST, VPS_USER e VPS_SSH_KEY em Settings > Secrets and variables > Actions para publicar na VPS."
+            exit 0
+          fi
+          VERSION=$(node -p "require('./desktop/package.json').version")
+          FOLDER="mac/${VERSION}-${BUILD_NUMBER}"
+          REMOTE_BASE="/var/www/download.vsstagepro.com.br"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_deploy_key
+          chmod 600 ~/.ssh/vps_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p '$REMOTE_BASE/$FOLDER/arm64' '$REMOTE_BASE/$FOLDER/x64'"
+          upload() {
+            scp -i ~/.ssh/vps_deploy_key "$1" "$VPS_USER@$VPS_HOST:$REMOTE_BASE/$2"
+          }
+          BUILDS=""
+          for ARCH in arm64 x64; do
+            DMG=$(ls desktop/dist/*-${ARCH}.dmg | head -n 1)
+            [ -f "$DMG" ] || { echo "::error::Instalador $ARCH não encontrado"; exit 1; }
+            SIZE=$(stat -f%z "$DMG")
+            SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+            WORK=$(mktemp -d)
+            split -b 47185920 -a 2 "$DMG" "$WORK/part"
+            PARTS=""
+            for P in $(ls "$WORK" | sort); do
+              NAME="$FOLDER/$ARCH/$P.bin"
+              upload "$WORK/$P" "$NAME"
+              PARTS="$PARTS\"$NAME\","
+            done
+            rm -rf "$WORK"
+            if [ "$ARCH" = arm64 ]; then LABEL="Apple Silicon (M1, M2, M3, M4)"; else LABEL="Intel"; fi
+            BUILDS="$BUILDS{\"arch\":\"$ARCH\",\"label\":\"$LABEL\",\"file\":\"$(basename "$DMG")\",\"size\":$SIZE,\"sha256\":\"$SHA\",\"parts\":[${PARTS%,}]},"
+          done
+          PUBLISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{"version":"%s","build":%s,"published":"%s","required":false,"builds":[%s]}' "$VERSION" "$BUILD_NUMBER" "$PUBLISHED" "${BUILDS%,}" > manifest.json
+          # O manifest é enviado por último: a página só passa a oferecer a versão nova quando todas as partes já subiram.
+          upload manifest.json mac/manifest.json
+          # Histórico/rollback continuam registrados no Supabase oficial (aba "Versões" do backoffice).
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              --data-raw "{\"p_version\":\"$VERSION\",\"p_build\":$BUILD_NUMBER,\"p_manifest\":$(cat manifest.json),\"p_by\":null}" \
+              "$SUPABASE_URL/rest/v1/rpc/admin_release_record"
+          fi
+          echo "Publicado na VPS: VS Stage $VERSION (build $BUILD_NUMBER)"
+

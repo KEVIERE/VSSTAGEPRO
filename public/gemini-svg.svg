@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320" width="100%" height="100%">
+  <defs>
+    <!-- Base do Ícone do App (Fundo Sólido Dark) -->
+    <linearGradient id="logoAppBase" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#24262b" />
+      <stop offset="100%" stop-color="#0f1013" />
+    </linearGradient>
+
+    <!-- Gradiente Fotorrealista da Esfera -->
+    <radialGradient id="sphereGrad" cx="45%" cy="30%" r="65%">
+      <stop offset="0%" stop-color="#555861" />
+      <stop offset="35%" stop-color="#15171c" />
+      <stop offset="85%" stop-color="#000000" />
+      <stop offset="100%" stop-color="#030303" />
+    </radialGradient>
+
+    <!-- Filtros de Néon (Glow) -->
+    <filter id="neonGreen" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3.5" result="blur1" />
+      <feGaussianBlur stdDeviation="7" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="neonOrange" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3.5" result="blur1" />
+      <feGaussianBlur stdDeviation="7" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur2" />
+        <feMergeNode in="blur1" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    
+    <!-- Filtro de Sombra para profundidade do Ícone e da Esfera -->
+    <filter id="dropShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="15" flood-color="#000000" flood-opacity="0.9"/>
+    </filter>
+    
+    <!-- Sombra do Botão Play -->
+    <filter id="playShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#000000" flood-opacity="0.8"/>
+    </filter>
+  </defs>
+
+  <!-- ========================================== -->
+  <!-- GRUPO DO LOGO CENTRAL                      -->
+  <!-- ========================================== -->
+  <g transform="translate(160, 160)">
+    
+    <!-- Fundo Arredondado do App Icon -->
+    <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#logoAppBase)" stroke="#2c2f38" stroke-width="1" filter="url(#dropShadow)" />
+
+    <!-- ========================================== -->
+    <!-- 1. CAMADA DE TRÁS (Elipses sem brilho)     -->
+    <!-- ========================================== -->
+    <!-- Anel Laranja (Timecode) -->
+    <g transform="rotate(22)">
+      <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+    </g>
+
+    <!-- Anel Verde (Tocando) -->
+    <g transform="rotate(-18)">
+      <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+    </g>
+
+    <!-- ========================================== -->
+    <!-- 2. ESFERA CENTRAL                          -->
+    <!-- ========================================== -->
+    <circle cx="0" cy="0" r="55" fill="url(#sphereGrad)" filter="url(#dropShadow)" />
+    <!-- Brilho (Gloss) de vidro no topo -->
+    <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.07" />
+    <!-- Reflexo suave na base da esfera -->
+    <path d="M -35 40 A 45 45 0 0 0 35 40 Q 0 30 -35 40" fill="#4ade80" opacity="0.08" />
+
+    <!-- ========================================== -->
+    <!-- 3. CAMADA DA FRENTE (Arcos inferiores)     -->
+    <!-- ========================================== -->
+    <!-- Anel Laranja (Frente) -->
+    <g transform="rotate(22)">
+      <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#neonOrange)" stroke-linecap="round" />
+      <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.9" />
+    </g>
+
+    <!-- Anel Verde (Frente) -->
+    <g transform="rotate(-18)">
+      <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#neonGreen)" stroke-linecap="round" />
+      <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.9" />
+    </g>
+
+    <!-- ========================================== -->
+    <!-- 4. BOTÃO PLAY                              -->
+    <!-- ========================================== -->
+    <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" filter="url(#playShadow)" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+  </g>
+</svg>

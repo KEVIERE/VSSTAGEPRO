@@ -1,0 +1,92 @@
+{
+  "name": "vs-stage-desktop",
+  "productName": "VS Stage",
+  "version": "1.1.17",
+  "private": true,
+  "description": "VS Stage para Mac com Rede Local do palco",
+  "main": "main.js",
+  "scripts": {
+    "web": "npm --prefix .. run build",
+    "start": "npm run web && electron .",
+    "background": "node scripts/makeDmgBackground.mjs",
+    "dist": "npm run web && npm run background && CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 electron-builder --mac --publish never",
+    "dist:signed": "npm run web && npm run background && electron-builder --mac --publish never"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.vsstage.app",
+    "productName": "VS Stage",
+    "copyright": "VS Stage",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "*.js",
+      "splash.html",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist",
+        "to": "web"
+      }
+    ],
+    "afterPack": "./scripts/adhocSign.js",
+    "mac": {
+      "category": "public.app-category.music",
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "minimumSystemVersion": "11.0",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "O VS Stage precisa dessa permissão só para mostrar os nomes das suas interfaces de áudio na lista de saídas. Nada é gravado.",
+        "NSLocalNetworkUsageDescription": "O VS Stage usa a rede local para enviar o show aos celulares dos músicos, ao produtor e à tela do palco.",
+        "NSBonjourServices": [
+          "_http._tcp"
+        ]
+      }
+    },
+    "dmg": {
+      "title": "VS Stage ${version}",
+      "artifactName": "VS-Stage-${version}-${arch}.${ext}",
+      "background": "build/dmg-background.png",
+      "iconSize": 128,
+      "window": {
+        "width": 720,
+        "height": 460
+      },
+      "contents": [
+        {
+          "x": 200,
+          "y": 262
+        },
+        {
+          "x": 520,
+          "y": 262,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}

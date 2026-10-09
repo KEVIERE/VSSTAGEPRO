@@ -1,0 +1,14 @@
+[functions.admin-releases]
+verify_jwt = true
+
+[functions.prompter-audio]
+verify_jwt = true
+
+[functions.stripe-checkout]
+verify_jwt = true
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.signup-phone]
+verify_jwt = false

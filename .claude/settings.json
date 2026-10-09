@@ -1,0 +1,9 @@
+{
+  "enabledPlugins": {
+    "frontend-design@anthropic-plugin-directory": true,
+    "code-review-anthropics@anthropic-plugin-directory": true,
+    "superpowers@anthropic-plugin-directory": true,
+    "context7@anthropic-plugin-directory": true,
+    "typescript-lsp@claude-plugins-official": true
+  }
+}

@@ -1,0 +1,2 @@
+/* Liberação temporária de envio para o bucket app-downloads (removida logo em seguida). */
+create policy "temp upload app downloads" on storage.objects for insert to anon with check (bucket_id = 'app-downloads');
