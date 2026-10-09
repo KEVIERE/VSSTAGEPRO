@@ -67,7 +67,7 @@
       }
     },
     "dmg": {
-      "title": "VS Stage ${version}",
+      "title": "VS Stage ${version} ${arch}",
       "artifactName": "VS-Stage-${version}-${arch}.${ext}",
       "background": "build/dmg-background.png",
       "iconSize": 128,
