@@ -27,7 +27,7 @@ jobs:
           ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "ls -la /etc/nginx/sites-enabled 2>/dev/null; cat /etc/nginx/sites-enabled/* 2>/dev/null | grep -E 'root|server_name'"
           echo ""
           echo "=== apache vhosts (se existir) ==="
-          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "grep -rE 'DocumentRoot|ServerName' /etc/apache2/sites-enabled/* 2>/dev/null"
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "grep -rE 'DocumentRoot|ServerName' /etc/apache2/sites-enabled/* 2>/dev/null; true"
           echo ""
           echo "=== quem e o usuario e onde esta o home ==="
           ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "whoami && pwd && echo '---' && ls -la ~"
