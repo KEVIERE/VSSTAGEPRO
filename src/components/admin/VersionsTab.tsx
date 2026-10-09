@@ -56,6 +56,7 @@ export default function VersionsTab() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [confirmRequired, setConfirmRequired] = useState(false);
   const [rollingBack, setRollingBack] = useState<string | null>(null);
+  const [togglingRequired, setTogglingRequired] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = async () => {
@@ -70,6 +71,28 @@ export default function VersionsTab() {
 
   const startConfirm = (r: AppRelease) => { setConfirming(key(r)); setConfirmRequired(false); };
   const cancelConfirm = () => { setConfirming(null); setConfirmRequired(false); };
+
+  // Liga/desliga a obrigatoriedade da versão ativa sem precisar "reverter" — republica o
+  // mesmo manifest só trocando a flag required (mesma rota usada pelo rollback).
+  const toggleActiveRequired = async (r: AppRelease) => {
+    const nextRequired = !r.manifest.required;
+    setTogglingRequired(key(r));
+    setNotice(null);
+    try {
+      await adminApi.rollbackRelease(r.version, r.build, nextRequired);
+      setNotice({
+        ok: true,
+        text: nextRequired
+          ? `Versão ${r.version} agora é obrigatória. Todo app vai bloquear o uso até atualizar.`
+          : `Versão ${r.version} deixou de ser obrigatória.`,
+      });
+      await load();
+    } catch (e) {
+      setNotice({ ok: false, text: friendlyError((e as Error).message) });
+    } finally {
+      setTogglingRequired(null);
+    }
+  };
 
   const rollback = async (r: AppRelease) => {
     setConfirming(null);
@@ -151,6 +174,17 @@ export default function VersionsTab() {
                           {r.manifest.builds.map((b) => `${b.label} (${mb(b.size)})`).join(' · ')}
                         </p>
                       </div>
+                      {isActive && (
+                        <button
+                          type="button"
+                          onClick={() => toggleActiveRequired(r)}
+                          disabled={togglingRequired === k}
+                          className={`${r.manifest.required ? btnGhost : btnPrimary} shrink-0`}
+                        >
+                          {togglingRequired === k ? <Loader2 size={13} className="animate-spin" /> : <AlertTriangle size={13} />}
+                          {togglingRequired === k ? 'Atualizando...' : r.manifest.required ? 'Tornar opcional' : 'Tornar obrigatória'}
+                        </button>
+                      )}
                       {!isActive && !isConfirming && (
                         <button type="button" onClick={() => startConfirm(r)} className={`${btnPrimary} shrink-0`}>
                           <RotateCcw size={13} /> Reverter para esta
