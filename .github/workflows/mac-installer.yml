@@ -4,6 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Só reconstrói e republica o app Mac quando algo do próprio app muda — qualquer
+    # outro push (admin, site, outros workflows) não deve gerar build nem sobrescrever
+    # o "required" do manifest já publicado.
+    paths:
+      - 'desktop/**'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/mac-installer.yml'
 
 jobs:
   mac:
