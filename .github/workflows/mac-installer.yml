@@ -30,8 +30,14 @@ jobs:
 
       - name: Gerar os .dmg
         working-directory: desktop
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           npm install --no-audit --no-fund
+          # Grava o número do build dentro do próprio app: é assim que o programa
+          # instalado sabe se uma republicação da mesma versão (ex.: só mudou a
+          # obrigatoriedade) é mais nova que a dele.
+          printf '{"build":%s}' "$BUILD_NUMBER" > build-info.json
           npm run dist
 
       - uses: actions/upload-artifact@v4

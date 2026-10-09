@@ -61,6 +61,22 @@ function compareVersions(a, b) {
 }
 
 /**
+ * Número do build empacotado neste app (gravado pelo CI em build-info.json antes de
+ * gerar o .dmg). Em dev, ou se o arquivo não existir por algum motivo, assume 0 —
+ * assim qualquer publicação já conta como mais nova.
+ */
+function currentBuild() {
+  try {
+    const p = app.isPackaged
+      ? path.join(process.resourcesPath, 'build-info.json')
+      : path.join(__dirname, 'build-info.json');
+    return Number(JSON.parse(fs.readFileSync(p, 'utf8')).build) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Confere se a versão publicada é diferente da instalada — tanto para cima (atualização
  * normal) quanto para baixo (o admin reverteu uma versão no backoffice, e todo app com
  * versão mais nova também precisa voltar). `direction` diz qual dos dois casos é.
@@ -74,10 +90,14 @@ async function checkForUpdate(_supabaseUrl) {
     const manifest = await fetchJson(`${base}mac/manifest.json?t=${Date.now()}`);
     if (typeof manifest?.version !== 'string' || !Array.isArray(manifest.builds)) return null;
     const cmp = compareVersions(manifest.version, app.getVersion());
-    if (cmp === 0) return null;
+    // Mesmo número de versão: só é "mudança" se o build publicado for diferente do
+    // instalado (ex.: republicou o mesmo 1.1.17 com outro build, ou só trocou a
+    // obrigatoriedade). Sem isso o app ignorava republicações da própria versão.
+    if (cmp === 0 && Number(manifest.build) === currentBuild()) return null;
     const build = manifest.builds.find((b) => b.arch === archForThisMac());
     if (!build) return null;
-    return { version: manifest.version, build, base, direction: cmp > 0 ? 'upgrade' : 'downgrade', required: manifest.required === true };
+    const direction = cmp !== 0 ? (cmp > 0 ? 'upgrade' : 'downgrade') : (Number(manifest.build) > currentBuild() ? 'upgrade' : 'downgrade');
+    return { version: manifest.version, build, base, direction, required: manifest.required === true };
   } catch {
     return null;
   }

@@ -9,8 +9,9 @@
     "web": "npm --prefix .. run build",
     "start": "npm run web && electron .",
     "background": "node scripts/makeDmgBackground.mjs",
-    "dist": "npm run web && npm run background && CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 electron-builder --mac --publish never",
-    "dist:signed": "npm run web && npm run background && electron-builder --mac --publish never"
+    "ensure-build-info": "node -e \"const fs=require('fs');if(!fs.existsSync('build-info.json'))fs.writeFileSync('build-info.json',JSON.stringify({build:0}))\"",
+    "dist": "npm run web && npm run background && npm run ensure-build-info && CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 electron-builder --mac --publish never",
+    "dist:signed": "npm run web && npm run background && npm run ensure-build-info && electron-builder --mac --publish never"
   },
   "dependencies": {
     "qrcode": "^1.5.4"
@@ -37,6 +38,10 @@
       {
         "from": "../dist",
         "to": "web"
+      },
+      {
+        "from": "build-info.json",
+        "to": "build-info.json"
       }
     ],
     "afterPack": "./scripts/adhocSign.js",

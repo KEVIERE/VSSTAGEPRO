@@ -10,6 +10,7 @@ node_modules
 dist
 dist-ssr
 *.local
+desktop/build-info.json
 
 .vscode/*
 !.vscode/extensions.json
