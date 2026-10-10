@@ -138,6 +138,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   mixerHeight: 220,
   zoomH: 20,
   zoomV: 1,
+  trackHeaderWidth: 192,
   importProgress: null,
   lrMasterActive: false,
   audioInterface: 'default',
@@ -190,6 +191,7 @@ interface StoreActions {
   setMixerHeight: (height: number) => void;
   setZoomH: (zoom: number) => void;
   setZoomV: (zoom: number) => void;
+  setTrackHeaderWidth: (width: number) => void;
   newProject: () => void;
   loadProject: (data: Partial<ProjectState>) => void;
   addToPlaylist: (songId: string, name: string, duration: number, bpm?: number) => void;
@@ -479,6 +481,7 @@ export const useStore = create<Store>()(
       setMixerHeight: (height) => set({ mixerHeight: height }),
       setZoomH: (zoom) => set({ zoomH: Math.max(2, Math.min(200, zoom)) }),
       setZoomV: (zoom) => set({ zoomV: Math.max(0.3, Math.min(4, zoom)) }),
+      setTrackHeaderWidth: (width) => set({ trackHeaderWidth: Math.max(120, Math.min(400, Math.round(width))) }),
 
 
       setSaveDialogOpen: (v) => set({ saveDialogOpen: v }),

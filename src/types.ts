@@ -213,6 +213,8 @@ export interface ProjectState {
   mixerHeight: number;
   zoomH: number;
   zoomV: number;
+  /** Largura (px) da coluna de nomes das faixas, na timeline. */
+  trackHeaderWidth: number;
   importProgress: ImportProgress | null;
   lrMasterActive: boolean;
   magicRoutingActive: boolean;
