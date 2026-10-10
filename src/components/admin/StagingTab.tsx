@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, ExternalLink, Loader2, Play, RefreshCw, Rocket } from 'lucide-react';
+import { AlertTriangle, Loader2, Play, RefreshCw, Rocket } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi } from '@/components/admin/adminApi';
 import { btnGhost, btnPrimary, Panel } from '@/components/admin/ui';
@@ -50,12 +50,6 @@ export default function StagingTab() {
             className={btnPrimary}
           >
             <Play size={13} /> Abrir o programa para teste
-          </a>
-          <a
-            href={STAGING_URL} target="_blank" rel="noreferrer"
-            className={btnGhost}
-          >
-            <ExternalLink size={13} /> Abrir em nova aba
           </a>
           <button type="button" className={btnGhost} onClick={() => setReloadKey((k) => k + 1)} aria-label="Recarregar preview">
             <RefreshCw size={13} />
