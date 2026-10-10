@@ -169,6 +169,7 @@ interface StoreActions {
   setTrackColor: (trackId: string, color: string) => void;
   setOutputChannel: (trackId: string, channel: number) => void;
   toggleFaderLock: (trackId: string) => void;
+  setTrackHeight: (trackId: string, height: number) => void;
   setOutputChannelCount: (count: number) => void;
   addChildTrack: (parentId: string, name: string, childId?: string) => void;
   setPlayFlow: (flow: PlayFlow) => void;
@@ -406,6 +407,10 @@ export const useStore = create<Store>()(
         return { tracks: s.tracks.map((t) => t.id === trackId ? { ...t, outputChannel: channel } : t) };
       }),
       toggleFaderLock: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, faderLocked: !t.faderLocked } : t) })),
+      // Altura individual da faixa (base 40px, antes do zoom vertical global ser aplicado).
+      setTrackHeight: (trackId, height) => set((s) => ({
+        tracks: s.tracks.map((t) => t.id === trackId ? { ...t, height: Math.max(24, Math.min(160, Math.round(height))) } : t),
+      })),
       setOutputChannelCount: (count) => set((s) => (s.outputChannelCount === count ? s : { outputChannelCount: count })),
 
       addChildTrack: (parentId, name, childId) => {

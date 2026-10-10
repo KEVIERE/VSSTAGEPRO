@@ -22,6 +22,49 @@ function ChildTrackRow({ childId, depth, expanded, onToggle }: { childId: string
   return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} />;
 }
 
+// Alça fina no topo/fim de uma faixa: arrastar muda só a altura dela; duplo clique volta ao padrão.
+function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | 'bottom' }) {
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const track = useStore.getState().tracks.find((t) => t.id === trackId);
+    const startHeight = track?.height ?? 40;
+    const sign = edge === 'top' ? -1 : 1;
+    const move = (ev: PointerEvent) => {
+      const deltaPx = (ev.clientY - startY) * sign;
+      useStore.getState().setTrackHeight(trackId, startHeight + deltaPx);
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+      try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  }, [trackId, edge]);
+  const onDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    useStore.getState().setTrackHeight(trackId, 40);
+  }, [trackId]);
+
+  return (
+    <div
+      className={`absolute left-0 right-0 h-1.5 ${edge === 'top' ? '-top-0.5' : '-bottom-0.5'} z-30 cursor-row-resize group/trackHeightHandle`}
+      onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
+      onClick={(e) => e.stopPropagation()}
+      title="Arraste para ajustar a altura desta faixa. Duplo clique: tamanho padrão."
+    >
+      <div className={`absolute left-0 right-0 h-px ${edge === 'top' ? 'top-0.5' : 'bottom-0.5'} bg-logic-border-dark opacity-0 group-hover/trackHeightHandle:opacity-100 group-hover/trackHeightHandle:bg-logic-accent transition-opacity`} />
+    </div>
+  );
+}
+
 function TrackRow({ track, depth = 0, expanded = true, onToggle }: { track: Track; depth?: number; expanded?: boolean; onToggle?: () => void }) {
   const selectedTrackId = useStore((s) => s.selectedTrackId);
   const selectTrack = useStore((s) => s.selectTrack);
@@ -35,19 +78,21 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle }: { track: Trac
   });
 
   const isSelected = selectedTrackId === track.id;
-  const trackHeight = Math.round(40 * zoomV);
+  const trackHeight = Math.round((track.height ?? 40) * zoomV);
   const isFolder = track.isSubgroup;
 
   return (
     <div
       data-selectable="track"
-      className={`group flex items-center border-b border-logic-border-dark cursor-pointer transition-colors duration-75
+      className={`group relative flex items-center border-b border-logic-border-dark cursor-pointer transition-colors duration-75
         ${isSelected ? 'bg-logic-accent-dim' : isFolder ? 'bg-logic-bg-deep/60 hover:bg-logic-bg-panel-light' : 'hover:bg-logic-bg-panel-light'}`}
       style={{ paddingLeft: `${8 + depth * 16}px`, height: `${trackHeight}px` }}
       onClick={() => selectTrack(track.id)}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
       title={isFolder ? 'Pasta: só agrupa as faixas abaixo. Áudio fica nas faixas filhas.' : undefined}
     >
+      {!isFolder && <TrackHeightHandle trackId={track.id} edge="top" />}
+      {!isFolder && <TrackHeightHandle trackId={track.id} edge="bottom" />}
       {isFolder ? (
         <button
           className="mr-1 text-logic-text-muted hover:text-logic-text flex items-center"
@@ -639,11 +684,12 @@ export default function TimelinePanel() {
                 const isFolder = track.isSubgroup;
                 const isTc = track.id === TIMECODE_TRACK_ID;
                 const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
+                const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
                 return (
                   <div
                     key={track.id}
                     className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
-                    style={{ height: `${trackHeight}px` }}
+                    style={{ height: `${rowHeight}px` }}
                   >
                     {trackClips.map((clip) => (
                       <ClipBlock
@@ -653,7 +699,7 @@ export default function TimelinePanel() {
                         onSelect={(additive) => selectClip(clip.id, additive)}
                         onTrimStart={handleTrimStart}
                         trim={trimDrag}
-                        trackHeight={trackHeight}
+                        trackHeight={rowHeight}
                         zoomH={zoomH}
                         visible={visible}
                       />
