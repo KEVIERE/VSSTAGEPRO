@@ -166,15 +166,15 @@ function buildMenu() {
   const isMac = process.platform === 'darwin';
   const template = [
     ...(isMac ? [{
-      label: 'VS Stage',
+      label: 'VS Stage Pro',
       submenu: [
-        { role: 'about', label: 'Sobre o VS Stage' },
+        { role: 'about', label: 'Sobre o VS Stage Pro' },
         { type: 'separator' },
-        { role: 'hide', label: 'Ocultar VS Stage' },
+        { role: 'hide', label: 'Ocultar VS Stage Pro' },
         { role: 'hideOthers', label: 'Ocultar Outros' },
         { role: 'unhide', label: 'Mostrar Todos' },
         { type: 'separator' },
-        { role: 'quit', label: 'Encerrar VS Stage' },
+        { role: 'quit', label: 'Encerrar VS Stage Pro' },
       ],
     }] : []),
     {
@@ -211,7 +211,7 @@ function buildMenu() {
         ...(isMac ? [{ type: 'separator' }, { role: 'front', label: 'Trazer Todas para a Frente' }] : []),
       ],
     },
-    { role: 'help', label: 'Ajuda', submenu: [{ label: 'Site do VS Stage', click: () => shell.openExternal('https://vsstage-pro-showonline.bolt.host') }] },
+    { role: 'help', label: 'Ajuda', submenu: [{ label: 'Site do VS Stage Pro', click: () => shell.openExternal('https://vsstage-pro-showonline.bolt.host') }] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

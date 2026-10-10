@@ -1,10 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Check, CheckCircle2, Copy, Cpu, Download, Laptop, Loader2, LogOut, MonitorPlay, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, Copy, Cpu, Download, Laptop, Loader2, LogOut, Mic2, MonitorPlay, Radio, RotateCcw, ShieldCheck, Timer } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
 import { supabase } from '@/lib/supabaseClient';
+
+const TRUST_BADGES = [
+  { icon: ShieldCheck, text: 'Download verificado por hash SHA-256' },
+  { icon: Timer, text: 'Teste grátis, sem cartão de crédito' },
+  { icon: MonitorPlay, text: 'macOS 11 (Big Sur) ou mais novo' },
+];
+
+const FEATURE_HIGHLIGHTS = [
+  { icon: Mic2, text: 'Editor de multitracks com Timecode LTC' },
+  { icon: Radio, text: 'Modo Show protegido, com pads de regions' },
+];
 
 type Status =
   | { kind: 'idle' }
@@ -73,17 +84,17 @@ function MacDownloadPageContent({ session }: { session: Session }) {
   return (
     <div className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center px-4 py-12"
       style={{ background: 'radial-gradient(ellipse at top, #1b1c20 0%, #0a0b0d 70%)' }}>
-      <div className="w-full max-w-xl animate-[fadeIn_250ms_ease-out]">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <div className="flex items-center gap-2 text-xs text-logic-text-dim">
-            <VsLogo size={22} />
-            <Laptop size={14} className="text-logic-lcd-green" /> VS Stage para Mac
-            {manifest && <span className="text-logic-lcd-amber font-semibold">v{manifest.version}</span>}
-            {manifest?.published && !Number.isNaN(Date.parse(manifest.published)) && (
-              <span className="text-logic-text-muted">
-                · publicado em {new Date(manifest.published).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-              </span>
-            )}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[640px] h-[640px] rounded-full bg-logic-lcd-green/10 blur-3xl" />
+      </div>
+      <div className="relative w-full max-w-xl animate-[fadeIn_250ms_ease-out]">
+        <div className="flex items-center justify-between gap-2 mb-6">
+          <div className="flex items-center gap-2.5">
+            <VsLogo size={34} />
+            <div className="text-xs text-logic-text-dim">
+              <div className="font-semibold text-logic-text tracking-wide">VS STAGE</div>
+              <div className="flex items-center gap-1"><Laptop size={11} className="text-logic-lcd-green" /> para Mac</div>
+            </div>
           </div>
           <button
             onClick={() => supabase.auth.signOut()}
@@ -94,10 +105,27 @@ function MacDownloadPageContent({ session }: { session: Session }) {
             <LogOut size={12} />
           </button>
         </div>
+
+        <div className="flex items-center gap-2 mb-3">
+          {manifest && <span className="text-2xs font-bold uppercase tracking-wider text-logic-lcd-amber bg-logic-lcd-amber/10 rounded px-2 py-0.5">versão {manifest.version}</span>}
+          {manifest?.published && !Number.isNaN(Date.parse(manifest.published)) && (
+            <span className="text-2xs text-logic-text-muted">
+              publicado em {new Date(manifest.published).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+            </span>
+          )}
+        </div>
         <h1 className="text-3xl font-semibold leading-tight">Baixar o instalador</h1>
         <p className="text-sm text-logic-text-dim mt-2 leading-relaxed">
-          Escolha o tipo do seu Mac. Para saber, clique no menu Apple e em <span className="text-logic-text">Sobre Este Mac</span>: aparece "Chip Apple M..." ou "Processador Intel". Funciona no macOS 11 (Big Sur) ou mais novo.
+          Escolha o tipo do seu Mac. Para saber, clique no menu Apple e em <span className="text-logic-text">Sobre Este Mac</span>: aparece "Chip Apple M..." ou "Processador Intel".
         </p>
+
+        <ul className="flex flex-wrap gap-x-5 gap-y-1.5 mt-4">
+          {TRUST_BADGES.map(({ icon: Icon, text }) => (
+            <li key={text} className="flex items-center gap-1.5 text-2xs text-logic-text-dim">
+              <Icon size={13} className="text-logic-lcd-green shrink-0" /> {text}
+            </li>
+          ))}
+        </ul>
 
         <div className="mt-8 space-y-3">
           {!manifest && !loadError && (
@@ -152,6 +180,13 @@ function MacDownloadPageContent({ session }: { session: Session }) {
         </div>
 
         <div className="mt-10">
+          <div className="grid grid-cols-2 gap-2.5 mb-6">
+            {FEATURE_HIGHLIGHTS.map(({ icon: Icon, text }) => (
+              <div key={text} className="flex items-start gap-2 p-3 rounded-xl border border-logic-border bg-logic-bg-panel/60 text-xs text-logic-text-dim leading-snug">
+                <Icon size={15} className="text-logic-lcd-green shrink-0 mt-0.5" /> {text}
+              </div>
+            ))}
+          </div>
           <div className="mt-8 p-4 rounded-xl border border-logic-lcd-green/30 bg-logic-lcd-green/5 text-xs text-logic-text-dim leading-relaxed flex gap-3">
           <MonitorPlay size={16} className="text-logic-lcd-green shrink-0 mt-0.5" />
           Depois de instalar, crie sua conta na tela de boas-vindas e comece seu <span className="font-semibold text-logic-text">teste grátis</span> na hora. <span className="font-semibold text-logic-text">Sem cartão.</span>

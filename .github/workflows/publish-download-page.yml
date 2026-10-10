@@ -1,0 +1,36 @@
+name: Publicar página da VPS de downloads
+
+# Sobe só a página estática (index.html) que aparece quando alguém acessa
+# download.vsstagepro.com.br direto, sem gerar um novo instalador .dmg e sem
+# tocar no manifest.json (não afeta a obrigatoriedade de atualização já publicada).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/download-server-index.html'
+      - '.github/workflows/publish-download-page.yml'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publicar na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::error::Cadastre VPS_HOST, VPS_USER e VPS_SSH_KEY em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          REMOTE_BASE="/var/www/download.vsstagepro.com.br"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_deploy_key
+          chmod 600 ~/.ssh/vps_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          scp -i ~/.ssh/vps_deploy_key desktop/download-server-index.html "$VPS_USER@$VPS_HOST:$REMOTE_BASE/index.html"
+          echo "Página publicada em $REMOTE_BASE/index.html"

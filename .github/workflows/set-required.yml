@@ -1,10 +1,8 @@
 name: Marcar versão como obrigatória/opcional
 
-# Ferramenta de emergência: ajusta o campo "required" do manifest.json já publicado
-# na VPS sem precisar gerar um novo build. Útil porque o botão "Tornar obrigatória"
-# do painel admin grava no Supabase Storage, mas o app desktop e o site de download
-# lêem do manifest da VPS (download.vsstagepro.com.br) — os dois não estão plugados
-# ainda (ver TODO em supabase/functions/admin-releases/index.ts).
+# Ferramenta de emergência: ajusta o campo "required" do manifest.json já publicado,
+# sem precisar gerar um novo build. Atualiza os dois destinos (VPS e bucket Supabase
+# app-downloads) para nunca ficarem fora de sincronia entre si.
 on:
   workflow_dispatch:
     inputs:
@@ -34,3 +32,23 @@ jobs:
           PYBOOL="False"; [ "$REQUIRED" = "true" ] && PYBOOL="True"
           CMD="python3 -c \"import json; p='$REMOTE_BASE/mac/manifest.json'; m=json.load(open(p)); m['required']=$PYBOOL; json.dump(m, open(p,'w')); print('required agora:', m['required'], '-', m['version'], 'build', m['build'])\""
           ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "$CMD"
+          scp -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST:$REMOTE_BASE/mac/manifest.json" manifest.json
+
+      # Mesmo manifest (já com o "required" atualizado) espelhado no bucket Supabase
+      # app-downloads, para os dois destinos nunca ficarem fora de sincronia.
+      - name: Atualizar manifest no Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::Cadastre SUPABASE_SERVICE_ROLE_KEY para também espelhar no bucket app-downloads."
+            exit 0
+          fi
+          curl --fail --silent --show-error -X POST \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -H "x-upsert: true" \
+            --data-binary "@manifest.json" \
+            "$SUPABASE_URL/storage/v1/object/app-downloads/mac/manifest.json" > /dev/null

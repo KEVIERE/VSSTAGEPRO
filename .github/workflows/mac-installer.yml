@@ -55,9 +55,38 @@ jobs:
           path: desktop/dist/*.dmg
           retention-days: 30
 
-      # Publica os instaladores na VPS em partes de 45 MB.
+      # Testa cada .dmg antes de publicar em qualquer destino: assinatura ad-hoc válida,
+      # monta de verdade (hdiutil) e a reconstrução das partes de 45 MB bate com o original
+      # (garante que o split feito abaixo para a VPS/Supabase não corrompe o instalador).
+      - name: Testar os .dmg antes de publicar
+        working-directory: desktop/dist
+        run: |
+          set -e
+          for ARCH in arm64 x64; do
+            DMG=$(ls *-${ARCH}.dmg | head -n 1)
+            [ -f "$DMG" ] || { echo "::error::Instalador $ARCH não encontrado"; exit 1; }
+
+            MNT=$(mktemp -d)
+            hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT"
+            codesign --verify --deep --strict "$MNT/VS Stage.app"
+            hdiutil detach "$MNT" -quiet
+
+            SHA_ORIG=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+            WORK=$(mktemp -d)
+            split -b 47185920 -a 2 "$DMG" "$WORK/part"
+            cat "$WORK"/part* > "$WORK/reassembled.dmg"
+            SHA_NEW=$(shasum -a 256 "$WORK/reassembled.dmg" | cut -d' ' -f1)
+            rm -rf "$WORK"
+            if [ "$SHA_ORIG" != "$SHA_NEW" ]; then
+              echo "::error::$ARCH: SHA-256 da reconstrução não bate com o original"; exit 1
+            fi
+            echo "$ARCH ok: assinatura válida e reconstrução das partes confere"
+          done
+
+      # Publica os instaladores em partes de 45 MB na VPS e, em espelho, no bucket Supabase
+      # app-downloads (destino aprovado para manter os dois lugares sempre sincronizados).
       # Configure os secrets VPS_HOST, VPS_USER e VPS_SSH_KEY no GitHub Actions.
-      - name: Publicar na VPS
+      - name: Publicar na VPS e no Supabase
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -81,6 +110,22 @@ jobs:
           upload() {
             scp -i ~/.ssh/vps_deploy_key "$1" "$VPS_USER@$VPS_HOST:$REMOTE_BASE/$2"
           }
+          # Todo publicador novo também vai para o bucket Supabase app-downloads (usado pela
+          # aba "Versões" do backoffice Admin), para os dois destinos nunca ficarem fora de sincronia.
+          supa_upload() {
+            local FILE="$1" REMOTE_PATH="$2" CONTENT_TYPE="$3"
+            [ -z "$SUPABASE_SERVICE_ROLE_KEY" ] && return 0
+            curl --fail --silent --show-error -X POST \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: $CONTENT_TYPE" \
+              -H "x-upsert: true" \
+              --data-binary "@$FILE" \
+              "$SUPABASE_URL/storage/v1/object/app-downloads/$REMOTE_PATH" > /dev/null
+          }
+          # Tela de apresentação da própria VPS (quem acessa o domínio direto, sem passar
+          # pela página oficial de download, não deve ver mais a página cinza genérica).
+          upload desktop/download-server-index.html index.html
           BUILDS=""
           for ARCH in arm64 x64; do
             DMG=$(ls desktop/dist/*-${ARCH}.dmg | head -n 1)
@@ -93,6 +138,7 @@ jobs:
             for P in $(ls "$WORK" | sort); do
               NAME="$FOLDER/$ARCH/$P.bin"
               upload "$WORK/$P" "$NAME"
+              supa_upload "$WORK/$P" "$NAME" "application/octet-stream"
               PARTS="$PARTS\"$NAME\","
             done
             rm -rf "$WORK"
@@ -103,6 +149,9 @@ jobs:
           printf '{"version":"%s","build":%s,"published":"%s","required":false,"builds":[%s]}' "$VERSION" "$BUILD_NUMBER" "$PUBLISHED" "${BUILDS%,}" > manifest.json
           # O manifest é enviado por último: a página só passa a oferecer a versão nova quando todas as partes já subiram.
           upload manifest.json mac/manifest.json
+          # Mesmo manifest, mesmas partes, mesmo sha256: o bucket Supabase app-downloads fica
+          # sempre espelhando a VPS (destino aprovado para publicação dos instaladores).
+          supa_upload manifest.json mac/manifest.json "application/json"
           # Histórico/rollback continuam registrados no Supabase oficial (aba "Versões" do backoffice).
           if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
             curl --fail --silent --show-error -X POST \
