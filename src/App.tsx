@@ -46,7 +46,9 @@ import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 
 function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' {
   const { pathname, hash, search } = window.location;
-  const seg = pathname.replace(/^\/+|\/+$/g, '').toLowerCase();
+  // No build de staging (servido em /staging/, mesmo domínio), o próprio prefixo
+  // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
+  const seg = pathname.replace(/^\/+|\/+$/g, '').toLowerCase().replace(/^staging\/?/, '');
   if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
   if (seg === 'baixar') return 'download';
   if (seg === 'tela') return 'screen';

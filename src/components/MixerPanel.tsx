@@ -240,7 +240,7 @@ export default function MixerPanel() {
           <div className="flex flex-col items-center w-[72px] min-w-[72px] bg-logic-bg-deep border-l-2 border-logic-border-light py-1.5 px-1 gap-1">
           <span className="text-2xs text-logic-lcd-amber font-bold truncate w-full text-center px-1 py-0.5 border border-transparent">MASTER</span>
 
-          {/* Botão mágico: roteia Click/Maestro → L (1) e Banda → R (2) */}
+          {/* Botão mágico: roteia Guia/Click/Maestro → L (1) e Banda → R (2) */}
           <button
             className={`flex items-center justify-center w-7 h-7 rounded-full border transition-colors duration-75 ${
               magicRoutingActive
@@ -248,7 +248,7 @@ export default function MixerPanel() {
                 : 'bg-logic-bg-panel text-logic-text-muted hover:text-logic-text border-logic-border-light'
             }`}
             onClick={() => toggleMagicRouting()}
-            title="Roteamento mágico: Click/Maestro → L e Banda → R. O timecode não é alterado. Clique novamente para restaurar."
+            title="Roteamento mágico: Guia/Click/Maestro → L e Banda → R. O timecode não é alterado. Clique novamente para restaurar."
           >
             <Wand2 size={14} />
           </button>

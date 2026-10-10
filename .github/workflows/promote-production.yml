@@ -1,0 +1,21 @@
+name: Upgrade de produção
+
+# Orquestrador: um clique (no botão "Upgrade de produção" da aba "Teste interno" do
+# admin, ou manualmente aqui) publica a versão atual da branch main para todo mundo:
+#  1. Site (vsstagepro.com.br) — mesmo processo de deploy-site.yml.
+#  2. App de Mac — gera novo .dmg (arm64 + x64), testa (assinatura/montagem/reconstrução
+#     das partes) e publica em VPS + Supabase, igual ao mac-installer.yml.
+# Cada app já aberto recebe o aviso de atualização quase na hora (Supabase Realtime);
+# quem está fechado recebe na próxima vez que abrir com internet.
+on:
+  workflow_dispatch:
+
+jobs:
+  site:
+    uses: ./.github/workflows/deploy-site.yml
+    secrets: inherit
+
+  mac:
+    needs: site
+    uses: ./.github/workflows/mac-installer.yml
+    secrets: inherit

@@ -1,13 +1,22 @@
-name: Publicar site (VPS)
+name: Publicar staging (teste interno)
 
-# Produção: só publica quando alguém pede explicitamente — manualmente aqui, pelo botão
-# "Upgrade de produção" do admin (aba Teste interno, que dispara promote-production.yml),
-# ou como parte desse workflow (workflow_call). Deixou de disparar sozinho a cada push:
-# isso agora é só o staging (ver deploy-staging.yml), pra dar espaço de teste antes de
-# publicar pra todo mundo.
+# Build de teste: toda vez que algo muda em main, sobe automaticamente em
+# /staging/ no mesmo domínio da VPS (sem afetar o site de produção, que mora
+# na raiz). É o ambiente que a aba "Teste interno" do admin abre no iframe.
 on:
   workflow_dispatch:
-  workflow_call:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
+      - 'tailwind.config.js'
+      - 'postcss.config.js'
+      - '.github/workflows/deploy-staging.yml'
 
 jobs:
   deploy:
@@ -31,9 +40,12 @@ jobs:
           printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
 
       - run: npm ci
-      - run: npm run build
+      - name: Build (base /staging/)
+        env:
+          VITE_BASE_PATH: /staging/
+        run: npm run build
 
-      - name: Publicar dist/ na VPS
+      - name: Publicar dist/ em /staging na VPS
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
@@ -43,10 +55,11 @@ jobs:
             echo "::error::Cadastre VPS_HOST, VPS_USER e VPS_SSH_KEY em Settings > Secrets and variables > Actions."
             exit 1
           fi
-          REMOTE_PATH="/var/www/vsstagepro.com.br"
+          REMOTE_PATH="/var/www/vsstagepro.com.br/staging"
           mkdir -p ~/.ssh
           printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_deploy_key
           chmod 600 ~/.ssh/vps_deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p '$REMOTE_PATH'"
           rsync -az --delete -e "ssh -i ~/.ssh/vps_deploy_key" dist/ "$VPS_USER@$VPS_HOST:$REMOTE_PATH/"
-          echo "Site publicado em $REMOTE_PATH"
+          echo "Staging publicado em $REMOTE_PATH (https://vsstagepro.com.br/staging/)"

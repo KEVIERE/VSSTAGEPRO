@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ChevronDown, Copy, Plus, RefreshCw, Shuffle, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, Loader2, Plus, RefreshCw, Shuffle, Tag, Trash2 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime, num, PROMO_KIND_LABEL, promoValueText } from '@/components/admin/adminApi';
 import type { PromoCode } from '@/components/admin/adminApi';
@@ -41,14 +41,30 @@ export default function PromoTab() {
     setFormMsg(null);
     try {
       const v = parseInt(value, 10);
-      if (!(v > 0)) throw new Error('invalid_value');
+      if (!(v > 0) || (kind === 'discount' && v > 100)) throw new Error('invalid_value');
+      const codeUpper = code.trim().toUpperCase();
+      const maxUsesN = maxUses ? parseInt(maxUses, 10) : null;
+      const expiresAtIso = expires ? new Date(`${expires}T23:59:59`).toISOString() : null;
+
+      let stripeCouponId: string | null = null;
+      let stripePromotionCodeId: string | null = null;
+      if (kind === 'discount') {
+        // O desconto só funciona de verdade se existir no Stripe: cria lá primeiro e só
+        // grava localmente se der certo, pra nunca ter um código "fantasma" no backoffice.
+        const stripeRes = await adminApi.createStripeCoupon(codeUpper, v, maxUsesN, expiresAtIso);
+        stripeCouponId = stripeRes.stripeCouponId;
+        stripePromotionCodeId = stripeRes.stripePromotionCodeId;
+      }
+
       await adminApi.promoCreate({
-        code: code.trim().toUpperCase(), kind, value: v,
-        maxUses: maxUses ? parseInt(maxUses, 10) : null,
-        expiresAt: expires ? new Date(`${expires}T23:59:59`).toISOString() : null,
+        code: codeUpper, kind, value: v,
+        maxUses: maxUsesN,
+        expiresAt: expiresAtIso,
         note,
+        discountPercent: kind === 'discount' ? v : null,
+        stripeCouponId, stripePromotionCodeId,
       });
-      setFormMsg({ ok: true, text: `Código ${code.toUpperCase()} criado.` });
+      setFormMsg({ ok: true, text: `Código ${codeUpper} criado.` });
       setCode(randomCode());
       setNote('');
       await load();
@@ -63,6 +79,14 @@ export default function PromoTab() {
     try { await fn(); await load(); } catch (e) { setError(friendlyError((e as Error).message)); }
   };
 
+  // Desativar/apagar um cupom de desconto também precisa desativar o promotion code no
+  // Stripe — senão o código continua funcionando no checkout mesmo "desligado" aqui.
+  const deactivateStripeIfNeeded = async (p: PromoCode) => {
+    if (p.kind === 'discount' && p.stripe_promotion_code_id) {
+      await adminApi.deactivateStripeCoupon(p.stripe_promotion_code_id);
+    }
+  };
+
   const copy = (c: string) => {
     navigator.clipboard?.writeText(c).then(() => { setCopied(c); window.setTimeout(() => setCopied(null), 1500); }, () => {});
   };
@@ -71,7 +95,9 @@ export default function PromoTab() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Códigos promocionais</h2>
-        <p className="text-xs text-logic-text-dim">Crie bônus para quem você quiser. A pessoa digita o código na tela de entrada do programa.</p>
+        <p className="text-xs text-logic-text-dim">
+          Crie bônus de teste/acesso (digitados na tela de entrada) ou cupons de desconto % (usados na tela de assinatura, com desconto real no Stripe).
+        </p>
       </div>
 
       <Panel title="Novo código">
@@ -84,15 +110,25 @@ export default function PromoTab() {
             </div>
           </label>
           <label className="space-y-1">
-            <span className="text-2xs text-logic-text-muted">Tipo de bônus</span>
-            <select className={input} value={kind} onChange={(e) => { const k = e.target.value as PromoCode['kind']; setKind(k); setValue(k === 'trial_hours' ? '120' : '30'); }}>
+            <span className="text-2xs text-logic-text-muted">Tipo de código</span>
+            <select
+              className={input} value={kind}
+              onChange={(e) => {
+                const k = e.target.value as PromoCode['kind'];
+                setKind(k);
+                setValue(k === 'trial_hours' ? '120' : k === 'discount' ? '10' : '30');
+              }}
+            >
               <option value="trial_hours">{PROMO_KIND_LABEL.trial_hours}</option>
               <option value="free_days">{PROMO_KIND_LABEL.free_days}</option>
+              <option value="discount">{PROMO_KIND_LABEL.discount}</option>
             </select>
           </label>
           <label className="space-y-1">
-            <span className="text-2xs text-logic-text-muted">{kind === 'trial_hours' ? 'Horas extras de teste' : 'Dias de acesso'}</span>
-            <input className={input} type="number" min={1} value={value} onChange={(e) => setValue(e.target.value)} required />
+            <span className="text-2xs text-logic-text-muted">
+              {kind === 'trial_hours' ? 'Horas extras de teste' : kind === 'free_days' ? 'Dias de acesso' : 'Percentual de desconto'}
+            </span>
+            <input className={input} type="number" min={1} max={kind === 'discount' ? 100 : undefined} value={value} onChange={(e) => setValue(e.target.value)} required />
             <span className="text-2xs text-logic-text-dim">{parseInt(value, 10) > 0 ? promoValueText(kind, parseInt(value, 10)) : ' '}</span>
           </label>
           <label className="space-y-1">
@@ -107,8 +143,15 @@ export default function PromoTab() {
             <span className="text-2xs text-logic-text-muted">Anotação interna</span>
             <input className={input} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: parceria banda X" maxLength={200} />
           </label>
+          {kind === 'discount' && (
+            <p className="sm:col-span-2 lg:col-span-3 text-2xs text-logic-text-dim -mt-1">
+              Cupons de desconto valem só na tela de assinatura (checkout do Stripe) — diferente dos bônus de teste/acesso, que valem na tela de entrada do programa.
+            </p>
+          )}
           <div className="sm:col-span-2 lg:col-span-3 flex items-center gap-3">
-            <button className={btnPrimary} disabled={saving}><Plus size={13} /> Criar código</button>
+            <button className={btnPrimary} disabled={saving}>
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Criar código
+            </button>
             {formMsg && <span className={`text-xs ${formMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>{formMsg.text}</span>}
           </div>
         </form>
@@ -136,20 +179,34 @@ export default function PromoTab() {
                     <span className={`px-1.5 h-5 rounded text-2xs font-bold inline-flex items-center ${live ? 'bg-logic-lcd-green/15 text-logic-lcd-green' : 'bg-logic-bg-elevated text-logic-text-muted'}`}>
                       {!p.active ? 'DESATIVADO' : expired ? 'EXPIRADO' : usedUp ? 'ESGOTADO' : 'ATIVO'}
                     </span>
+                    {p.kind === 'discount' && <Tag size={12} className="text-logic-lcd-amber" aria-label="Cupom de desconto" />}
                     <span className="text-logic-text">{promoValueText(p.kind, p.value)}</span>
                     <span className="text-logic-text-dim tabular-nums">{num(p.uses)}{p.max_uses ? ` / ${num(p.max_uses)}` : ''} usos</span>
                     {p.expires_at && <span className="text-logic-text-dim">até {dateTime(p.expires_at)}</span>}
                     {p.note && <span className="text-logic-text-muted italic truncate max-w-[220px]">{p.note}</span>}
                     <span className="ml-auto flex items-center gap-1.5">
-                      <button type="button" className={btnGhost} onClick={() => setOpen(open === p.code ? null : p.code)}>
-                        Quem usou <ChevronDown size={12} className={open === p.code ? 'rotate-180 transition' : 'transition'} />
-                      </button>
-                      <button type="button" className={btnGhost} onClick={() => act(() => adminApi.promoSetActive(p.code, !p.active))}>
+                      {p.kind !== 'discount' && (
+                        <button type="button" className={btnGhost} onClick={() => setOpen(open === p.code ? null : p.code)}>
+                          Quem usou <ChevronDown size={12} className={open === p.code ? 'rotate-180 transition' : 'transition'} />
+                        </button>
+                      )}
+                      <button
+                        type="button" className={btnGhost}
+                        onClick={() => act(async () => {
+                          if (p.active) await deactivateStripeIfNeeded(p);
+                          await adminApi.promoSetActive(p.code, !p.active);
+                        })}
+                      >
                         {p.active ? 'Desativar' : 'Ativar'}
                       </button>
                       <button
                         type="button" className={btnDanger} aria-label={`Apagar ${p.code}`}
-                        onClick={() => { if (window.confirm(`Apagar o código ${p.code}? Os bônus já resgatados continuam valendo.`)) act(() => adminApi.promoDelete(p.code)); }}
+                        onClick={() => {
+                          const msg = p.kind === 'discount'
+                            ? `Apagar o cupom ${p.code}? Ele deixa de funcionar no checkout imediatamente.`
+                            : `Apagar o código ${p.code}? Os bônus já resgatados continuam valendo.`;
+                          if (window.confirm(msg)) act(async () => { await deactivateStripeIfNeeded(p); await adminApi.promoDelete(p.code); });
+                        }}
                       >
                         <Trash2 size={13} />
                       </button>

@@ -383,7 +383,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
     });
 
     let actualTrackId: string;
-    if (trackId === 'track-click' || trackId === 'track-maestro') {
+    if (trackId === 'track-guia' || trackId === 'track-click' || trackId === 'track-maestro') {
       actualTrackId = trackId;
     } else if (existingChild) {
       actualTrackId = existingChild.id;

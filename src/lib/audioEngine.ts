@@ -26,7 +26,7 @@ export function volumeToDb(volume: number): number {
   return 20 * Math.log10(faderToGain(volume));
 }
 
-const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-click', 'track-maestro']);
+const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-guia', 'track-click', 'track-maestro']);
 
 export function isMelodicTrack(track: Track, all: Track[]): boolean {
   let t: Track | undefined = track;
@@ -106,7 +106,7 @@ interface PreparedBundle {
 function effectivePan(trackId: string, trackPan: number, lrActive: boolean): number {
   if (isTimecodeTrackId(trackId)) return 0;
   if (!lrActive) return trackPan;
-  if (trackId === 'track-click' || trackId === 'track-maestro') return -1;
+  if (trackId === 'track-guia' || trackId === 'track-click' || trackId === 'track-maestro') return -1;
   return 1;
 }
 

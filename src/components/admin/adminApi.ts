@@ -20,7 +20,11 @@ export type Overview = {
   active_users_period: number;
   days: number;
   series: Array<{ day: string; signups: number; subs: number; active_users: number }>;
-  recent_sales: Array<{ created_at: string; kind: 'subscribed' | 'canceled'; plan: string | null; email: string; name: string | null }>;
+  // Checkout aberto no Stripe: demonstrou interesse, pode não ter concluído o pagamento.
+  recent_intentions: Array<{ created_at: string; plan: 'monthly' | 'yearly'; coupon_code: string | null; email: string; name: string | null }>;
+  // Só pagamento de fato confirmado pelo Stripe (webhook checkout.session.completed, payment_status=paid).
+  recent_sales: Array<{ created_at: string; plan: 'monthly' | 'yearly'; amount_cents: number; email: string; name: string | null }>;
+  recent_cancellations: Array<{ created_at: string; plan: string | null; email: string; name: string | null }>;
 };
 
 export type AdminUser = {
@@ -48,8 +52,11 @@ export type AdminUser = {
 
 export type PromoCode = {
   code: string;
-  kind: 'trial_hours' | 'free_days';
+  kind: 'trial_hours' | 'free_days' | 'discount';
   value: number;
+  discount_percent?: number | null;
+  stripe_coupon_id?: string | null;
+  stripe_promotion_code_id?: string | null;
   max_uses: number | null;
   uses: number;
   expires_at: string | null;
@@ -96,11 +103,26 @@ export const adminApi = {
     call<void>('admin_set_subscription', { p_user: user, p_subscription: subscription, p_plan: plan }),
   block: (user: string, blocked: boolean, reason?: string) =>
     call<void>('admin_block', { p_user: user, p_blocked: blocked, p_reason: reason ?? null }),
+  deleteUser: (user: string) => call<void>('admin_delete_user', { p_user: user }),
   promoList: () => call<PromoCode[]>('admin_promo_list'),
-  promoCreate: (p: { code: string; kind: PromoCode['kind']; value: number; maxUses: number | null; expiresAt: string | null; note: string }) =>
+  promoCreate: (p: {
+    code: string; kind: PromoCode['kind']; value: number; maxUses: number | null; expiresAt: string | null; note: string;
+    discountPercent?: number | null; stripeCouponId?: string | null; stripePromotionCodeId?: string | null;
+  }) =>
     call<void>('admin_promo_create', {
       p_code: p.code, p_kind: p.kind, p_value: p.value, p_max_uses: p.maxUses, p_expires_at: p.expiresAt, p_note: p.note,
+      p_discount_percent: p.discountPercent ?? null, p_stripe_coupon_id: p.stripeCouponId ?? null, p_stripe_promotion_code_id: p.stripePromotionCodeId ?? null,
     }),
+  // Cria o cupom % no Stripe (coupon + promotion code com o mesmo texto que o cliente digita)
+  // e devolve os IDs para gravar junto do registro local em promo_codes.
+  createStripeCoupon: (code: string, percent: number, maxUses: number | null, expiresAt: string | null) =>
+    callCouponsFn<{ ok: true; stripeCouponId: string; stripePromotionCodeId: string }>({
+      action: 'create', code, percent, maxUses, expiresAt,
+    }),
+  deactivateStripeCoupon: (stripePromotionCodeId: string) =>
+    callCouponsFn({ action: 'deactivate', stripePromotionCodeId }),
+  // Dispara o workflow "Upgrade de produção" no GitHub Actions (site + app Mac).
+  promoteToProduction: () => callEdgeFn<{ ok: true }>('admin-promote', {}),
   promoSetActive: (code: string, active: boolean) => call<void>('admin_promo_set_active', { p_code: code, p_active: active }),
   promoDelete: (code: string) => call<void>('admin_promo_delete', { p_code: code }),
   featureUsage: (days: number) => call<FeatureUse[]>('admin_feature_usage', { p_days: days }),
@@ -118,10 +140,18 @@ export const adminApi = {
 };
 
 async function callReleasesFn<T = { ok: true }>(payload: Record<string, unknown>): Promise<T> {
+  return callEdgeFn('admin-releases', payload);
+}
+
+async function callCouponsFn<T = { ok: true }>(payload: Record<string, unknown>): Promise<T> {
+  return callEdgeFn('admin-coupons', payload);
+}
+
+async function callEdgeFn<T>(fnName: string, payload: Record<string, unknown>): Promise<T> {
   const { data: session } = await supabase.auth.getSession();
   const token = session.session?.access_token;
   if (!token) throw new Error('not_authenticated');
-  const url = `${(import.meta.env.VITE_SUPABASE_URL as string)}/functions/v1/admin-releases`;
+  const url = `${(import.meta.env.VITE_SUPABASE_URL as string)}/functions/v1/${fnName}`;
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -190,9 +220,11 @@ export const FEATURE_LABELS: Record<string, string> = {
 export const PROMO_KIND_LABEL: Record<PromoCode['kind'], string> = {
   trial_hours: 'Horas extras de teste',
   free_days: 'Dias de acesso completo',
+  discount: 'Desconto na assinatura (%)',
 };
 
 export function promoValueText(kind: PromoCode['kind'], value: number) {
+  if (kind === 'discount') return `${value}% de desconto`;
   if (kind === 'free_days') return `${value} ${value === 1 ? 'dia' : 'dias'} grátis`;
   return value % 24 === 0 ? `+${value / 24} ${value === 24 ? 'dia' : 'dias'} de teste` : `+${value}h de teste`;
 }

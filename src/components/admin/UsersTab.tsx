@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Ban, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Unlock, X } from 'lucide-react';
+import { Ban, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime, num, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
 import type { AdminUser, UserState } from '@/components/admin/adminApi';
@@ -25,6 +25,75 @@ function accessUntil(u: AdminUser) {
   if (u.state === 'trial') return `teste até ${dateTime(u.trial_ends_at)}`;
   if (u.state === 'expired') return `acabou ${relative(u.trial_ends_at)}`;
   return u.blocked_reason ? `motivo: ${u.blocked_reason}` : 'suspensa';
+}
+
+/** Quanto tempo falta (ou já passou) até uma data, em dias+horas — o dado que o admin
+ * precisa pra decidir, na hora, se estende o teste e quanto, sem fazer conta de cabeça. */
+function timeLeftParts(iso: string | null | undefined): { expired: boolean; days: number; hours: number } | null {
+  if (!iso) return null;
+  const diff = new Date(iso).getTime() - Date.now();
+  const abs = Math.abs(diff);
+  const days = Math.floor(abs / 86400e3);
+  const hours = Math.floor((abs % 86400e3) / 3600e3);
+  return { expired: diff < 0, days, hours };
+}
+
+function timeLeftText(iso: string | null | undefined): string {
+  const t = timeLeftParts(iso);
+  if (!t) return '—';
+  const span = t.days > 0 ? `${t.days} ${t.days === 1 ? 'dia' : 'dias'}${t.hours > 0 ? ` e ${t.hours}h` : ''}` : `${t.hours}h`;
+  return t.expired ? `encerrado há ${span}` : `faltam ${span}`;
+}
+
+/** Barra de 0 a 100% do prazo de teste já consumido, pra ver de cara quanto já passou. */
+function trialPercentUsed(u: AdminUser): number | null {
+  if (!u.trial_started_at || !u.trial_hours) return null;
+  const startedAt = new Date(u.trial_started_at).getTime();
+  const totalMs = u.trial_hours * 3600e3;
+  if (totalMs <= 0) return null;
+  const elapsed = Date.now() - startedAt;
+  return Math.min(100, Math.max(0, (elapsed / totalMs) * 100));
+}
+
+/** Trial grátis em teste: mostra o prazo que importa pro admin decidir dar mais ou tirar,
+ * com uma barra de 0 a 100% do tempo de teste já consumido. */
+function TrialCountdown({ user }: { user: AdminUser }) {
+  if (user.state !== 'trial' && user.state !== 'expired') return null;
+  const t = timeLeftParts(user.trial_ends_at);
+  if (!t) return null;
+  const pct = trialPercentUsed(user);
+  const cls = t.expired ? 'bg-logic-lcd-red/15 text-logic-lcd-red border-logic-lcd-red/30' : 'bg-logic-lcd-green/15 text-logic-lcd-green border-logic-lcd-green/30';
+  const barCls = t.expired ? 'bg-logic-lcd-red' : pct !== null && pct > 80 ? 'bg-logic-lcd-amber' : 'bg-logic-lcd-green';
+  return (
+    <div className={`mt-3 px-3 py-2 rounded-lg border text-xs font-semibold ${cls}`}>
+      <div className="flex items-center gap-2">
+        <Clock size={13} />
+        Teste grátis: {timeLeftText(user.trial_ends_at)}
+      </div>
+      {pct !== null && (
+        <>
+          <div className="mt-2 h-1.5 rounded-full bg-black/20 overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${barCls}`} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="mt-1 text-2xs font-normal opacity-80">{Math.round(pct)}% do prazo já consumido</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Bônus de acesso completo: mesma lógica, pra quem já recebeu dias de cortesia. */
+function CompCountdown({ user }: { user: AdminUser }) {
+  if (!user.comp_until) return null;
+  const t = timeLeftParts(user.comp_until);
+  if (!t) return null;
+  const cls = t.expired ? 'bg-logic-text-muted/15 text-logic-text-muted border-logic-border' : 'bg-logic-lcd-yellow/15 text-logic-lcd-yellow border-logic-lcd-yellow/30';
+  return (
+    <div className={`mt-2 px-3 py-2 rounded-lg border text-xs font-semibold flex items-center gap-2 ${cls}`}>
+      <Gift size={13} />
+      Bônus: {timeLeftText(user.comp_until)}
+    </div>
+  );
 }
 
 export default function UsersTab() {
@@ -193,6 +262,8 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
               <StateBadge state={user.state} />
             </div>
             <p className="text-xs text-logic-text-dim">{user.email}</p>
+            <TrialCountdown user={user} />
+            <CompCountdown user={user} />
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4 text-xs">
               <dt className="text-logic-text-muted">Cadastro</dt><dd>{dateTime(user.created_at)}</dd>
               <dt className="text-logic-text-muted">Último login</dt><dd>{dateTime(user.last_sign_in_at)}</dd>
@@ -219,13 +290,12 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
             </div>
           )}
 
-          <Section icon={Clock} title="Prazo do teste grátis" hint="Soma a partir do fim atual do teste (ou de agora, se já acabou).">
+          <Section icon={Clock} title="Prazo do teste grátis" hint="Soma ou tira dias a partir do fim atual do teste (ou de agora, se já acabou).">
             <div className="flex flex-wrap gap-1.5">
-              {[24, 48, 24 * 7, 24 * 30].map((h) => (
-                <button key={h} className={btnGhost} disabled={!!busy} onClick={() => extend(h)}>
-                  +{h % 24 === 0 ? `${h / 24} ${h === 24 ? 'dia' : 'dias'}` : `${h}h`}
-                </button>
-              ))}
+              <button className={btnGhost} disabled={!!busy} onClick={() => extend(-24)}>−1 dia</button>
+              <button className={btnGhost} disabled={!!busy} onClick={() => extend(24)}>+1 dia</button>
+              <button className={btnGhost} disabled={!!busy} onClick={() => extend(24 * 3)}>+3 dias</button>
+              <button className={btnGhost} disabled={!!busy} onClick={() => extend(24 * 30)}>+30 dias</button>
             </div>
             <form className="flex gap-1.5 mt-2" onSubmit={(e) => { e.preventDefault(); const h = parseInt(hours, 10); if (h) extend(h); setHours(''); }}>
               <input className={input} type="number" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Horas (use negativo para reduzir)" />
@@ -292,6 +362,22 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
               </form>
             )}
           </Section>
+
+          {!user.is_admin && (
+            <Section icon={Trash2} title="Excluir conta" danger
+              hint="Remove a conta por completo (login, licença, histórico). Ela some da lista e a pessoa pode se cadastrar de novo com o mesmo e-mail. Não dá pra desfazer."
+            >
+              <button
+                className={`${btnDanger} w-full`} disabled={!!busy}
+                onClick={() => {
+                  if (window.prompt(`Pra confirmar, digite o e-mail da conta (${user.email}):`)?.trim().toLowerCase() !== user.email.toLowerCase()) return;
+                  run('del', async () => { await adminApi.deleteUser(user.id); onClose(); }, 'Conta excluída.');
+                }}
+              >
+                <Trash2 size={13} /> Excluir conta definitivamente
+              </button>
+            </Section>
+          )}
         </div>
       </aside>
     </div>

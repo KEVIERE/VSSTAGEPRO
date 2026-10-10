@@ -31,7 +31,7 @@ function channelGain(track: Track, all: Track[], respectMuteSolo: boolean): numb
 
 function effectivePan(track: Track, lrMasterActive: boolean): number {
   if (!lrMasterActive) return track.pan;
-  if (track.id === 'track-click' || track.id === 'track-maestro') return -1;
+  if (track.id === 'track-guia' || track.id === 'track-click' || track.id === 'track-maestro') return -1;
   return 1;
 }
 

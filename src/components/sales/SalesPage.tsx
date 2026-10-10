@@ -20,7 +20,7 @@ interface Shot { img: string; alt: string }
 interface HeroSlide { img: string; title: string; alt: string }
 
 const HERO_SLIDES: HeroSlide[] = [
-  { img: '/shots/vs_stage.jpg', title: 'VS STAGE', alt: 'Playlist e mixer do VS Stage em ação' },
+  { img: '/shots/vs_stage.jpg', title: 'VS STAGE', alt: 'Playlist e mixer do VS Stage Pro em ação' },
   { img: '/shots/modo_show.jpg', title: 'MODO SHOW', alt: 'Modo Show com playlist em tela cheia e contador do restante da música' },
   { img: '/shots/area_do_musico.jpg', title: 'ÁREA DO MÚSICO', alt: 'Área do músico no celular com cifras e letras do show' },
   { img: '/shots/teleprompt.jpg', title: 'TELEPROMPT', alt: 'Tela do produtor: teleprompter, avisos e letras na TV ligada ao palco' },
@@ -240,7 +240,7 @@ export default function SalesPage() {
             Uma playlist. Uma timeline por música. Todo o show na mão.
           </h1>
           <p className="sales-rise text-logic-text-dim text-lg max-w-2xl mx-auto mt-6" style={{ animationDelay: '200ms' }}>
-            O VS Stage junta editor de multitracks, mixer com Timecode LTC, Modo Show protegido, área do músico no celular e teleprompter na TV — com cada música na sua própria timeline, nunca misturada em uma única bagunça visual. Baixe, crie sua conta e teste grátis.
+            O VS Stage Pro junta editor de multitracks, mixer com Timecode LTC, Modo Show protegido, área do músico no celular e teleprompter na TV — com cada música na sua própria timeline, nunca misturada em uma única bagunça visual. Baixe, crie sua conta e teste grátis.
           </p>
           <div className="sales-rise flex flex-wrap items-center justify-center gap-4 mt-10" style={{ animationDelay: '300ms' }}>
             <a
@@ -338,7 +338,7 @@ export default function SalesPage() {
             reverse
             desc={
               <>
-                O mixer mostra todos os seus canais com faders que puxam o palco para o ouvido. O canal <span className="text-logic-text font-semibold">TIMECODE (LTC)</span> fica separado no início — sempre junto (lock) e mudo na saída principal, enviando o sinal de timecode direto para as luzes do show. Quando precisar, o VS Stage reserva um canal dedicado para isso, com volume travado e pronto para tocar sem susto.
+                O mixer mostra todos os seus canais com faders que puxam o palco para o ouvido. O canal <span className="text-logic-text font-semibold">TIMECODE (LTC)</span> fica separado no início — sempre junto (lock) e mudo na saída principal, enviando o sinal de timecode direto para as luzes do show. Quando precisar, o VS Stage Pro reserva um canal dedicado para isso, com volume travado e pronto para tocar sem susto.
               </>
             }
           />
@@ -347,7 +347,7 @@ export default function SalesPage() {
             title="O programa organiza seus multigrupos sozinho"
             desc={
               <>
-                Importou os áudios e o VS Stage faz o trabalho sujo: ele identifica cada som e cria os <span className="text-logic-text font-semibold">multigrupos automaticamente</span> — Sanfonas, Teclados, Bateria, Percussões, Guitarras — com cada faixa já dentro do grupo certo, roteada e pronta no mixer. Você não monta pastas nem arrasta canais: abriu o projeto, o show já estava organizado.
+                Importou os áudios e o VS Stage Pro faz o trabalho sujo: ele identifica cada som e cria os <span className="text-logic-text font-semibold">multigrupos automaticamente</span> — Sanfonas, Teclados, Bateria, Percussões, Guitarras — com cada faixa já dentro do grupo certo, roteada e pronta no mixer. Você não monta pastas nem arrasta canais: abriu o projeto, o show já estava organizado.
               </>
             }
           />
@@ -451,7 +451,7 @@ export default function SalesPage() {
           <details className="group">
             <summary className="cursor-pointer text-sm font-semibold hover:text-logic-text transition">Termos de uso</summary>
             <div className="mt-3 space-y-2 text-xs text-logic-text-dim leading-relaxed">
-              <p>Ao usar o VS Stage você concorda em utilizar o programa para fins de produção musical e shows. O teste grátis não exige cartão.</p>
+              <p>Ao usar o VS Stage Pro você concorda em utilizar o programa para fins de produção musical e shows. O teste grátis não exige cartão.</p>
               <p>Projetos, letras e gravações são de responsabilidade do usuário. Não é permitido revender o acesso ou usar o serviço para fins ilícitos.</p>
             </div>
           </details>
@@ -466,7 +466,7 @@ export default function SalesPage() {
         <div className="flex flex-wrap items-center justify-between gap-4 pt-8 border-t border-logic-border">
           <div className="flex items-center gap-2 text-logic-text-dim text-sm">
             <Clapperboard size={16} className="text-logic-lcd-green" />
-            <span className="font-semibold text-logic-text">VS Stage</span>
+            <span className="font-semibold text-logic-text">VS Stage Pro</span>
             <span>© 2026</span>
           </div>
           <div className="flex items-center gap-4">

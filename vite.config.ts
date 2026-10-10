@@ -8,6 +8,9 @@ const appVersion: string = JSON.parse(readFileSync(new URL('./desktop/package.js
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // Build de staging publica em /staging/ (mesmo domínio, sem subdomínio novo): o
+  // workflow deploy-staging.yml passa VITE_BASE_PATH=/staging/ só nesse build.
+  base: process.env.VITE_BASE_PATH || '/',
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
   },

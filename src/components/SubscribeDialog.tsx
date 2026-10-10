@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Check, CreditCard, ExternalLink, Loader2, X } from 'lucide-react';
+import { Check, CreditCard, ExternalLink, Loader2, Tag, X } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 import VsLogo from '@/components/VsLogo';
@@ -19,8 +19,14 @@ const FEATURES = [
   'Sem limite de shows e músicas',
 ];
 
-async function startCheckout(plan: Plan): Promise<string> {
-  const { data, error } = await supabase.functions.invoke('stripe-checkout', { body: { plan } });
+async function checkDiscount(code: string): Promise<{ valid: boolean; percent?: number }> {
+  const { data, error } = await supabase.rpc('discount_check', { p_code: code });
+  if (error) throw new Error(error.message);
+  return data as { valid: boolean; percent?: number };
+}
+
+async function startCheckout(plan: Plan, couponCode?: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke('stripe-checkout', { body: { plan, couponCode } });
   if (error) {
     const body = await (error as { context?: Response }).context?.json?.().catch(() => null);
     throw new Error(body?.error ?? 'checkout_failed');
@@ -32,6 +38,7 @@ async function startCheckout(plan: Plan): Promise<string> {
 const ERRORS: Record<string, string> = {
   already_active: 'Sua assinatura já está ativa.',
   checkout_failed: 'Não foi possível abrir o pagamento agora. Tente de novo em instantes.',
+  invalid_coupon: 'Esse cupom não é mais válido.',
 };
 
 export default function SubscribeDialog({
@@ -49,6 +56,28 @@ export default function SubscribeDialog({
   const [busy, setBusy] = useState(false);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [couponOpen, setCouponOpen] = useState(false);
+  const [coupon, setCoupon] = useState('');
+  const [couponChecking, setCouponChecking] = useState(false);
+  const [appliedCoupon, setAppliedCoupon] = useState<{ code: string; percent: number } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
+
+  const applyCoupon = async () => {
+    const code = coupon.trim().toUpperCase();
+    if (!code) return;
+    setCouponChecking(true);
+    setCouponError(null);
+    try {
+      const res = await checkDiscount(code);
+      if (!res.valid || !res.percent) { setCouponError('Código inválido ou expirado.'); setAppliedCoupon(null); return; }
+      setAppliedCoupon({ code, percent: res.percent });
+    } catch {
+      setCouponError('Não foi possível validar agora. Tente de novo.');
+      setAppliedCoupon(null);
+    } finally {
+      setCouponChecking(false);
+    }
+  };
 
   // Enquanto o pagamento está aberto no navegador, confere a licença de tempos em tempos.
   useEffect(() => {
@@ -62,7 +91,7 @@ export default function SubscribeDialog({
     setBusy(true);
     setError(null);
     try {
-      const url = await startCheckout(plan);
+      const url = await startCheckout(plan, appliedCoupon?.code);
       if (window.vsDesktop) {
         window.open(url, '_blank');
         setWaiting(true);
@@ -133,6 +162,45 @@ export default function SubscribeDialog({
             <li key={t} className="flex items-center gap-2"><Check size={13} className="text-logic-lcd-green shrink-0" /> {t}</li>
           ))}
         </ul>
+
+        <div className="mt-4">
+          {appliedCoupon ? (
+            <div className="px-3 py-2 rounded-lg border border-logic-lcd-green/40 bg-logic-lcd-green/10 text-xs flex items-center gap-2">
+              <Tag size={13} className="text-logic-lcd-green shrink-0" />
+              <span className="flex-1 text-logic-lcd-green font-semibold">
+                Cupom {appliedCoupon.code} aplicado — {appliedCoupon.percent}% de desconto.
+              </span>
+              <button
+                type="button" onClick={() => { setAppliedCoupon(null); setCoupon(''); }}
+                className="text-logic-text-muted hover:text-logic-text transition"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : couponOpen ? (
+            <form className="flex gap-1.5" onSubmit={(e) => { e.preventDefault(); applyCoupon(); }}>
+              <input
+                className="flex-1 bg-logic-bg-deep text-sm text-logic-text px-3 h-9 rounded-md border border-logic-border-light outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted uppercase"
+                value={coupon} onChange={(e) => { setCoupon(e.target.value); setCouponError(null); }}
+                placeholder="Código do cupom" maxLength={32}
+              />
+              <button
+                type="submit" disabled={couponChecking || !coupon.trim()}
+                className="px-3 h-9 rounded-md bg-logic-bg-elevated text-xs font-semibold text-logic-text hover:bg-logic-bg-panel-light transition disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {couponChecking ? <Loader2 size={13} className="animate-spin" /> : 'Aplicar'}
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button" onClick={() => setCouponOpen(true)}
+              className="text-xs text-logic-text-dim hover:text-logic-text transition flex items-center gap-1.5"
+            >
+              <Tag size={12} /> Tenho um cupom de desconto
+            </button>
+          )}
+          {couponError && <p className="mt-1.5 text-2xs text-logic-lcd-red">{couponError}</p>}
+        </div>
 
         {error && (
           <div className="mt-4 px-3 py-2 rounded-lg border bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red text-xs text-center">

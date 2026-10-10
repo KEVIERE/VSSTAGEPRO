@@ -147,6 +147,7 @@ export interface ImportProgress {
 }
 
 export type RoutingTarget =
+  | 'track-guia'
   | 'track-click'
   | 'track-maestro'
   | 'track-bateria'

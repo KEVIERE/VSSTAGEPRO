@@ -36,7 +36,8 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bdiretor\s*musical/i, target: 'track-maestro', childName: 'Maestro', weight: 10 },
   { pattern: /\bdiretor\b/i, target: 'track-maestro', childName: 'Maestro', weight: 7 },
   { pattern: /\bgps\b/i, target: 'track-maestro', childName: 'Maestro', weight: 6 },
-  { pattern: /\bguia\b/i, target: 'track-maestro', childName: 'Maestro', weight: 5 },
+
+  { pattern: /\bguia\b/i, target: 'track-guia', childName: 'Guia', weight: 10 },
 
   { pattern: /\bback(?:ing)?\s*vocal/i, target: 'track-outros', childName: 'Backvocal', weight: 11 },
   { pattern: /\bbackvocal/i, target: 'track-outros', childName: 'Backvocal', weight: 11 },
@@ -314,7 +315,7 @@ export function routeByName(fileName: string): RouteResult | null {
   }
   if (!bestTarget || !best) return null;
 
-  if (isSolo && bestTarget !== 'track-click' && bestTarget !== 'track-maestro') {
+  if (isSolo && bestTarget !== 'track-guia' && bestTarget !== 'track-click' && bestTarget !== 'track-maestro') {
     return { target: 'track-solos', confidence: 1, instrumentName: `${best.childName} Solo` };
   }
 

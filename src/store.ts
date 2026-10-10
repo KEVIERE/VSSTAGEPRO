@@ -30,6 +30,7 @@ function migrateSongRegions(song: Song): Song {
 
 const DEFAULT_TRACKS: Track[] = [
   makeTimecodeTrack(),
+  { id: 'track-guia', name: 'Guia', type: 'audio', color: '#5b8db8', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
   { id: 'track-click', name: 'Click', type: 'audio', color: '#5b8db8', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
   { id: 'track-maestro', name: 'Maestro', type: 'audio', color: '#5b8db8', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
   { id: 'track-bateria', name: 'Bateria', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
@@ -44,7 +45,7 @@ const DEFAULT_TRACKS: Track[] = [
 ];
 
 export const ROUTABLE_TRACKS: RoutingTarget[] = [
-  'track-click', 'track-maestro', 'track-bateria', 'track-contrabaixo',
+  'track-guia', 'track-click', 'track-maestro', 'track-bateria', 'track-contrabaixo',
   'track-percussoes', 'track-guitarras', 'track-violoes', 'track-sanfonas',
   'track-teclados', 'track-solos', 'track-outros',
 ];
@@ -886,7 +887,7 @@ export const useStore = create<Store>()(
         }
         const prev: Record<string, number> = {};
         s.tracks.forEach((t) => { prev[t.id] = t.pan; });
-        const MAGIC_L = new Set(['track-click', 'track-maestro']);
+        const MAGIC_L = new Set(['track-guia', 'track-click', 'track-maestro']);
         return {
           magicRoutingActive: true,
           prevOutputChannels: prev,
@@ -983,7 +984,7 @@ export const useStore = create<Store>()(
       }),
 
       reconcileTracks: () => set((s) => {
-        const protectedIds = new Set(['track-click', 'track-maestro']);
+        const protectedIds = new Set(['track-guia', 'track-click', 'track-maestro']);
         const parents = s.tracks.filter((t) => t.isSubgroup);
         const normalize = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -997,16 +998,17 @@ export const useStore = create<Store>()(
 
         // decide o destino final (subgrupo + nome de instrumento) de cada clipe
         // reclassifica tudo pelo nome do arquivo — ignora marca "manual" para desfazer bagunças antigas
-        type Dest = { target: RoutingTarget; display: string } | 'click' | 'maestro';
+        type Dest = { target: RoutingTarget; display: string } | 'guia' | 'click' | 'maestro';
         const destByClip = new Map<string, Dest>();
         for (const clip of s.clips) {
           if (isTimecodeTrackId(clip.trackId)) continue;
           if (clip.routingMethod === 'manual' && protectedIds.has(clip.trackId)) {
-            destByClip.set(clip.id, clip.trackId === 'track-click' ? 'click' : 'maestro');
+            destByClip.set(clip.id, clip.trackId === 'track-guia' ? 'guia' : clip.trackId === 'track-click' ? 'click' : 'maestro');
             continue;
           }
           const route = routeByName(clip.fileName) ?? routeByName(clip.name);
           if (route) {
+            if (route.target === 'track-guia') { destByClip.set(clip.id, 'guia'); continue; }
             if (route.target === 'track-click') { destByClip.set(clip.id, 'click'); continue; }
             if (route.target === 'track-maestro') { destByClip.set(clip.id, 'maestro'); continue; }
             destByClip.set(clip.id, { target: route.target, display: route.instrumentName });
@@ -1035,7 +1037,7 @@ export const useStore = create<Store>()(
           const counts = new Map<string, number>();
           for (const c of songClips) {
             const dest = destByClip.get(c.id);
-            if (!dest || dest === 'click' || dest === 'maestro') continue;
+            if (!dest || dest === 'guia' || dest === 'click' || dest === 'maestro') continue;
             const base = normalize(dest.display);
             const key = `${dest.target}|${base}`;
             const n = (counts.get(key) ?? 0) + 1;
@@ -1089,7 +1091,8 @@ export const useStore = create<Store>()(
         const newClips = s.clips.map((c) => {
           const dest = destByClip.get(c.id);
           let newId = c.trackId;
-          if (dest === 'click') newId = 'track-click';
+          if (dest === 'guia') newId = 'track-guia';
+          else if (dest === 'click') newId = 'track-click';
           else if (dest === 'maestro') newId = 'track-maestro';
           else {
             const a = assignmentByClip.get(c.id);

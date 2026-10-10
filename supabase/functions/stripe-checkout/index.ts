@@ -40,12 +40,24 @@ Deno.serve(async (req) => {
   const user = auth.user;
 
   let plan: keyof typeof PLANS;
+  let couponCode: string | null = null;
   try {
     const body = await req.json();
     if (body?.plan !== "monthly" && body?.plan !== "yearly") return json({ error: "invalid_plan" }, 400);
     plan = body.plan;
+    if (body?.couponCode) couponCode = String(body.couponCode).trim().toUpperCase();
   } catch {
     return json({ error: "invalid_body" }, 400);
+  }
+
+  // Confere o cupom direto no nosso banco (fonte da verdade sobre validade/expiração/uso),
+  // e só então aplica o promotion_code correspondente no Stripe — nunca confia no que
+  // o cliente diz ter digitado sem essa validação server-side.
+  let promotionCodeId: string | null = null;
+  if (couponCode) {
+    const { data: check, error: checkErr } = await admin.rpc("discount_check", { p_code: couponCode });
+    if (checkErr || !check?.valid || !check?.stripe_promotion_code_id) return json({ error: "invalid_coupon" }, 400);
+    promotionCodeId = check.stripe_promotion_code_id as string;
   }
 
   try {
@@ -90,11 +102,23 @@ Deno.serve(async (req) => {
           product_data: { name: p.name },
         },
       }],
-      subscription_data: { metadata: { user_id: user.id, plan } },
-      metadata: { user_id: user.id, plan },
+      subscription_data: { metadata: { user_id: user.id, plan, ...(couponCode ? { coupon_code: couponCode } : {}) } },
+      metadata: { user_id: user.id, plan, ...(couponCode ? { coupon_code: couponCode } : {}) },
+      ...(promotionCodeId ? { discounts: [{ promotion_code: promotionCodeId }] } : {}),
       success_url: `${SITE_URL}/#assinatura-ok`,
       cancel_url: `${SITE_URL}/#assinatura-cancelada`,
     });
+
+    // Registra a intenção de venda assim que o checkout é aberto — ainda não é uma venda,
+    // mas já mostra quem demonstrou interesse real (ao contrário de quem só olhou a página).
+    const { error: intentErr } = await admin.from("checkout_intents").insert({
+      user_id: user.id,
+      stripe_checkout_session_id: session.id,
+      plan,
+      coupon_code: couponCode,
+      amount_cents: p.amount,
+    });
+    if (intentErr) console.error("stripe-checkout intent", intentErr);
 
     return json({ url: session.url });
   } catch (e) {

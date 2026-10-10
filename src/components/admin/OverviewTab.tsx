@@ -103,13 +103,55 @@ export default function OverviewTab() {
               )}
             </Panel>
 
-            <Panel title="Últimas vendas e cancelamentos">
-              {data.recent_sales.length === 0 ? <Empty text="Nenhuma venda ainda." /> : (
+            <Panel title="Últimas vendas">
+              {data.recent_sales.length === 0 ? <Empty text="Nenhuma venda concluída ainda." /> : (
                 <ul className="divide-y divide-logic-border">
                   {data.recent_sales.map((s, i) => (
                     <li key={i} className="px-4 py-2.5 flex items-center gap-3 text-xs">
-                      <span className={`px-1.5 h-5 rounded text-2xs font-bold flex items-center ${s.kind === 'subscribed' ? 'bg-logic-lcd-green/15 text-logic-lcd-green' : 'bg-logic-lcd-amber/15 text-logic-lcd-amber'}`}>
-                        {s.kind === 'subscribed' ? 'VENDA' : 'CANCELOU'}
+                      <span className="px-1.5 h-5 rounded text-2xs font-bold flex items-center bg-logic-lcd-green/15 text-logic-lcd-green">
+                        VENDA
+                      </span>
+                      <span className="flex-1 min-w-0 truncate">
+                        {s.name ? <span className="font-medium">{s.name} </span> : null}
+                        <span className="text-logic-text-dim">{s.email}</span>
+                      </span>
+                      <span className="text-logic-text-dim">{money(s.amount_cents)} · {s.plan === 'yearly' ? 'Anual' : 'Mensal'}</span>
+                      <span className="text-logic-text-muted tabular-nums w-24 text-right">{dateTime(s.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-3">
+            <Panel title="Últimas intenções de venda">
+              {data.recent_intentions.length === 0 ? <Empty text="Ninguém abriu o checkout ainda." /> : (
+                <ul className="divide-y divide-logic-border">
+                  {data.recent_intentions.map((s, i) => (
+                    <li key={i} className="px-4 py-2.5 flex items-center gap-3 text-xs">
+                      <span className="px-1.5 h-5 rounded text-2xs font-bold flex items-center bg-logic-accent/15 text-logic-accent-hover">
+                        CHECKOUT
+                      </span>
+                      <span className="flex-1 min-w-0 truncate">
+                        {s.name ? <span className="font-medium">{s.name} </span> : null}
+                        <span className="text-logic-text-dim">{s.email}</span>
+                      </span>
+                      <span className="text-logic-text-dim">{s.plan === 'yearly' ? 'Anual' : 'Mensal'}{s.coupon_code ? ` · ${s.coupon_code}` : ''}</span>
+                      <span className="text-logic-text-muted tabular-nums w-24 text-right">{dateTime(s.created_at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Panel>
+
+            <Panel title="Cancelamentos">
+              {data.recent_cancellations.length === 0 ? <Empty text="Nenhum cancelamento ainda." /> : (
+                <ul className="divide-y divide-logic-border">
+                  {data.recent_cancellations.map((s, i) => (
+                    <li key={i} className="px-4 py-2.5 flex items-center gap-3 text-xs">
+                      <span className="px-1.5 h-5 rounded text-2xs font-bold flex items-center bg-logic-lcd-amber/15 text-logic-lcd-amber">
+                        CANCELOU
                       </span>
                       <span className="flex-1 min-w-0 truncate">
                         {s.name ? <span className="font-medium">{s.name} </span> : null}

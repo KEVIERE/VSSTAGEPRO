@@ -2,17 +2,11 @@ name: Instalador para Mac
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    # Só reconstrói e republica o app Mac quando algo do próprio app muda — qualquer
-    # outro push (admin, site, outros workflows) não deve gerar build nem sobrescrever
-    # o "required" do manifest já publicado.
-    paths:
-      - 'desktop/**'
-      - 'src/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/mac-installer.yml'
+  workflow_call:
+  # Só dispara sob comando — manualmente aqui, pelo botão "Upgrade de produção" do admin
+  # (aba Teste interno, que dispara promote-production.yml) ou como parte desse workflow.
+  # Deixou de rodar sozinho a cada push: isso evita publicar pra todo mundo algo que
+  # ainda não passou pelo ambiente de teste (staging).
 
 jobs:
   mac:

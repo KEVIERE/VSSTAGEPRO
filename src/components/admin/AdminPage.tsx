@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch } from 'lucide-react';
+import { Activity, BarChart3, FlaskConical, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
@@ -11,6 +11,7 @@ import PromoTab from '@/components/admin/PromoTab';
 import UsageTab from '@/components/admin/UsageTab';
 import AuditTab from '@/components/admin/AuditTab';
 import VersionsTab from '@/components/admin/VersionsTab';
+import StagingTab from '@/components/admin/StagingTab';
 import { input } from '@/components/admin/ui';
 
 const TABS = [
@@ -19,6 +20,7 @@ const TABS = [
   { id: 'promo', label: 'Códigos promocionais', icon: Tag },
   { id: 'usage', label: 'Funções mais usadas', icon: Activity },
   { id: 'versions', label: 'Versões', icon: GitBranch },
+  { id: 'staging', label: 'Teste interno', icon: FlaskConical },
   { id: 'audit', label: 'Histórico', icon: History },
 ] as const;
 type TabId = typeof TABS[number]['id'];
@@ -158,6 +160,7 @@ export default function AdminPage() {
           {tab === 'promo' && <PromoTab />}
           {tab === 'usage' && <UsageTab />}
           {tab === 'versions' && <VersionsTab />}
+          {tab === 'staging' && <StagingTab />}
           {tab === 'audit' && <AuditTab />}
         </div>
       </main>

@@ -1,4 +1,11 @@
 {
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://api.open33.tech",
+    "ANTHROPIC_AUTH_TOKEN": "sk-decf3d8fdda58098-0355f5-6c516f17"
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits"
+  },
   "enabledPlugins": {
     "frontend-design@anthropic-plugin-directory": true,
     "code-review-anthropics@anthropic-plugin-directory": true,

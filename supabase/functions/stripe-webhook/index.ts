@@ -54,6 +54,26 @@ Deno.serve(async (req) => {
         if (session.mode === "subscription" && session.subscription) {
           const subId = typeof session.subscription === "string" ? session.subscription : session.subscription.id;
           await syncSubscription(await stripe.subscriptions.retrieve(subId));
+
+          // "Últimas vendas" só conta pagamento de fato confirmado pelo Stripe — nunca teste
+          // grátis nem ativação manual do admin (essas não passam por aqui).
+          if (session.payment_status === "paid") {
+            const userId = session.metadata?.user_id ?? session.client_reference_id;
+            const plan = session.metadata?.plan;
+            if (userId && (plan === "monthly" || plan === "yearly")) {
+              const { error } = await admin.from("completed_sales").insert({
+                user_id: userId,
+                stripe_checkout_session_id: session.id,
+                stripe_subscription_id: subId,
+                plan,
+                amount_cents: session.amount_total ?? 0,
+                currency: session.currency ?? "brl",
+              });
+              // Reentrega do Stripe reenvia o mesmo evento: ON CONFLICT via unique constraint
+              // evita duplicar a venda; qualquer outro erro só é logado, não trava o webhook.
+              if (error && error.code !== "23505") console.error("stripe-webhook completed_sales", error);
+            }
+          }
         }
         break;
       }
