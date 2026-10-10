@@ -460,6 +460,32 @@ export default function TimelinePanel() {
     zoomAround(factor, playheadX >= 0 && playheadX <= viewW ? playheadX : viewW / 2);
   };
 
+  // Alça na borda direita do cabeçalho das faixas: arrastar ajusta a altura de todas de
+  // uma vez (igual aos botões de zoom vertical), e duplo clique volta ao tamanho padrão.
+  const handleTrackHeightPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startZoom = useStore.getState().zoomV;
+    const move = (ev: PointerEvent) => {
+      const deltaPx = ev.clientY - startY;
+      // ~120px de arraste dobra ou reduz à metade a altura das faixas.
+      const next = startZoom * Math.pow(2, deltaPx / 120);
+      useStore.getState().setZoomV(next);
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+      try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  }, []);
+  const resetTrackHeight = useCallback(() => setZoomV(1), [setZoomV]);
+
   const handleRulerPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const target = e.currentTarget;
@@ -589,7 +615,7 @@ export default function TimelinePanel() {
           </div>
         ) : (
           <div className="flex" style={{ minHeight: '100%', width: `${timelineWidth + HEADER_W}px` }}>
-            <div className="w-48 min-w-48 bg-logic-bg-panel border-r border-logic-border-dark sticky left-0 z-40">
+            <div className="relative w-48 min-w-48 bg-logic-bg-panel border-r border-logic-border-dark sticky left-0 z-40">
               <TimecodeTrackRow songId={song.id} />
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
@@ -597,6 +623,14 @@ export default function TimelinePanel() {
                 if (track.isSubgroup) return <FolderGroup key={track.id} track={track} />;
                 return <TrackRow key={track.id} track={track} depth={0} />;
               })}
+              <div
+                className="absolute top-0 right-0 bottom-0 w-1.5 -mr-0.5 z-50 cursor-row-resize group/heightHandle"
+                onPointerDown={handleTrackHeightPointerDown}
+                onDoubleClick={resetTrackHeight}
+                title="Arraste para ajustar a altura de todas as faixas. Duplo clique: tamanho padrão."
+              >
+                <div className="absolute top-0 right-0 bottom-0 w-px bg-logic-border-dark opacity-0 group-hover/heightHandle:opacity-100 group-hover/heightHandle:bg-logic-accent transition-opacity" />
+              </div>
             </div>
 
             <div className="relative flex-shrink-0" style={{ width: `${timelineWidth}px`, ...gridStyle }}>
