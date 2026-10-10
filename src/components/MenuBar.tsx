@@ -13,7 +13,8 @@ import NetworkModeButton, { useModeSwitch } from '@/components/network/NetworkMo
 import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
 import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 
-const SAVE_SHORTCUT = /Mac|iPhone|iPad/i.test(navigator.userAgent) ? '⌘S' : 'Ctrl+S';
+// O programa é Mac-only: atalhos sempre no padrão do teclado Mac (⌘), nunca Ctrl.
+const SAVE_SHORTCUT = '⌘S';
 
 interface MenuItem {
   label?: string;
@@ -121,10 +122,10 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
     {
       label: 'Editar',
       items: [
-        { label: 'Desfazer', shortcut: 'Ctrl+Z', action: undo },
-        { label: 'Refazer', shortcut: 'Ctrl+Shift+Z', action: redo },
+        { label: 'Desfazer', shortcut: '⌘Z', action: undo },
+        { label: 'Refazer', shortcut: '⌘⇧Z', action: redo },
         { separator: true },
-        { label: 'Duplicar Música', shortcut: 'Ctrl+D', action: () => { if (selectedSongId) duplicatePlaylistEntry(selectedSongId); setOpenMenu(null); } },
+        { label: 'Duplicar Música', shortcut: '⌘D', action: () => { if (selectedSongId) duplicatePlaylistEntry(selectedSongId); setOpenMenu(null); } },
         { label: 'Excluir Música', shortcut: 'Delete', action: () => { if (selectedSongId) removeSong(selectedSongId); setOpenMenu(null); } },
       ],
     },

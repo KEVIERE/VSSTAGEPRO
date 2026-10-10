@@ -269,6 +269,13 @@ export function extractInstrumentName(fileName: string): string {
   return r?.instrumentName ?? '';
 }
 
+/** Nome do arquivo sem extensão, com "_" e números separados — para mostrar no clipe
+ * quando o nome não bateu com nenhum instrumento conhecido (grupo "Extra"). Assim a
+ * pessoa ainda sabe o que é o áudio, em vez de só "Extra 1", "Extra 2"... */
+export function cleanClipName(fileName: string): string {
+  return stripExt(fileName).trim() || fileName;
+}
+
 export function routeByName(fileName: string): RouteResult | null {
   const baseName = stripExt(fileName);
   const isSolo = hasSoloInName(fileName);

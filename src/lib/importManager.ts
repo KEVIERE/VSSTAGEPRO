@@ -1,5 +1,5 @@
 import { decodeFile, generateMarkers } from '@/lib/audioDecoder';
-import { routeByName, isUnreadableName } from '@/lib/nameRouter';
+import { cleanClipName, routeByName, isUnreadableName } from '@/lib/nameRouter';
 import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
 import { clipAudioToBuffer, ensureSongLoaded, getClipAudio, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
@@ -375,6 +375,10 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
 
     const count = childTrackCounts[trackId][childTrackName];
     const numberedName = `${childTrackName} ${count}`;
+    // Quando o nome não bateu com nenhum instrumento (grupo "Extra"), o clipe mostra o
+    // nome original do arquivo em vez de "Extra 1", "Extra 2"... — assim a pessoa sabe
+    // o que é o áudio sem precisar abrir o arquivo. A faixa continua numerada normalmente.
+    const clipDisplayName = route ? numberedName : cleanClipName(file.name);
 
     const existingChild = useStore.getState().tracks.find((t) => {
       if (t.parentId !== trackId) return false;
@@ -398,7 +402,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
     const clip: AudioClip = {
       id: clipId,
       trackId: actualTrackId,
-      name: numberedName,
+      name: clipDisplayName,
       fileName: file.name,
       filePath: URL.createObjectURL(file),
       songId,
