@@ -101,6 +101,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bsax\b/i, target: 'track-outros', childName: 'Metais', weight: 8 },
 
   { pattern: /\bacorde[oô]n/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
+  { pattern: /\bsf\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 9 },
   { pattern: /\baccordion/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
   { pattern: /\bsanfona/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
   { pattern: /\bsanf\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 10 },
