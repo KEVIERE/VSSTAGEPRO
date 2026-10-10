@@ -178,11 +178,142 @@ function FolderGroup({ track }: { track: Track }) {
   );
 }
 
+// Knob minúsculo de ganho do clipe (modo DAW): arrastar na vertical sobe/desce o ganho,
+// duplo clique volta a 0dB (1x). Mesma lógica visual do pan knob do mixer, só que linear.
+function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
+  const setClipGain = useStore((s) => s.setClipGain);
+  const angle = Math.max(-135, Math.min(135, (Math.log2(Math.max(0.01, gain)) / 2) * 135));
+  const db = gain <= 0.001 ? -Infinity : 20 * Math.log10(gain);
+  const dbLabel = db === -Infinity ? '-inf' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}dB`;
+  return (
+    <div
+      className="w-4 h-4 relative cursor-ns-resize select-none shrink-0"
+      onDoubleClick={(e) => { e.stopPropagation(); setClipGain(clipId, 1); }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        const target = e.currentTarget;
+        target.setPointerCapture(e.pointerId);
+        const startY = e.clientY;
+        const startGain = gain;
+        const move = (ev: PointerEvent) => {
+          const delta = (startY - ev.clientY) / 80;
+          setClipGain(clipId, Math.max(0, Math.min(2, startGain * Math.pow(2, delta))));
+        };
+        const up = () => {
+          target.removeEventListener('pointermove', move);
+          target.removeEventListener('pointerup', up);
+          target.removeEventListener('pointercancel', up);
+          try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+        };
+        target.addEventListener('pointermove', move);
+        target.addEventListener('pointerup', up);
+        target.addEventListener('pointercancel', up);
+      }}
+      onClick={(e) => e.stopPropagation()}
+      title={`Ganho do clipe: ${dbLabel} (arraste = ajustar, duplo clique = 0dB)`}
+    >
+      <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none">
+        <circle cx="14" cy="14" r="12.5" fill="#1a1a1c" stroke="#3a3a3e" strokeWidth="1" />
+        <circle cx="14" cy="14" r="9" fill="#26262a" stroke="#111" strokeWidth="0.5" />
+        <g style={{ transform: `rotate(${angle}deg)`, transformOrigin: '14px 14px' }}>
+          <line x1="14" y1="14" x2="14" y2="6" stroke="#30d158" strokeWidth="2" strokeLinecap="round" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+// Botões minúsculos de mudo/solo do clipe (modo DAW). Solo isola o clipe só dentro da
+// própria música (não afeta outras músicas abertas).
+function ClipMuteSolo({ clip }: { clip: AudioClip }) {
+  const toggleClipMute = useStore((s) => s.toggleClipMute);
+  const toggleClipSolo = useStore((s) => s.toggleClipSolo);
+  return (
+    <div className="flex gap-0.5 shrink-0">
+      <button
+        className={`w-4 h-3.5 text-[8px] font-bold rounded-sm leading-none flex items-center justify-center transition-colors ${clip.mute ? 'bg-logic-lcd-amber text-black' : 'bg-black/40 text-white/70 hover:text-white'}`}
+        onClick={(e) => { e.stopPropagation(); toggleClipMute(clip.id); }}
+        title="Mudo deste clipe"
+      >M</button>
+      <button
+        className={`w-4 h-3.5 text-[8px] font-bold rounded-sm leading-none flex items-center justify-center transition-colors ${clip.solo ? 'bg-logic-lcd-amber text-black' : 'bg-black/40 text-white/70 hover:text-white'}`}
+        onClick={(e) => { e.stopPropagation(); toggleClipSolo(clip.id); }}
+        title="Solo deste clipe (dentro da música)"
+      >S</button>
+    </div>
+  );
+}
+
+// Alça do fade in/out: arrastar o triângulo no canto superior do clipe estende/encolhe
+// o fade. O sombreado diagonal mostra visualmente até onde o fade alcança, sempre que
+// existe (DAW ligado ou não); o triângulo arrastável só aparece com o DAW ligado.
+function FadeHandle({ clipId, side, seconds, playLength, zoomH, editable }: {
+  clipId: string; side: 'in' | 'out'; seconds: number; playLength: number; zoomH: number; editable: boolean;
+}) {
+  const setClipFade = useStore((s) => s.setClipFade);
+  const widthPx = Math.max(0, Math.min(playLength, seconds)) * zoomH;
+  return (
+    <>
+      {widthPx > 1 && (
+        <div
+          className="absolute top-0 bottom-0 pointer-events-none"
+          style={{
+            [side === 'in' ? 'left' : 'right']: 0,
+            width: `${widthPx}px`,
+            background: side === 'in'
+              ? 'linear-gradient(to right, rgba(0,0,0,0.75), transparent)'
+              : 'linear-gradient(to left, rgba(0,0,0,0.75), transparent)',
+          }}
+        />
+      )}
+      {editable && (
+        <div
+          className={`absolute top-0 w-3 h-3 cursor-pointer z-10 ${side === 'in' ? 'left-0' : 'right-0'}`}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const target = e.currentTarget;
+            target.setPointerCapture(e.pointerId);
+            const startX = e.clientX;
+            const startSeconds = seconds;
+            const move = (ev: PointerEvent) => {
+              const deltaPx = side === 'in' ? ev.clientX - startX : startX - ev.clientX;
+              const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / zoomH));
+              setClipFade(clipId, side === 'in' ? { fadeIn: next } : { fadeOut: next });
+            };
+            const up = () => {
+              target.removeEventListener('pointermove', move);
+              target.removeEventListener('pointerup', up);
+              target.removeEventListener('pointercancel', up);
+              try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+            };
+            target.addEventListener('pointermove', move);
+            target.addEventListener('pointerup', up);
+            target.addEventListener('pointercancel', up);
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
+          title={`Fade de ${side === 'in' ? 'entrada' : 'saída'}: ${seconds.toFixed(2)}s (arraste = ajustar, duplo clique = remover)`}
+        >
+          <div
+            className="w-0 h-0 absolute top-0"
+            style={side === 'in'
+              ? { left: 0, borderTop: '10px solid rgba(255,255,255,0.85)', borderRight: '10px solid transparent' }
+              : { right: 0, borderTop: '10px solid rgba(255,255,255,0.85)', borderLeft: '10px solid transparent' }}
+          />
+        </div>
+      )}
+    </>
+  );
+}
+
 function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight, zoomH, visible }: {
   clip: AudioClip; isSelected: boolean; onSelect: (additive: boolean) => void;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
   trim: TrimDrag; trackHeight: number; zoomH: number; visible: VisibleRange;
 }) {
+  const dawMode = useStore((s) => s.dawMode);
   const trimming = !!trim && trim.ids.has(clip.id);
   const trimEnd = trimming
     ? Math.max(0, Math.min(clip.duration - 0.05, (clip.trimEnd ?? 0) - trim.delta))
@@ -197,6 +328,11 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
   const labelLeft = Math.max(0, visible.start - left);
   const labelWidth = Math.min(width, visible.end - left) - labelLeft;
   const isTrimmed = trimEnd > 0.001;
+  const hasAdjustments = clip.mute || clip.solo || (clip.gain !== undefined && clip.gain !== 1) || !!clip.fadeIn || !!clip.fadeOut;
+  // Controles (knob, M/S) só cabem com a faixa alta o bastante; o sombreado de fade e o
+  // indicador de ajuste aparecem sempre, DAW ligado ou não, para nunca esconder um
+  // ajuste que já foi feito.
+  const showControls = dawMode && innerHeight >= 20;
 
   return (
     <>
@@ -219,12 +355,32 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
         }}
       >
         <ClipWaveform clip={clip} left={left} width={fullWidth} height={innerHeight} visible={visible} />
+        <FadeHandle
+          clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0} playLength={playLength} zoomH={zoomH}
+          editable={showControls}
+        />
+        <FadeHandle
+          clipId={clip.id} side="out" seconds={clip.fadeOut ?? 0} playLength={playLength} zoomH={zoomH}
+          editable={showControls}
+        />
         <div
           className="absolute top-0 bottom-0 flex items-start justify-start px-1.5 pt-0.5 text-xs font-medium pointer-events-none"
           style={{ left: `${labelLeft}px`, width: `${Math.max(0, labelWidth)}px`, color: routingColor, textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
         >
           <span className="truncate">{clip.name}</span>
         </div>
+        {showControls && (
+          <div className="absolute bottom-0.5 left-1 flex items-center gap-1 z-10">
+            <ClipGainKnob clipId={clip.id} gain={clip.gain ?? 1} />
+            <ClipMuteSolo clip={clip} />
+          </div>
+        )}
+        {!showControls && hasAdjustments && (
+          <div
+            className="absolute bottom-0.5 left-1 w-1.5 h-1.5 rounded-full bg-logic-lcd-amber z-10"
+            title="Este clipe tem ajustes do modo DAW (ganho, mudo, solo ou fade)"
+          />
+        )}
         {isSelected && <div className="absolute inset-0 ring-1 ring-white rounded-sm pointer-events-none" />}
         <div
           className={`absolute top-0 right-0 bottom-0 w-2 cursor-ew-resize flex items-center justify-end transition-opacity ${isSelected || trimming ? 'opacity-100' : 'opacity-0 group-hover/clip:opacity-100'}`}

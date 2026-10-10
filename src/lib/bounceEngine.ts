@@ -1,5 +1,5 @@
 import { encodeWavFloat32 } from '@/lib/wavEncoder';
-import { faderToGain, isMelodicTrack } from '@/lib/audioEngine';
+import { clipGainFor, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, withSongAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
@@ -71,7 +71,8 @@ async function renderOffline(
     return node;
   };
 
-  for (const clip of clips.filter((c) => c.songId === song.id && !isTimecodeTrackId(c.trackId))) {
+  const songClips = clips.filter((c) => c.songId === song.id);
+  for (const clip of songClips.filter((c) => !isTimecodeTrackId(c.trackId))) {
     const clipAudio = getClipPlayAudio(clip);
     if (!clipAudio) continue;
     const track = tracks.find((t) => t.id === clip.trackId);
@@ -85,10 +86,28 @@ async function renderOffline(
     source.buffer = await processClipAudioAsync(ctx, clipAudio, alpha, melodic ? cents : 0);
     source.playbackRate.value = 1;
     const clipGain = ctx.createGain();
-    clipGain.gain.value = target !== track ? channelGain(track, tracks, respectMuteSolo) / Math.max(1e-6, channelGain(target, tracks, respectMuteSolo)) : 1;
+    // Ajustes do modo DAW (gain/mute/solo/fade) sempre valem na exportação, mesmo que
+    // o DAW esteja desligado no momento — igual à reprodução.
+    const routingGain = target !== track ? channelGain(track, tracks, respectMuteSolo) / Math.max(1e-6, channelGain(target, tracks, respectMuteSolo)) : 1;
+    const baseGain = routingGain * clipGainFor(clip, songClips);
+    const playDuration = clipPlayLength(clip) * alpha;
+    const startWall = clip.startTime * alpha;
+    const fadeIn = (clip.fadeIn ?? 0) * alpha;
+    const fadeOut = (clip.fadeOut ?? 0) * alpha;
+    if (fadeIn > 0 || fadeOut > 0) {
+      const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
+      clipGain.gain.setValueAtTime(fadeIn > 0 ? 0 : baseGain, startWall);
+      if (fadeIn > 0) clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
+      if (fadeOut > 0) {
+        clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
+        clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
+      }
+    } else {
+      clipGain.gain.value = baseGain;
+    }
     source.connect(clipGain);
     clipGain.connect(channel.gain);
-    source.start(clip.startTime * alpha);
+    source.start(startWall);
   }
 
   return await ctx.startRendering();

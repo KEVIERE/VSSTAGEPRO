@@ -318,6 +318,36 @@ function DirectorApp({ license }: { license: License }) {
     return unsub;
   }, []);
 
+  // Idem para gain/mute/solo por clipe (modo DAW): como o solo de um clipe silencia os
+  // outros da mesma música, um solo mudando reaplica a música inteira; senão, só o clipe
+  // que mudou.
+  useEffect(() => {
+    let prevClips = useStore.getState().clips;
+    const soloHashOf = (cs: typeof prevClips) => {
+      let h = '';
+      for (const c of cs) if (c.solo) h += c.id + '|';
+      return h;
+    };
+    let prevSoloHash = soloHashOf(prevClips);
+
+    const unsub = useStore.subscribe((state) => {
+      if (state.clips === prevClips) return;
+      const nextSoloHash = soloHashOf(state.clips);
+      if (nextSoloHash !== prevSoloHash) {
+        for (const c of state.clips) audioEngine.updateClipParams(c.id);
+      } else {
+        const prevById = new Map(prevClips.map((c) => [c.id, c]));
+        for (const c of state.clips) {
+          const p = prevById.get(c.id);
+          if (p && (p.gain !== c.gain || p.mute !== c.mute)) audioEngine.updateClipParams(c.id);
+        }
+      }
+      prevClips = state.clips;
+      prevSoloHash = nextSoloHash;
+    });
+    return unsub;
+  }, []);
+
   // Mantém na memória só o áudio da música em uso, da selecionada e da próxima;
   // o das outras é liberado. O carregamento acontece em segundo plano. Reage apenas a
   // mudanças estruturais — BPM/afinador são aplicados ao vivo no preparo em cache.

@@ -85,6 +85,15 @@ export interface AudioClip {
   waveformPeaks: number[];
   /** Segundos cortados do fim do áudio (o arquivo continua inteiro) */
   trimEnd?: number;
+  // Ajustes do modo DAW: editáveis só com o DAW ligado, mas sempre valem na reprodução
+  // e na exportação — desligar o DAW só esconde os controles, não desfaz o ajuste.
+  /** Multiplicador de ganho do clipe (1 = original). Ex.: 0.5 = -6dB. */
+  gain?: number;
+  mute?: boolean;
+  solo?: boolean;
+  /** Segundos de fade de entrada/saída, a partir do início/fim do áudio tocável. */
+  fadeIn?: number;
+  fadeOut?: number;
 }
 
 export interface Song {
@@ -218,6 +227,10 @@ export interface ProjectState {
   importProgress: ImportProgress | null;
   lrMasterActive: boolean;
   magicRoutingActive: boolean;
+  /** Mostra as ferramentas de edição por clipe (ganho, mute, solo, fade). Os ajustes
+   * já feitos continuam valendo na reprodução mesmo com isso desligado — só a edição
+   * fica escondida. */
+  dawMode: boolean;
   audioInterface: string;
   showBpmTower: boolean;
   showTunerTower: boolean;

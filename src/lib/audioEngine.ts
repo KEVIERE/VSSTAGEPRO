@@ -65,6 +65,69 @@ export function channelGainFor(track: Track, allTracks: Track[], volume: number)
   return audible ? faderToGain(volume) : 0;
 }
 
+// Ganho do modo DAW por clipe (gain/mute/solo): sempre vale na reprodução e na
+// exportação, independente do DAW estar ligado para edição — ligar/desligar o DAW só
+// mostra ou esconde os controles. Solo de clipe é restrito à própria música (como o
+// solo de faixa é restrito à mixagem inteira), senão um solo isolado silenciaria shows
+// com várias músicas abertas ao mesmo tempo.
+export function clipGainFor(clip: AudioClip, songClips: AudioClip[]): number {
+  if (clip.mute) return 0;
+  const anySolo = songClips.some((c) => c.solo);
+  if (anySolo && !clip.solo) return 0;
+  return clip.gain ?? 1;
+}
+
+// Agenda a rampa de fade in/out do clipe no próprio clipGain, por cima do ganho base
+// (faixa × clipe). Entra em vigor a partir de "agora" (currentTime), cobrindo tanto o
+// início normal do clipe quanto pular/retroceder para dentro do meio de um fade — nesse
+// caso calcula quanto da rampa já passou e agenda só o resto, sem salto de volume.
+// "local"/playDuration/localOffset ficam em segundos de música (mesma unidade de
+// clip.fadeIn/fadeOut/duration); whenWall é o relógio real do contexto. alpha converte
+// delta de música em delta de relógio (wall = música × alpha), igual ao resto da engine.
+function scheduleClipFade(
+  clipGain: GainNode,
+  ctx: BaseAudioContext,
+  baseGain: number,
+  clip: AudioClip,
+  playDuration: number,
+  whenWall: number,
+  localOffset: number,
+  alpha: number,
+) {
+  const fadeIn = clip.fadeIn ?? 0;
+  const fadeOut = clip.fadeOut ?? 0;
+  const now = ctx.currentTime;
+  try { clipGain.gain.cancelScheduledValues(now); } catch { /* ignore */ }
+
+  if (!fadeIn && !fadeOut) {
+    try { clipGain.gain.setValueAtTime(baseGain, now); } catch { clipGain.gain.value = baseGain; }
+    return;
+  }
+
+  const fadeOutStartLocal = Math.max(fadeIn, playDuration - fadeOut);
+  // pontos de referência no tempo local do clipe (0 = início tocável, playDuration = fim)
+  const points: Array<{ local: number; gain: number }> = [];
+  if (fadeIn > 0) points.push({ local: 0, gain: 0 }, { local: fadeIn, gain: baseGain });
+  else points.push({ local: 0, gain: baseGain });
+  if (fadeOut > 0) points.push({ local: fadeOutStartLocal, gain: baseGain }, { local: playDuration, gain: 0 });
+
+  let scheduledAny = false;
+  for (const pt of points) {
+    if (pt.local < localOffset - 1e-4) continue; // já passou, não reagenda
+    const when = whenWall + (pt.local - localOffset) * alpha;
+    const at = Math.max(now, when);
+    try { clipGain.gain.linearRampToValueAtTime(pt.gain, at); scheduledAny = true; } catch { /* ignore */ }
+  }
+  if (!scheduledAny) {
+    // o trecho visível já é só o platô final (ex.: retomou depois do fade todo): fixa direto.
+    try { clipGain.gain.setValueAtTime(baseGain, now); } catch { clipGain.gain.value = baseGain; }
+  } else {
+    // valor de partida no instante atual, para não saltar se "now" cair depois de "whenWall"
+    const startGain = localOffset <= 0 ? 0 : localOffset >= fadeIn ? baseGain : baseGain * (localOffset / Math.max(1e-6, fadeIn));
+    try { clipGain.gain.setValueAtTime(startGain, Math.min(now, whenWall)); } catch { /* ignore */ }
+  }
+}
+
 interface ChannelNode {
   gain: GainNode;
   panner: StereoPannerNode;
@@ -405,7 +468,7 @@ class AudioEngine {
         node.port.postMessage({ type: 'extend', left: fullLeft, right: fullRight }, fullRight === fullLeft ? [fullLeft.buffer] : [fullLeft.buffer, fullRight.buffer]);
 
         const clipGain = ctx.createGain();
-        clipGain.gain.value = track.parentId ? channelGainFor(track, tracks, track.volume) : 1;
+        clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
         node.connect(clipGain);
 
         let clipPanner: StereoPannerNode | null = null;
@@ -686,10 +749,9 @@ class AudioEngine {
           continue;
         }
         const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+        const clip = clipsNow.find((c) => c.id === p.clipId);
 
-        const gTarget = track.parentId ? channelGainFor(track, tracks, track.volume) : 1;
-        try { p.clipGain.gain.cancelScheduledValues(ctx.currentTime); } catch { /* ignore */ }
-        try { p.clipGain.gain.setValueAtTime(gTarget, ctx.currentTime); } catch { p.clipGain.gain.value = gTarget; }
+        const gTarget = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * (clip ? clipGainFor(clip, clipsNow) : 1);
         if (p.clipPanner) p.clipPanner.pan.value = effectivePan(track.id, track.pan, lr);
         const channel = this.ensureChannel(target.id);
         const chTarget = channelGainFor(target, tracks, target.volume);
@@ -702,6 +764,8 @@ class AudioEngine {
 
         const local = startOffset - p.clipStartTime;
         const whenWall = scheduledStart + Math.max(0, -local) * alpha;
+        if (clip) scheduleClipFade(p.clipGain, ctx, gTarget, clip, p.clipDuration, whenWall, Math.max(0, local), alpha);
+        else { try { p.clipGain.gain.cancelScheduledValues(ctx.currentTime); } catch { /* ignore */ } try { p.clipGain.gain.setValueAtTime(gTarget, ctx.currentTime); } catch { p.clipGain.gain.value = gTarget; } }
         const offsetSamples = local > 0 ? Math.min(p.bufferLength, Math.floor(local * p.sampleRate)) : 0;
         try {
           p.node.port.postMessage({ type: 'seek', offsetSamples, startTime: whenWall, fadeInFrames: offsetSamples > 0 ? 512 : 1 });
@@ -822,7 +886,7 @@ class AudioEngine {
       });
 
       const clipGain = ctx.createGain();
-      clipGain.gain.value = track.parentId ? channelGainFor(track, tracks, track.volume) : 1;
+      clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
       node.connect(clipGain);
 
       const readyFor = (nodeRef: AudioWorkletNode) => new Promise<void>((resolve) => {
@@ -871,6 +935,10 @@ class AudioEngine {
 
     for (const p of pending) {
       const whenWall = scheduledStart + Math.max(0, (p.clip.startTime - startOffset)) * alpha;
+      const track = tracks.find((t) => t.id === p.clip.trackId);
+      const target = track?.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+      const baseGain = (target && track?.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(p.clip, clips);
+      scheduleClipFade(p.clipGain, ctx, baseGain, p.clip, clipPlayLength(p.clip), whenWall, Math.max(0, startOffset - p.clip.startTime), alpha);
       try { p.node.port.postMessage({ startTime: whenWall }); } catch { /* ignore */ }
       this.activeClips.set(p.clipId, {
         node: p.node,
@@ -1034,6 +1102,7 @@ class AudioEngine {
       const track = tracks.find((t) => t.id === clip.trackId);
       if (!track) continue;
       const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+      const songClips = clips.filter((c) => c.songId === clip.songId);
       try { item.clipGain.disconnect(); } catch { /* ignore */ }
       if (item.clipPanner) { try { item.clipPanner.disconnect(); } catch { /* ignore */ } }
       const channel = this.ensureChannel(target.id);
@@ -1044,12 +1113,12 @@ class AudioEngine {
         panner.connect(channel.gain);
         item.clipPanner = panner;
         this.clipPanners.set(clipId, panner);
-        item.clipGain.gain.value = channelGainFor(track, tracks, track.volume);
+        item.clipGain.gain.value = channelGainFor(track, tracks, track.volume) * clipGainFor(clip, songClips);
       } else {
         item.clipPanner = null;
         this.clipPanners.delete(clipId);
         item.clipGain.connect(channel.gain);
-        item.clipGain.gain.value = 1;
+        item.clipGain.gain.value = clipGainFor(clip, songClips);
       }
       channel.gain.gain.value = channelGainFor(target, tracks, target.volume);
       item.trackId = clip.trackId;
@@ -1466,12 +1535,15 @@ class AudioEngine {
     const lrActive = useStore.getState().lrMasterActive;
     if (track.parentId) {
       const store = useStore.getState();
-      const targetGain = channelGainFor(track, all, track.volume);
+      const trackGain = channelGainFor(track, all, track.volume);
       const targetPan = effectivePan(track.id, track.pan, lrActive);
       store.clips.forEach((c) => {
         if (c.trackId === trackId) {
           const g = this.clipGains.get(c.id);
-          if (g) this.rampParam(g.gain, targetGain);
+          if (g) {
+            const songClips = store.clips.filter((sc) => sc.songId === c.songId);
+            this.rampParam(g.gain, trackGain * clipGainFor(c, songClips));
+          }
           const p = this.clipPanners.get(c.id);
           if (p) this.rampParam(p.pan, targetPan);
         }
@@ -1482,6 +1554,20 @@ class AudioEngine {
     if (!channel) return;
     this.rampParam(channel.gain.gain, channelGainFor(track, all, track.volume));
     this.rampParam(channel.panner.pan, effectivePan(track.id, track.pan, lrActive));
+  }
+
+  // Ganho/mute/solo de UM clipe mudou (modo DAW): reaplica só o clipGain dele, sem
+  // refazer o fade (o fade só é agendado ao iniciar a reprodução do clipe).
+  updateClipParams(clipId: string) {
+    const g = this.clipGains.get(clipId);
+    if (!g) return;
+    const store = useStore.getState();
+    const clip = store.clips.find((c) => c.id === clipId);
+    if (!clip) return;
+    const track = store.tracks.find((t) => t.id === clip.trackId);
+    const trackGain = track?.parentId ? channelGainFor(track, store.tracks, track.volume) : 1;
+    const songClips = store.clips.filter((c) => c.songId === clip.songId);
+    this.rampParam(g.gain, trackGain * clipGainFor(clip, songClips));
   }
 
   setMasterVolume(volume: number) {

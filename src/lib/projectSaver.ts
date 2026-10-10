@@ -26,6 +26,7 @@ export type SavedManifest = {
   zoomH: number;
   zoomV: number;
   lrMasterActive: boolean;
+  dawMode?: boolean;
   audioInterface: string;
   lyricMaps?: ProjectState['lyricMaps'];
   assets?: Array<{ clipId: string; path: string; offset: number; size: number }>;
@@ -72,6 +73,7 @@ function buildManifestBase(state: ProjectState): SavedManifest {
     zoomH: state.zoomH,
     zoomV: state.zoomV,
     lrMasterActive: state.lrMasterActive,
+    dawMode: state.dawMode,
     audioInterface: state.audioInterface,
     lyricMaps: state.lyricMaps,
   };

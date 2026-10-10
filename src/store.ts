@@ -6,7 +6,7 @@ import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart,
 } from '@/types';
-import { clearAudioLibrary, clipPlayLength, registerClipSource } from '@/lib/audioLibrary';
+import { clearAudioLibrary, clipPlayLength, getClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { normalizePages } from '@/lib/prompterTypes';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
@@ -141,6 +141,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   trackHeaderWidth: 192,
   importProgress: null,
   lrMasterActive: false,
+  dawMode: false,
   audioInterface: 'default',
   showBpmTower: false,
   showTunerTower: false,
@@ -211,6 +212,11 @@ interface StoreActions {
   setClipMarkers: (clipId: string, markers: AudioClip['markers']) => void;
   setImportProgress: (progress: ImportProgress | null) => void;
   setClipBpm: (clipId: string, bpm: number) => void;
+  setClipGain: (clipId: string, gain: number) => void;
+  toggleClipMute: (clipId: string) => void;
+  toggleClipSolo: (clipId: string) => void;
+  setClipFade: (clipId: string, patch: { fadeIn?: number; fadeOut?: number }) => void;
+  normalizeClip: (clipId: string, targetDb: number) => void;
   addSong: (song: Song) => void;
   updateSong: (songId: string, updates: Partial<Song>) => void;
   removeSong: (songId: string) => void;
@@ -239,6 +245,7 @@ interface StoreActions {
   toggleTunerTower: () => void;
   toggleLrMaster: () => void;
   toggleMagicRouting: () => void;
+  toggleDawMode: () => void;
   setAudioInterface: (iface: string) => void;
   updateMeter: (trackId: string, level: number) => void;
   updateMasterMeter: (level: number) => void;
@@ -706,6 +713,45 @@ export const useStore = create<Store>()(
       setImportProgress: (progress) => set({ importProgress: progress }),
       setClipBpm: (clipId, bpm) => set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, bpm } : c) })),
 
+      // Ajustes do modo DAW: sempre valem na reprodução e na exportação, independente
+      // do DAW estar ligado — ele só decide se os controles aparecem na tela.
+      setClipGain: (clipId, gain) => set((s) => ({
+        clips: s.clips.map((c) => c.id === clipId ? { ...c, gain: Math.max(0, Math.min(4, gain)) } : c),
+      })),
+      toggleClipMute: (clipId) => set((s) => ({
+        clips: s.clips.map((c) => c.id === clipId ? { ...c, mute: !c.mute } : c),
+      })),
+      toggleClipSolo: (clipId) => set((s) => ({
+        clips: s.clips.map((c) => c.id === clipId ? { ...c, solo: !c.solo } : c),
+      })),
+      setClipFade: (clipId, patch) => set((s) => ({
+        clips: s.clips.map((c) => {
+          if (c.id !== clipId) return c;
+          const next = { ...c };
+          if (patch.fadeIn !== undefined) next.fadeIn = Math.max(0, patch.fadeIn);
+          if (patch.fadeOut !== undefined) next.fadeOut = Math.max(0, patch.fadeOut);
+          return next;
+        }),
+      })),
+      // Mede o pico real do áudio já decodificado (sem redecodificar) e ajusta o ganho
+      // do clipe para esse pico bater exatamente no dB pedido — igual ao Anti-Clip das
+      // faixas, mas por clipe: nunca reescreve o áudio, só o multiplicador.
+      normalizeClip: (clipId, targetDb) => {
+        const audio = getClipAudio(clipId);
+        if (!audio) return;
+        let peak = 0;
+        for (const channel of audio.channels) {
+          for (let i = 0; i < channel.length; i++) {
+            const abs = Math.abs(channel[i]) / 32767;
+            if (abs > peak) peak = abs;
+          }
+        }
+        if (peak <= 0) return;
+        const targetLinear = Math.pow(10, targetDb / 20);
+        const gain = Math.max(0, Math.min(4, targetLinear / peak));
+        set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+      },
+
       addSong: (song) => set((s) => ({ songs: [...s.songs, song] })),
       updateSong: (songId, updates) => set((s) => ({ songs: s.songs.map((sg) => sg.id === songId ? { ...sg, ...updates } : sg) })),
       removeSong: (songId) => {
@@ -882,6 +928,7 @@ export const useStore = create<Store>()(
       toggleBpmTower: () => set((s) => ({ showBpmTower: !s.showBpmTower })),
       toggleTunerTower: () => set((s) => ({ showTunerTower: !s.showTunerTower })),
       toggleLrMaster: () => set((s) => ({ lrMasterActive: !s.lrMasterActive })),
+      toggleDawMode: () => set((s) => ({ dawMode: !s.dawMode })),
 
       // roteamento mágico: Click/Maestro → pan L e todo o resto ("Banda") → pan R
       toggleMagicRouting: () => set((s) => {
