@@ -1,16 +1,11 @@
 import { useState } from 'react';
-import { AlertTriangle, Loader2, Play, RefreshCw, Rocket } from 'lucide-react';
+import { AlertTriangle, Loader2, Maximize2, RefreshCw, Rocket } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi } from '@/components/admin/adminApi';
 import { btnGhost, btnPrimary, Panel } from '@/components/admin/ui';
 
-// Mesmo domínio da VPS, sem subdomínio novo — o workflow deploy-staging.yml publica
-// o build mais recente da main aqui a cada push, sempre atualizado.
+// Ambiente de staging (teste interno) — abre direto no editor, sem #programa
 const STAGING_URL = 'https://vsstagepro.com.br/staging/';
-// #programa força a rota do editor (em vez da página de vendas, que é o padrão sem hash
-// na web pública). Só admin consegue abrir o editor completo pelo navegador — ver
-// DirectorAccess.tsx — então esse link é seguro mesmo sem exigir login de novo aqui.
-const STAGING_EDITOR_URL = `${STAGING_URL}#programa`;
 
 export default function StagingTab() {
   const [reloadKey, setReloadKey] = useState(0);
@@ -35,26 +30,13 @@ export default function StagingTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="text-lg font-semibold">Teste interno</h2>
-          <p className="text-xs text-logic-text-dim max-w-2xl">
-            Ambiente de testes isolado (fica em <code className="text-logic-text">/staging</code>, sem afetar quem já usa o programa).
-            Toda vez que algo muda na branch principal, ele se atualiza sozinho. Teste aqui à vontade; quando estiver tudo certo,
-            clique em "Upgrade de produção" para publicar o site e gerar/testar/distribuir o novo instalador do Mac para todo mundo de uma vez.
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <a
-            href={STAGING_EDITOR_URL} target="_blank" rel="noreferrer"
-            className={btnPrimary}
-          >
-            <Play size={13} /> Abrir o programa para teste
-          </a>
-          <button type="button" className={btnGhost} onClick={() => setReloadKey((k) => k + 1)} aria-label="Recarregar preview">
-            <RefreshCw size={13} />
-          </button>
-        </div>
+      <div>
+        <h2 className="text-lg font-semibold">Teste interno</h2>
+        <p className="text-xs text-logic-text-dim max-w-2xl">
+          Ambiente de testes isolado (fica em <code className="text-logic-text">/staging</code>, sem afetar quem já usa o programa).
+          Toda vez que algo muda na branch principal, ele se atualiza sozinho. Teste aqui à vontade; quando estiver tudo certo,
+          clique em "Upgrade de produção" para publicar o site e gerar/testar/distribuir o novo instalador do Mac para todo mundo de uma vez.
+        </p>
       </div>
 
       {msg && (
@@ -88,11 +70,36 @@ export default function StagingTab() {
         </p>
       </Panel>
 
-      <Panel title="Pré-visualização (/staging)" className="overflow-hidden">
+      <Panel
+        title="Pré-visualização (/staging)"
+        className="overflow-hidden"
+        actions={
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              className={btnGhost}
+              onClick={() => setReloadKey((k) => k + 1)}
+              aria-label="Recarregar preview"
+              title="Recarregar pré-visualização"
+            >
+              <RefreshCw size={12} /> Recarregar
+            </button>
+            <a
+              href={STAGING_URL}
+              target="_blank"
+              rel="noreferrer"
+              className={btnPrimary}
+              title="Abre o staging em tela cheia numa nova aba, sem ficar espremido no painel"
+            >
+              <Maximize2 size={12} /> Expandir em tela cheia
+            </a>
+          </div>
+        }
+      >
         <div className="h-[70vh] bg-black">
           <iframe
             key={reloadKey}
-            src={STAGING_EDITOR_URL}
+            src={STAGING_URL}
             title="VS Stage Pro — Teste interno"
             className="w-full h-full border-0"
             allow="autoplay; clipboard-write"

@@ -6,7 +6,7 @@ import AudioDeviceDialog from '@/components/AudioDeviceDialog';
 import ProjectDialogs from '@/components/ProjectDialogs';
 import ShowsMenu from '@/components/ShowsMenu';
 import { DEFAULT_SHOW_NAME } from '@/lib/shows';
-import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package } from 'lucide-react';
 import { openRecentProject, saveCurrentProject } from '@/lib/projectQuickSave';
 import { autoOpenEnabled, clearRecentProjects, listRecentProjects, setAutoOpenEnabled, type RecentProject } from '@/lib/recentProjects';
 import NetworkModeButton, { useModeSwitch } from '@/components/network/NetworkModeButton';
@@ -53,7 +53,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const setOpenDialogOpen = useStore((s) => s.setOpenDialogOpen);
   const setAudioDeviceDialogOpen = useStore((s) => s.setAudioDeviceDialogOpen);
   const setBounceDialogOpen = useStore((s) => s.setBounceDialogOpen);
-  const dawMode = useStore((s) => s.dawMode);
   const toggleDawMode = useStore((s) => s.toggleDawMode);
   const projectName = useStore((s) => s.projectName);
   const saveStatus = useStore((s) => s.saveStatus);
@@ -137,6 +136,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         { label: 'Mostrar/Ocultar Mixer', shortcut: 'M', action: () => { toggleMixer(); setOpenMenu(null); } },
         { label: 'Mostrar/Ocultar Playlist', action: () => { togglePlaylist(); setOpenMenu(null); } },
         { label: 'Maximizar Playlist', action: () => { togglePlaylistMaximized(); setOpenMenu(null); } },
+        { label: 'Mostrar/Ocultar Controles de Clipe', action: () => { toggleDawMode(); setOpenMenu(null); } },
       ],
     },
   ];
@@ -226,18 +226,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         title="Exportar áudio"
       >
         Exportar
-      </button>
-
-      <button
-        className={`px-3 h-7 flex items-center gap-1.5 transition-colors duration-100 font-medium ${
-          dawMode ? 'bg-logic-lcd-amber text-black' : 'hover:bg-logic-bg-panel-light'
-        }`}
-        style={dawMode ? undefined : { color: '#e8e8e8' }}
-        onClick={() => { toggleDawMode(); setOpenMenu(null); }}
-        title="Modo DAW: mostra ganho, mudo, solo e fade por clipe de áudio. Os ajustes feitos continuam valendo mesmo depois de desligar — só os controles ficam escondidos."
-      >
-        <SlidersHorizontal size={13} />
-        DAW
       </button>
 
       <div {...hoverProps('Shows')}>

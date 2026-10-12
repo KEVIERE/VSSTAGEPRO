@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, History, Loader2, RefreshCw, RotateCcw, UploadCloud } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, History, Loader2, Play, RefreshCw, RotateCcw, UploadCloud } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime } from '@/components/admin/adminApi';
 import type { AppRelease, AppReleaseBuild } from '@/components/admin/adminApi';
@@ -175,15 +175,26 @@ export default function VersionsTab() {
                         </p>
                       </div>
                       {isActive && (
-                        <button
-                          type="button"
-                          onClick={() => toggleActiveRequired(r)}
-                          disabled={togglingRequired === k}
-                          className={`${r.manifest.required ? btnGhost : btnPrimary} shrink-0`}
-                        >
-                          {togglingRequired === k ? <Loader2 size={13} className="animate-spin" /> : <AlertTriangle size={13} />}
-                          {togglingRequired === k ? 'Atualizando...' : r.manifest.required ? 'Tornar opcional' : 'Tornar obrigatória'}
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <a
+                            href="https://vsstagepro.com.br/#programa"
+                            target="_blank"
+                            rel="noreferrer"
+                            className={btnPrimary}
+                            title="Abre a versão oficial atualmente ativa para teste no navegador"
+                          >
+                            <Play size={13} /> Abrir programa para teste
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => toggleActiveRequired(r)}
+                            disabled={togglingRequired === k}
+                            className={r.manifest.required ? btnGhost : btnPrimary}
+                          >
+                            {togglingRequired === k ? <Loader2 size={13} className="animate-spin" /> : <AlertTriangle size={13} />}
+                            {togglingRequired === k ? 'Atualizando...' : r.manifest.required ? 'Tornar opcional' : 'Tornar obrigatória'}
+                          </button>
+                        </div>
                       )}
                       {!isActive && !isConfirming && (
                         <button type="button" onClick={() => startConfirm(r)} className={`${btnPrimary} shrink-0`}>
