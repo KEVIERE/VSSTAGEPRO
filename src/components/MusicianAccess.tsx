@@ -146,7 +146,10 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
     if (!name.trim()) throw new Error('name_required');
     const { error: err } = await supabase.auth.signUp({
       email: email.trim(), password,
-      options: { data: { name: name.trim(), instrument: instrument.trim() } },
+      options: {
+      data: { name: name.trim(), instrument: instrument.trim() },
+      emailRedirectTo: `${window.location.origin}/`,
+    },
     });
     if (err) throw err;
   });

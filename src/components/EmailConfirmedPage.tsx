@@ -63,6 +63,15 @@ export default function EmailConfirmedPage() {
               Teste grátis já começa a contar na primeira abertura
             </li>
           </ul>
+
+          <div className="mt-5 pt-5 border-t border-logic-border">
+            <a
+              href="/#baixar"
+              className="w-full h-10 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-xs font-semibold flex items-center justify-center transition shadow"
+            >
+              Baixar o VS Stage para Mac
+            </a>
+          </div>
         </div>
       </div>
     </div>

@@ -268,7 +268,10 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         const { data: signUpData, error: err } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { name: name.trim(), phone: normalizedPhone } },
+          options: {
+          data: { name: name.trim(), phone: normalizedPhone },
+          emailRedirectTo: `${window.location.origin}/`,
+        },
         });
         if (err) throw err;
         // Por segurança, o Supabase não avisa quando o e-mail já existe: devolve um
