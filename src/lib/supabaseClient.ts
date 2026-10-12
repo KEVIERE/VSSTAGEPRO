@@ -29,23 +29,16 @@ function readEmailLinkType(): string | null {
     const err = hashParams.get('error_description') || searchParams.get('error_description') || '';
     const errCode = hashParams.get('error_code') || searchParams.get('error_code') || '';
     if (errCode === 'otp_expired' || /otp|token|expired|invalid/i.test(err)) {
-      try { sessionStorage.setItem('vs_password_recovery', '1'); } catch {}
       return 'recovery';
     }
 
     const type = hashParams.get('type') || searchParams.get('type');
     if (type === 'recovery' || rawHash.includes('type=recovery') || rawSearch.includes('type=recovery') || rawHash.includes('recovery')) {
-      try { sessionStorage.setItem('vs_password_recovery', '1'); } catch {}
       return 'recovery';
     }
 
     if (type === 'signup' || rawHash.includes('type=signup') || rawSearch.includes('type=signup')) {
       return 'signup';
-    }
-
-    // Se já havia entrado em modo recovery nesta aba antes do Supabase limpar a URL para "#"
-    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('vs_password_recovery') === '1') {
-      return 'recovery';
     }
 
     return null;

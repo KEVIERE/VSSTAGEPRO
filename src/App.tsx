@@ -29,7 +29,7 @@ import ReopenLastBar from '@/components/ReopenLastBar';
 import UpdateBanner from '@/components/UpdateBanner';
 import EmailConfirmedPage from '@/components/EmailConfirmedPage';
 import ResetPasswordPage from '@/components/ResetPasswordPage';
-import { emailLinkType } from '@/lib/supabaseClient';
+import { emailLinkType, supabase } from '@/lib/supabaseClient';
 import MacDownloadPage from '@/components/MacDownloadPage';
 import SalesPage from '@/components/sales/SalesPage';
 import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
@@ -72,11 +72,6 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
     || new URLSearchParams(search).has('musico')) return 'musician';
   if (hash.startsWith('#assinatura')) return 'subscribed';
   if (hash.startsWith('#programa')) return 'director';
-  // Se estiver em modo de recuperação guardado nesta aba
-  if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("vs_password_recovery") === "1") {
-    return "recovery";
-  }
-
   // Na web pública, rota sem hash ou apenas "#" mostra a página de vendas (nunca o editor/tela preta).
   // No app do Mac ou em /staging/, abre o editor.
   const isBareOrEmptyHash = !hash || hash === "#" || hash === "#/" || hash === "#!";
@@ -103,10 +98,7 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const [isRecovery, setIsRecovery] = useState(() => {
-    if (emailLinkType === "recovery") return true;
-    try { return sessionStorage.getItem("vs_password_recovery") === "1"; } catch { return false; }
-  });
+  const [isRecovery, setIsRecovery] = useState(() => emailLinkType === 'recovery');
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
