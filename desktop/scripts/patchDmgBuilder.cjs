@@ -40,3 +40,20 @@ try {
 } catch (e) {
   console.warn('Aviso ao ajustar core.py:', e.message);
 }
+
+// 3. A biblioteca biplist insere a assinatura "bybiplist1.0" no cabeçalho do binary plist
+// gerado para icvp/bwsp no .DS_Store: "bplist00bybiplist1.0".
+// O Finder da Apple no macOS recente exige cabeçalho limpo "bplist00" estrito.
+try {
+  const biplistPy = path.join(__dirname, '..', 'node_modules', 'dmg-builder', 'vendor', 'biplist', '__init__.py');
+  if (fs.existsSync(biplistPy)) {
+    let content = fs.readFileSync(biplistPy, 'utf8');
+    if (content.includes("header = b'bplist00bybiplist1.0'")) {
+      content = content.replace("header = b'bplist00bybiplist1.0'", "header = b'bplist00'");
+      fs.writeFileSync(biplistPy, content);
+      console.log('✓ biplist ajustado: assinatura "bybiplist1.0" removida para conformidade com o Finder');
+    }
+  }
+} catch (e) {
+  console.warn('Aviso ao ajustar biplist:', e.message);
+}
