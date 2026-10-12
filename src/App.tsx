@@ -63,7 +63,12 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   if (hash.startsWith('#programa')) return 'director';
   // Na web pública, rota sem hash mostra a página de vendas. No app do Mac e na
   // preview do editor, o editor abre direto — lá não existe ambiente de publicidade.
-  if (!hash && !window.vsDesktop) return 'sales';
+  // Exceção: em /staging (laboratório de teste), nunca faz sentido mostrar a página
+  // de vendas — abre o editor direto, sem precisar do #programa na URL. Quem não for
+  // admin cai na tela "SÓ NO MAC" do DirectorAccess do mesmo jeito.
+  if (!hash && !window.vsDesktop) {
+    return /^\/staging(\/|$)/i.test(pathname) ? 'director' : 'sales';
+  }
   return 'director';
 }
 
