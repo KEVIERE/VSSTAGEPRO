@@ -262,7 +262,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         localStorage.setItem(PENDING_PROMO_LS, code);
       }
       if (view === 'forgot') {
-        const redirectTo = `${window.location.origin}/`;
+        const redirectTo = `${window.location.origin}/#recuperar`;
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
         if (err) throw err;
         setInfo('Enviamos um e-mail com as instruções para redefinir sua senha.');

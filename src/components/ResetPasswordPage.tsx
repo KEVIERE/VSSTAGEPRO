@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Apple, Check, CheckCircle2, ChevronRight, Eye, EyeOff, KeyRound, Loader2, Lock, ShieldCheck } from 'lucide-react';
+import { Apple, Check, CheckCircle2, ChevronRight, Eye, EyeOff, KeyRound, Loader2, Lock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
 import { friendlyError } from '@/lib/friendlyError';
@@ -12,17 +12,43 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
+  const [resendEmail, setResendEmail] = useState('');
+  const [resendBusy, setResendBusy] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
 
   useEffect(() => {
+    // 1. Verifica se a URL retornou erro de link expirado do Supabase
+    try {
+      const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+      const params = new URLSearchParams(hash);
+      const searchParams = new URLSearchParams(window.location.search);
+      const errDesc = params.get('error_description') || searchParams.get('error_description');
+      const errCode = params.get('error_code') || searchParams.get('error_code');
+      if (errDesc || errCode) {
+        if (/expired|otp_expired|invalid/i.test(errDesc || '') || errCode === 'otp_expired') {
+          setError('Este link de recuperação expirou ou já foi utilizado. Digite seu e-mail abaixo para receber um novo link.');
+          setExpired(true);
+        } else {
+          setError((errDesc || 'Erro no link de recuperação').replace(/\+/g, ' '));
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // 2. Busca e-mail da sessão atual
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user?.email) {
         setUserEmail(data.session.user.email);
+        setResendEmail(data.session.user.email);
       }
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       if (s?.user?.email) {
         setUserEmail(s.user.email);
+        setResendEmail(s.user.email);
       }
     });
 
@@ -48,7 +74,6 @@ export default function ResetPasswordPage() {
       const { error: err } = await supabase.auth.updateUser({ password });
       if (err) throw err;
       setSuccess(true);
-      // Limpa hashes da URL para evitar reuso do link
       try {
         window.history.replaceState(null, '', `${window.location.pathname}#baixar`);
       } catch {
@@ -57,12 +82,30 @@ export default function ResetPasswordPage() {
     } catch (err) {
       const msg = (err as Error).message;
       if (/session_id|jwt|expired|token/i.test(msg)) {
-        setError('O link de recuperação expirou ou é inválido. Solicite um novo link.');
+        setError('O link de recuperação expirou ou é inválido. Digite seu e-mail abaixo para solicitar um novo link.');
+        setExpired(true);
       } else {
         setError(friendlyError(msg));
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleResend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resendEmail.trim()) return;
+    setResendBusy(true);
+    setError(null);
+    try {
+      const redirectTo = `${window.location.origin}/#recuperar`;
+      const { error: err } = await supabase.auth.resetPasswordForEmail(resendEmail.trim(), { redirectTo });
+      if (err) throw err;
+      setResendSuccess(true);
+    } catch (err) {
+      setError(friendlyError((err as Error).message));
+    } finally {
+      setResendBusy(false);
     }
   };
 
@@ -124,8 +167,63 @@ export default function ResetPasswordPage() {
                 </a>
               </div>
             </div>
+          ) : expired ? (
+            /* Formulário para solicitar novo link caso tenha expirado */
+            <div>
+              <div className="text-center mb-6">
+                <div className="mx-auto w-14 h-14 mb-3.5 rounded-2xl bg-logic-lcd-amber/15 border border-logic-lcd-amber/30 flex items-center justify-center shadow-lg shadow-logic-lcd-amber/10">
+                  <RefreshCw size={26} className="text-logic-lcd-amber" />
+                </div>
+                <h1 className="text-2xl font-extrabold text-white tracking-tight">
+                  Link Expirado
+                </h1>
+                <p className="text-xs text-logic-text-dim mt-2 leading-relaxed">
+                  Por segurança, os links de troca de senha duram pouco tempo. Digite seu e-mail para receber um link novo imediatamente:
+                </p>
+              </div>
+
+              {resendSuccess ? (
+                <div className="p-4 rounded-xl bg-logic-lcd-green/15 border border-logic-lcd-green/40 text-center space-y-2 animate-[fadeIn_200ms_ease-out]">
+                  <p className="text-xs text-logic-lcd-green font-semibold">
+                    ✓ Enviamos um novo link de redefinição para o seu e-mail!
+                  </p>
+                  <p className="text-2xs text-logic-text-dim">
+                    Abra o e-mail mais recente que você receber e clique em "Criar nova senha".
+                  </p>
+                </div>
+              ) : (
+                <form onSubmit={handleResend} className="space-y-4">
+                  <input
+                    type="email"
+                    value={resendEmail}
+                    onChange={(e) => setResendEmail(e.target.value)}
+                    placeholder="Seu e-mail cadastrado"
+                    required
+                    autoFocus
+                    className="w-full bg-logic-bg-deep text-sm text-logic-text px-4 py-2.5 rounded-lg border border-logic-border-light outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted"
+                  />
+                  <button
+                    type="submit"
+                    disabled={resendBusy || !resendEmail.trim()}
+                    className="w-full h-11 rounded-xl bg-logic-lcd-amber text-black font-bold text-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
+                  >
+                    {resendBusy && <Loader2 size={16} className="animate-spin" />}
+                    <span>Enviar novo link de recuperação</span>
+                  </button>
+                </form>
+              )}
+
+              <div className="mt-5 text-center">
+                <a
+                  href="/#baixar"
+                  className="text-xs text-logic-text-muted hover:text-logic-text transition underline underline-offset-4"
+                >
+                  Voltar para o login
+                </a>
+              </div>
+            </div>
           ) : (
-            /* Formulário de Nova Senha */
+            /* Formulário Normal de Nova Senha */
             <div>
               <div className="text-center mb-6">
                 <div className="mx-auto w-14 h-14 mb-3.5 rounded-2xl bg-logic-lcd-amber/15 border border-logic-lcd-amber/30 flex items-center justify-center shadow-lg shadow-logic-lcd-amber/10">
