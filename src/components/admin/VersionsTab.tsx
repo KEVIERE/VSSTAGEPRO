@@ -166,9 +166,13 @@ export default function VersionsTab() {
                               <CheckCircle2 size={10} /> ATIVA
                             </span>
                           )}
-                          {r.manifest.required && (
+                          {r.manifest.required ? (
                             <span className="inline-flex items-center gap-1 px-1.5 h-4 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold">
                               <AlertTriangle size={10} /> OBRIGATÓRIA
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-1.5 h-4 rounded bg-logic-bg-elevated text-logic-text-muted text-2xs font-semibold">
+                              OPCIONAL
                             </span>
                           )}
                         </div>

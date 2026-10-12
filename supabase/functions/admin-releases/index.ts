@@ -21,6 +21,7 @@ const corsHeaders = {
 
 const BUCKET = "app-downloads";
 const MANIFEST_PATH = "mac/manifest.json";
+const GITHUB_REPO = Deno.env.get("GITHUB_REPO") ?? "KEVIERE/VSSTAGEPRO";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -174,6 +175,24 @@ async function rollback(req: Request, body: Record<string, unknown>) {
     p_by: userId,
   });
   if (recErr) throw recErr;
+
+  // Dispara o workflow set-required no GitHub Actions em segundo plano para
+  // atualizar o manifest na VPS via SSH sincronizado com o Supabase.
+  const pat = Deno.env.get("GITHUB_PAT");
+  if (pat) {
+    fetch(
+      `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/set-required.yml/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${pat}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+        body: JSON.stringify({ ref: "main", inputs: { required: String(required) } }),
+      },
+    ).catch((e) => console.error("set-required dispatch error:", e));
+  }
 
   return json({ ok: true });
 }
