@@ -62,7 +62,12 @@ export default function VersionsTab() {
   const load = async () => {
     setLoading(true);
     setError(null);
-    try { setList(await adminApi.releases()); } catch (e) { setError(friendlyError((e as Error).message)); } finally { setLoading(false); }
+    try {
+      const data = await adminApi.releases();
+      // Garante que a versão mais recente fique sempre no topo e as antigas embaixo
+      const sorted = [...(data ?? [])].sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+      setList(sorted);
+    } catch (e) { setError(friendlyError((e as Error).message)); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 

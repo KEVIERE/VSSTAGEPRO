@@ -1,6 +1,12 @@
 [functions.admin-releases]
 verify_jwt = true
 
+[functions.admin-promote]
+verify_jwt = true
+
+[functions.admin-coupons]
+verify_jwt = true
+
 [functions.prompter-audio]
 verify_jwt = true
 
