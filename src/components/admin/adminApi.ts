@@ -170,7 +170,10 @@ export const num = (n: number) => new Intl.NumberFormat('pt-BR').format(n ?? 0);
 
 export function dateTime(iso: string | null | undefined) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const d = new Date(iso);
+  const dateStr = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `${dateStr} às ${timeStr}`;
 }
 
 export function relative(iso: string | null | undefined) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, History, Loader2, Play, RefreshCw, RotateCcw, UploadCloud } from 'lucide-react';
+import { AlertTriangle, Calendar, CheckCircle2, History, Loader2, Play, RefreshCw, RotateCcw, UploadCloud } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime } from '@/components/admin/adminApi';
 import type { AppRelease, AppReleaseBuild } from '@/components/admin/adminApi';
@@ -158,9 +158,13 @@ export default function VersionsTab() {
                   <li key={k} className="px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-semibold">v{r.version}</span>
-                          <span className="text-2xs text-logic-text-muted">build {r.build}</span>
+                          <span className="text-2xs text-logic-text-muted bg-logic-bg-deep px-1.5 py-0.5 rounded border border-logic-border-dark">build {r.build}</span>
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-elevated text-2xs text-logic-text-dim border border-logic-border-light" title="Data e hora da publicação">
+                            <Calendar size={11} className="text-logic-accent shrink-0" />
+                            {dateTime(r.published_at)}
+                          </span>
                           {isActive && (
                             <span className="inline-flex items-center gap-1 px-1.5 h-4 rounded bg-logic-lcd-green/15 text-logic-lcd-green text-2xs font-bold">
                               <CheckCircle2 size={10} /> ATIVA
@@ -176,10 +180,8 @@ export default function VersionsTab() {
                             </span>
                           )}
                         </div>
-                        <p className="text-2xs text-logic-text-dim mt-0.5">
-                          Publicada em {dateTime(r.published_at)}
-                          {r.published_by_email ? ` por ${r.published_by_email}` : ''}
-                          {' · '}
+                        <p className="text-2xs text-logic-text-dim mt-1">
+                          {r.published_by_email ? `Publicada por ${r.published_by_email} · ` : ''}
                           {r.manifest.builds.map((b) => `${b.label} (${mb(b.size)})`).join(' · ')}
                         </p>
                       </div>
