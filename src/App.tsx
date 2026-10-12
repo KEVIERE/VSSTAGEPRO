@@ -28,6 +28,7 @@ import SplashScreen from '@/components/SplashScreen';
 import ReopenLastBar from '@/components/ReopenLastBar';
 import UpdateBanner from '@/components/UpdateBanner';
 import EmailConfirmedPage from '@/components/EmailConfirmedPage';
+import ResetPasswordPage from '@/components/ResetPasswordPage';
 import { emailLinkType } from '@/lib/supabaseClient';
 import MacDownloadPage from '@/components/MacDownloadPage';
 import SalesPage from '@/components/sales/SalesPage';
@@ -44,12 +45,13 @@ import { useLiveBroadcast } from '@/lib/useLiveBroadcast';
 import { usePendingRequests } from '@/lib/usePendingRequests';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 
-function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' {
+function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' {
   const { pathname, hash, search } = window.location;
   // No build de staging (servido em /staging/, mesmo domínio), o próprio prefixo
   // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
   const seg = pathname.replace(/^\/+|\/+$/g, '').toLowerCase().replace(/^staging\/?/, '');
   if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
+  if (seg === 'recuperar' || seg === 'recuperar-senha' || hash.startsWith('#recuperar') || hash.startsWith('#reset')) return 'recovery';
   if (seg === 'baixar') return 'download';
   if (seg === 'tela') return 'screen';
   if (seg === 'produtor') return 'producer';
@@ -82,6 +84,26 @@ function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  const [isRecovery, setIsRecovery] = useState(() => emailLinkType === 'recovery');
+
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true);
+      }
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Link ou rota de recuperação de senha: abre a página dedicada para criar nova senha
+  if (emailLinkType === 'recovery' || isRecovery || route === 'recovery') {
+    return (
+      <ErrorBoundary>
+        <ResetPasswordPage />
+      </ErrorBoundary>
+    );
+  }
 
   // Link de confirmação de e-mail: mostra só o card de "confirmado", nunca o editor
   // ou a página de downloads por trás — independente de qual rota o link apontava.

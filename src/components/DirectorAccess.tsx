@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
+import { Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { emailLinkType, supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
@@ -120,7 +120,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [license, setLicense] = useState<License | null>(null);
-  const [view, setView] = useState<'signin' | 'signup'>('signin');
+  const [view, setView] = useState<'signin' | 'signup' | 'forgot'>('signin');
   // "Assinar agora" na tela de entrada (ou #programa/assinar no site): depois do login abre os planos.
   const [subscribeOpen, setSubscribeOpen] = useState(() => window.location.hash.includes('assinar'));
   const [name, setName] = useState('');
@@ -261,6 +261,14 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         if (!data?.valid) throw new Error(data?.error ?? 'promo_invalid');
         localStorage.setItem(PENDING_PROMO_LS, code);
       }
+      if (view === 'forgot') {
+        const redirectTo = `${window.location.origin}/`;
+        const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+        if (err) throw err;
+        setInfo('Enviamos um e-mail com as instruções para redefinir sua senha.');
+        setBusy(false);
+        return;
+      }
       if (view === 'signup') {
         if (!name.trim()) throw new Error('name_required');
         const normalizedPhone = normalizePhone(phone);
@@ -347,7 +355,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         <div className="relative w-[400px] max-w-full bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl overflow-hidden">
           <div className="flex items-center px-4 h-9 border-b border-logic-border bg-logic-bg-elevated">
             <span className="text-2xs font-semibold tracking-widest text-logic-text-muted">
-              {subscribeOpen ? 'ENTRE PARA ASSINAR' : signup ? 'CRIAR CONTA' : 'ENTRAR'}
+              {subscribeOpen ? 'ENTRE PARA ASSINAR' : view === 'forgot' ? 'RECUPERAR SENHA' : signup ? 'CRIAR CONTA' : 'ENTRAR'}
             </span>
           </div>
 
@@ -360,20 +368,32 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               <p className="text-xs text-logic-text-dim mt-1">
                 {subscribeOpen
                   ? 'Entre ou crie sua conta para escolher seu plano'
-                  : signup ? 'Crie sua conta e use grátis' : 'Entre para abrir seu show'}
+                  : view === 'forgot' ? 'Digite seu e-mail para receber o link de nova senha' : signup ? 'Crie sua conta e use grátis' : 'Entre para abrir seu show'}
               </p>
             </div>
 
-            <div className="grid grid-cols-2 p-1 rounded-lg bg-logic-bg-deep border border-logic-border-dark">
-              {(['signin', 'signup'] as const).map((v) => (
+            {view === 'forgot' ? (
+              <div className="flex justify-between items-center px-1">
                 <button
-                  key={v} type="button" onClick={() => { setView(v); setError(null); }}
-                  className={`py-1.5 rounded-md text-xs font-medium transition-colors ${view === v ? 'bg-logic-bg-elevated text-logic-text shadow' : 'text-logic-text-muted hover:text-logic-text'}`}
+                  type="button"
+                  onClick={() => { setView('signin'); setError(null); setInfo(null); }}
+                  className="text-xs text-logic-text-muted hover:text-logic-text transition flex items-center gap-1"
                 >
-                  {v === 'signin' ? 'Entrar' : 'Criar conta'}
+                  &larr; Voltar para o login
                 </button>
-              ))}
-            </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 p-1 rounded-lg bg-logic-bg-deep border border-logic-border-dark">
+                {(['signin', 'signup'] as const).map((v) => (
+                  <button
+                    key={v} type="button" onClick={() => { setView(v); setError(null); setInfo(null); }}
+                    className={`py-1.5 rounded-md text-xs font-medium transition-colors ${view === v ? 'bg-logic-bg-elevated text-logic-text shadow' : 'text-logic-text-muted hover:text-logic-text'}`}
+                  >
+                    {v === 'signin' ? 'Entrar' : 'Criar conta'}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {error && (
               <div className="px-3 py-2 rounded-lg border bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red text-xs text-center space-y-1.5">
@@ -404,29 +424,35 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </div>
             )}
 
-            {signup && (
+            {view === 'forgot' ? (
+              <Field icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail cadastrado" autoComplete="email" required autoFocus />
+            ) : (
               <>
-                <Field icon={User} value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" maxLength={60} autoFocus />
-                <Field icon={Phone} type="tel" value={phone} onChange={(e) => setPhone(maskPhone(e.target.value))} placeholder="Seu telefone" autoComplete="tel" maxLength={20} required />
+                {signup && (
+                  <>
+                    <Field icon={User} value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" maxLength={60} autoFocus />
+                    <Field icon={Phone} type="tel" value={phone} onChange={(e) => setPhone(maskPhone(e.target.value))} placeholder="Seu telefone" autoComplete="tel" maxLength={20} required />
+                  </>
+                )}
+                <Field icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" autoComplete="email" required autoFocus={!signup} />
+                <div className="relative">
+                  <Field
+                    icon={Lock} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Senha" autoComplete={signup ? 'new-password' : 'current-password'} required minLength={6}
+                    className="pr-9"
+                  />
+                  <button
+                    type="button" onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-logic-text transition"
+                  >
+                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
               </>
             )}
-            <Field icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" autoComplete="email" required autoFocus={!signup} />
-            <div className="relative">
-              <Field
-                icon={Lock} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)}
-                placeholder="Senha" autoComplete={signup ? 'new-password' : 'current-password'} required minLength={6}
-                className="pr-9"
-              />
-              <button
-                type="button" onClick={() => setShowPassword((v) => !v)}
-                aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-logic-text transition"
-              >
-                {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
 
-            {!signup && (
+            {view === 'signin' && (
               <button
                 type="button" onClick={() => setRemember((v) => !v)}
                 className="w-full flex items-center gap-2 text-xs text-logic-text-dim hover:text-logic-text transition"
@@ -438,7 +464,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </button>
             )}
 
-            {promoOpen ? (
+            {view !== 'forgot' && (promoOpen ? (
               <div className="relative">
                 <Field icon={Tag} value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="CÓDIGO PROMOCIONAL" maxLength={32} autoFocus />
                 <button
@@ -455,7 +481,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               >
                 <Tag size={12} /> Tem um código promocional?
               </button>
-            )}
+            ))}
 
             <button
               type="submit" disabled={busy}
@@ -464,8 +490,17 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               {busy && <Loader2 size={15} className="animate-spin" />}
               {signup
                 ? (subscribeOpen ? 'Criar conta e assinar' : 'Criar conta e começar o teste')
-                : (subscribeOpen ? 'Entrar e assinar' : 'Entrar')}
+                : view === 'forgot' ? 'Enviar link de recuperação' : (subscribeOpen ? 'Entrar e assinar' : 'Entrar')}
             </button>
+            {view === 'signin' && (
+              <button
+                type="button"
+                onClick={() => { setView('forgot'); setError(null); setInfo(null); }}
+                className="w-full text-center text-2xs text-logic-text-dim hover:text-logic-text transition pt-1 flex items-center justify-center gap-1"
+              >
+                <KeyRound size={11} /> Esqueci minha senha
+              </button>
+            )}
           </form>
 
           <div className="grid grid-cols-2 border-t border-logic-border">
