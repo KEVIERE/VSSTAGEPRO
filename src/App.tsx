@@ -72,15 +72,24 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
     || new URLSearchParams(search).has('musico')) return 'musician';
   if (hash.startsWith('#assinatura')) return 'subscribed';
   if (hash.startsWith('#programa')) return 'director';
-  // Na web pública, rota sem hash mostra a página de vendas. No app do Mac e na
-  // preview do editor, o editor abre direto — lá não existe ambiente de publicidade.
-  // Exceção: em /staging (laboratório de teste), nunca faz sentido mostrar a página
-  // de vendas — abre o editor direto, sem precisar do #programa na URL. Quem não for
-  // admin cai na tela "SÓ NO MAC" do DirectorAccess do mesmo jeito.
-  if (!hash && !window.vsDesktop) {
-    return /^\/staging(\/|$)/i.test(pathname) ? 'director' : 'sales';
+  // Se estiver em modo de recuperação guardado nesta aba
+  if (typeof sessionStorage !== "undefined" && sessionStorage.getItem("vs_password_recovery") === "1") {
+    return "recovery";
   }
-  return 'director';
+
+  // Na web pública, rota sem hash ou apenas "#" mostra a página de vendas (nunca o editor/tela preta).
+  // No app do Mac ou em /staging/, abre o editor.
+  const isBareOrEmptyHash = !hash || hash === "#" || hash === "#/" || hash === "#!";
+  if (isBareOrEmptyHash && !window.vsDesktop) {
+    return /^\/staging(\/|$)/i.test(pathname) ? "director" : "sales";
+  }
+
+  // Na web pública, qualquer rota desconhecida deve ir para "sales", NUNCA para o editor!
+  if (!window.vsDesktop && !hash.startsWith("#programa")) {
+    return /^\/staging(\/|$)/i.test(pathname) ? "director" : "sales";
+  }
+
+  return "director";
 }
 
 function App() {
@@ -94,12 +103,17 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const [isRecovery, setIsRecovery] = useState(() => emailLinkType === 'recovery');
+  const [isRecovery, setIsRecovery] = useState(() => {
+    if (emailLinkType === "recovery") return true;
+    try { return sessionStorage.getItem("vs_password_recovery") === "1"; } catch { return false; }
+  });
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      if (event === "PASSWORD_RECOVERY") {
+        try { sessionStorage.setItem("vs_password_recovery", "1"); } catch {}
         setIsRecovery(true);
+        setRoute("recovery");
       }
     });
     return () => sub?.subscription?.unsubscribe();

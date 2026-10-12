@@ -3,7 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-// 1. Se a URL chegou com duplo hash (ex: #recuperar#access_token=... gerado por redirects antigos),
+// 1. Se a URL chegou com duplo hash (ex: #recuperar#access_token=...),
 // normaliza o hash para que o SDK do Supabase leia o access_token sem erros.
 try {
   if (typeof window !== 'undefined' && window.location?.hash) {
@@ -29,17 +29,23 @@ function readEmailLinkType(): string | null {
     const err = hashParams.get('error_description') || searchParams.get('error_description') || '';
     const errCode = hashParams.get('error_code') || searchParams.get('error_code') || '';
     if (errCode === 'otp_expired' || /otp|token|expired|invalid/i.test(err)) {
+      try { sessionStorage.setItem('vs_password_recovery', '1'); } catch {}
       return 'recovery';
     }
 
     const type = hashParams.get('type') || searchParams.get('type');
-    if (type) return type;
-
-    if (rawHash.includes('type=recovery') || rawSearch.includes('type=recovery') || rawHash.includes('recovery')) {
+    if (type === 'recovery' || rawHash.includes('type=recovery') || rawSearch.includes('type=recovery') || rawHash.includes('recovery')) {
+      try { sessionStorage.setItem('vs_password_recovery', '1'); } catch {}
       return 'recovery';
     }
-    if (rawHash.includes('type=signup') || rawSearch.includes('type=signup')) {
+
+    if (type === 'signup' || rawHash.includes('type=signup') || rawSearch.includes('type=signup')) {
       return 'signup';
+    }
+
+    // Se já havia entrado em modo recovery nesta aba antes do Supabase limpar a URL para "#"
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('vs_password_recovery') === '1') {
+      return 'recovery';
     }
 
     return null;

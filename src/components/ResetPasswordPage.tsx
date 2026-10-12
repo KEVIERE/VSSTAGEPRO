@@ -73,6 +73,7 @@ export default function ResetPasswordPage() {
     try {
       const { error: err } = await supabase.auth.updateUser({ password });
       if (err) throw err;
+      try { sessionStorage.removeItem('vs_password_recovery'); } catch {}
       setSuccess(true);
       try {
         window.history.replaceState(null, '', `${window.location.pathname}#baixar`);
@@ -151,7 +152,7 @@ export default function ResetPasswordPage() {
 
               <div className="mt-6 space-y-2.5">
                 <a
-                  href="/#baixar"
+                  href="/#baixar" onClick={() => { try { sessionStorage.removeItem('vs_password_recovery'); } catch {} }}
                   className="w-full h-11 rounded-xl bg-gradient-to-r from-logic-lcd-green to-emerald-500 hover:from-emerald-400 hover:to-logic-lcd-green text-black font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-logic-lcd-green/20 group"
                 >
                   <Apple size={18} />
