@@ -52,7 +52,7 @@ export default function ResetPasswordPage() {
       }
     });
 
-    return () => sub.subscription.unsubscribe();
+    return () => sub?.subscription?.unsubscribe();
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
     setResendBusy(true);
     setError(null);
     try {
-      const redirectTo = `${window.location.origin}/#recuperar`;
+      const redirectTo = `${window.location.origin}/recuperar`;
       const { error: err } = await supabase.auth.resetPasswordForEmail(resendEmail.trim(), { redirectTo });
       if (err) throw err;
       setResendSuccess(true);

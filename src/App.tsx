@@ -51,7 +51,16 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
   const seg = pathname.replace(/^\/+|\/+$/g, '').toLowerCase().replace(/^staging\/?/, '');
   if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
-  if (seg === 'recuperar' || seg === 'recuperar-senha' || hash.startsWith('#recuperar') || hash.startsWith('#reset')) return 'recovery';
+  if (
+    seg === 'recuperar' ||
+    seg === 'recuperar-senha' ||
+    hash.startsWith('#recuperar') ||
+    hash.startsWith('#reset') ||
+    hash.includes('error_code=otp_expired') ||
+    hash.includes('Email+link') ||
+    hash.includes('type=recovery') ||
+    search.includes('type=recovery')
+  ) return 'recovery';
   if (seg === 'baixar') return 'download';
   if (seg === 'tela') return 'screen';
   if (seg === 'produtor') return 'producer';
@@ -93,7 +102,7 @@ function App() {
         setIsRecovery(true);
       }
     });
-    return () => sub.subscription.unsubscribe();
+    return () => sub?.subscription?.unsubscribe();
   }, []);
 
   // Link ou rota de recuperação de senha: abre a página dedicada para criar nova senha

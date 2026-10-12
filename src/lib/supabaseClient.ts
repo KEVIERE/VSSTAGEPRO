@@ -3,18 +3,45 @@ import { createClient } from '@supabase/supabase-js';
 const url = import.meta.env.VITE_SUPABASE_URL as string;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
-// O link do e-mail chega com "#access_token=...&type=signup" ou "type=recovery"
-// O cliente do Supabase processa e limpa esse hash de forma assíncrona ao iniciar,
-// então guardamos o "type" aqui, de forma síncrona, antes dele desaparecer da URL.
+// 1. Se a URL chegou com duplo hash (ex: #recuperar#access_token=... gerado por redirects antigos),
+// normaliza o hash para que o SDK do Supabase leia o access_token sem erros.
+try {
+  if (typeof window !== 'undefined' && window.location?.hash) {
+    const rawHash = window.location.hash;
+    const atIdx = rawHash.indexOf('#access_token=');
+    if (atIdx > 0) {
+      window.location.hash = rawHash.slice(atIdx);
+    }
+  }
+} catch {
+  /* ignore */
+}
+
+// 2. Lê o tipo de link de autenticação de forma síncrona antes do Supabase limpar o hash da URL.
 function readEmailLinkType(): string | null {
   try {
-    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
-    const hashType = new URLSearchParams(hash).get('type');
-    if (hashType) return hashType;
-    const searchType = new URLSearchParams(window.location.search).get('type');
-    if (searchType) return searchType;
-    if (hash.includes('type=recovery') || window.location.search.includes('type=recovery') || hash.includes('recovery')) return 'recovery';
-    if (hash.includes('type=signup') || window.location.search.includes('type=signup')) return 'signup';
+    const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    const rawSearch = window.location.search.startsWith('?') ? window.location.search.slice(1) : '';
+    const hashParams = new URLSearchParams(rawHash);
+    const searchParams = new URLSearchParams(rawSearch);
+
+    // Se a URL contém erro de OTP/link expirado ou inválido
+    const err = hashParams.get('error_description') || searchParams.get('error_description') || '';
+    const errCode = hashParams.get('error_code') || searchParams.get('error_code') || '';
+    if (errCode === 'otp_expired' || /otp|token|expired|invalid/i.test(err)) {
+      return 'recovery';
+    }
+
+    const type = hashParams.get('type') || searchParams.get('type');
+    if (type) return type;
+
+    if (rawHash.includes('type=recovery') || rawSearch.includes('type=recovery') || rawHash.includes('recovery')) {
+      return 'recovery';
+    }
+    if (rawHash.includes('type=signup') || rawSearch.includes('type=signup')) {
+      return 'signup';
+    }
+
     return null;
   } catch {
     return null;

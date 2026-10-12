@@ -98,7 +98,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           return;
         }
       } else if (view === 'forgot') {
-        const redirectTo = `${window.location.origin}/#recuperar`;
+        const redirectTo = `${window.location.origin}/recuperar`;
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
         if (err) throw err;
         setInfo('Enviamos um e-mail com o link para criar uma nova senha.');
