@@ -129,7 +129,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
       style={{ background: 'radial-gradient(ellipse at top, #14161f 0%, #08090c 70%)' }}
     >
       {/* Luzes neon de fundo estilo DAW */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
+      <div className="hidden sm:block fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
         <div className="absolute top-0 left-1/4 -translate-x-1/2 w-[700px] h-[700px] rounded-full bg-logic-lcd-green/8 blur-[160px] animate-pulse" style={{ animationDuration: '8s' }} />
         <div className="absolute top-1/3 right-1/4 translate-x-1/2 w-[650px] h-[650px] rounded-full bg-logic-lcd-amber/7 blur-[180px] animate-pulse" style={{ animationDuration: '10s' }} />
         <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-emerald-500/5 blur-[200px]" />

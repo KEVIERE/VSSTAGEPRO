@@ -94,15 +94,17 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   if (hash.startsWith('#programa')) return 'director';
 
   // Na web pública, rota sem hash ou apenas "#" mostra a página de vendas (nunca o editor/tela preta).
-  // No app do Mac ou em /staging/, abre o editor.
+  // No app do Mac ou em /staging/ (desktop), abre o editor.
   const isBareOrEmptyHash = !hash || hash === "#" || hash === "#/" || hash === "#!";
   if (isBareOrEmptyHash && !window.vsDesktop) {
-    return /^\/staging(\/|$)/i.test(pathname) ? "director" : "sales";
+    return /^\/staging(\/|$)/i.test(pathname) && !isMobileDevice ? "director" : "sales";
   }
 
-  // Na web pública, qualquer rota desconhecida deve ir para "sales", NUNCA para o editor!
-  if (!window.vsDesktop && !hash.startsWith("#programa")) {
-    return /^\/staging(\/|$)/i.test(pathname) ? "director" : "sales";
+  // Na web pública em navegadores (fora do app desktop oficial do Mac):
+  // NUNCA abre o editor desktop (que fica tela preta). Sempre vai para a página de vendas!
+  if (!window.vsDesktop) {
+    if (/^\/staging(\/|$)/i.test(pathname) && !isMobileDevice) return "director";
+    return "sales";
   }
 
   return "director";

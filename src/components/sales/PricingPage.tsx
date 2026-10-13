@@ -228,7 +228,7 @@ export default function PricingPage() {
   return (
     <div className="min-h-screen bg-[#08090b] text-[#e8e8e8] font-sans antialiased selection:bg-logic-lcd-green selection:text-black relative overflow-x-hidden">
       {/* Luzes neon de fundo estilo DAW */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
+      <div className="hidden sm:block fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[550px] bg-gradient-to-b from-logic-lcd-green/12 via-emerald-500/5 to-transparent blur-[140px]" />
         <div className="absolute top-1/3 right-[-10%] w-[550px] h-[550px] bg-logic-lcd-amber/7 blur-[150px]" />
         <div className="absolute bottom-1/4 left-[-10%] w-[500px] h-[500px] bg-logic-lcd-green/6 blur-[130px]" />

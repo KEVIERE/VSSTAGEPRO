@@ -257,29 +257,15 @@ function RevealBlock({
 }) {
   const { ref, revealed } = useScrollReveal();
 
-  const getTransform = () => {
-    if (revealed) return 'opacity-100 translate-x-0 translate-y-0 scale-100';
-    switch (direction) {
-      case 'left':
-        // No mobile (< 640px), SEMPRE opacity-100 para NUNCA ter tela preta!
-        return 'opacity-100 sm:opacity-0 sm:-translate-x-8 sm:translate-y-3 sm:scale-[0.99]';
-      case 'right':
-        return 'opacity-100 sm:opacity-0 sm:translate-x-8 sm:translate-y-3 sm:scale-[0.99]';
-      case 'zoom':
-        return 'opacity-100 sm:opacity-0 sm:scale-[0.97] sm:translate-y-3';
-      case 'down':
-        return 'opacity-100 sm:opacity-0 sm:-translate-y-4 sm:scale-[0.99]';
-      case 'up':
-      default:
-        return 'opacity-100 sm:opacity-0 sm:translate-y-4 sm:scale-[0.99]';
-    }
-  };
-
   return (
     <div
       ref={ref}
       style={{ transitionDelay: `${delay}ms` }}
-      className={`transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${getTransform()} ${className}`}
+      className={`transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        revealed
+          ? 'opacity-100 translate-x-0 translate-y-0 scale-100'
+          : 'opacity-100 sm:opacity-0 sm:translate-y-4 sm:scale-[0.99]'
+      } ${className}`}
     >
       {children}
     </div>
@@ -296,9 +282,12 @@ export default function SalesPage() {
   const subscribe = () => { window.location.hash = '#planos'; };
 
   return (
-    <div className="min-h-screen bg-[#090a0d] text-logic-text selection:bg-logic-lcd-green selection:text-black overflow-x-hidden w-full max-w-full">
-      {/* Luzes de Fundo Ambientais Dinâmicas */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
+    <div
+      className="min-h-screen bg-[#090a0d] text-logic-text selection:bg-logic-lcd-green selection:text-black overflow-x-hidden w-full max-w-full"
+      style={{ background: 'radial-gradient(ellipse at 50% 0%, #13151f 0%, #090a0d 70%)' }}
+    >
+      {/* Luzes de Fundo Ambientais Dinâmicas (apenas em telas maiores para evitar travamento de GPU no mobile) */}
+      <div className="hidden sm:block fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
         <div className="absolute top-0 left-1/4 -translate-x-1/2 w-[700px] h-[700px] rounded-full bg-logic-lcd-green/8 blur-[160px] animate-pulse" style={{ animationDuration: '8s' }} />
         <div className="absolute top-1/3 right-1/4 translate-x-1/2 w-[650px] h-[650px] rounded-full bg-logic-lcd-amber/7 blur-[180px] animate-pulse" style={{ animationDuration: '10s' }} />
         <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-emerald-500/5 blur-[200px]" />
