@@ -244,13 +244,41 @@ const FAQS = [
   },
 ];
 
-function RevealBlock({ children, className = '', delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+function RevealBlock({
+  children,
+  className = '',
+  delay = 0,
+  direction = 'up',
+}: {
+  children: React.ReactNode;
+  className?: string;
+  delay?: number;
+  direction?: 'up' | 'down' | 'left' | 'right' | 'zoom';
+}) {
   const { ref, revealed } = useScrollReveal();
+
+  const getTransform = () => {
+    if (revealed) return 'opacity-100 translate-x-0 translate-y-0 scale-100';
+    switch (direction) {
+      case 'left':
+        return 'opacity-0 -translate-x-12 translate-y-0 scale-[0.98]';
+      case 'right':
+        return 'opacity-0 translate-x-12 translate-y-0 scale-[0.98]';
+      case 'zoom':
+        return 'opacity-0 scale-95 translate-y-8';
+      case 'down':
+        return 'opacity-0 -translate-y-10 scale-[0.98]';
+      case 'up':
+      default:
+        return 'opacity-0 translate-y-12 scale-[0.98]';
+    }
+  };
+
   return (
     <div
       ref={ref}
       style={{ transitionDelay: `${delay}ms` }}
-      className={`transition-all duration-700 ease-out ${revealed ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'} ${className}`}
+      className={`transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${getTransform()} ${className}`}
     >
       {children}
     </div>
@@ -329,28 +357,28 @@ export default function SalesPage() {
             Esqueça DAWs de estúdio que travam com timelines gigantescas. O <strong className="text-white">VS Stage Pro</strong> reúne editor multitracks com timeline independente por música, mixer com Timecode LTC blindado, Modo Show à prova de acidentes, cifras sincronizadas no celular da banda e teleprompter na TV do palco.
           </p>
 
-          {/* Botões de Ação Hero */}
+          {/* Botões de Ação Hero - DESTAQUE PRINCIPAL EM PLANOS & ASSINATURA */}
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
-            {/* Botão Primário com Efeito de Luz e Halo Neon */}
+            {/* Botão Primário (DESTAQUE MÁXIMO): Ver Planos & Assinatura */}
             <div className="relative group w-full sm:w-auto">
               <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-60 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
-              
-              <a
-                href="#baixar"
-                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[330px] h-[64px] px-6 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+
+              <button
+                onClick={subscribe}
+                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[340px] h-[64px] px-6 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
 
                 <div className="flex items-center gap-3.5">
                   <div className="w-11 h-11 rounded-xl bg-black/15 backdrop-blur-sm border border-black/10 flex items-center justify-center text-black shadow-sm group-hover:scale-105 transition-transform shrink-0">
-                    <Apple size={24} />
+                    <Sparkles size={22} className="text-black" />
                   </div>
                   <div className="text-left flex flex-col justify-center">
                     <span className="text-[15px] sm:text-base font-black tracking-tight text-black leading-tight">
-                      BAIXAR E TESTAR NO MAC
+                      VER PLANOS & ASSINATURA
                     </span>
                     <span className="text-[11px] font-extrabold text-black/80 leading-tight tracking-wide mt-0.5">
-                      48h de teste grátis • Apple Silicon & Intel
+                      Planos flexíveis • A partir de R$ 49,92/mês
                     </span>
                   </div>
                 </div>
@@ -358,29 +386,29 @@ export default function SalesPage() {
                 <div className="w-9 h-9 rounded-xl bg-black/15 flex items-center justify-center group-hover:bg-black/25 group-hover:translate-x-1 transition-all shrink-0">
                   <ArrowRight size={18} className="text-black" />
                 </div>
-              </a>
+              </button>
             </div>
 
-            {/* Botão Secundário: Planos & Assinatura */}
-            <button
-              onClick={subscribe}
-              className="relative group w-full sm:w-auto min-w-[250px] sm:min-w-[270px] h-[64px] px-6 rounded-2xl btn-glass-secondary text-white flex items-center justify-between gap-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+            {/* Botão Secundário: Baixar e Testar no Mac */}
+            <a
+              href="#baixar"
+              className="relative group w-full sm:w-auto min-w-[260px] sm:min-w-[290px] h-[64px] px-6 rounded-2xl btn-glass-secondary text-white flex items-center justify-between gap-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             >
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400 group-hover:bg-amber-400/20 group-hover:scale-105 transition-all shrink-0">
-                  <Sparkles size={20} />
+                <div className="w-11 h-11 rounded-xl bg-white/[0.08] border border-white/15 flex items-center justify-center text-white group-hover:bg-white/[0.15] group-hover:scale-105 transition-all shrink-0">
+                  <Apple size={22} />
                 </div>
                 <div className="text-left flex flex-col justify-center">
-                  <span className="text-[14px] sm:text-[15px] font-bold text-white group-hover:text-amber-300 transition-colors leading-tight">
-                    Ver Planos & Assinatura
+                  <span className="text-[14px] sm:text-[15px] font-bold text-white group-hover:text-emerald-300 transition-colors leading-tight">
+                    Baixar e Testar no Mac
                   </span>
                   <span className="text-[11px] font-medium text-logic-text-dim leading-tight tracking-wide mt-0.5">
-                    Planos flexíveis para palco
+                    48h de teste grátis sem cartão
                   </span>
                 </div>
               </div>
-              <ChevronRight size={18} className="text-white/40 group-hover:text-amber-400 group-hover:translate-x-1 transition-all shrink-0" />
-            </button>
+              <ChevronRight size={18} className="text-white/40 group-hover:text-emerald-400 group-hover:translate-x-1 transition-all shrink-0" />
+            </a>
           </div>
 
           {/* Selos de Confiança */}
@@ -427,15 +455,17 @@ export default function SalesPage() {
       <section className="relative z-10 border-y border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
           {STATS.map(({ value, label, icon: Icon, color }, i) => (
-            <div key={value} className="flex items-start gap-3.5">
-              <div className={`p-2.5 rounded-xl bg-white/[0.04] border border-white/10 ${color} shrink-0`}>
-                <Icon size={22} />
+            <RevealBlock key={value} delay={i * 90} direction="up">
+              <div className="flex items-start gap-3.5">
+                <div className={`p-2.5 rounded-xl bg-white/[0.04] border border-white/10 ${color} shrink-0`}>
+                  <Icon size={22} />
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-extrabold text-white tracking-tight">{value}</div>
+                  <div className="text-xs text-logic-text-dim mt-0.5 leading-snug">{label}</div>
+                </div>
               </div>
-              <div>
-                <div className="text-lg sm:text-xl font-extrabold text-white tracking-tight">{value}</div>
-                <div className="text-xs text-logic-text-dim mt-0.5 leading-snug">{label}</div>
-              </div>
-            </div>
+            </RevealBlock>
           ))}
         </div>
       </section>
@@ -443,24 +473,26 @@ export default function SalesPage() {
       {/* Seção dos Pilares Profissionais (O Que Torna o VS Stage Único) */}
       <section id="recursos" className="relative z-10 py-24 sm:py-32">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-3xl mx-auto mb-20">
-            <span className="px-3 py-1 rounded-full bg-logic-lcd-green/10 border border-logic-lcd-green/20 text-logic-lcd-green text-xs font-bold tracking-widest uppercase">
-              Recursos de Alta Performance
-            </span>
-            <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight mt-4">
-              Projetado para eliminar todas as falhas no palco
-            </h2>
-            <p className="text-logic-text-dim text-base mt-4 leading-relaxed">
-              Cada detalhe do VS Stage Pro foi desenvolvido pensando na pressão do show ao vivo, onde um segundo de silêncio ou um clique errado custa caro.
-            </p>
-          </div>
+          <RevealBlock direction="up">
+            <div className="text-center max-w-3xl mx-auto mb-20">
+              <span className="px-3 py-1 rounded-full bg-logic-lcd-green/10 border border-logic-lcd-green/20 text-logic-lcd-green text-xs font-bold tracking-widest uppercase">
+                Recursos de Alta Performance
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight mt-4">
+                Projetado para eliminar todas as falhas no palco
+              </h2>
+              <p className="text-logic-text-dim text-base mt-4 leading-relaxed">
+                Cada detalhe do VS Stage Pro foi desenvolvido pensando na pressão do show ao vivo, onde um segundo de silêncio ou um clique errado custa caro.
+              </p>
+            </div>
+          </RevealBlock>
 
           <div className="space-y-24">
             {MAIN_PILLARS.map((p, i) => (
-              <RevealBlock key={p.title} delay={i % 2 === 0 ? 0 : 100}>
-                <div className={`grid lg:grid-cols-12 gap-8 sm:gap-12 items-center ${i % 2 === 1 ? 'lg:[&>*:first-child]:order-2' : ''}`}>
-                  {/* Imagem do Print */}
-                  <div className="lg:col-span-7 relative group">
+              <div key={p.title} className={`grid lg:grid-cols-12 gap-8 sm:gap-12 items-center ${i % 2 === 1 ? 'lg:[&>*:first-child]:order-2' : ''}`}>
+                {/* Imagem do Print desliza com movimento ao rolar */}
+                <RevealBlock delay={60} direction={i % 2 === 0 ? 'left' : 'right'} className="lg:col-span-7">
+                  <div className="relative group">
                     <div className="absolute -inset-2 rounded-2xl bg-gradient-to-r from-logic-lcd-green/15 to-logic-lcd-amber/15 blur-xl opacity-0 group-hover:opacity-100 transition duration-500" />
                     {p.shot.includes("vs-timecode") || p.shot.includes("vs-master") ? (
                       /* Faders / canais verticais com tamanho reduzido em 60% e centralizados em pedestal DAW */
@@ -479,8 +511,8 @@ export default function SalesPage() {
                         </div>
                       </div>
                     ) : p.shot.includes("vs-playlist") ? (
-                      /* Imagem da Playlist reduzida em 15% conforme solicitado */
-                      <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition max-w-[85%] mx-auto">
+                      /* Imagem da Playlist reduzida conforme solicitado */
+                      <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition max-w-[70%] sm:max-w-[72%] max-w-[420px] mx-auto">
                         <img
                           src={p.shot}
                           alt={p.title}
@@ -505,9 +537,11 @@ export default function SalesPage() {
                       </div>
                     )}
                   </div>
+                </RevealBlock>
 
-                  {/* Texto Explicativo */}
-                  <div className="lg:col-span-5 space-y-4">
+                {/* Texto Explicativo desliza do lado oposto */}
+                <RevealBlock delay={140} direction={i % 2 === 0 ? 'right' : 'left'} className="lg:col-span-5">
+                  <div className="space-y-4">
                     <span className={`inline-block px-3 py-1 rounded-md text-2xs font-extrabold tracking-wider uppercase ${p.badge}`}>
                       {p.tag}
                     </span>
@@ -518,8 +552,8 @@ export default function SalesPage() {
                       {p.desc}
                     </p>
                   </div>
-                </div>
-              </RevealBlock>
+                </RevealBlock>
+              </div>
             ))}
           </div>
         </div>
@@ -528,89 +562,101 @@ export default function SalesPage() {
       {/* Tabela Comparativa: DAW de Estúdio vs. VS Stage Pro */}
       <section id="diferenciais" className="relative z-10 py-20 border-y border-white/[0.08] bg-[#0c0d12]/95 backdrop-blur-xl">
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <span className="text-2xs font-extrabold tracking-widest text-logic-lcd-amber uppercase px-3 py-1 rounded-full bg-logic-lcd-amber/10 border border-logic-lcd-amber/20">
-              Comparativo de Palco
-            </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-3">
-              Por que DAWs comuns falham no show ao vivo?
-            </h2>
-            <p className="text-sm text-logic-text-dim mt-3">
-              Programas como Ableton Live, Reaper e Logic foram criados para estúdio e gravação. O VS Stage Pro foi desenhado para o palco.
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-[#121318] overflow-hidden shadow-2xl">
-            <div className="grid grid-cols-12 border-b border-white/10 p-4 sm:p-5 bg-white/[0.02] text-xs font-bold uppercase tracking-wider">
-              <div className="col-span-4 text-logic-text-muted">Recurso</div>
-              <div className="col-span-4 text-rose-400/90 flex items-center gap-1.5">
-                <AlertTriangle size={14} /> DAWs de Estúdio
-              </div>
-              <div className="col-span-4 text-logic-lcd-green flex items-center gap-1.5 font-black">
-                <CheckCircle2 size={14} /> VS Stage Pro
-              </div>
+          <RevealBlock direction="up">
+            <div className="text-center max-w-2xl mx-auto mb-16">
+              <span className="text-2xs font-extrabold tracking-widest text-logic-lcd-amber uppercase px-3 py-1 rounded-full bg-logic-lcd-amber/10 border border-logic-lcd-amber/20">
+                Comparativo de Palco
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-3">
+                Por que DAWs comuns falham no show ao vivo?
+              </h2>
+              <p className="text-sm text-logic-text-dim mt-3">
+                Programas como Ableton Live, Reaper e Logic foram criados para estúdio e gravação. O VS Stage Pro foi desenhado para o palco.
+              </p>
             </div>
+          </RevealBlock>
 
-            <div className="divide-y divide-white/[0.06]">
-              {COMPARISON.map((row, idx) => (
-                <div key={row.feature} className={`grid grid-cols-12 p-4 sm:p-5 text-xs sm:text-sm items-center ${idx % 2 === 1 ? 'bg-white/[0.01]' : ''}`}>
-                  <div className="col-span-4 font-semibold text-white/90 pr-2">{row.feature}</div>
-                  <div className="col-span-4 text-logic-text-dim pr-3 leading-relaxed text-xs">
-                    <span className="line-through text-white/30 mr-1.5">✕</span> {row.traditional}
-                  </div>
-                  <div className="col-span-4 text-white font-medium pl-1 leading-relaxed text-xs flex items-start gap-1.5">
-                    <Check size={14} className="text-logic-lcd-green shrink-0 mt-0.5" />
-                    <span>{row.vsStage}</span>
-                  </div>
+          <RevealBlock direction="zoom" delay={100}>
+            <div className="rounded-2xl border border-white/10 bg-[#121318] overflow-hidden shadow-2xl">
+              <div className="grid grid-cols-12 border-b border-white/10 p-4 sm:p-5 bg-white/[0.02] text-xs font-bold uppercase tracking-wider">
+                <div className="col-span-4 text-logic-text-muted">Recurso</div>
+                <div className="col-span-4 text-rose-400/90 flex items-center gap-1.5">
+                  <AlertTriangle size={14} /> DAWs de Estúdio
                 </div>
-              ))}
+                <div className="col-span-4 text-logic-lcd-green flex items-center gap-1.5 font-black">
+                  <CheckCircle2 size={14} /> VS Stage Pro
+                </div>
+              </div>
+
+              <div className="divide-y divide-white/[0.06]">
+                {COMPARISON.map((row, idx) => (
+                  <div key={row.feature} className={`grid grid-cols-12 p-4 sm:p-5 text-xs sm:text-sm items-center ${idx % 2 === 1 ? 'bg-white/[0.01]' : ''}`}>
+                    <div className="col-span-4 font-semibold text-white/90 pr-2">{row.feature}</div>
+                    <div className="col-span-4 text-logic-text-dim pr-3 leading-relaxed text-xs">
+                      <span className="line-through text-white/30 mr-1.5">✕</span> {row.traditional}
+                    </div>
+                    <div className="col-span-4 text-white font-medium pl-1 leading-relaxed text-xs flex items-start gap-1.5">
+                      <Check size={14} className="text-logic-lcd-green shrink-0 mt-0.5" />
+                      <span>{row.vsStage}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          </RevealBlock>
         </div>
       </section>
 
       {/* Como Funciona em 3 Passos */}
       <section id="como-funciona" className="relative z-10 py-24 sm:py-32">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center max-w-2xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-              Do ensaio ao palco em 3 passos simples
-            </h2>
-            <p className="text-logic-text-dim text-sm mt-3">
-              Fluxo prático sem complicação técnica.
-            </p>
-          </div>
+          <RevealBlock direction="up">
+            <div className="text-center max-w-2xl mx-auto mb-16">
+              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                Do ensaio ao palco em 3 passos simples
+              </h2>
+              <p className="text-logic-text-dim text-sm mt-3">
+                Fluxo prático sem complicação técnica.
+              </p>
+            </div>
+          </RevealBlock>
 
           <div className="grid md:grid-cols-3 gap-6">
-            <div className="p-7 rounded-2xl bg-[#121318] border border-white/10 hover:border-logic-lcd-green/40 transition group">
-              <div className="w-12 h-12 rounded-xl bg-logic-lcd-green/15 text-logic-lcd-green font-black text-xl flex items-center justify-center mb-6 group-hover:scale-110 transition">
-                1
+            <RevealBlock direction="up" delay={50}>
+              <div className="p-7 rounded-2xl bg-[#121318] border border-white/10 hover:border-logic-lcd-green/40 transition group h-full">
+                <div className="w-12 h-12 rounded-xl bg-logic-lcd-green/15 text-logic-lcd-green font-black text-xl flex items-center justify-center mb-6 group-hover:scale-110 transition">
+                  1
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">Arraste seus Multitracks</h3>
+                <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
+                  Importe os arquivos da música. O VS Stage cria os multigrupos de instrumentos sozinho, detecta o BPM e deixa o fader de Timecode LTC no ponto.
+                </p>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Arraste seus Multitracks</h3>
-              <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
-                Importe os arquivos da música. O VS Stage cria os multigrupos de instrumentos sozinho, detecta o BPM e deixa o fader de Timecode LTC no ponto.
-              </p>
-            </div>
+            </RevealBlock>
 
-            <div className="p-7 rounded-2xl bg-[#121318] border border-white/10 hover:border-logic-lcd-amber/40 transition group">
-              <div className="w-12 h-12 rounded-xl bg-logic-lcd-amber/15 text-logic-lcd-amber font-black text-xl flex items-center justify-center mb-6 group-hover:scale-110 transition">
-                2
+            <RevealBlock direction="up" delay={150}>
+              <div className="p-7 rounded-2xl bg-[#121318] border border-white/10 hover:border-logic-lcd-amber/40 transition group h-full">
+                <div className="w-12 h-12 rounded-xl bg-logic-lcd-amber/15 text-logic-lcd-amber font-black text-xl flex items-center justify-center mb-6 group-hover:scale-110 transition">
+                  2
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">Conecte a Banda & Palco</h3>
+                <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
+                  Abra a rede local no app: os músicos escaneiam o QR code no celular para ver as cifras, e a TV do palco conecta no teleprompter de letras ao vivo.
+                </p>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Conecte a Banda & Palco</h3>
-              <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
-                Abra a rede local no app: os músicos escaneiam o QR code no celular para ver as cifras, e a TV do palco conecta no teleprompter de letras ao vivo.
-              </p>
-            </div>
+            </RevealBlock>
 
-            <div className="p-7 rounded-2xl bg-[#121318] border border-white/10 hover:border-logic-lcd-green/40 transition group">
-              <div className="w-12 h-12 rounded-xl bg-logic-lcd-green/15 text-logic-lcd-green font-black text-xl flex items-center justify-center mb-6 group-hover:scale-110 transition">
-                3
+            <RevealBlock direction="up" delay={250}>
+              <div className="p-7 rounded-2xl bg-[#121318] border border-white/10 hover:border-logic-lcd-green/40 transition group h-full">
+                <div className="w-12 h-12 rounded-xl bg-logic-lcd-green/15 text-logic-lcd-green font-black text-xl flex items-center justify-center mb-6 group-hover:scale-110 transition">
+                  3
+                </div>
+                <h3 className="text-lg font-bold text-white mb-2">Dê o Play no Modo Show</h3>
+                <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
+                  Ative o Modo Show: a barra de espaço é travada contra acidentes, o relógio gigante assume o controle e você comanda o show com tranquilidade absoluta.
+                </p>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Dê o Play no Modo Show</h3>
-              <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
-                Ative o Modo Show: a barra de espaço é travada contra acidentes, o relógio gigante assume o controle e você comanda o show com tranquilidade absoluta.
-              </p>
-            </div>
+            </RevealBlock>
           </div>
         </div>
       </section>
@@ -618,37 +664,38 @@ export default function SalesPage() {
       {/* FAQ Retrátil */}
       <section id="faq" className="relative z-10 py-20 border-t border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-xl">
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <span className="text-2xs font-extrabold tracking-widest text-logic-lcd-green uppercase px-3 py-1 rounded-full bg-logic-lcd-green/10 border border-logic-lcd-green/20">
-              Dúvidas Frequentes
-            </span>
-            <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-3">
-              Perguntas e respostas sobre o VS Stage
-            </h2>
-          </div>
+          <RevealBlock direction="up">
+            <div className="text-center mb-14">
+              <span className="text-2xs font-extrabold tracking-widest text-logic-lcd-green uppercase px-3 py-1 rounded-full bg-logic-lcd-green/10 border border-logic-lcd-green/20">
+                Dúvidas Frequentes
+              </span>
+              <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-3">
+                Perguntas e respostas sobre o VS Stage
+              </h2>
+            </div>
+          </RevealBlock>
 
           <div className="space-y-3.5">
             {FAQS.map((faq, i) => (
-              <div
-                key={faq.q}
-                className="rounded-xl border border-white/10 bg-[#121318] overflow-hidden transition"
-              >
-                <button
-                  type="button"
-                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                  className="w-full p-5 text-left font-bold text-sm sm:text-base text-white flex items-center justify-between gap-4 hover:text-logic-lcd-green transition"
-                >
-                  <span>{faq.q}</span>
-                  <span className={`text-logic-text-muted transition-transform duration-300 ${openFaq === i ? 'rotate-180 text-logic-lcd-green' : ''}`}>
-                    ▼
-                  </span>
-                </button>
-                {openFaq === i && (
-                  <div className="px-5 pb-5 pt-1 text-xs sm:text-sm text-logic-text-dim leading-relaxed border-t border-white/[0.06] animate-[fadeIn_200ms_ease-out]">
-                    {faq.a}
-                  </div>
-                )}
-              </div>
+              <RevealBlock key={faq.q} direction="up" delay={i * 60}>
+                <div className="rounded-xl border border-white/10 bg-[#121318] overflow-hidden transition">
+                  <button
+                    type="button"
+                    onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                    className="w-full p-5 text-left font-bold text-sm sm:text-base text-white flex items-center justify-between gap-4 hover:text-logic-lcd-green transition"
+                  >
+                    <span>{faq.q}</span>
+                    <span className={`text-logic-text-muted transition-transform duration-300 ${openFaq === i ? 'rotate-180 text-logic-lcd-green' : ''}`}>
+                      ▼
+                    </span>
+                  </button>
+                  {openFaq === i && (
+                    <div className="px-5 pb-5 pt-1 text-xs sm:text-sm text-logic-text-dim leading-relaxed border-t border-white/[0.06] animate-[fadeIn_200ms_ease-out]">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              </RevealBlock>
             ))}
           </div>
         </div>
@@ -661,41 +708,47 @@ export default function SalesPage() {
         </div>
 
         <div className="max-w-4xl mx-auto px-4 sm:px-6 relative">
-          <div className="mx-auto w-20 h-20 mb-6">
-            <VsLogo size={80} />
-          </div>
+          <RevealBlock direction="zoom">
+            <div className="mx-auto w-20 h-20 mb-6">
+              <VsLogo size={80} />
+            </div>
 
-          <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
-            Pronto para levar seu palco para o próximo nível?
-          </h2>
-          <p className="text-logic-text-dim text-base max-w-xl mx-auto mt-4 leading-relaxed">
-            Baixe o VS Stage Pro agora mesmo. Crie sua conta na hora e desfrute de 48 horas de teste grátis com acesso completo e irrestrito.
-          </p>
+            <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
+              Pronto para levar seu palco para o próximo nível?
+            </h2>
+            <p className="text-logic-text-dim text-base max-w-xl mx-auto mt-4 leading-relaxed">
+              Baixe o VS Stage Pro agora mesmo. Crie sua conta na hora e desfrute de 48 horas de teste grátis com acesso completo e irrestrito.
+            </p>
+          </RevealBlock>
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
+          <RevealBlock direction="up" delay={120}>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
+            {/* Botão Primário: Ver Planos & Assinatura */}
             <div className="relative group w-full sm:w-auto">
               <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-60 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
 
-              <a
-                href="#baixar"
-                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[320px] h-[64px] px-8 rounded-2xl btn-neon-green text-black font-black text-base flex items-center justify-center gap-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+              <button
+                onClick={subscribe}
+                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[340px] h-[64px] px-8 rounded-2xl btn-neon-green text-black font-black text-base flex items-center justify-center gap-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
-                <Apple size={24} />
-                <span>BAIXAR PARA MAC (TESTAR 48H GRÁTIS)</span>
+                <Sparkles size={22} className="text-black" />
+                <span>VER PLANOS & ASSINATURA</span>
                 <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
-              </a>
+              </button>
             </div>
 
-            <button
-              onClick={subscribe}
-              className="w-full sm:w-auto min-w-[220px] h-[64px] px-7 rounded-2xl btn-glass-secondary text-white font-bold text-base flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+            {/* Botão Secundário: Baixar para Mac */}
+            <a
+              href="#baixar"
+              className="w-full sm:w-auto min-w-[240px] h-[64px] px-7 rounded-2xl btn-glass-secondary text-white font-bold text-base flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             >
-              <Sparkles size={18} className="text-amber-400" />
-              <span>Assinar Plano</span>
-            </button>
+              <Apple size={20} className="text-white/80" />
+              <span>Baixar (48h Grátis)</span>
+            </a>
           </div>
-        </div>
+        </RevealBlock>
+      </div>
       </section>
 
       {/* Rodapé do Site */}
