@@ -150,9 +150,9 @@ const MAIN_PILLARS = [
   },
   {
     icon: Layers,
-    tag: 'AUTOMAÇÃO DE BACKSTAGE',
-    title: 'O programa identifica e organiza seus multigrupos sozinho.',
-    desc: 'Basta arrastar a pasta dos multitracks: o VS Stage Pro reconhece os nomes das faixas e cria automaticamente os multigrupos de Bateria, Baixo, Percussões, Sanfonas, Teclados, Guitarras, Metais e Vozes. Cada áudio vai direto para o fader certo no mixer, já com o BPM detectado por inteligência artificial.',
+    tag: 'ROTEAMENTO INTELIGENTE & IA',
+    title: 'Reconhece o nome dos clipes, detecta o BPM com IA e inclui Afinador (Tuner).',
+    desc: 'Basta arrastar a pasta dos multitracks: o VS Stage Pro reconhece os nomes dos clipes de áudio e roteia automaticamente cada instrumento para seu canal e multigrupo (Bateria, Baixo, Teclados, Guitarras, Metais, Vozes). O BPM é detectado instantaneamente por Inteligência Artificial, e você ajusta o andamento e afina o tom no Tuner (+/- semitons) sem alterar a velocidade nem desalinhar o Timecode LTC.',
     color: 'from-amber-500/10 to-transparent',
     border: 'border-amber-500/20',
     badge: 'text-logic-lcd-amber bg-logic-lcd-amber/10',
@@ -212,7 +212,8 @@ const MAIN_PILLARS = [
 
 const COMPARISON = [
   { feature: 'Estrutura das músicas', traditional: '30 músicas empilhadas numa única timeline bagunçada', vsStage: 'Uma timeline independente e limpa para cada música' },
-  { feature: 'Roteamento de multitracks', traditional: 'Criação manual de dezenas de pastas e canais de áudio', vsStage: 'Reconhecimento inteligente e multigrupos automáticos' },
+  { feature: 'Roteamento de instrumentos', traditional: 'Criação manual de dezenas de pastas e canais de áudio', vsStage: 'Reconhecimento do nome dos clipes com roteamento automático' },
+  { feature: 'Detecção de BPM & Afinação', traditional: 'Tap tempo impreciso e plugins externos pesados para mudar o tom', vsStage: 'Detecção de BPM por IA, ajuste de andamento e Afinador (Tuner) nativos' },
   { feature: 'Segurança contra acidentes', traditional: 'Barra de espaço pausa o show se alguém esbarrar no teclado', vsStage: 'Modo Show blindado com barra de espaço travada para o palco' },
   { feature: 'Timecode para luzes (LTC)', traditional: 'Configuração manual complexa com risco de vazar no som principal', vsStage: 'Canal 1 LTC dedicado, travado a −6.0 dB e isolado do master' },
   { feature: 'Imprevistos no cabeamento', traditional: 'Sem solução rápida; necessita reconfigurar o mixer no meio do show', vsStage: 'Botão Master Mágico que divide Click (L) e Banda (R) em 1 clique' },
@@ -237,6 +238,10 @@ const FAQS = [
   {
     q: 'O que acontece se meu show tiver que mudar de ordem na hora?',
     a: 'Você pode reordenar músicas na playlist arrastando, ou simplesmente dar dois cliques em qualquer música da lista para ela ser a próxima. No Modo Show, a transição entre músicas é instantânea, sem atraso de carregamento.',
+  },
+  {
+    q: 'Como funciona o roteamento inteligente e a detecção de BPM por IA?',
+    a: 'Ao importar os multitracks, o motor analisa o nome dos clipes de áudio e reconhece automaticamente cada instrumento (Bateria, Baixo, Teclados, Guitarras, Metais, Vozes, Guia e Click), roteando tudo para os multigrupos corretos no mixer. A Inteligência Artificial detecta o BPM exato da música na hora, e você conta com o Afinador (Tuner) para alterar o tom (+/- semitons) e ajustar o andamento ao vivo sem engasgar o som.',
   },
   {
     q: 'Como funciona o canal de Timecode LTC?',
@@ -336,7 +341,7 @@ export default function SalesPage() {
           </h1>
 
           <p className="text-logic-text-dim text-base sm:text-lg sm:leading-relaxed max-w-3xl mx-auto mt-6 font-normal">
-            Esqueça DAWs de estúdio que travam com timelines gigantescas. O <strong className="text-white">VS Stage Pro</strong> reúne editor multitracks com timeline independente por música, mixer com Timecode LTC blindado, Modo Show à prova de acidentes, cifras sincronizadas no celular da banda e teleprompter na TV do palco.
+            Esqueça DAWs de estúdio que travam com timelines gigantescas. O <strong className="text-white">VS Stage Pro</strong> reúne editor multitracks com timeline independente por música, <strong className="text-white">roteamento automático de instrumentos</strong> com reconhecimento do nome dos clipes de áudio, <strong className="text-white">detecção de BPM com inteligência artificial</strong>, controle de andamento e <strong className="text-white">afinador (tuner) integrado</strong>, mixer com Timecode LTC blindado, Modo Show à prova de acidentes, cifras sincronizadas no celular da banda e teleprompter na TV do palco.
           </p>
 
           {/* Botões de Ação Hero - DESTAQUE PRINCIPAL EM PLANOS & ASSINATURA */}
@@ -394,12 +399,15 @@ export default function SalesPage() {
           </div>
 
           {/* Selos de Confiança */}
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 mt-10 text-xs text-logic-text-dim">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 sm:gap-x-8 gap-y-3 mt-10 text-xs text-logic-text-dim">
             <span className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-logic-lcd-green" /> 48h de teste grátis sem cartão de crédito
+              <CheckCircle2 size={16} className="text-logic-lcd-green" /> 48h de teste grátis sem cartão
             </span>
             <span className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-logic-lcd-green" /> Suporte a Apple Silicon (M1 a M4) & Intel
+              <CheckCircle2 size={16} className="text-logic-lcd-green" /> Roteamento por Nome & BPM por IA
+            </span>
+            <span className="flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-logic-lcd-green" /> Torre de BPM & Afinador (Tuner)
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle2 size={16} className="text-logic-lcd-green" /> 100% offline no palco via Wi-Fi local
@@ -607,7 +615,7 @@ export default function SalesPage() {
                 </div>
                 <h3 className="text-lg font-bold text-white mb-2">Arraste seus Multitracks</h3>
                 <p className="text-xs sm:text-sm text-logic-text-dim leading-relaxed">
-                  Importe os arquivos da música. O VS Stage cria os multigrupos de instrumentos sozinho, detecta o BPM e deixa o fader de Timecode LTC no ponto.
+                  Importe os arquivos da música: o VS Stage reconhece os nomes dos clipes de áudio, roteia os instrumentos para os canais corretos, detecta o BPM com IA e prepara o Afinador (Tuner) e o Timecode LTC.
                 </p>
               </div>
             </RevealBlock>

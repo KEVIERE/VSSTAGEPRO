@@ -37,6 +37,8 @@ const COMPARISON_FEATURES = [
     category: 'Motor de Áudio & Estabilidade no Palco',
     items: [
       { name: 'Timeline independente por música (sem travamentos)', monthly: true, yearly: true },
+      { name: 'Roteamento inteligente pelo nome dos clipes de áudio', monthly: true, yearly: true },
+      { name: 'Detecção de BPM com IA & Afinador (Tuner) de tom', monthly: true, yearly: true },
       { name: 'Mixer com canal Timecode LTC blindado (−6dB)', monthly: true, yearly: true },
       { name: 'Botão Split Master L/R de emergência instantâneo', monthly: true, yearly: true },
       { name: 'Modo Show à prova de acidentes e cliques errados', monthly: true, yearly: true },
