@@ -91,8 +91,7 @@ function scheduleClipFade(
   baseGain: number,
   clip: AudioClip,
   playDuration: number,
-  whenWall: number,
-  localOffset: number,
+  playbackStartTime: number,
   alpha: number,
 ) {
   const fadeIn = clip.fadeIn ?? 0;
@@ -105,59 +104,74 @@ function scheduleClipFade(
     return;
   }
 
-  const fadeOutStartLocal = Math.max(fadeIn, playDuration - fadeOut);
+  // O instante absoluto (wall clock) em que o início tocável do clipe começa
+  const clipWallZero = playbackStartTime + clip.startTime * alpha;
+  const currentLocal = Math.max(0, (now - clipWallZero) / alpha);
+  const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
 
   // Determina ganho exato no instante atual (offset local)
-  const startGain = localOffset <= 0
-    ? (fadeIn > 0 ? 0 : baseGain)
-    : localOffset < fadeIn
-      ? evaluateFadeCurve(clip.fadeCurveIn ?? 'linear', localOffset / Math.max(1e-6, fadeIn), true) * baseGain
-      : localOffset >= fadeOutStartLocal && fadeOut > 0
-        ? evaluateFadeCurve(clip.fadeCurveOut ?? 'linear', (localOffset - fadeOutStartLocal) / Math.max(1e-6, fadeOut), false) * baseGain
-        : baseGain;
+  let currentGain = baseGain;
+  if (currentLocal < fadeIn && fadeIn > 0) {
+    const frac = currentLocal / fadeIn;
+    currentGain = evaluateFadeCurve(clip.fadeCurveIn ?? 'linear', frac, true) * baseGain;
+  } else if (currentLocal >= fadeOutStart && fadeOut > 0) {
+    const frac = Math.min(1, (currentLocal - fadeOutStart) / fadeOut);
+    currentGain = evaluateFadeCurve(clip.fadeCurveOut ?? 'linear', frac, false) * baseGain;
+  } else if (currentLocal >= playDuration && playDuration > 0) {
+    currentGain = 0;
+  }
 
   // ANCHOR: setValueAtTime DEVE ser o ponto de partida agendado antes de qualquer linearRampToValueAtTime!
-  const anchorTime = Math.max(now, whenWall);
   try {
-    clipGain.gain.setValueAtTime(startGain, anchorTime);
+    clipGain.gain.setValueAtTime(currentGain, now);
   } catch {
-    clipGain.gain.value = startGain;
+    clipGain.gain.value = currentGain;
   }
 
   // Pontos futuros para automação do fade
-  const points: Array<{ local: number; gain: number }> = [];
+  const points: Array<{ wallTime: number; gain: number }> = [];
+
+  // FADE IN
   if (fadeIn > 0) {
     const curveIn = clip.fadeCurveIn ?? 'linear';
-    if (curveIn === 'linear') {
-      points.push({ local: fadeIn, gain: baseGain });
-    } else {
-      const STEPS = 8;
-      for (let i = 1; i <= STEPS; i++) {
-        const frac = i / STEPS;
-        points.push({ local: frac * fadeIn, gain: evaluateFadeCurve(curveIn, frac, true) * baseGain });
+    const STEPS = curveIn === 'linear' ? 1 : 16;
+    for (let i = 1; i <= STEPS; i++) {
+      const frac = i / STEPS;
+      const wallT = clipWallZero + (frac * fadeIn) * alpha;
+      if (wallT > now) {
+        points.push({
+          wallTime: wallT,
+          gain: evaluateFadeCurve(curveIn, frac, true) * baseGain,
+        });
       }
     }
   }
 
+  // PLATÔ E FADE OUT
   if (fadeOut > 0) {
+    const wallFadeOutStart = clipWallZero + fadeOutStart * alpha;
+    if (wallFadeOutStart > now && fadeIn > 0) {
+      points.push({ wallTime: wallFadeOutStart, gain: baseGain });
+    }
+
     const curveOut = clip.fadeCurveOut ?? 'linear';
-    if (curveOut === 'linear') {
-      points.push({ local: fadeOutStartLocal, gain: baseGain }, { local: playDuration, gain: 0 });
-    } else {
-      const STEPS = 8;
-      for (let i = 0; i <= STEPS; i++) {
-        const frac = i / STEPS;
-        points.push({ local: fadeOutStartLocal + frac * fadeOut, gain: evaluateFadeCurve(curveOut, frac, false) * baseGain });
+    const STEPS = curveOut === 'linear' ? 1 : 16;
+    for (let i = 1; i <= STEPS; i++) {
+      const frac = i / STEPS;
+      const wallT = clipWallZero + (fadeOutStart + frac * fadeOut) * alpha;
+      if (wallT > now) {
+        points.push({
+          wallTime: wallT,
+          gain: evaluateFadeCurve(curveOut, frac, false) * baseGain,
+        });
       }
     }
   }
 
+  points.sort((a, b) => a.wallTime - b.wallTime);
   for (const pt of points) {
-    if (pt.local <= localOffset) continue; // ponto já no passado
-    const when = whenWall + (pt.local - localOffset) * alpha;
-    if (when <= anchorTime) continue;
     try {
-      clipGain.gain.linearRampToValueAtTime(pt.gain, when);
+      clipGain.gain.linearRampToValueAtTime(pt.gain, pt.wallTime);
     } catch { /* ignore */ }
   }
 }
@@ -798,7 +812,7 @@ class AudioEngine {
 
         const local = startOffset - p.clipStartTime;
         const whenWall = scheduledStart + Math.max(0, -local) * alpha;
-        if (clip) scheduleClipFade(p.clipGain, ctx, gTarget, clip, p.clipDuration, whenWall, Math.max(0, local), alpha);
+        if (clip) scheduleClipFade(p.clipGain, ctx, gTarget, clip, p.clipDuration, this.playbackStartTime, alpha);
         else { try { p.clipGain.gain.cancelScheduledValues(ctx.currentTime); } catch { /* ignore */ } try { p.clipGain.gain.setValueAtTime(gTarget, ctx.currentTime); } catch { p.clipGain.gain.value = gTarget; } }
         const offsetSamples = local > 0 ? Math.min(p.bufferLength, Math.floor(local * p.sampleRate)) : 0;
         try {
@@ -972,7 +986,7 @@ class AudioEngine {
       const track = tracks.find((t) => t.id === p.clip.trackId);
       const target = track?.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
       const baseGain = (target && track?.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(p.clip, clips);
-      scheduleClipFade(p.clipGain, ctx, baseGain, p.clip, clipPlayLength(p.clip), whenWall, Math.max(0, startOffset - p.clip.startTime), alpha);
+      scheduleClipFade(p.clipGain, ctx, baseGain, p.clip, clipPlayLength(p.clip), this.playbackStartTime, alpha);
       try { p.node.port.postMessage({ startTime: whenWall }); } catch { /* ignore */ }
       this.activeClips.set(p.clipId, {
         node: p.node,
@@ -1612,7 +1626,7 @@ class AudioEngine {
         const posAt = (at - this.playbackStartTime) / alpha;
         const localOffset = Math.max(0, posAt - active.clipStartTime);
         const whenWall = active.scheduledStartWall || (at - localOffset * alpha);
-        scheduleClipFade(g, this.ctx, baseGain, clip, clipPlayLength(clip), whenWall, localOffset, alpha);
+        scheduleClipFade(g, this.ctx, baseGain, clip, clipPlayLength(clip), this.playbackStartTime, alpha);
         return;
       }
     }

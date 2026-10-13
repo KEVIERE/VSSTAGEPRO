@@ -276,55 +276,64 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
         </div>
       )}
 
-      {/* 4. ROTEAR CANAL DE SAÍDA */}
-      <div
-        className="relative"
-        onMouseEnter={() => setActiveSubmenu('output')}
-        onMouseLeave={() => setActiveSubmenu(null)}
-      >
-        <button
-          type="button"
-          className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between text-white/90 hover:text-white transition"
+      {/* 4. ROTEAR CANAL DE SAÍDA (Somente para Pastas ou Faixas na Raiz - Faixas filhas seguem a pasta) */}
+      {!track.parentId ? (
+        <div
+          className="relative"
+          onMouseEnter={() => setActiveSubmenu('output')}
+          onMouseLeave={() => setActiveSubmenu(null)}
         >
-          <div className="flex items-center gap-2">
-            <Volume2 size={13} className="text-logic-text-muted" />
-            <span>Canal de Saída...</span>
-          </div>
-          <ChevronRight size={13} className="text-logic-text-muted" />
-        </button>
-
-        {activeSubmenu === 'output' && (
-          <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
-              Roteamento de Saída
+          <button
+            type="button"
+            className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between text-white/90 hover:text-white transition"
+          >
+            <div className="flex items-center gap-2">
+              <Volume2 size={13} className="text-logic-text-muted" />
+              <span>Canal de Saída...</span>
             </div>
+            <ChevronRight size={13} className="text-logic-text-muted" />
+          </button>
 
-            {outputOptions.map((opt) => (
-              <button
-                key={opt.value}
-                disabled={opt.disabled}
-                onClick={() => {
-                  if (!opt.disabled) {
-                    setOutputChannel(track.id, opt.value);
-                    setActiveSubmenu(null);
-                    onClose();
-                  }
-                }}
-                className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition ${
-                  opt.disabled
-                    ? 'opacity-30 cursor-not-allowed'
-                    : track.outputChannel === opt.value
-                      ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
-                      : 'hover:bg-white/10 text-white'
-                }`}
-              >
-                <span>{opt.label}</span>
-                {track.outputChannel === opt.value && <Check size={12} className="text-logic-lcd-green shrink-0" />}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+          {activeSubmenu === 'output' && (
+            <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
+                Roteamento de Saída
+              </div>
+
+              {outputOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  disabled={opt.disabled}
+                  onClick={() => {
+                    if (!opt.disabled) {
+                      setOutputChannel(track.id, opt.value);
+                      setActiveSubmenu(null);
+                      onClose();
+                    }
+                  }}
+                  className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition ${
+                    opt.disabled
+                      ? 'opacity-30 cursor-not-allowed'
+                      : track.outputChannel === opt.value
+                        ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
+                        : 'hover:bg-white/10 text-white'
+                  }`}
+                >
+                  <span>{opt.label}</span>
+                  {track.outputChannel === opt.value && <Check size={12} className="text-logic-lcd-green shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="px-3 py-1.5 text-2xs text-logic-text-muted flex items-center gap-1.5 border-t border-white/5 bg-white/[0.02]">
+          <Volume2 size={12} className="text-logic-text-muted shrink-0" />
+          <span className="truncate">
+            Saída: segue a pasta <strong className="text-white">{currentParent?.name || 'Mãe'}</strong>
+          </span>
+        </div>
+      )}
 
       <div className="h-px bg-white/10 my-1" />
 
