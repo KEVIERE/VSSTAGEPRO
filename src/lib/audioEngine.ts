@@ -1525,6 +1525,11 @@ class AudioEngine {
         });
       } catch { /* ignore */ }
       active.scheduledStartWall = whenWall;
+
+      // Reagenda automação do fade para a nova posição do cursor em tempo real
+      const target = track?.parentId ? tracks.find((tr) => tr.id === track.parentId) ?? track : track;
+      const baseGain = (target && track?.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
+      scheduleClipFade(active.clipGain, ctx!, baseGain, clip, active.durationSeconds, this.playbackStartTime, alpha);
     }
 
     this.disarmLoop(false);
