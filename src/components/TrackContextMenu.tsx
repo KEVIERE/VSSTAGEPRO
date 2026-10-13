@@ -226,29 +226,10 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           {activeSubmenu === 'folder' && (
             <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
               <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
-                Mover Faixa
+                Escolha a Pasta de Destino:
               </div>
 
-              {/* Opção: Nenhuma pasta (Raiz) */}
-              <button
-                type="button"
-                onClick={() => {
-                  moveTrackToFolder(track.id, null);
-                  setActiveSubmenu(null);
-                  onClose();
-                }}
-                className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between hover:bg-white/10 transition ${
-                  !track.parentId ? 'text-logic-lcd-green font-bold' : 'text-white'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <FolderOpen size={13} className="text-logic-text-muted" />
-                  <span>Nenhuma Pasta (Raiz)</span>
-                </div>
-                {!track.parentId && <Check size={12} className="text-logic-lcd-green" />}
-              </button>
 
-              <div className="h-px bg-white/10 my-1" />
 
               {/* Lista de pastas existentes */}
               {availableFolders.map((folder) => (

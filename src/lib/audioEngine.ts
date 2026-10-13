@@ -362,7 +362,7 @@ class AudioEngine {
     if (clips.length === 0) return null;
     const clipSig = clips.map((c) => {
       const b = getClipPlayAudio(c)!;
-      return `${c.id}|${c.trackId}|${c.startTime.toFixed(4)}|${c.duration.toFixed(4)}|${b.length}|${b.sampleRate}|${b.channels.length}`;
+      return `${c.id}|${c.trackId}|${c.startTime.toFixed(4)}|${c.duration.toFixed(4)}|${b.length}|${b.sampleRate}|${b.channels.length}|${c.gain ?? 1}|${c.mute ? 1 : 0}|${c.solo ? 1 : 0}|${(c.fadeIn ?? 0).toFixed(3)}|${(c.fadeOut ?? 0).toFixed(3)}|${c.fadeCurveIn ?? 'linear'}|${c.fadeCurveOut ?? 'linear'}`;
     }).join('~');
     return `${song.bpmAdjust}|${song.tuner}|${clipSig}`;
   }
@@ -419,7 +419,7 @@ class AudioEngine {
     }
   }
 
-  private invalidatePrepared(songId?: string) {
+  invalidatePrepared(songId?: string) {
     if (songId) {
       const b = this.prepared.get(songId);
       if (b) {
@@ -1607,11 +1607,12 @@ class AudioEngine {
   // Ganho/mute/solo de UM clipe mudou (modo DAW): reaplica só o clipGain dele, sem
   // refazer o fade (o fade só é agendado ao iniciar a reprodução do clipe).
   updateClipParams(clipId: string) {
-    const g = this.clipGains.get(clipId);
-    if (!g) return;
     const store = useStore.getState();
     const clip = store.clips.find((c) => c.id === clipId);
     if (!clip) return;
+    this.invalidatePrepared(clip.songId);
+    const g = this.clipGains.get(clipId);
+    if (!g) return;
     const track = store.tracks.find((t) => t.id === clip.trackId);
     const trackGain = track?.parentId ? channelGainFor(track, store.tracks, track.volume) : 1;
     const songClips = store.clips.filter((c) => c.songId === clip.songId);
