@@ -315,13 +315,18 @@ function FadeHandle({
 }) {
   const setClipFade = useStore((s) => s.setClipFade);
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const widthPx = Math.max(0, Math.min(playLength, seconds)) * zoomH;
 
   useEffect(() => {
     if (!menuPos) return;
-    const close = () => setMenuPos(null);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
+    const handleDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuPos(null);
+      }
+    };
+    document.addEventListener('mousedown', handleDown);
+    return () => document.removeEventListener('mousedown', handleDown);
   }, [menuPos]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -465,8 +470,10 @@ function FadeHandle({
           {/* Menu de Contexto ao clicar com botão direito na linha do Fade */}
           {menuPos && (
             <div
-              className="fixed z-[400] py-1 bg-[#13141a] border border-white/20 rounded-xl shadow-2xl text-xs text-white min-w-[210px] animate-[fadeIn_100ms_ease-out]"
+              ref={menuRef}
+              className="fixed z-[400] py-1.5 bg-[#13141a] border border-white/20 rounded-xl shadow-2xl text-xs text-white min-w-[210px] animate-[fadeIn_100ms_ease-out]"
               style={{ left: menuPos.x, top: menuPos.y }}
+              onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-logic-text-muted border-b border-white/10 tracking-wider">
@@ -476,15 +483,16 @@ function FadeHandle({
                 <button
                   key={opt.id}
                   type="button"
-                  className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-white/10 transition ${
-                    curve === opt.id ? 'text-logic-lcd-green font-bold bg-white/[0.04]' : 'text-white'
-                  }`}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
                     setClipFade(clipId, side === 'in' ? { fadeCurveIn: opt.id } : { fadeCurveOut: opt.id });
                     setMenuPos(null);
                   }}
+                  className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-white/10 transition ${
+                    curve === opt.id ? 'text-logic-lcd-green font-bold bg-white/[0.04]' : 'text-white'
+                  }`}
                 >
                   <div className="flex flex-col">
                     <span className="flex items-center gap-1.5 font-semibold">
@@ -1139,6 +1147,15 @@ export default function TimelinePanel() {
             Carregando música...
           </div>
         </div>
+      )}
+
+      {trackContextMenu && (
+        <TrackContextMenu
+          track={trackContextMenu.track}
+          x={trackContextMenu.x}
+          y={trackContextMenu.y}
+          onClose={() => setTrackContextMenu(null)}
+        />
       )}
 
     </div>
