@@ -438,7 +438,16 @@ function DirectorApp({ license }: { license: License }) {
         const prevById = new Map(prevClips.map((c) => [c.id, c]));
         for (const c of state.clips) {
           const p = prevById.get(c.id);
-          if (p && (p.gain !== c.gain || p.mute !== c.mute)) audioEngine.updateClipParams(c.id);
+          if (p && (
+            p.gain !== c.gain ||
+            p.mute !== c.mute ||
+            p.fadeIn !== c.fadeIn ||
+            p.fadeOut !== c.fadeOut ||
+            p.fadeCurveIn !== c.fadeCurveIn ||
+            p.fadeCurveOut !== c.fadeCurveOut
+          )) {
+            audioEngine.updateClipParams(c.id);
+          }
         }
       }
       prevClips = state.clips;

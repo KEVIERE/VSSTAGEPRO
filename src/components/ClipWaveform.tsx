@@ -11,6 +11,7 @@ export interface VisibleRange {
 }
 
 export function routingColorOf(clip: AudioClip) {
+  if (clip.mute) return '#666670';
   return clip.routingMethod === 'ai' ? '#0a84ff' : clip.routingMethod === 'name' ? '#30d158' : '#ffd60a';
 }
 

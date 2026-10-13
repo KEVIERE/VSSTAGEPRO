@@ -1,3 +1,4 @@
+import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
 import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors } from 'lucide-react';
@@ -16,10 +17,13 @@ import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string } | null;
 
-function ChildTrackRow({ childId, depth, expanded, onToggle }: { childId: string; depth: number; expanded: boolean; onToggle: () => void }) {
+function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu }: {
+  childId: string; depth: number; expanded: boolean; onToggle: () => void;
+  onContextMenu?: (e: React.MouseEvent, track: Track) => void;
+}) {
   const track = useStore((s) => s.tracks.find((t) => t.id === childId));
   if (!track) return null;
-  return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} />;
+  return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} />;
 }
 
 // Alça fina no topo/fim de uma faixa: por padrão arrasta a altura de TODAS as faixas de
@@ -91,7 +95,10 @@ function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | '
   );
 }
 
-function TrackRow({ track, depth = 0, expanded = true, onToggle }: { track: Track; depth?: number; expanded?: boolean; onToggle?: () => void }) {
+function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }: {
+  track: Track; depth?: number; expanded?: boolean; onToggle?: () => void;
+  onContextMenu?: (e: React.MouseEvent, track: Track) => void;
+}) {
   const selectedTrackId = useStore((s) => s.selectedTrackId);
   const selectTrack = useStore((s) => s.selectTrack);
   const toggleMute = useStore((s) => s.toggleMute);
@@ -115,7 +122,14 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle }: { track: Trac
       style={{ paddingLeft: `${8 + depth * 16}px`, height: `${trackHeight}px` }}
       onClick={() => selectTrack(track.id)}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
-      title={isFolder ? 'Pasta: só agrupa as faixas abaixo. Áudio fica nas faixas filhas.' : undefined}
+      onContextMenu={(e) => {
+        if (onContextMenu) {
+          e.preventDefault();
+          e.stopPropagation();
+          onContextMenu(e, track);
+        }
+      }}
+      title={isFolder ? 'Pasta: clique direito para renomear, mudar cor ou opções' : 'Faixa: clique direito para renomear, mudar cor, rotear saída ou mover para pasta'}
     >
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="top" />}
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="bottom" />}
@@ -165,14 +179,17 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle }: { track: Trac
   );
 }
 
-function FolderGroup({ track }: { track: Track }) {
+function FolderGroup({ track, onContextMenu }: {
+  track: Track;
+  onContextMenu?: (e: React.MouseEvent, track: Track) => void;
+}) {
   const [expanded, setExpanded] = useState(true);
   const toggle = useCallback(() => setExpanded((v) => !v), []);
   return (
     <>
-      <TrackRow track={track} depth={0} expanded={expanded} onToggle={toggle} />
+      <TrackRow track={track} depth={0} expanded={expanded} onToggle={toggle} onContextMenu={onContextMenu} />
       {expanded && track.children.map((childId) => (
-        <ChildTrackRow key={childId} childId={childId} depth={1} expanded={true} onToggle={() => {}} />
+        <ChildTrackRow key={childId} childId={childId} depth={1} expanded={true} onToggle={() => {}} onContextMenu={onContextMenu} />
       ))}
     </>
   );
@@ -337,20 +354,38 @@ function FadeHandle({
     setMenuPos({ x: e.clientX, y: e.clientY });
   };
 
-  const curvePath = useMemo(() => {
-    if (widthPx <= 1) return '';
-    const w = widthPx;
-    const h = 100;
+  // Paths em viewBox 0 0 100 100
+  // y = 0 é o topo do clipe (100% volume); y = 100 é a base (0% volume)
+  const { linePath, maskPath } = useMemo(() => {
+    if (widthPx <= 1) return { linePath: '', maskPath: '' };
     if (side === 'in') {
-      if (curve === 'exponential') return `M 0,${h} Q ${w * 0.75},${h} ${w},0`;
-      if (curve === 'logarithmic') return `M 0,${h} Q ${w * 0.25},0 ${w},0`;
-      if (curve === 's-curve') return `M 0,${h} C ${w * 0.4},${h} ${w * 0.6},0 ${w},0`;
-      return `M 0,${h} L ${w},0`;
+      let line = 'M 0,100 L 100,0';
+      let mask = 'M 0,0 L 100,0 L 0,100 Z';
+      if (curve === 'exponential') {
+        line = 'M 0,100 Q 80,100 100,0';
+        mask = 'M 0,0 L 100,0 Q 80,100 0,100 Z';
+      } else if (curve === 'logarithmic') {
+        line = 'M 0,100 Q 15,0 100,0';
+        mask = 'M 0,0 L 100,0 Q 15,0 0,100 Z';
+      } else if (curve === 's-curve') {
+        line = 'M 0,100 C 45,100 55,0 100,0';
+        mask = 'M 0,0 L 100,0 C 55,0 45,100 0,100 Z';
+      }
+      return { linePath: line, maskPath: mask };
     } else {
-      if (curve === 'exponential') return `M 0,0 Q ${w * 0.25},${h} ${w},${h}`;
-      if (curve === 'logarithmic') return `M 0,0 Q ${w * 0.75},0 ${w},${h}`;
-      if (curve === 's-curve') return `M 0,0 C ${w * 0.4},0 ${w * 0.6},${h} ${w},${h}`;
-      return `M 0,0 L ${w},${h}`;
+      let line = 'M 0,0 L 100,100';
+      let mask = 'M 0,0 L 100,0 L 100,100 Z';
+      if (curve === 'exponential') {
+        line = 'M 0,0 Q 20,100 100,100';
+        mask = 'M 0,0 L 100,0 L 100,100 Q 20,100 0,0 Z';
+      } else if (curve === 'logarithmic') {
+        line = 'M 0,0 Q 85,0 100,100';
+        mask = 'M 0,0 L 100,0 L 100,100 Q 85,0 0,0 Z';
+      } else if (curve === 's-curve') {
+        line = 'M 0,0 C 45,0 55,100 100,100';
+        mask = 'M 0,0 L 100,0 L 100,100 C 55,100 45,0 0,0 Z';
+      }
+      return { linePath: line, maskPath: mask };
     }
   }, [widthPx, side, curve]);
 
@@ -364,27 +399,21 @@ function FadeHandle({
             width: `${widthPx}px`,
           }}
         >
-          {/* Sombreado do fade */}
-          <div
-            className="absolute inset-0"
-            style={{
-              background: side === 'in'
-                ? 'linear-gradient(to right, rgba(0,0,0,0.78), rgba(0,0,0,0.05))'
-                : 'linear-gradient(to left, rgba(0,0,0,0.78), rgba(0,0,0,0.05))',
-            }}
-          />
-          {/* Desenho visual da curva do fade */}
           <svg
             className="absolute inset-0 w-full h-full pointer-events-none"
-            viewBox={`0 0 ${widthPx} 100`}
+            viewBox="0 0 100 100"
             preserveAspectRatio="none"
           >
+            {/* Máscara escura preenchida que segue fielmente a forma da curva do fade */}
+            <path d={maskPath} fill="rgba(0, 0, 0, 0.65)" />
+            {/* Linha branca brilhante de 2.5px que destaca a curva */}
             <path
-              d={curvePath}
-              stroke="rgba(255,255,255,0.75)"
-              strokeWidth="1.5"
+              d={linePath}
+              stroke="#ffffff"
+              strokeWidth="2.5"
+              vectorEffect="non-scaling-stroke"
               fill="none"
-              strokeDasharray={curve === 's-curve' ? '3,1' : undefined}
+              style={{ filter: 'drop-shadow(0px 0px 2px rgba(0,0,0,0.9))' }}
             />
           </svg>
         </div>
@@ -392,9 +421,9 @@ function FadeHandle({
 
       {editable && (
         <>
-          {/* Alça triangular clássica no topo */}
+          {/* Alça triangular no topo */}
           <div
-            className={`absolute top-0 w-3.5 h-3.5 cursor-pointer z-20 ${side === 'in' ? 'left-0' : 'right-0'}`}
+            className={`absolute top-0 w-4 h-4 cursor-pointer z-20 ${side === 'in' ? 'left-0' : 'right-0'}`}
             onPointerDown={handlePointerDown}
             onContextMenu={handleContextMenu}
             onClick={(e) => e.stopPropagation()}
@@ -404,19 +433,19 @@ function FadeHandle({
             <div
               className="w-0 h-0 absolute top-0"
               style={side === 'in'
-                ? { left: 0, borderTop: '11px solid rgba(255,255,255,0.95)', borderRight: '11px solid transparent' }
-                : { right: 0, borderTop: '11px solid rgba(255,255,255,0.95)', borderLeft: '11px solid transparent' }}
+                ? { left: 0, borderTop: '12px solid rgba(255,255,255,0.95)', borderRight: '12px solid transparent' }
+                : { right: 0, borderTop: '12px solid rgba(255,255,255,0.95)', borderLeft: '12px solid transparent' }}
             />
           </div>
 
-          {/* LINHA VERTICAL NO FINAL DO FADE */}
+          {/* LINHA VERTICAL NO FINAL DO FADE (indicador visual + arrastável) */}
           {widthPx > 2 && (
             <div
               className="absolute top-0 bottom-0 z-20 group/fadeLine cursor-ew-resize select-none"
               style={{
                 [side === 'in' ? 'left' : 'right']: `${widthPx}px`,
                 transform: side === 'in' ? 'translateX(-50%)' : 'translateX(50%)',
-                width: '12px',
+                width: '16px',
               }}
               onPointerDown={handlePointerDown}
               onContextMenu={handleContextMenu}
@@ -424,20 +453,24 @@ function FadeHandle({
               onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
               title={`Final do Fade (${seconds.toFixed(2)}s, curva: ${curve}) — Arraste para alterar, botão direito para mudar a curva`}
             >
-              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[2px] bg-white/80 group-hover/fadeLine:bg-logic-lcd-amber group-hover/fadeLine:w-[2.5px] transition-all shadow-[0_0_4px_rgba(0,0,0,0.9)]" />
-              <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-2 h-4 rounded-full bg-white group-hover/fadeLine:bg-logic-lcd-amber border border-black shadow" />
+              {/* Linha vertical visível */}
+              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[2px] bg-white group-hover/fadeLine:bg-logic-lcd-amber group-hover/fadeLine:w-[3px] transition-all shadow-[0_0_5px_rgba(0,0,0,0.9)]" />
+              {/* Pegador no centro */}
+              <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-2.5 h-5 rounded-full bg-white group-hover/fadeLine:bg-logic-lcd-amber border border-black shadow flex items-center justify-center">
+                <div className="w-0.5 h-2 bg-black/60 rounded-full" />
+              </div>
             </div>
           )}
 
           {/* Menu de Contexto ao clicar com botão direito na linha do Fade */}
           {menuPos && (
             <div
-              className="fixed z-[300] py-1 bg-[#13141a] border border-white/20 rounded-xl shadow-2xl text-xs text-white min-w-[200px] animate-[fadeIn_100ms_ease-out]"
+              className="fixed z-[400] py-1 bg-[#13141a] border border-white/20 rounded-xl shadow-2xl text-xs text-white min-w-[210px] animate-[fadeIn_100ms_ease-out]"
               style={{ left: menuPos.x, top: menuPos.y }}
               onClick={(e) => e.stopPropagation()}
             >
               <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-logic-text-muted border-b border-white/10 tracking-wider">
-                Curva de Fade ${side === 'in' ? 'Entrada' : 'Saída'}
+                Curva de Fade {side === 'in' ? 'Entrada' : 'Saída'}
               </div>
               {FADE_CURVE_OPTIONS.map((opt) => (
                 <button
@@ -446,7 +479,9 @@ function FadeHandle({
                   className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-white/10 transition ${
                     curve === opt.id ? 'text-logic-lcd-green font-bold bg-white/[0.04]' : 'text-white'
                   }`}
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    e.preventDefault();
                     setClipFade(clipId, side === 'in' ? { fadeCurveIn: opt.id } : { fadeCurveOut: opt.id });
                     setMenuPos(null);
                   }}
@@ -461,7 +496,7 @@ function FadeHandle({
                     </span>
                     <span className="text-[10px] text-logic-text-dim font-normal">{opt.desc}</span>
                   </div>
-                  {curve === opt.id && <Check size={14} className="text-logic-lcd-green shrink-0" />}
+                  {curve === opt.id && <Check size={14} className="text-logic-lcd-green shrink-0 ml-2" />}
                 </button>
               ))}
             </div>
@@ -487,15 +522,13 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
   const fullWidth = Math.max(30, clip.duration * zoomH);
   const width = Math.max(8, playLength * zoomH);
   if (left > visible.end || left + fullWidth < visible.start) return null;
-  const routingColor = routingColorOf(clip);
+  const isMuted = !!clip.mute;
+  const routingColor = isMuted ? '#666670' : routingColorOf(clip);
   const innerHeight = trackHeight - 4;
   const labelLeft = Math.max(0, visible.start - left);
   const labelWidth = Math.min(width, visible.end - left) - labelLeft;
   const isTrimmed = trimEnd > 0.001;
-  const hasAdjustments = clip.mute || clip.solo || (clip.gain !== undefined && clip.gain !== 1) || !!clip.fadeIn || !!clip.fadeOut;
-  // Controles (knob, M/S) só cabem com a faixa alta o bastante; o sombreado de fade e o
-  // indicador de ajuste aparecem sempre, DAW ligado ou não, para nunca esconder um
-  // ajuste que já foi feito.
+  const hasAdjustments = isMuted || clip.solo || (clip.gain !== undefined && clip.gain !== 1) || !!clip.fadeIn || !!clip.fadeOut;
   const showControls = dawMode && innerHeight >= 20;
 
   return (
@@ -503,13 +536,15 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
       {isTrimmed && (
         <div
           className="absolute rounded-sm border border-dashed pointer-events-none"
-          style={{ left: `${left + width}px`, top: '2px', width: `${Math.max(0, fullWidth - width)}px`, height: `${innerHeight}px`, borderColor: routingColor, opacity: trimming ? 0.35 : 0.15 }}
+          style={{ left: `${left + width}px`, top: '2px', width: `${Math.max(0, fullWidth - width)}px`, height: `${innerHeight}px`, borderColor: isMuted ? '#4b4b52' : routingColor, opacity: trimming ? 0.35 : 0.15 }}
         />
       )}
       <div
         data-selectable="clip"
-        className="group/clip absolute rounded-sm border cursor-pointer transition-shadow duration-75 overflow-hidden bg-black/30"
-        style={{ left: `${left}px`, top: '2px', width: `${width}px`, height: `${innerHeight}px`, borderColor: routingColor, lineHeight: 0 }}
+        className={`group/clip absolute rounded-sm border cursor-pointer transition-all duration-75 overflow-hidden ${
+          isMuted ? 'bg-[#18181c]/90 opacity-55 grayscale border-[#52525b]' : 'bg-black/30'
+        }`}
+        style={{ left: `${left}px`, top: '2px', width: `${width}px`, height: `${innerHeight}px`, borderColor: isMuted ? '#52525b' : routingColor, lineHeight: 0 }}
         onClick={(e) => { e.stopPropagation(); onSelect(e.ctrlKey || e.metaKey); }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -533,9 +568,16 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
         />
         <div
           className="absolute top-0 bottom-0 flex items-start justify-start px-1.5 pt-0.5 text-xs font-medium pointer-events-none"
-          style={{ left: `${labelLeft}px`, width: `${Math.max(0, labelWidth)}px`, color: routingColor, textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
+          style={{ left: `${labelLeft}px`, width: `${Math.max(0, labelWidth)}px`, color: isMuted ? '#a1a1aa' : routingColor, textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
         >
-          <span className="truncate">{clip.name}</span>
+          <span className="truncate flex items-center gap-1">
+            <span>{clip.name}</span>
+            {isMuted && (
+              <span className="px-1 py-0.2 rounded bg-logic-lcd-amber/20 text-[9px] font-bold text-logic-lcd-amber uppercase">
+                MUDO
+              </span>
+            )}
+          </span>
         </div>
         {showControls && (
           <div className="absolute bottom-0.5 left-1 flex items-center gap-1 z-10">
@@ -603,6 +645,13 @@ const VIEW_MARGIN_PX = 600;
 
 export default function TimelinePanel() {
   const tracks = useStore((s) => s.tracks);
+  const [trackContextMenu, setTrackContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
+
+  const handleOpenTrackMenu = useCallback((e: React.MouseEvent, tr: Track) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTrackContextMenu({ track: tr, x: e.clientX, y: e.clientY });
+  }, []);
   const songs = useStore((s) => s.songs);
   const playlist = useStore((s) => s.playlist);
   const clips = useStore((s) => s.clips);
@@ -1014,8 +1063,8 @@ export default function TimelinePanel() {
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
                 if (!track) return null;
-                if (track.isSubgroup) return <FolderGroup key={track.id} track={track} />;
-                return <TrackRow key={track.id} track={track} depth={0} />;
+                if (track.isSubgroup) return <FolderGroup key={track.id} track={track} onContextMenu={handleOpenTrackMenu} />;
+                return <TrackRow key={track.id} track={track} depth={0} onContextMenu={handleOpenTrackMenu} />;
               })}
               <div
                 className="absolute top-0 right-0 bottom-0 w-1.5 -mr-0.5 z-50 cursor-col-resize group/widthHandle"

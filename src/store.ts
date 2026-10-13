@@ -169,6 +169,8 @@ interface StoreActions {
   setVolume: (trackId: string, volume: number) => void;
   setPan: (trackId: string, pan: number) => void;
   setTrackColor: (trackId: string, color: string) => void;
+  renameTrack: (trackId: string, name: string) => void;
+  moveTrackToFolder: (trackId: string, targetFolderId: string | null) => void;
   setOutputChannel: (trackId: string, channel: number) => void;
   toggleFaderLock: (trackId: string) => void;
   setTrackHeight: (trackId: string, height: number) => void;
@@ -405,6 +407,30 @@ export const useStore = create<Store>()(
       setVolume: (trackId, volume) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked ? { ...t, volume: Math.max(0, Math.min(1.5, volume)) } : t) })),
       setPan: (trackId, pan) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, pan: Math.max(-1, Math.min(1, pan)) } : t) })),
       setTrackColor: (trackId, color) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, color } : t) })),
+      renameTrack: (trackId, name) => set((s) => ({
+        tracks: s.tracks.map((t) => t.id === trackId ? { ...t, name: name.trim() || t.name } : t),
+      })),
+      moveTrackToFolder: (trackId, targetFolderId) => set((s) => {
+        const track = s.tracks.find((t) => t.id === trackId);
+        if (!track || track.isSubgroup) return s;
+        const oldParentId = track.parentId;
+        if (oldParentId === targetFolderId) return s;
+
+        return {
+          tracks: s.tracks.map((t) => {
+            if (t.id === trackId) {
+              return { ...t, parentId: targetFolderId };
+            }
+            if (oldParentId && t.id === oldParentId) {
+              return { ...t, children: t.children.filter((cid) => cid !== trackId) };
+            }
+            if (targetFolderId && t.id === targetFolderId) {
+              return { ...t, children: t.children.includes(trackId) ? t.children : [...t.children, trackId] };
+            }
+            return t;
+          }),
+        };
+      }),
       setOutputChannel: (trackId, channel) => set((s) => {
         const tc = s.tracks.find((t) => t.id === TIMECODE_TRACK_ID);
         if (isTimecodeTrackId(trackId)) {
