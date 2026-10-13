@@ -10,7 +10,7 @@ export type Plan = 'monthly' | 'yearly';
 
 const PLANS: Array<{ id: Plan; title: string; price: string; period: string; note: string; badge?: string }> = [
   { id: 'monthly', title: 'Mensal', price: 'R$ 55,00', period: '/mês', note: 'Cobrança recorrente todo mês. Cancele quando quiser.' },
-  { id: 'yearly', title: 'Anual', price: 'R$ 599,00', period: '/ano', note: 'Pagamento único por ano — sai por R$ 49,92/mês.', badge: 'ECONOMIZE R$ 61' },
+  { id: 'yearly', title: 'Anual', price: 'R$ 349,00', period: '/ano', note: 'Pagamento único por ano — sai por R$ 29,08/mês.', badge: 'ECONOMIZE R$ 311' },
 ];
 
 const FEATURES = [

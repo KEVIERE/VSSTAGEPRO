@@ -365,7 +365,7 @@ export default function SalesPage() {
                       VER PLANOS & ASSINATURA
                     </span>
                     <span className="text-[11px] font-extrabold text-black/80 leading-tight tracking-wide mt-0.5">
-                      A partir de R$ 49,92/mês • Sem fidelidade
+                      A partir de R$ 29,08/mês • Sem fidelidade
                     </span>
                   </div>
                 </div>

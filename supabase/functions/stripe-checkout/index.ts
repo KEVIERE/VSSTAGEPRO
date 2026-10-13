@@ -10,7 +10,7 @@ const corsHeaders = {
 // Valores em centavos (BRL).
 const PLANS = {
   monthly: { amount: 5500, interval: "month", name: "VS Stage Pro — Plano Mensal" },
-  yearly: { amount: 59900, interval: "year", name: "VS Stage Pro — Plano Anual" },
+  yearly: { amount: 34900, interval: "year", name: "VS Stage Pro — Plano Anual" },
 } as const;
 
 const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://vsstage-pro-showonline.bolt.host").replace(/\/+$/, "");

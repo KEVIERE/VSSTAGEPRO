@@ -29,8 +29,8 @@ import { friendlyError } from '@/lib/friendlyError';
 export type Plan = 'monthly' | 'yearly';
 
 const MONTHLY_PRICE = 'R$ 55,00';
-const YEARLY_PRICE = 'R$ 599,00';
-const YEARLY_MONTH_EQUIV = 'R$ 49,92';
+const YEARLY_PRICE = 'R$ 349,00';
+const YEARLY_MONTH_EQUIV = 'R$ 29,08';
 
 const COMPARISON_FEATURES = [
   {
@@ -60,7 +60,7 @@ const COMPARISON_FEATURES = [
     items: [
       { name: 'Suporte a Apple Silicon (M1 a M4) & Intel', monthly: true, yearly: true },
       { name: 'Cancelamento a qualquer momento sem taxas', monthly: true, yearly: true },
-      { name: 'Economia garantida de R$ 61,00 por ano', monthly: false, yearly: true, note: 'R$ 49,92/mês no anual' },
+      { name: 'Economia garantida de R$ 311,00 por ano', monthly: false, yearly: true, note: 'R$ 29,08/mês no anual' },
       { name: 'Acesso prioritário a novas atualizações da temporada', monthly: false, yearly: true, note: 'Incluso no anual' },
       { name: 'Canal de suporte técnico prioritário', monthly: false, yearly: true, note: 'Prioritário' },
     ],
@@ -78,7 +78,7 @@ const PRICING_FAQS = [
   },
   {
     q: 'Qual é a vantagem do Plano Anual?',
-    a: 'No Plano Anual você paga R$ 599 uma única vez por 12 meses de acesso, economizando R$ 61 em relação ao mensal (sai por R$ 49,92/mês). Além da economia, você garante acesso ininterrupto durante toda a temporada de shows e recebe atualizações e suporte prioritário.',
+    a: 'No Plano Anual você paga R$ 349 uma única vez por 12 meses de acesso, economizando R$ 311 em relação ao mensal (sai por R$ 29,08/mês). Além da economia, você garante acesso ininterrupto durante toda a temporada de shows e recebe atualizações e suporte prioritário.',
   },
   {
     q: 'Como funciona o teste grátis de 48 horas?',
@@ -384,7 +384,7 @@ export default function PricingPage() {
               {/* Badge de Destaque Flutuante */}
               <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-logic-lcd-green to-emerald-400 text-black text-2xs font-black tracking-wider uppercase shadow-lg shadow-logic-lcd-green/30 flex items-center gap-1.5">
                 <Sparkles size={12} />
-                <span>MAIS POPULAR • ECONOMIZE R$ 61/ANO</span>
+                <span>MAIS POPULAR • ECONOMIZE R$ 311/ANO</span>
               </div>
 
               <div>
@@ -436,8 +436,8 @@ export default function PricingPage() {
                   </div>
                   {[
                     'Tudo o que o Plano Mensal oferece (sem exceção)',
-                    'Economia garantida de R$ 61,00 no bolso todo ano',
-                    'Sai por apenas R$ 49,92 por mês',
+                    'Economia garantida de R$ 311,00 no bolso todo ano',
+                    'Sai por apenas R$ 29,08 por mês',
                     '365 dias de tranquilidade sem se preocupar com fatura mensal',
                     'Acesso prioritário a todas as novas funções e atualizações da temporada',
                     'Canal de suporte técnico humanizado e prioritário',
