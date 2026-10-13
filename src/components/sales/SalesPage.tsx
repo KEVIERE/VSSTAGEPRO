@@ -261,17 +261,17 @@ function RevealBlock({
     if (revealed) return 'opacity-100 translate-x-0 translate-y-0 scale-100';
     switch (direction) {
       case 'left':
-        // No mobile, nunca desloca no eixo X para evitar folga horizontal
-        return 'opacity-0 sm:-translate-x-8 translate-y-3 scale-[0.99]';
+        // No mobile (< 640px), SEMPRE opacity-100 para NUNCA ter tela preta!
+        return 'opacity-100 sm:opacity-0 sm:-translate-x-8 sm:translate-y-3 sm:scale-[0.99]';
       case 'right':
-        return 'opacity-0 sm:translate-x-8 translate-y-3 scale-[0.99]';
+        return 'opacity-100 sm:opacity-0 sm:translate-x-8 sm:translate-y-3 sm:scale-[0.99]';
       case 'zoom':
-        return 'opacity-0 scale-[0.97] translate-y-3';
+        return 'opacity-100 sm:opacity-0 sm:scale-[0.97] sm:translate-y-3';
       case 'down':
-        return 'opacity-0 -translate-y-4 scale-[0.99]';
+        return 'opacity-100 sm:opacity-0 sm:-translate-y-4 sm:scale-[0.99]';
       case 'up':
       default:
-        return 'opacity-0 translate-y-4 scale-[0.99]';
+        return 'opacity-100 sm:opacity-0 sm:translate-y-4 sm:scale-[0.99]';
     }
   };
 

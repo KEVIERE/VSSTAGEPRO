@@ -5,17 +5,27 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(options?
   rootMargin?: string;
   once?: boolean;
 }) {
+  const isMobile = typeof window !== 'undefined' && (
+    window.innerWidth < 768 ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+  );
+
   const threshold = options?.threshold ?? 0.01;
   const rootMargin = options?.rootMargin ?? '120px 0px 120px 0px';
   const once = options?.once ?? true;
   const ref = useRef<T>(null);
-  const [revealed, setRevealed] = useState(false);
+  // No mobile, SEMPRE começa revealed = true para nunca gerar tela preta!
+  const [revealed, setRevealed] = useState(() => isMobile);
 
   useEffect(() => {
+    if (isMobile) {
+      setRevealed(true);
+      return;
+    }
+
     const el = ref.current;
     if (!el) return;
 
-    // Se já estiver visível ou próximo da tela (mesmo em mobile), revela imediatamente
     const rect = el.getBoundingClientRect();
     const vh = window.innerHeight || document.documentElement.clientHeight || 800;
     if (rect.top < vh + 100) {
@@ -41,17 +51,15 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(options?
       setRevealed(true);
     }
 
-    // Fallback de segurança contra "tela preta": garante que todo o conteúdo
-    // seja revelado após breve delay caso o navegador/mobile atrase o observer
     const safetyTimer = window.setTimeout(() => {
       setRevealed(true);
-    }, 900);
+    }, 500);
 
     return () => {
       window.clearTimeout(safetyTimer);
       observer?.disconnect();
     };
-  }, [threshold, rootMargin, once]);
+  }, [threshold, rootMargin, once, isMobile]);
 
   return { ref, revealed };
 }

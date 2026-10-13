@@ -72,8 +72,27 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   if (hash.startsWith('#produtor')) return 'producer';
   if (hash.startsWith('#m=') || hash.startsWith('#join=') || hash.startsWith('#musico')
     || new URLSearchParams(search).has('musico')) return 'musician';
+  // No celular/smartphone ou tablet na web pública, NUNCA abre o editor DAW (que fica tela preta no mobile).
+  // Sempre direciona para a página de vendas oficial (ou áreas específicas: músico, tela, produtor, download, planos).
+  const isMobileDevice = typeof window !== 'undefined' && (
+    window.innerWidth < 768 ||
+    /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
+  );
+
+  if (isMobileDevice && !window.vsDesktop) {
+    if (hash.startsWith('#baixar') || seg === 'baixar') return 'download';
+    if (hash.startsWith('#planos') || seg === 'planos' || hash.startsWith('#assinar')) return 'pricing';
+    if (hash.startsWith('#musico') || hash.startsWith('#m=') || hash.startsWith('#join=') || new URLSearchParams(search).has('musico')) return 'musician';
+    if (hash.startsWith('#tela') || seg === 'tela') return 'screen';
+    if (hash.startsWith('#produtor') || seg === 'produtor') return 'producer';
+    if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
+    if (seg === 'recuperar' || hash.startsWith('#recuperar')) return 'recovery';
+    return 'sales';
+  }
+
   if (hash.startsWith('#assinatura')) return 'subscribed';
   if (hash.startsWith('#programa')) return 'director';
+
   // Na web pública, rota sem hash ou apenas "#" mostra a página de vendas (nunca o editor/tela preta).
   // No app do Mac ou em /staging/, abre o editor.
   const isBareOrEmptyHash = !hash || hash === "#" || hash === "#/" || hash === "#!";
