@@ -378,7 +378,7 @@ export default function SalesPage() {
                       VER PLANOS & ASSINATURA
                     </span>
                     <span className="text-[11px] font-extrabold text-black/80 leading-tight tracking-wide mt-0.5">
-                      Planos flexíveis • A partir de R$ 49,92/mês
+                      A partir de R$ 49,92/mês • Sem fidelidade
                     </span>
                   </div>
                 </div>
@@ -723,18 +723,33 @@ export default function SalesPage() {
 
           <RevealBlock direction="up" delay={120}>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
-            {/* Botão Primário: Ver Planos & Assinatura */}
+            {/* Botão Primário: Assinar Agora */}
             <div className="relative group w-full sm:w-auto">
               <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-60 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
 
               <button
                 onClick={subscribe}
-                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[340px] h-[64px] px-8 rounded-2xl btn-neon-green text-black font-black text-base flex items-center justify-center gap-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[340px] h-[64px] px-6 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
-                <Sparkles size={22} className="text-black" />
-                <span>VER PLANOS & ASSINATURA</span>
-                <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-xl bg-black/15 backdrop-blur-sm border border-black/10 flex items-center justify-center text-black shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                    <Sparkles size={22} className="text-black" />
+                  </div>
+                  <div className="text-left flex flex-col justify-center">
+                    <span className="text-[15px] sm:text-base font-black tracking-tight text-black leading-tight">
+                      ASSINAR AGORA
+                    </span>
+                    <span className="text-[11px] font-extrabold text-black/80 leading-tight tracking-wide mt-0.5">
+                      Comece hoje com acesso total
+                    </span>
+                  </div>
+                </div>
+
+                <div className="w-9 h-9 rounded-xl bg-black/15 flex items-center justify-center group-hover:bg-black/25 group-hover:translate-x-1 transition-all shrink-0">
+                  <ArrowRight size={18} className="text-black" />
+                </div>
               </button>
             </div>
 
