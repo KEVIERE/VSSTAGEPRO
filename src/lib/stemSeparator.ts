@@ -90,19 +90,31 @@ export async function separateSongToVS(
   });
   const otherBuffer = await extractOther(audioBuffer, vocalsBuffer, bassBuffer);
 
-  // 2.5 Metrônomo do Show (Click)
+  // 2.5 Metrônomo do Show (Click) sincronizado pelo canal de bateria
   let clickBuffer: AudioBuffer | null = null;
   if (options.includeClick) {
     onProgress?.({
       step: 'click',
-      message: 'Gerando trilha de Metrônomo (Click) sincronizada...',
+      message: 'Sincronizando metrônomo (Click) pela bateria...',
       percent: 92,
     });
+
+    // Refina BPM e Downbeat analisando os transientes isolados da bateria
+    let finalBpm = bpm;
+    let finalDownbeat = downbeat;
+    try {
+      const drumBpm = await detectBpm(drumsBuffer);
+      if (drumBpm && drumBpm.bpm >= 45 && drumBpm.bpm <= 240) {
+        finalBpm = drumBpm.bpm;
+        finalDownbeat = drumBpm.downbeat;
+      }
+    } catch { /* usa estimativa inicial */ }
+
     clickBuffer = generateClickTrack(
       duration,
-      bpm,
+      finalBpm,
       sampleRate,
-      downbeat,
+      finalDownbeat,
       options.beatsPerBar || 4
     );
   }
@@ -141,7 +153,7 @@ export async function separateSongToVS(
     { name: `${songName} - Bateria`, buffer: drumsBuffer, targetTrack: 'track-bateria' },
     { name: `${songName} - Baixo`, buffer: bassBuffer, targetTrack: 'track-contrabaixo' },
     { name: `${songName} - Playback Harmonia`, buffer: otherBuffer, targetTrack: 'track-outros' },
-    { name: `${songName} - Voz`, buffer: vocalsBuffer, targetTrack: 'track-solos' },
+    { name: `${songName} - Guia (Voz)`, buffer: vocalsBuffer, targetTrack: 'track-guia' },
   ];
 
   if (clickBuffer) {
@@ -270,7 +282,7 @@ async function extractDrums(source: AudioBuffer): Promise<AudioBuffer> {
   return offline.startRendering();
 }
 
-/** Isola Vocais (Centro estéreo Mid com passa-faixa vocal) */
+/** Isola Vocais (Centro estéreo Mid limpo de graves com passa-faixa vocal) */
 async function extractVocals(source: AudioBuffer): Promise<AudioBuffer> {
   const length = source.length;
   const sampleRate = source.sampleRate;
@@ -281,19 +293,18 @@ async function extractVocals(source: AudioBuffer): Promise<AudioBuffer> {
   const leftOut = out.getChannelData(0);
   const rightOut = out.getChannelData(1);
 
-  // Extrai o canal central (Mid = (L + R) / 2) e reduz as laterais estéreo
+  // Isolamento Mid de alta definição com cancelamento ativo de surround
   const midData = new Float32Array(length);
   for (let i = 0; i < length; i++) {
     const l = leftIn[i];
     const r = rightIn[i];
     const mid = (l + r) * 0.5;
-    const side = Math.abs(l - r) * 0.5;
-    // Atenua quando há muita abertura estéreo (onde instrumentos como guitarras costumam ficar)
-    const factor = Math.max(0.15, 1 - Math.min(1, side * 1.8));
-    midData[i] = mid * factor;
+    const side = Math.abs(l - r);
+    // Coeficiente dinâmico: voz comercial sempre está perfeitamente no centro estéreo
+    const correlation = Math.max(0, 1 - (side * 2.2));
+    midData[i] = mid * correlation;
   }
 
-  // Passa o canal central por um filtro vocal especializado (300Hz a 3.6kHz)
   const tempBuf = new AudioBuffer({ length, numberOfChannels: 1, sampleRate });
   tempBuf.copyToChannel(midData, 0);
 
@@ -301,23 +312,32 @@ async function extractVocals(source: AudioBuffer): Promise<AudioBuffer> {
   const srcNode = offline.createBufferSource();
   srcNode.buffer = tempBuf;
 
-  const hp = offline.createBiquadFilter();
-  hp.type = 'highpass';
-  hp.frequency.value = 280;
-  hp.Q.value = 0.8;
+  // Corta graves/baixo/bumbo abaixo de 160Hz
+  const hp1 = offline.createBiquadFilter();
+  hp1.type = 'highpass';
+  hp1.frequency.value = 160;
+  hp1.Q.value = 1.0;
 
+  const hp2 = offline.createBiquadFilter();
+  hp2.type = 'highpass';
+  hp2.frequency.value = 240;
+
+  // Corta pratos/chiados acima de 5.5kHz
   const lp = offline.createBiquadFilter();
   lp.type = 'lowpass';
-  lp.frequency.value = 4200;
-  lp.Q.value = 0.8;
+  lp.frequency.value = 5500;
+  lp.Q.value = 0.9;
 
+  // Realce de clareza vocal (2.5kHz)
   const presence = offline.createBiquadFilter();
   presence.type = 'peaking';
-  presence.frequency.value = 1800;
-  presence.gain.value = 3.0;
+  presence.frequency.value = 2400;
+  presence.gain.value = 4.0;
+  presence.Q.value = 1.2;
 
-  srcNode.connect(hp);
-  hp.connect(lp);
+  srcNode.connect(hp1);
+  hp1.connect(hp2);
+  hp2.connect(lp);
   lp.connect(presence);
   presence.connect(offline.destination);
 

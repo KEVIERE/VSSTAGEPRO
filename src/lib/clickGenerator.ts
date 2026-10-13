@@ -1,6 +1,6 @@
 /**
  * Sintetizador de Click / Metrônomo de Estúdio.
- * Gera áudio de metrônomo perfeito e matematicamente alinhado com o BPM e o Downbeat da música.
+ * Gera áudio de metrônomo perfeito e matematicamente travado na grade métrica da música.
  */
 export function generateClickTrack(
   durationSeconds: number,
@@ -15,28 +15,31 @@ export function generateClickTrack(
   const data = buffer.getChannelData(0);
 
   const secondsPerBeat = 60 / Math.max(30, Math.min(300, bpm));
-  const beatSamples = Math.round(secondsPerBeat * sampleRate);
+  const clickSamples = Math.round(sampleRate * 0.025); // 25ms de duração do pulso
 
-  // Calcula o primeiro clique
-  let startSample = Math.round(downbeatOffset * sampleRate);
-  while (startSample < 0) startSample += beatSamples;
-  while (startSample > beatSamples) startSample -= beatSamples;
+  // Determina o índice k do primeiro clique >= 0
+  // t(k) = downbeatOffset + k * secondsPerBeat
+  const kMin = Math.ceil(-downbeatOffset / secondsPerBeat);
+  const kMax = Math.floor((safeDuration - downbeatOffset) / secondsPerBeat);
 
-  const clickSamples = Math.round(sampleRate * 0.025); // 25ms de duração do clique
+  for (let k = kMin; k <= kMax; k++) {
+    const beatTime = downbeatOffset + k * secondsPerBeat;
+    const startSample = Math.round(beatTime * sampleRate);
+    if (startSample < 0 || startSample >= length) continue;
 
-  let beatIndex = 0;
-  for (let start = startSample; start < length; start += beatSamples) {
-    const isDownbeat = (beatIndex % beatsPerBar) === 0;
-    const freq = isDownbeat ? 2500 : 1600; // Tempo forte agudo, tempos fracos médios
+    // Compassos fechados: k = 0 é exatamente o Downbeat (tempo 1 forte)
+    const beatInBar = ((k % beatsPerBar) + beatsPerBar) % beatsPerBar;
+    const isDownbeat = beatInBar === 0;
+
+    const freq = isDownbeat ? 2500 : 1600; // Tempo 1 forte agudo, tempos fracos médios
     const vol = isDownbeat ? 0.95 : 0.65;
 
-    for (let i = 0; i < clickSamples && start + i < length; i++) {
+    for (let i = 0; i < clickSamples && startSample + i < length; i++) {
       const t = i / sampleRate;
-      // Envelope percussivo exponencial rápido (ataque imediato, decaimento rápido)
+      // Envelope percussivo exponencial rápido (ataque limpo sem cliques DC)
       const env = Math.exp(-t * 220);
-      data[start + i] += Math.sin(2 * Math.PI * freq * t) * env * vol;
+      data[startSample + i] += Math.sin(2 * Math.PI * freq * t) * env * vol;
     }
-    beatIndex++;
   }
 
   return buffer;
