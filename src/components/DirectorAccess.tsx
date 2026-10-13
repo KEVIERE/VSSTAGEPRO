@@ -1,3 +1,4 @@
+import { adminApi } from '@/components/admin/adminApi';
 import { useEffect, useState } from 'react';
 import { Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
@@ -153,6 +154,10 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     const { data, error: err } = await supabase.rpc('license_status');
     if (err) throw err;
     setLicense(data as License);
+
+    // Registra presença e IP do computador silenciosamente para antifraude e contagem de versões
+    const appVersion = window.__VS_VERSION__ || (window.vsDesktop ? 'Desktop App' : 'Navegador Web');
+    adminApi.pingPresence(appVersion).catch(() => {});
   };
 
   const checkAdmin = async () => {

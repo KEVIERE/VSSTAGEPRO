@@ -1,3 +1,4 @@
+let _lastPingTime = 0;
 import { supabase } from '@/lib/supabaseClient';
 
 export type UserState = 'trial' | 'expired' | 'active' | 'promo' | 'blocked';
@@ -67,6 +68,64 @@ export type PromoCode = {
 };
 
 export type FeatureUse = { feature: string; uses: number; users: number };
+export type SubscriberInsight = {
+  userId: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  plan: 'monthly' | 'yearly' | 'manual' | 'promo';
+  priceFormatted: string;
+  currentPeriodEnd: string | null;
+  daysRemaining: number | null;
+  renewalText: string;
+  subscribedAt: string;
+  lastIp: string | null;
+  lastAppVersion: string;
+  lastSeenAt: string | null;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+};
+
+export type TrialInsight = {
+  userId: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  trialStartedAt: string;
+  trialEndsAt: string;
+  hoursRemaining: number;
+  timeLeftText: string;
+  percentUsed: number;
+  lastIp: string | null;
+  lastAppVersion: string;
+  lastSeenAt: string | null;
+  totalHours: number;
+};
+
+export type SuspiciousInsight = {
+  userId: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  reason: string;
+  riskLevel: 'alto' | 'medio';
+  createdAt: string;
+  lastIp: string | null;
+  blocked: boolean;
+};
+
+export type InsightsData = {
+  subscribers: SubscriberInsight[];
+  trials: TrialInsight[];
+  suspicious: SuspiciousInsight[];
+  stats: {
+    totalUsers: number;
+    subscribersCount: number;
+    trialsCount: number;
+    suspiciousCount: number;
+  };
+};
+
 
 export type AuditEntry = {
   created_at: string;
@@ -137,6 +196,22 @@ export const adminApi = {
     }),
   publishRelease: (version: string, build: number, required: boolean, builds: Array<{ arch: 'arm64' | 'x64'; label: string; file: string; size: number; sha256: string; parts: string[] }>) =>
     callReleasesFn({ action: 'publish', version, build, required, builds }),
+  // Insights do painel de administração (Assinantes, Testes e Antifraude)
+  insights: () => callEdgeFn<InsightsData>('admin-insights', { action: 'overview' }),
+  blockInsightUser: (userId: string, reason: string) =>
+    callEdgeFn<{ ok: true }>('admin-insights', { action: 'block', userId, reason }),
+  unblockInsightUser: (userId: string) =>
+    callEdgeFn<{ ok: true }>('admin-insights', { action: 'unblock', userId }),
+  extendInsightTrial: (userId: string, hours: number) =>
+    callEdgeFn<{ ok: true; newHours: number }>('admin-insights', { action: 'extend-trial', userId, hours }),
+  pingPresence: (version?: string) => {
+    const now = Date.now();
+    if (now - _lastPingTime < 10 * 60 * 1000) {
+      return Promise.resolve({ ok: true });
+    }
+    _lastPingTime = now;
+    return callEdgeFn<{ ok: true; ip?: string }>('admin-insights', { action: 'ping', version });
+  },
 };
 
 async function callReleasesFn<T = { ok: true }>(payload: Record<string, unknown>): Promise<T> {

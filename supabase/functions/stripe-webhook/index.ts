@@ -19,13 +19,25 @@ async function syncSubscription(sub: Stripe.Subscription) {
   const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
   const interval = sub.items.data[0]?.price?.recurring?.interval;
   const periodEnd = sub.items.data[0]?.current_period_end ?? (sub as unknown as { current_period_end?: number }).current_period_end;
-  const patch = {
+
+  // IMPORTANTE: Quando o checkout é aberto, o Stripe cria a assinatura com status 'incomplete'
+  // ANTES do cliente pagar. NUNCA devemos marcar como 'canceled' quando for 'incomplete'!
+  if (sub.status === "incomplete" || sub.status === "incomplete_expired") {
+    console.log("Subscription is incomplete, waiting for checkout completion.");
+    return;
+  }
+
+  const patch: Record<string, unknown> = {
     stripe_customer_id: customerId,
     stripe_subscription_id: sub.id,
     subscription: ACTIVE.has(sub.status) ? "active" : "canceled",
     plan: interval === "year" ? "yearly" : interval === "month" ? "monthly" : null,
     current_period_end: periodEnd ? new Date(periodEnd * 1000).toISOString() : null,
   };
+
+  if (ACTIVE.has(sub.status)) {
+    patch.subscribed_at = new Date().toISOString();
+  }
 
   const userId = sub.metadata?.user_id;
   const query = admin.from("director_licenses").update(patch);
