@@ -32,6 +32,7 @@ import ResetPasswordPage from '@/components/ResetPasswordPage';
 import { emailLinkType, supabase } from '@/lib/supabaseClient';
 import MacDownloadPage from '@/components/MacDownloadPage';
 import SalesPage from '@/components/sales/SalesPage';
+import PricingPage from '@/components/sales/PricingPage';
 import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
 import SubscriptionReturn from '@/components/SubscriptionReturn';
 import AdminPage from '@/components/admin/AdminPage';
@@ -45,7 +46,7 @@ import { useLiveBroadcast } from '@/lib/useLiveBroadcast';
 import { usePendingRequests } from '@/lib/usePendingRequests';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 
-function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' {
+function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' {
   const { pathname, hash, search } = window.location;
   // No build de staging (servido em /staging/, mesmo domínio), o próprio prefixo
   // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
@@ -61,6 +62,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
     hash.includes('type=recovery') ||
     search.includes('type=recovery')
   ) return 'recovery';
+  if (seg === 'planos' || seg === 'assinar' || hash.startsWith('#planos') || hash.startsWith('#assinar')) return 'pricing';
   if (seg === 'baixar') return 'download';
   if (seg === 'tela') return 'screen';
   if (seg === 'produtor') return 'producer';
@@ -169,6 +171,13 @@ function App() {
     return (
       <ErrorBoundary>
         <SubscriptionReturn />
+      </ErrorBoundary>
+    );
+  }
+  if (route === 'pricing') {
+    return (
+      <ErrorBoundary>
+        <PricingPage />
       </ErrorBoundary>
     );
   }

@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const url = import.meta.env.VITE_SUPABASE_URL as string;
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const url =
+  (import.meta.env.VITE_SUPABASE_URL as string) || 'https://xfpkftewsxaxycdwwnnv.supabase.co';
+const anonKey =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmcGtmdGV3c3hheHljZHd3bm52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0MTc3ODAsImV4cCI6MjEwNjk5Mzc4MH0.JXKzNyF_gKzKF3zw8m8Kk6FFNHyOR5b-6s-r7gleEkM';
 
 // 1. Se a URL chegou com duplo hash (ex: #recuperar#access_token=...),
 // normaliza o hash para que o SDK do Supabase leia o access_token sem erros.

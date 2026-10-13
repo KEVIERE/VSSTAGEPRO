@@ -134,7 +134,7 @@ const STATS = [
   { value: '100% Offline', label: 'Funciona no palco sem depender de internet', icon: Wifi, color: 'text-logic-lcd-green' },
   { value: 'LTC Integrado', label: 'Canal Timecode travado para luzes e LED', icon: Radio, color: 'text-logic-lcd-amber' },
   { value: 'Master L/R Mágico', label: 'Split instantâneo em caso de falha de cabo', icon: ShieldAlert, color: 'text-logic-lcd-green' },
-  { value: '48h Grátis Real', label: 'O tempo só conta ao abrir o app no Mac', icon: Clock, color: 'text-logic-lcd-amber' },
+  { value: 'Teste Grátis', label: 'O tempo só conta ao abrir o app no Mac', icon: Clock, color: 'text-logic-lcd-amber' },
 ];
 
 const MAIN_PILLARS = [
@@ -227,8 +227,8 @@ const FAQS = [
     a: 'Não! O programa foi projetado para a realidade dos palcos brasileiros. Todo o motor de áudio, o Modo Show, a área do músico no celular e o teleprompter na TV funcionam 100% offline através de qualquer roteador Wi-Fi comum no palco, sem precisar de dados móveis ou internet.',
   },
   {
-    q: 'Como funciona o teste grátis de 48 horas?',
-    a: 'O teste de 48 horas é real e transparente: ele NÃO exige cartão de crédito no cadastro e o cronômetro só começa a contar a partir do momento exato em que você abrir o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de decidir assinar.',
+    q: 'Como funciona o teste grátis?',
+    a: 'O teste grátis é real e transparente: ele NÃO exige cartão de crédito no cadastro e o cronômetro só começa a contar a partir do momento exato em que você abrir o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de decidir assinar.',
   },
   {
     q: 'Posso usar minha interface de áudio multicanal?',
@@ -272,7 +272,7 @@ export default function SalesPage() {
     };
   }, []);
 
-  const subscribe = () => { window.location.hash = '#programa/assinar'; };
+  const subscribe = () => { window.location.hash = '#planos'; };
 
   return (
     <div className="min-h-screen bg-[#090a0d] text-logic-text selection:bg-logic-lcd-green selection:text-black">
@@ -308,17 +308,11 @@ export default function SalesPage() {
           <div className="flex items-center gap-3">
             <button
               onClick={subscribe}
-              className="hidden sm:inline-flex px-4 h-9 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-white/90 border border-white/10 transition"
+              className="px-4.5 h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-bold text-white border border-white/15 hover:border-amber-400/50 transition-all shadow-sm flex items-center gap-2"
             >
-              Assinar Plano
+              <Sparkles size={14} className="text-logic-lcd-amber" />
+              <span>Ver Planos & Assinatura</span>
             </button>
-            <a
-              href="#baixar"
-              className="px-4 sm:px-5 h-9 rounded-lg bg-gradient-to-r from-logic-lcd-green to-emerald-400 hover:from-emerald-400 hover:to-logic-lcd-green text-black text-xs font-extrabold tracking-wide flex items-center justify-center gap-1.5 transition shadow-lg shadow-logic-lcd-green/20 hover:scale-[1.02]"
-            >
-              <Apple size={15} />
-              <span>TESTAR 48H GRÁTIS</span>
-            </a>
           </div>
         </div>
       </header>
@@ -346,28 +340,63 @@ export default function SalesPage() {
           </p>
 
           {/* Botões de Ação Hero */}
-          <div className="flex flex-wrap items-center justify-center gap-4 mt-10">
-            <a
-              href="#baixar"
-              className="px-8 h-14 rounded-xl bg-gradient-to-r from-logic-lcd-green to-emerald-400 hover:from-emerald-400 hover:to-logic-lcd-green text-black font-extrabold text-base flex items-center justify-center gap-2.5 transition shadow-xl shadow-logic-lcd-green/25 hover:scale-[1.03] group"
-            >
-              <Apple size={22} className="transition-transform group-hover:scale-110" />
-              <span>BAIXAR E TESTAR NO MAC</span>
-              <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
-            </a>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
+            {/* Botão Primário com Efeito de Luz e Halo Neon */}
+            <div className="relative group w-full sm:w-auto">
+              <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-60 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
+              
+              <a
+                href="#baixar"
+                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[330px] h-[64px] px-6 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
+
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-xl bg-black/15 backdrop-blur-sm border border-black/10 flex items-center justify-center text-black shadow-sm group-hover:scale-105 transition-transform shrink-0">
+                    <Apple size={24} />
+                  </div>
+                  <div className="text-left flex flex-col justify-center">
+                    <span className="text-[15px] sm:text-base font-black tracking-tight text-black leading-tight">
+                      BAIXAR E TESTAR NO MAC
+                    </span>
+                    <span className="text-[11px] font-extrabold text-black/80 leading-tight tracking-wide mt-0.5">
+                      Teste grátis • Apple Silicon & Intel
+                    </span>
+                  </div>
+                </div>
+
+                <div className="w-9 h-9 rounded-xl bg-black/15 flex items-center justify-center group-hover:bg-black/25 group-hover:translate-x-1 transition-all shrink-0">
+                  <ArrowRight size={18} className="text-black" />
+                </div>
+              </a>
+            </div>
+
+            {/* Botão Secundário: Planos & Assinatura */}
             <button
               onClick={subscribe}
-              className="px-7 h-14 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-white font-bold text-base border border-white/15 backdrop-blur-md transition flex items-center gap-2"
+              className="relative group w-full sm:w-auto min-w-[250px] sm:min-w-[270px] h-[64px] px-6 rounded-2xl btn-glass-secondary text-white flex items-center justify-between gap-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             >
-              <Sparkles size={18} className="text-logic-lcd-amber" />
-              <span>Ver Planos & Assinatura</span>
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-amber-400/10 border border-amber-400/25 flex items-center justify-center text-amber-400 group-hover:bg-amber-400/20 group-hover:scale-105 transition-all shrink-0">
+                  <Sparkles size={20} />
+                </div>
+                <div className="text-left flex flex-col justify-center">
+                  <span className="text-[14px] sm:text-[15px] font-bold text-white group-hover:text-amber-300 transition-colors leading-tight">
+                    Ver Planos & Assinatura
+                  </span>
+                  <span className="text-[11px] font-medium text-logic-text-dim leading-tight tracking-wide mt-0.5">
+                    Planos flexíveis para palco
+                  </span>
+                </div>
+              </div>
+              <ChevronRight size={18} className="text-white/40 group-hover:text-amber-400 group-hover:translate-x-1 transition-all shrink-0" />
             </button>
           </div>
 
           {/* Selos de Confiança */}
           <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 mt-10 text-xs text-logic-text-dim">
             <span className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-logic-lcd-green" /> 48h de teste grátis sem cartão
+              <CheckCircle2 size={16} className="text-logic-lcd-green" /> Teste grátis sem cartão de crédito
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle2 size={16} className="text-logic-lcd-green" /> Suporte a Apple Silicon (M1 a M4) & Intel
@@ -619,22 +648,30 @@ export default function SalesPage() {
             Pronto para levar seu palco para o próximo nível?
           </h2>
           <p className="text-logic-text-dim text-base max-w-xl mx-auto mt-4 leading-relaxed">
-            Baixe o VS Stage Pro agora mesmo. Crie sua conta na hora e desfrute de 48 horas de acesso completo e irrestrito.
+            Baixe o VS Stage Pro agora mesmo. Crie sua conta na hora e desfrute de teste grátis com acesso completo e irrestrito.
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-4 mt-9">
-            <a
-              href="#baixar"
-              className="px-9 h-14 rounded-xl bg-gradient-to-r from-logic-lcd-green to-emerald-400 hover:from-emerald-400 hover:to-logic-lcd-green text-black font-extrabold text-base flex items-center justify-center gap-2.5 transition shadow-2xl shadow-logic-lcd-green/30 hover:scale-[1.03]"
-            >
-              <Apple size={22} />
-              <span>BAIXAR PARA MAC (TESTAR GRÁTIS)</span>
-            </a>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
+            <div className="relative group w-full sm:w-auto">
+              <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-60 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
+              
+              <a
+                href="#baixar"
+                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[320px] h-[64px] px-8 rounded-2xl btn-neon-green text-black font-black text-base flex items-center justify-center gap-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
+                <Apple size={24} />
+                <span>BAIXAR PARA MAC (TESTAR GRÁTIS)</span>
+                <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              </a>
+            </div>
+
             <button
               onClick={subscribe}
-              className="px-7 h-14 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white font-bold text-base border border-white/15 backdrop-blur-md transition"
+              className="w-full sm:w-auto min-w-[220px] h-[64px] px-7 rounded-2xl btn-glass-secondary text-white font-bold text-base flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             >
-              Assinar Plano
+              <Sparkles size={18} className="text-amber-400" />
+              <span>Assinar Plano</span>
             </button>
           </div>
         </div>
