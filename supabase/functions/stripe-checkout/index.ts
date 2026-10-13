@@ -13,7 +13,7 @@ const PLANS = {
   yearly: { amount: 34900, interval: "year", name: "VS Stage Pro — Plano Anual" },
 } as const;
 
-const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://vsstage-pro-showonline.bolt.host").replace(/\/+$/, "");
+const SITE_URL = (Deno.env.get("SITE_URL") ?? "https://vsstagepro.com.br").replace(/\/+$/, "");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   httpClient: Stripe.createFetchHttpClient(),
