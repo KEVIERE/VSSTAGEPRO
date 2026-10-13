@@ -341,7 +341,7 @@ export default function SalesPage() {
           </h1>
 
           <p className="text-logic-text-dim text-base sm:text-lg sm:leading-relaxed max-w-3xl mx-auto mt-6 font-normal">
-            Esqueça DAWs de estúdio que travam com timelines gigantescas. O <strong className="text-white">VS Stage Pro</strong> reúne editor multitracks com timeline independente por música, roteamento automático de instrumentos, detecção de BPM com inteligência artificial, controle de andamento e tom das músicas, mixer com Timecode LTC blindado, cifras sincronizadas no celular da banda e teleprompter na TV do palco.
+            Esqueça DAWs de estúdio que travam. O <strong className="text-white">VS Stage Pro</strong> reúne multitracks por música, roteamento automático, BPM por IA, tom e andamento, LTC, cifras no celular e teleprompter na TV.
           </p>
 
           {/* Botões de Ação Hero - DESTAQUE PRINCIPAL EM PLANOS & ASSINATURA */}
