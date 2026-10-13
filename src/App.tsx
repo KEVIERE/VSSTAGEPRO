@@ -80,6 +80,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   );
 
   if (isMobileDevice && !window.vsDesktop) {
+    if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado') return 'subscribed';
     if (hash.startsWith('#baixar') || seg === 'baixar') return 'download';
     if (hash.startsWith('#planos') || seg === 'planos' || hash.startsWith('#assinar')) return 'pricing';
     if (hash.startsWith('#musico') || hash.startsWith('#m=') || hash.startsWith('#join=') || new URLSearchParams(search).has('musico')) return 'musician';
@@ -90,7 +91,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
     return 'sales';
   }
 
-  if (hash.startsWith('#assinatura')) return 'subscribed';
+  if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado') return 'subscribed';
   if (hash.startsWith('#programa')) return 'director';
 
   // Na web pública, rota sem hash ou apenas "#" mostra a página de vendas (nunca o editor/tela preta).
