@@ -1,3 +1,4 @@
+import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
 import { useEffect, useState } from 'react';
 import { FileText, Radio, X } from 'lucide-react';
 import { useStore } from '@/store';
@@ -251,6 +252,7 @@ function DirectorApp({ license }: { license: License }) {
   const [showManagerOpen, setShowManagerOpen] = useState(false);
   const [prompterOpen, setPrompterOpen] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);
+  const [aiSeparatorOpen, setAiSeparatorOpen] = useState(false);
   const broadcast = useLiveBroadcast();
   const local = useLocalBroadcast();
   const pendingRequests = usePendingRequests(broadcast.show);
@@ -527,7 +529,7 @@ function DirectorApp({ license }: { license: License }) {
             <MenuBar
               trialBadge={<TrialBadge license={license} />}
               onOpenShowManager={() => setShowManagerOpen(true)} onOpenPrompter={() => setPrompterOpen(true)}
-              onOpenLocal={() => setLocalOpen(true)} broadcast={broadcast} local={local}
+              onOpenLocal={() => setLocalOpen(true)} onOpenAiSeparator={() => setAiSeparatorOpen(true)} broadcast={broadcast} local={local}
               pendingRequests={pendingRequests}
             />
             <TransportBar />
@@ -599,6 +601,10 @@ function DirectorApp({ license }: { license: License }) {
             onOpenShowManager={() => { setPrompterOpen(false); setShowManagerOpen(true); }}
           />
         )}
+        <AiStemSeparatorDialog
+          open={aiSeparatorOpen}
+          onClose={() => setAiSeparatorOpen(false)}
+        />
       </div>
     </ErrorBoundary>
   );

@@ -30,7 +30,8 @@ interface MenuDef {
   items: MenuItem[];
 }
 
-export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, local, pendingRequests, trialBadge }: {
+export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, local, pendingRequests, trialBadge, onOpenAiSeparator }: {
+  onOpenAiSeparator?: () => void;
   onOpenShowManager: () => void; onOpenPrompter: () => void; onOpenLocal: () => void;
   broadcast: LiveBroadcast; local: LocalBroadcast; pendingRequests: number;
   trialBadge?: React.ReactNode;
@@ -99,6 +100,13 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
       label: 'Arquivo',
       items: [
         { label: 'Importar VS...', action: handleImportVS },
+        {
+          label: 'Criar VS a partir de Música (IA)...',
+          action: () => {
+            setOpenMenu(null);
+            onOpenAiSeparator?.();
+          },
+        },
         { separator: true },
         { label: 'Novo Projeto', action: handleNewProject },
         { label: 'Salvar Projeto...', action: openSave },
@@ -269,7 +277,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
       />
       {modeSwitch.dialog}
 
-      <ImportVSDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <ImportVSDialog open={importOpen} onClose={() => setImportOpen(false)} onOpenAiSeparator={onOpenAiSeparator} />
 
       <ProjectDialogs
         mode={saveDialogOpen ? 'save' : openDialogOpen ? 'open' : null}

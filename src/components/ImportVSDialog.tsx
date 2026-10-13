@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, FolderTree, MousePointer2, X, ChevronLeft, Music2 } from 'lucide-react';
+import { FolderOpen, FolderTree, MousePointer2, X, ChevronLeft, Music2, Sparkles } from 'lucide-react';
 import { groupAsSingleSong, groupByParentFolder, importSongGroups } from '@/lib/importManager';
 import type { SongGroup } from '@/lib/importManager';
 
@@ -7,7 +7,7 @@ type Step = { kind: 'choose' } | { kind: 'drag' } | { kind: 'confirm'; groups: S
 
 const folderInputProps = { webkitdirectory: '', directory: '', multiple: true } as Record<string, unknown>;
 
-export default function ImportVSDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { open: boolean; onClose: () => void; onOpenAiSeparator?: () => void }) {
   const [step, setStep] = useState<Step>({ kind: 'choose' });
   const singleRef = useRef<HTMLInputElement>(null);
   const parentRef = useRef<HTMLInputElement>(null);
@@ -70,6 +70,17 @@ export default function ImportVSDialog({ open, onClose }: { open: boolean; onClo
 
             {step.kind === 'choose' && (
               <div className="p-3 flex flex-col gap-2">
+                {onOpenAiSeparator && (
+                  <Option
+                    icon={<Sparkles size={18} className="text-logic-lcd-green" />}
+                    title="Criar VS a partir de Música (IA Local)"
+                    text="Escolha uma música completa (MP3, WAV, M4A). A IA separa as faixas (bateria, baixo, voz, harmonia) e cria o VS pronto com click."
+                    onClick={() => {
+                      onClose();
+                      onOpenAiSeparator();
+                    }}
+                  />
+                )}
                 <Option
                   icon={<FolderOpen size={18} />}
                   title="Uma pasta VS"
