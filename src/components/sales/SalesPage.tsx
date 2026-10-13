@@ -341,7 +341,7 @@ export default function SalesPage() {
           </h1>
 
           <p className="text-logic-text-dim text-base sm:text-lg sm:leading-relaxed max-w-3xl mx-auto mt-6 font-normal">
-            Esqueça DAWs de estúdio que travam. O <strong className="text-white">VS Stage Pro</strong> reúne multitracks por música, roteamento automático, BPM por IA, tom e andamento, LTC, cifras no celular e teleprompter na TV.
+            Esqueça DAWs de estúdio que travam. O <strong className="text-white">VS Stage Pro</strong> reúne timeline por música, roteamento automático, BPM por IA, tom e andamento, LTC, cifras no celular e teleprompter na TV.
           </p>
 
           {/* Botões de Ação Hero - DESTAQUE PRINCIPAL EM PLANOS & ASSINATURA */}
