@@ -70,7 +70,7 @@ export default function EmailConfirmedPage() {
           <div className="mt-5 p-3.5 rounded-xl bg-logic-bg-elevated/80 border border-logic-border flex items-center justify-center gap-2.5 text-xs text-logic-text">
             <Timer size={16} className="text-logic-lcd-amber shrink-0" />
             <span>
-              <strong className="text-logic-lcd-amber">Teste grátis</strong> liberado. O tempo só começa a contar quando você abrir o aplicativo no Mac!
+              <strong className="text-logic-lcd-amber">48 horas de teste grátis</strong> liberadas. O tempo só começa a contar quando você abrir o aplicativo no Mac!
             </span>
           </div>
 

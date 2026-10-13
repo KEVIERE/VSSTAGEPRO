@@ -79,8 +79,8 @@ const PRICING_FAQS = [
     a: 'No Plano Anual você paga R$ 599 uma única vez por 12 meses de acesso, economizando R$ 61 em relação ao mensal (sai por R$ 49,92/mês). Além da economia, você garante acesso ininterrupto durante toda a temporada de shows e recebe atualizações e suporte prioritário.',
   },
   {
-    q: 'Como funciona o teste grátis?',
-    a: 'O teste grátis é real: não exige cartão de crédito no momento do cadastro e o tempo só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de assinar.',
+    q: 'Como funciona o teste grátis de 48 horas?',
+    a: 'O teste de 48 horas é real e transparente: não exige cartão de crédito no momento do cadastro e o cronômetro só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de assinar.',
   },
   {
     q: 'Quais são as formas de pagamento aceitas?',

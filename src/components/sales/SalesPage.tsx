@@ -134,7 +134,7 @@ const STATS = [
   { value: '100% Offline', label: 'Funciona no palco sem depender de internet', icon: Wifi, color: 'text-logic-lcd-green' },
   { value: 'LTC Integrado', label: 'Canal Timecode travado para luzes e LED', icon: Radio, color: 'text-logic-lcd-amber' },
   { value: 'Master L/R Mágico', label: 'Split instantâneo em caso de falha de cabo', icon: ShieldAlert, color: 'text-logic-lcd-green' },
-  { value: 'Teste Grátis', label: 'O tempo só conta ao abrir o app no Mac', icon: Clock, color: 'text-logic-lcd-amber' },
+  { value: '48h Grátis Real', label: 'O tempo só conta ao abrir o app no Mac', icon: Clock, color: 'text-logic-lcd-amber' },
 ];
 
 const MAIN_PILLARS = [
@@ -227,8 +227,8 @@ const FAQS = [
     a: 'Não! O programa foi projetado para a realidade dos palcos brasileiros. Todo o motor de áudio, o Modo Show, a área do músico no celular e o teleprompter na TV funcionam 100% offline através de qualquer roteador Wi-Fi comum no palco, sem precisar de dados móveis ou internet.',
   },
   {
-    q: 'Como funciona o teste grátis?',
-    a: 'O teste grátis é real e transparente: ele NÃO exige cartão de crédito no cadastro e o cronômetro só começa a contar a partir do momento exato em que você abrir o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de decidir assinar.',
+    q: 'Como funciona o teste grátis de 48 horas?',
+    a: 'O teste de 48 horas é real e transparente: ele NÃO exige cartão de crédito no cadastro e o cronômetro só começa a contar a partir do momento exato em que você abrir o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de decidir assinar.',
   },
   {
     q: 'Posso usar minha interface de áudio multicanal?',
@@ -304,16 +304,6 @@ export default function SalesPage() {
             <a href="#como-funciona" className="hover:text-white transition-colors">Como Funciona</a>
             <a href="#faq" className="hover:text-white transition-colors">Dúvidas</a>
           </nav>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={subscribe}
-              className="px-4.5 h-10 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] text-xs font-bold text-white border border-white/15 hover:border-amber-400/50 transition-all shadow-sm flex items-center gap-2"
-            >
-              <Sparkles size={14} className="text-logic-lcd-amber" />
-              <span>Ver Planos & Assinatura</span>
-            </button>
-          </div>
         </div>
       </header>
 
@@ -360,7 +350,7 @@ export default function SalesPage() {
                       BAIXAR E TESTAR NO MAC
                     </span>
                     <span className="text-[11px] font-extrabold text-black/80 leading-tight tracking-wide mt-0.5">
-                      Teste grátis • Apple Silicon & Intel
+                      48h de teste grátis • Apple Silicon & Intel
                     </span>
                   </div>
                 </div>
@@ -396,7 +386,7 @@ export default function SalesPage() {
           {/* Selos de Confiança */}
           <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3 mt-10 text-xs text-logic-text-dim">
             <span className="flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-logic-lcd-green" /> Teste grátis sem cartão de crédito
+              <CheckCircle2 size={16} className="text-logic-lcd-green" /> 48h de teste grátis sem cartão de crédito
             </span>
             <span className="flex items-center gap-2">
               <CheckCircle2 size={16} className="text-logic-lcd-green" /> Suporte a Apple Silicon (M1 a M4) & Intel
@@ -472,17 +462,48 @@ export default function SalesPage() {
                   {/* Imagem do Print */}
                   <div className="lg:col-span-7 relative group">
                     <div className="absolute -inset-2 rounded-2xl bg-gradient-to-r from-logic-lcd-green/15 to-logic-lcd-amber/15 blur-xl opacity-0 group-hover:opacity-100 transition duration-500" />
-                    <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition">
-                      <img
-                        src={p.shot}
-                        alt={p.title}
-                        className="w-full h-auto rounded-xl object-cover transition-transform duration-500 group-hover:scale-[1.01]"
-                        loading="lazy"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
+                    {p.shot.includes("vs-timecode") || p.shot.includes("vs-master") ? (
+                      /* Faders / canais verticais com tamanho reduzido em 60% e centralizados em pedestal DAW */
+                      <div className="relative rounded-2xl border border-white/10 bg-gradient-to-b from-[#161720] via-[#101116] to-[#0a0b0e] p-6 sm:p-8 min-h-[300px] flex items-center justify-center shadow-2xl overflow-hidden group-hover:border-white/20 transition max-w-md mx-auto">
+                        <div className="relative">
+                          <div className="absolute -inset-4 rounded-2xl bg-gradient-to-b from-white/10 to-transparent blur-xl opacity-50" />
+                          <img
+                            src={p.shot}
+                            alt={p.title}
+                            className="relative w-auto h-auto max-w-[110px] sm:max-w-[125px] max-h-[300px] rounded-xl shadow-2xl drop-shadow-[0_16px_36px_rgba(0,0,0,0.9)] border border-white/10 transition-transform duration-500 group-hover:scale-105"
+                            loading="lazy"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      </div>
+                    ) : p.shot.includes("vs-playlist") ? (
+                      /* Imagem da Playlist reduzida em 15% conforme solicitado */
+                      <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition max-w-[85%] mx-auto">
+                        <img
+                          src={p.shot}
+                          alt={p.title}
+                          className="w-full h-auto rounded-xl object-cover transition-transform duration-500 group-hover:scale-[1.01]"
+                          loading="lazy"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition">
+                        <img
+                          src={p.shot}
+                          alt={p.title}
+                          className="w-full h-auto rounded-xl object-cover transition-transform duration-500 group-hover:scale-[1.01]"
+                          loading="lazy"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* Texto Explicativo */}
@@ -648,20 +669,20 @@ export default function SalesPage() {
             Pronto para levar seu palco para o próximo nível?
           </h2>
           <p className="text-logic-text-dim text-base max-w-xl mx-auto mt-4 leading-relaxed">
-            Baixe o VS Stage Pro agora mesmo. Crie sua conta na hora e desfrute de teste grátis com acesso completo e irrestrito.
+            Baixe o VS Stage Pro agora mesmo. Crie sua conta na hora e desfrute de 48 horas de teste grátis com acesso completo e irrestrito.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-5 mt-10">
             <div className="relative group w-full sm:w-auto">
               <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-60 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
-              
+
               <a
                 href="#baixar"
                 className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[320px] h-[64px] px-8 rounded-2xl btn-neon-green text-black font-black text-base flex items-center justify-center gap-3 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
                 <Apple size={24} />
-                <span>BAIXAR PARA MAC (TESTAR GRÁTIS)</span>
+                <span>BAIXAR PARA MAC (TESTAR 48H GRÁTIS)</span>
                 <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
               </a>
             </div>
