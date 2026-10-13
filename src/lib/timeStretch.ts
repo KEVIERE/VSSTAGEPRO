@@ -32,7 +32,7 @@ class StretchWorkerPool {
 
   private ensureWorkers() {
     if (this.workers.length > 0) return;
-    const hw = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
+    const hw = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
     for (let i = 0; i < hw; i++) {
       const w = new Worker(new URL('@/workers/timeStretch.worker.ts', import.meta.url), { type: 'module' });
       w.onmessage = (ev) => this.onMessage(ev);
@@ -101,6 +101,10 @@ export function bpmAdjustToAlpha(bpmAdjust: number): number {
 export function stretchClipAudio(audio: ClipAudio, tempo: number, pitch: number): Promise<JobResult<Int16Array>> {
   const left = audio.channels[0].slice();
   const right = audio.channels[1] ? audio.channels[1].slice() : left;
+  // Atalho imediato se não houver alteração de tempo nem tom (ex: faixas percussivas com Tuner)
+  if (Math.abs(tempo - 1) < 1e-4 && Math.abs(pitch - 1) < 1e-4) {
+    return Promise.resolve({ left, right });
+  }
   return stretchPool.run({ left, right, sampleRate: audio.sampleRate, tempo, pitch, output: 'int16' });
 }
 

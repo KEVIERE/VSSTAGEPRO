@@ -15,7 +15,7 @@ import type { AudioClip, Song } from '@/types';
 export const HEAD_SECONDS = 10;
 // Margem mínima de começo pronto à frente do ponto de largada.
 const START_MARGIN_SECONDS = 4;
-const CLIP_CONCURRENCY = 4;
+const CLIP_CONCURRENCY = Math.min(8, Math.max(3, (navigator.hardwareConcurrency || 4) - 1));
 const MAX_ATTEMPTS = 2;
 const READY_NOTICE_MS = 4000;
 
@@ -403,7 +403,7 @@ export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
     const key = structureKey();
     if (key === prevKey) return;
     prevKey = key;
-    scheduleRun(800);
+    scheduleRun(400);
   });
   return () => {
     unsub();

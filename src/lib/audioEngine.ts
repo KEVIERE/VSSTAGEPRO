@@ -193,8 +193,8 @@ export function headPitchFor(clip: AudioClip): number {
 }
 
 const STABLE_MODE_LS = 'vs_stable_audio';
-const RENDER_CONCURRENCY = Math.min(2, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
-const RENDER_DELAY_MS = 700;
+const RENDER_CONCURRENCY = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
+const RENDER_DELAY_MS = 350;
 const RENDER_TIMEOUT_MS = 60_000;
 
 interface SongNode {
