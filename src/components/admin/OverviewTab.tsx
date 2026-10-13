@@ -41,6 +41,29 @@ import type {
 } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, Kpi, Loading, Panel, PeriodPicker } from '@/components/admin/ui';
 
+function EmailStatusBadge({ confirmedAt }: { confirmedAt: string | null | undefined }) {
+  if (confirmedAt) {
+    return (
+      <span
+        title={`E-mail confirmado em ${dateTime(confirmedAt)}`}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-logic-lcd-green/10 text-logic-lcd-green border border-logic-lcd-green/25 w-fit mt-1"
+      >
+        <CheckCircle2 size={10} className="shrink-0" />
+        <span>Confirmado: {dateTime(confirmedAt)}</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      title="Aguardando confirmação do e-mail"
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-logic-lcd-amber/10 text-logic-lcd-amber border border-logic-lcd-amber/25 w-fit mt-1"
+    >
+      <AlertTriangle size={10} className="shrink-0" />
+      <span>E-mail não confirmado</span>
+    </span>
+  );
+}
+
 const shortDay = (iso: string) => {
   const [, m, d] = iso.split('-');
   return `${d}/${m}`;
@@ -389,6 +412,7 @@ export default function OverviewTab() {
                               <span className="text-2xs text-logic-text-dim flex items-center gap-1 mt-0.5">
                                 {sub.email}
                               </span>
+                              <EmailStatusBadge confirmedAt={sub.emailConfirmedAt} />
                               {sub.phone && (
                                 <a
                                   href={`https://wa.me/${sub.phone.replace(/\D/g, '')}`}
@@ -521,6 +545,7 @@ export default function OverviewTab() {
                             <div className="flex flex-col">
                               <span className="font-bold text-white text-[13px]">{tr.name || 'Sem nome informado'}</span>
                               <span className="text-2xs text-logic-text-dim mt-0.5">{tr.email}</span>
+                              <EmailStatusBadge confirmedAt={tr.emailConfirmedAt} />
                               {tr.phone && (
                                 <a
                                   href={`https://wa.me/${tr.phone.replace(/\D/g, '')}`}
@@ -701,6 +726,7 @@ export default function OverviewTab() {
                           <td className="py-3.5 px-4">
                             <div className="font-bold text-white">{sus.name || 'Sem nome'}</div>
                             <div className="text-2xs text-logic-text-dim">{sus.email}</div>
+                            <EmailStatusBadge confirmedAt={sus.emailConfirmedAt} />
                           </td>
 
                           <td className="py-3.5 px-4">

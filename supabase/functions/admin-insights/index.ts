@@ -164,6 +164,7 @@ Deno.serve(async (req) => {
       const phone = (meta.phone as string | undefined) ?? null;
       const email = u.email || "";
       const isBlocked = Boolean(l?.blocked);
+      const emailConfirmedAt = (u.email_confirmed_at as string | undefined) ?? (u.confirmed_at as string | undefined) ?? null;
 
       if (ip && ip !== "127.0.0.1" && ip !== "::1") {
         const list = ipGroups.get(ip) || [];
@@ -202,6 +203,7 @@ Deno.serve(async (req) => {
           daysRemaining,
           renewalText,
           subscribedAt: (l?.subscribed_at as string | undefined) ?? u.created_at,
+          emailConfirmedAt,
           lastIp: ip,
           lastAppVersion: appVersion,
           lastSeenAt: (l?.updated_at as string | undefined) ?? u.last_sign_in_at ?? null,
@@ -228,6 +230,7 @@ Deno.serve(async (req) => {
           phone,
           trialStartedAt: trialStarted.toISOString(),
           trialEndsAt: trialEnds.toISOString(),
+          emailConfirmedAt,
           hoursRemaining: hoursLeft,
           timeLeftText,
           percentUsed,
@@ -246,6 +249,7 @@ Deno.serve(async (req) => {
           name,
           phone,
           reason: l?.blocked_reason ? `Conta suspensa: ${l.blocked_reason}` : "Conta suspensa pela administração",
+          emailConfirmedAt,
           riskLevel: "alto",
           createdAt: u.created_at,
           lastIp: ip,
@@ -258,6 +262,7 @@ Deno.serve(async (req) => {
           name,
           phone,
           reason: "E-mail temporário descartável detectado (tentativa de burlar teste)",
+          emailConfirmedAt,
           riskLevel: "alto",
           createdAt: u.created_at,
           lastIp: ip,
@@ -282,6 +287,7 @@ Deno.serve(async (req) => {
                 name: (u.user_metadata?.name as string | undefined) ?? null,
                 phone: (u.user_metadata?.phone as string | undefined) ?? null,
                 reason: `Mesmo IP de computador compartilhado por ${emails.length} contas diferentes (${emails.filter((x) => x !== e).join(", ")})`,
+                emailConfirmedAt: (u.email_confirmed_at as string | undefined) ?? (u.confirmed_at as string | undefined) ?? null,
                 riskLevel: "alto",
                 createdAt: u.created_at,
                 lastIp: ip,

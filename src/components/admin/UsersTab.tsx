@@ -1,9 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Ban, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime, num, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
 import type { AdminUser, UserState } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
+
+function EmailBadge({ confirmedAt }: { confirmedAt: string | null | undefined }) {
+  if (confirmedAt) {
+    return (
+      <span
+        title={`E-mail confirmado em ${dateTime(confirmedAt)}`}
+        className="inline-flex items-center gap-0.5 text-[10px] font-bold text-logic-lcd-green mt-0.5"
+      >
+        <CheckCircle2 size={10} className="shrink-0" />
+        <span>Confirmado: {dateTime(confirmedAt)}</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      title="Aguardando confirmação do link enviado por e-mail"
+      className="inline-flex items-center gap-0.5 text-[10px] font-bold text-logic-lcd-amber mt-0.5"
+    >
+      <AlertTriangle size={10} className="shrink-0" />
+      <span>Não confirmado</span>
+    </span>
+  );
+}
 
 const PAGE = 50;
 const FILTERS: Array<{ id: '' | UserState; label: string }> = [
@@ -187,6 +210,7 @@ export default function UsersTab() {
                         {u.is_admin && <ShieldCheck size={12} className="text-logic-accent" aria-label="Administrador" />}
                       </div>
                       <div className="text-logic-text-dim">{u.email}</div>
+                      <EmailBadge confirmedAt={u.email_confirmed_at} />
                     </td>
                     <td className="px-3 py-2.5"><StateBadge state={u.state} /></td>
                     <td className="px-3 py-2.5 text-logic-text-dim">{u.state === 'active' ? (u.plan === 'yearly' ? 'Anual' : u.plan === 'monthly' ? 'Mensal' : 'Manual') : '—'}</td>
@@ -262,10 +286,14 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
               <StateBadge state={user.state} />
             </div>
             <p className="text-xs text-logic-text-dim">{user.email}</p>
+            <div className="mt-1">
+              <EmailBadge confirmedAt={user.email_confirmed_at} />
+            </div>
             <TrialCountdown user={user} />
             <CompCountdown user={user} />
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4 text-xs">
               <dt className="text-logic-text-muted">Cadastro</dt><dd>{dateTime(user.created_at)}</dd>
+              <dt className="text-logic-text-muted">Confirmação de e-mail</dt><dd className={user.email_confirmed_at ? 'text-logic-lcd-green font-medium' : 'text-logic-lcd-amber font-medium'}>{user.email_confirmed_at ? dateTime(user.email_confirmed_at) : 'Não confirmado'}</dd>
               <dt className="text-logic-text-muted">Último login</dt><dd>{dateTime(user.last_sign_in_at)}</dd>
               <dt className="text-logic-text-muted">Último uso</dt><dd>{dateTime(user.last_seen_at)}</dd>
               <dt className="text-logic-text-muted">Teste até</dt><dd>{dateTime(user.trial_ends_at)}</dd>

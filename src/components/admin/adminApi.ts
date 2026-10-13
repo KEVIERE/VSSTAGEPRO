@@ -34,6 +34,7 @@ export type AdminUser = {
   name: string | null;
   created_at: string;
   last_sign_in_at: string | null;
+  email_confirmed_at: string | null;
   last_seen_at: string | null;
   uses_30d: number;
   trial_started_at: string | null;
@@ -79,6 +80,7 @@ export type SubscriberInsight = {
   daysRemaining: number | null;
   renewalText: string;
   subscribedAt: string;
+  emailConfirmedAt: string | null;
   lastIp: string | null;
   lastAppVersion: string;
   lastSeenAt: string | null;
@@ -93,6 +95,7 @@ export type TrialInsight = {
   phone: string | null;
   trialStartedAt: string;
   trialEndsAt: string;
+  emailConfirmedAt: string | null;
   hoursRemaining: number;
   timeLeftText: string;
   percentUsed: number;
@@ -110,6 +113,7 @@ export type SuspiciousInsight = {
   reason: string;
   riskLevel: 'alto' | 'medio';
   createdAt: string;
+  emailConfirmedAt: string | null;
   lastIp: string | null;
   blocked: boolean;
 };
