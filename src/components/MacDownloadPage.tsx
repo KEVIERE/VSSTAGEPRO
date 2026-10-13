@@ -86,6 +86,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    window.scrollTo(0, 0);
     fetchMacManifest()
       .then(setManifest)
       .catch(() => setLoadError(true));

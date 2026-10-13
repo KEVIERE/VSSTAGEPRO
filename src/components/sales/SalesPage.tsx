@@ -261,16 +261,17 @@ function RevealBlock({
     if (revealed) return 'opacity-100 translate-x-0 translate-y-0 scale-100';
     switch (direction) {
       case 'left':
-        return 'opacity-0 -translate-x-12 translate-y-0 scale-[0.98]';
+        // No mobile, nunca desloca no eixo X para evitar folga horizontal
+        return 'opacity-0 sm:-translate-x-8 translate-y-3 scale-[0.99]';
       case 'right':
-        return 'opacity-0 translate-x-12 translate-y-0 scale-[0.98]';
+        return 'opacity-0 sm:translate-x-8 translate-y-3 scale-[0.99]';
       case 'zoom':
-        return 'opacity-0 scale-95 translate-y-8';
+        return 'opacity-0 scale-[0.97] translate-y-3';
       case 'down':
-        return 'opacity-0 -translate-y-10 scale-[0.98]';
+        return 'opacity-0 -translate-y-4 scale-[0.99]';
       case 'up':
       default:
-        return 'opacity-0 translate-y-12 scale-[0.98]';
+        return 'opacity-0 translate-y-4 scale-[0.99]';
     }
   };
 
@@ -278,7 +279,7 @@ function RevealBlock({
     <div
       ref={ref}
       style={{ transitionDelay: `${delay}ms` }}
-      className={`transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${getTransform()} ${className}`}
+      className={`transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] will-change-transform ${getTransform()} ${className}`}
     >
       {children}
     </div>
@@ -289,21 +290,13 @@ export default function SalesPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   useEffect(() => {
-    document.documentElement.style.overflow = 'auto';
-    document.body.style.overflow = 'auto';
-    const root = document.getElementById('root');
-    if (root) root.style.overflow = 'auto';
-    return () => {
-      document.documentElement.style.overflow = '';
-      document.body.style.overflow = '';
-      if (root) root.style.overflow = '';
-    };
+    window.scrollTo(0, 0);
   }, []);
 
   const subscribe = () => { window.location.hash = '#planos'; };
 
   return (
-    <div className="min-h-screen bg-[#090a0d] text-logic-text selection:bg-logic-lcd-green selection:text-black">
+    <div className="min-h-screen bg-[#090a0d] text-logic-text selection:bg-logic-lcd-green selection:text-black overflow-x-hidden w-full max-w-full">
       {/* Luzes de Fundo Ambientais Dinâmicas */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
         <div className="absolute top-0 left-1/4 -translate-x-1/2 w-[700px] h-[700px] rounded-full bg-logic-lcd-green/8 blur-[160px] animate-pulse" style={{ animationDuration: '8s' }} />
@@ -339,15 +332,15 @@ export default function SalesPage() {
       <section className="relative z-10 pt-16 sm:pt-24 pb-16 overflow-hidden">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 text-center">
           {/* Badge de Destaque */}
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 backdrop-blur-md mb-8 animate-[fadeIn_400ms_ease-out]">
-            <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-ping" />
-            <span className="text-2xs sm:text-xs font-bold tracking-wider text-logic-text-dim uppercase">
+          <div className="inline-flex max-w-full items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 backdrop-blur-md mb-8 animate-[fadeIn_400ms_ease-out]">
+            <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-ping shrink-0" />
+            <span className="text-[10px] sm:text-xs font-bold tracking-wider text-logic-text-dim uppercase text-center leading-normal">
               O Primeiro Motor de Áudio Construído Exclusivamente para Palco
             </span>
           </div>
 
-          <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black text-white tracking-tight leading-[1.08] max-w-4xl mx-auto">
-            Uma timeline por música. <br />
+          <h1 className="text-3xl xs:text-4xl sm:text-6xl lg:text-7xl font-black text-white tracking-tight leading-[1.08] max-w-4xl mx-auto break-words">
+            Uma timeline por música. <br className="hidden sm:inline" />
             <span className="bg-gradient-to-r from-logic-lcd-green via-emerald-300 to-logic-lcd-amber bg-clip-text text-transparent">
               Todo o show na sua mão.
             </span>
@@ -365,7 +358,7 @@ export default function SalesPage() {
 
               <button
                 onClick={subscribe}
-                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[340px] h-[64px] px-6 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                className="relative overflow-hidden w-full sm:w-auto min-w-0 sm:min-w-[340px] max-w-full h-[64px] px-5 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-3 sm:gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
 
@@ -392,7 +385,7 @@ export default function SalesPage() {
             {/* Botão Secundário: Baixar e Testar no Mac */}
             <a
               href="#baixar"
-              className="relative group w-full sm:w-auto min-w-[260px] sm:min-w-[290px] h-[64px] px-6 rounded-2xl btn-glass-secondary text-white flex items-center justify-between gap-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+              className="relative group w-full sm:w-auto min-w-0 sm:min-w-[290px] max-w-full h-[64px] px-5 sm:px-6 rounded-2xl btn-glass-secondary text-white flex items-center justify-between gap-3 sm:gap-3.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
             >
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-white/[0.08] border border-white/15 flex items-center justify-center text-white group-hover:bg-white/[0.15] group-hover:scale-105 transition-all shrink-0">
@@ -504,23 +497,19 @@ export default function SalesPage() {
                             alt={p.title}
                             className="relative w-auto h-auto max-w-[110px] sm:max-w-[125px] max-h-[300px] rounded-xl shadow-2xl drop-shadow-[0_16px_36px_rgba(0,0,0,0.9)] border border-white/10 transition-transform duration-500 group-hover:scale-105"
                             loading="lazy"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
+                            decoding="async"
                           />
                         </div>
                       </div>
                     ) : p.shot.includes("vs-playlist") ? (
-                      /* Imagem da Playlist reduzida conforme solicitado */
-                      <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition max-w-[70%] sm:max-w-[72%] max-w-[420px] mx-auto">
+                      /* Imagem da Playlist reduzida adicionalmente conforme solicitado */
+                      <div className="relative rounded-2xl border border-white/10 bg-[#14151a] p-2.5 shadow-2xl overflow-hidden group-hover:border-white/20 transition max-w-[280px] sm:max-w-[340px] mx-auto">
                         <img
                           src={p.shot}
                           alt={p.title}
                           className="w-full h-auto rounded-xl object-cover transition-transform duration-500 group-hover:scale-[1.01]"
                           loading="lazy"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
+                          decoding="async"
                         />
                       </div>
                     ) : (
@@ -530,9 +519,7 @@ export default function SalesPage() {
                           alt={p.title}
                           className="w-full h-auto rounded-xl object-cover transition-transform duration-500 group-hover:scale-[1.01]"
                           loading="lazy"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
+                          decoding="async"
                         />
                       </div>
                     )}
@@ -577,7 +564,8 @@ export default function SalesPage() {
           </RevealBlock>
 
           <RevealBlock direction="zoom" delay={100}>
-            <div className="rounded-2xl border border-white/10 bg-[#121318] overflow-hidden shadow-2xl">
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <div className="min-w-[560px] sm:min-w-0 rounded-2xl border border-white/10 bg-[#121318] overflow-hidden shadow-2xl">
               <div className="grid grid-cols-12 border-b border-white/10 p-4 sm:p-5 bg-white/[0.02] text-xs font-bold uppercase tracking-wider">
                 <div className="col-span-4 text-logic-text-muted">Recurso</div>
                 <div className="col-span-4 text-rose-400/90 flex items-center gap-1.5">
@@ -602,6 +590,7 @@ export default function SalesPage() {
                   </div>
                 ))}
               </div>
+            </div>
             </div>
           </RevealBlock>
         </div>
@@ -729,7 +718,7 @@ export default function SalesPage() {
 
               <button
                 onClick={subscribe}
-                className="relative overflow-hidden w-full sm:w-auto min-w-[280px] sm:min-w-[340px] h-[64px] px-6 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
+                className="relative overflow-hidden w-full sm:w-auto min-w-0 sm:min-w-[340px] max-w-full h-[64px] px-5 sm:px-8 rounded-2xl btn-neon-green text-black flex items-center justify-between gap-3 sm:gap-4 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
 

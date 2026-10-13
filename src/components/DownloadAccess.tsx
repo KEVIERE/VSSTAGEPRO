@@ -148,7 +148,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
 
   return (
     <div
-      className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center p-4 sm:p-6 relative overflow-hidden"
+      className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center p-4 sm:p-6 relative overflow-y-auto overflow-x-hidden py-8 sm:py-12"
       style={{ background: 'radial-gradient(ellipse at top, #14161f 0%, #08090c 70%)' }}
     >
       <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">

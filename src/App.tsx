@@ -100,6 +100,32 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // Trava scroll apenas quando o editor/DAW estiver aberto. Em páginas públicas
+  // (vendas, downloads, planos, admin), o scroll vertical nativo corre livremente.
+  useEffect(() => {
+    if (route === 'director') {
+      document.documentElement.style.height = '100%';
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.height = '100%';
+      document.body.style.overflow = 'hidden';
+      const root = document.getElementById('root');
+      if (root) {
+        root.style.height = '100%';
+        root.style.overflow = 'hidden';
+      }
+      return () => {
+        document.documentElement.style.height = '';
+        document.documentElement.style.overflow = '';
+        document.body.style.height = '';
+        document.body.style.overflow = '';
+        if (root) {
+          root.style.height = '';
+          root.style.overflow = '';
+        }
+      };
+    }
+  }, [route]);
+
   const [isRecovery, setIsRecovery] = useState(() => emailLinkType === 'recovery');
 
   useEffect(() => {

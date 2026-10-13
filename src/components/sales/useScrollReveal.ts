@@ -5,8 +5,8 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(options?
   rootMargin?: string;
   once?: boolean;
 }) {
-  const threshold = options?.threshold ?? 0.1;
-  const rootMargin = options?.rootMargin ?? '0px 0px -60px 0px';
+  const threshold = options?.threshold ?? 0.01;
+  const rootMargin = options?.rootMargin ?? '120px 0px 120px 0px';
   const once = options?.once ?? true;
   const ref = useRef<T>(null);
   const [revealed, setRevealed] = useState(false);
@@ -15,27 +15,42 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(options?
     const el = ref.current;
     if (!el) return;
 
-    // Se estiver na primeira dobra logo ao carregar a página (visível sem rolagem)
+    // Se já estiver visível ou próximo da tela (mesmo em mobile), revela imediatamente
     const rect = el.getBoundingClientRect();
-    if (rect.top >= 0 && rect.bottom <= window.innerHeight * 0.75) {
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    if (rect.top < vh + 100) {
       setRevealed(true);
       return;
     }
 
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setRevealed(true);
-          if (once) observer.unobserve(el);
-        } else if (!once) {
-          setRevealed(false);
-        }
-      },
-      { threshold, rootMargin }
-    );
+    let observer: IntersectionObserver | null = null;
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            setRevealed(true);
+            if (once && observer) observer.unobserve(el);
+          } else if (!once) {
+            setRevealed(false);
+          }
+        },
+        { threshold, rootMargin }
+      );
+      observer.observe(el);
+    } else {
+      setRevealed(true);
+    }
 
-    observer.observe(el);
-    return () => observer.disconnect();
+    // Fallback de segurança contra "tela preta": garante que todo o conteúdo
+    // seja revelado após breve delay caso o navegador/mobile atrase o observer
+    const safetyTimer = window.setTimeout(() => {
+      setRevealed(true);
+    }, 900);
+
+    return () => {
+      window.clearTimeout(safetyTimer);
+      observer?.disconnect();
+    };
   }, [threshold, rootMargin, once]);
 
   return { ref, revealed };
