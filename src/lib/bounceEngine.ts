@@ -4,6 +4,7 @@ import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, withSongAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
 import { isTimecodeTrackId } from '@/lib/timecode';
+import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, ProjectState, Song, Track } from '@/types';
 
 export type BounceMode = 'lr' | 'multipista';
@@ -96,11 +97,33 @@ async function renderOffline(
     const fadeOut = (clip.fadeOut ?? 0) * alpha;
     if (fadeIn > 0 || fadeOut > 0) {
       const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
-      clipGain.gain.setValueAtTime(fadeIn > 0 ? 0 : baseGain, startWall);
-      if (fadeIn > 0) clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
+      if (fadeIn > 0) {
+        const curveIn = clip.fadeCurveIn ?? 'linear';
+        clipGain.gain.setValueAtTime(0, startWall);
+        if (curveIn === 'linear') {
+          clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
+        } else {
+          const STEPS = 8;
+          for (let i = 1; i <= STEPS; i++) {
+            const frac = i / STEPS;
+            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveIn, frac, true) * baseGain, startWall + frac * fadeIn);
+          }
+        }
+      } else {
+        clipGain.gain.setValueAtTime(baseGain, startWall);
+      }
       if (fadeOut > 0) {
+        const curveOut = clip.fadeCurveOut ?? 'linear';
         clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
-        clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
+        if (curveOut === 'linear') {
+          clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
+        } else {
+          const STEPS = 8;
+          for (let i = 1; i <= STEPS; i++) {
+            const frac = i / STEPS;
+            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveOut, frac, false) * baseGain, startWall + fadeOutStart + frac * fadeOut);
+          }
+        }
       }
     } else {
       clipGain.gain.value = baseGain;

@@ -94,6 +94,23 @@ export interface AudioClip {
   /** Segundos de fade de entrada/saída, a partir do início/fim do áudio tocável. */
   fadeIn?: number;
   fadeOut?: number;
+  fadeCurveIn?: FadeCurve;
+  fadeCurveOut?: FadeCurve;
+}
+
+export type FadeCurve = 'linear' | 'exponential' | 'logarithmic' | 's-curve';
+
+export function evaluateFadeCurve(curve: FadeCurve = 'linear', fraction: number, isFadeIn: boolean): number {
+  const x = Math.max(0, Math.min(1, fraction));
+  let val = x;
+  if (curve === 'exponential') {
+    val = isFadeIn ? Math.pow(x, 2) : 1 - Math.pow(1 - x, 2);
+  } else if (curve === 'logarithmic') {
+    val = isFadeIn ? Math.sqrt(x) : 1 - Math.sqrt(1 - x);
+  } else if (curve === 's-curve') {
+    val = 0.5 * (1 - Math.cos(Math.PI * x));
+  }
+  return isFadeIn ? val : 1 - val;
 }
 
 export interface Song {

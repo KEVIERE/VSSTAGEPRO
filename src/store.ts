@@ -4,7 +4,7 @@ import { routeByName } from '@/lib/nameRouter';
 import { computeNextSongId } from '@/lib/playFlow';
 import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
-  PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart,
+  PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve,
 } from '@/types';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { normalizePages } from '@/lib/prompterTypes';
@@ -141,7 +141,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   trackHeaderWidth: 192,
   importProgress: null,
   lrMasterActive: false,
-  dawMode: false,
+  dawMode: true,
   audioInterface: 'default',
   showBpmTower: false,
   showTunerTower: false,
@@ -215,7 +215,7 @@ interface StoreActions {
   setClipGain: (clipId: string, gain: number) => void;
   toggleClipMute: (clipId: string) => void;
   toggleClipSolo: (clipId: string) => void;
-  setClipFade: (clipId: string, patch: { fadeIn?: number; fadeOut?: number }) => void;
+  setClipFade: (clipId: string, patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }) => void;
   normalizeClip: (clipId: string, targetDb: number) => void;
   addSong: (song: Song) => void;
   updateSong: (songId: string, updates: Partial<Song>) => void;
@@ -730,6 +730,8 @@ export const useStore = create<Store>()(
           const next = { ...c };
           if (patch.fadeIn !== undefined) next.fadeIn = Math.max(0, patch.fadeIn);
           if (patch.fadeOut !== undefined) next.fadeOut = Math.max(0, patch.fadeOut);
+          if (patch.fadeCurveIn !== undefined) next.fadeCurveIn = patch.fadeCurveIn;
+          if (patch.fadeCurveOut !== undefined) next.fadeCurveOut = patch.fadeCurveOut;
           return next;
         }),
       })),

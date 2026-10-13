@@ -11,6 +11,7 @@ import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJu
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import { TimecodePlayer } from '@/lib/timecodePlayer';
+import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
 
 const RETIME_LEAD = 0.06;
@@ -107,9 +108,33 @@ function scheduleClipFade(
   const fadeOutStartLocal = Math.max(fadeIn, playDuration - fadeOut);
   // pontos de referência no tempo local do clipe (0 = início tocável, playDuration = fim)
   const points: Array<{ local: number; gain: number }> = [];
-  if (fadeIn > 0) points.push({ local: 0, gain: 0 }, { local: fadeIn, gain: baseGain });
-  else points.push({ local: 0, gain: baseGain });
-  if (fadeOut > 0) points.push({ local: fadeOutStartLocal, gain: baseGain }, { local: playDuration, gain: 0 });
+  if (fadeIn > 0) {
+    const curveIn = clip.fadeCurveIn ?? 'linear';
+    if (curveIn === 'linear') {
+      points.push({ local: 0, gain: 0 }, { local: fadeIn, gain: baseGain });
+    } else {
+      const STEPS = 8;
+      for (let i = 0; i <= STEPS; i++) {
+        const frac = i / STEPS;
+        points.push({ local: frac * fadeIn, gain: evaluateFadeCurve(curveIn, frac, true) * baseGain });
+      }
+    }
+  } else {
+    points.push({ local: 0, gain: baseGain });
+  }
+
+  if (fadeOut > 0) {
+    const curveOut = clip.fadeCurveOut ?? 'linear';
+    if (curveOut === 'linear') {
+      points.push({ local: fadeOutStartLocal, gain: baseGain }, { local: playDuration, gain: 0 });
+    } else {
+      const STEPS = 8;
+      for (let i = 0; i <= STEPS; i++) {
+        const frac = i / STEPS;
+        points.push({ local: fadeOutStartLocal + frac * fadeOut, gain: evaluateFadeCurve(curveOut, frac, false) * baseGain });
+      }
+    }
+  }
 
   let scheduledAny = false;
   for (const pt of points) {
@@ -123,7 +148,7 @@ function scheduleClipFade(
     try { clipGain.gain.setValueAtTime(baseGain, now); } catch { clipGain.gain.value = baseGain; }
   } else {
     // valor de partida no instante atual, para não saltar se "now" cair depois de "whenWall"
-    const startGain = localOffset <= 0 ? 0 : localOffset >= fadeIn ? baseGain : baseGain * (localOffset / Math.max(1e-6, fadeIn));
+    const startGain = localOffset <= 0 ? 0 : localOffset >= fadeIn ? baseGain : evaluateFadeCurve(clip.fadeCurveIn ?? 'linear', localOffset / Math.max(1e-6, fadeIn), true) * baseGain;
     try { clipGain.gain.setValueAtTime(startGain, Math.min(now, whenWall)); } catch { /* ignore */ }
   }
 }

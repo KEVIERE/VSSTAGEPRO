@@ -1,6 +1,6 @@
 import { useStore, ROUTABLE_TRACKS } from '@/store';
-import type { Track, AudioClip, ImportProgress } from '@/types';
-import { ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors } from 'lucide-react';
+import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { audioEngine } from '@/lib/audioEngine';
 import Playhead from '@/components/Playhead';
@@ -178,13 +178,28 @@ function FolderGroup({ track }: { track: Track }) {
   );
 }
 
-// Knob minúsculo de ganho do clipe (modo DAW): arrastar na vertical sobe/desce o ganho,
-// duplo clique volta a 0dB (1x). Mesma lógica visual do pan knob do mixer, só que linear.
+// Knob minúsculo de ganho do clipe (modo DAW):
+// - Centro (12h / 0°): 0dB (ganho original 1x)
+// - Lado direito (até +135°): +12dB (~3.98x)
+// - Lado esquerdo (até -135°): silêncio total (-inf dB / 0 volume)
 function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
   const setClipGain = useStore((s) => s.setClipGain);
-  const angle = Math.max(-135, Math.min(135, (Math.log2(Math.max(0.01, gain)) / 2) * 135));
-  const db = gain <= 0.001 ? -Infinity : 20 * Math.log10(gain);
-  const dbLabel = db === -Infinity ? '-inf' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}dB`;
+
+  const angle = useMemo(() => {
+    if (gain <= 0.0001) return -135;
+    if (gain >= 1) {
+      const db = Math.min(12, 20 * Math.log10(gain));
+      return (db / 12) * 135;
+    } else {
+      const db = Math.max(-48, 20 * Math.log10(gain));
+      return (db / 48) * 135; // negativo
+    }
+  }, [gain]);
+
+  const db = gain <= 0.0001 ? -Infinity : 20 * Math.log10(gain);
+  const dbLabel = db === -Infinity ? '-inf (Mudo)' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}dB`;
+  const pointerColor = db === -Infinity ? '#ff453a' : db > 0.1 ? '#30d158' : db < -0.1 ? '#ff9f0a' : '#ffffff';
+
   return (
     <div
       className="w-4 h-4 relative cursor-ns-resize select-none shrink-0"
@@ -197,8 +212,15 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
         const startY = e.clientY;
         const startGain = gain;
         const move = (ev: PointerEvent) => {
-          const delta = (startY - ev.clientY) / 80;
-          setClipGain(clipId, Math.max(0, Math.min(2, startGain * Math.pow(2, delta))));
+          const deltaY = startY - ev.clientY;
+          const startDb = startGain <= 0.0001 ? -48 : 20 * Math.log10(startGain);
+          const nextDb = Math.min(12, startDb + deltaY * 0.3);
+          if (nextDb <= -42) {
+            setClipGain(clipId, 0);
+          } else {
+            const nextGain = Math.round(Math.pow(10, nextDb / 20) * 100) / 100;
+            setClipGain(clipId, nextGain);
+          }
         };
         const up = () => {
           target.removeEventListener('pointermove', move);
@@ -217,7 +239,7 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
         <circle cx="14" cy="14" r="12.5" fill="#1a1a1c" stroke="#3a3a3e" strokeWidth="1" />
         <circle cx="14" cy="14" r="9" fill="#26262a" stroke="#111" strokeWidth="0.5" />
         <g style={{ transform: `rotate(${angle}deg)`, transformOrigin: '14px 14px' }}>
-          <line x1="14" y1="14" x2="14" y2="6" stroke="#30d158" strokeWidth="2" strokeLinecap="round" />
+          <line x1="14" y1="14" x2="14" y2="5" stroke={pointerColor} strokeWidth="2.5" strokeLinecap="round" />
         </g>
       </svg>
     </div>
@@ -245,64 +267,206 @@ function ClipMuteSolo({ clip }: { clip: AudioClip }) {
   );
 }
 
-// Alça do fade in/out: arrastar o triângulo no canto superior do clipe estende/encolhe
-// o fade. O sombreado diagonal mostra visualmente até onde o fade alcança, sempre que
-// existe (DAW ligado ou não); o triângulo arrastável só aparece com o DAW ligado.
-function FadeHandle({ clipId, side, seconds, playLength, zoomH, editable }: {
-  clipId: string; side: 'in' | 'out'; seconds: number; playLength: number; zoomH: number; editable: boolean;
+const FADE_CURVE_OPTIONS: Array<{
+  id: FadeCurve;
+  label: string;
+  desc: string;
+}> = [
+  { id: 'linear', label: 'Linear', desc: 'Reta uniforme padrão' },
+  { id: 'exponential', label: 'Exponencial', desc: 'Curva rápida (Equal Power)' },
+  { id: 's-curve', label: 'Curva em S', desc: 'S-Curve suave sem cliques' },
+  { id: 'logarithmic', label: 'Logarítmica', desc: 'Curva lenta suave no topo' },
+];
+
+// Alça do fade in/out com linha vertical marcando o final e menu de botão direito para escolha de curva
+function FadeHandle({
+  clipId,
+  side,
+  seconds,
+  curve = 'linear',
+  playLength,
+  zoomH,
+  editable,
+}: {
+  clipId: string;
+  side: 'in' | 'out';
+  seconds: number;
+  curve?: FadeCurve;
+  playLength: number;
+  zoomH: number;
+  editable: boolean;
 }) {
   const setClipFade = useStore((s) => s.setClipFade);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const widthPx = Math.max(0, Math.min(playLength, seconds)) * zoomH;
+
+  useEffect(() => {
+    if (!menuPos) return;
+    const close = () => setMenuPos(null);
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [menuPos]);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startSeconds = seconds;
+    const move = (ev: PointerEvent) => {
+      const deltaPx = side === 'in' ? ev.clientX - startX : startX - ev.clientX;
+      const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / zoomH));
+      setClipFade(clipId, side === 'in' ? { fadeIn: next } : { fadeOut: next });
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+      try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const curvePath = useMemo(() => {
+    if (widthPx <= 1) return '';
+    const w = widthPx;
+    const h = 100;
+    if (side === 'in') {
+      if (curve === 'exponential') return `M 0,${h} Q ${w * 0.75},${h} ${w},0`;
+      if (curve === 'logarithmic') return `M 0,${h} Q ${w * 0.25},0 ${w},0`;
+      if (curve === 's-curve') return `M 0,${h} C ${w * 0.4},${h} ${w * 0.6},0 ${w},0`;
+      return `M 0,${h} L ${w},0`;
+    } else {
+      if (curve === 'exponential') return `M 0,0 Q ${w * 0.25},${h} ${w},${h}`;
+      if (curve === 'logarithmic') return `M 0,0 Q ${w * 0.75},0 ${w},${h}`;
+      if (curve === 's-curve') return `M 0,0 C ${w * 0.4},0 ${w * 0.6},${h} ${w},${h}`;
+      return `M 0,0 L ${w},${h}`;
+    }
+  }, [widthPx, side, curve]);
+
   return (
     <>
       {widthPx > 1 && (
         <div
-          className="absolute top-0 bottom-0 pointer-events-none"
+          className="absolute top-0 bottom-0 pointer-events-none overflow-hidden"
           style={{
             [side === 'in' ? 'left' : 'right']: 0,
             width: `${widthPx}px`,
-            background: side === 'in'
-              ? 'linear-gradient(to right, rgba(0,0,0,0.75), transparent)'
-              : 'linear-gradient(to left, rgba(0,0,0,0.75), transparent)',
           }}
-        />
-      )}
-      {editable && (
-        <div
-          className={`absolute top-0 w-3 h-3 cursor-pointer z-10 ${side === 'in' ? 'left-0' : 'right-0'}`}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            const target = e.currentTarget;
-            target.setPointerCapture(e.pointerId);
-            const startX = e.clientX;
-            const startSeconds = seconds;
-            const move = (ev: PointerEvent) => {
-              const deltaPx = side === 'in' ? ev.clientX - startX : startX - ev.clientX;
-              const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / zoomH));
-              setClipFade(clipId, side === 'in' ? { fadeIn: next } : { fadeOut: next });
-            };
-            const up = () => {
-              target.removeEventListener('pointermove', move);
-              target.removeEventListener('pointerup', up);
-              target.removeEventListener('pointercancel', up);
-              try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-            };
-            target.addEventListener('pointermove', move);
-            target.addEventListener('pointerup', up);
-            target.addEventListener('pointercancel', up);
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
-          title={`Fade de ${side === 'in' ? 'entrada' : 'saída'}: ${seconds.toFixed(2)}s (arraste = ajustar, duplo clique = remover)`}
         >
+          {/* Sombreado do fade */}
           <div
-            className="w-0 h-0 absolute top-0"
-            style={side === 'in'
-              ? { left: 0, borderTop: '10px solid rgba(255,255,255,0.85)', borderRight: '10px solid transparent' }
-              : { right: 0, borderTop: '10px solid rgba(255,255,255,0.85)', borderLeft: '10px solid transparent' }}
+            className="absolute inset-0"
+            style={{
+              background: side === 'in'
+                ? 'linear-gradient(to right, rgba(0,0,0,0.78), rgba(0,0,0,0.05))'
+                : 'linear-gradient(to left, rgba(0,0,0,0.78), rgba(0,0,0,0.05))',
+            }}
           />
+          {/* Desenho visual da curva do fade */}
+          <svg
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            viewBox={`0 0 ${widthPx} 100`}
+            preserveAspectRatio="none"
+          >
+            <path
+              d={curvePath}
+              stroke="rgba(255,255,255,0.75)"
+              strokeWidth="1.5"
+              fill="none"
+              strokeDasharray={curve === 's-curve' ? '3,1' : undefined}
+            />
+          </svg>
         </div>
+      )}
+
+      {editable && (
+        <>
+          {/* Alça triangular clássica no topo */}
+          <div
+            className={`absolute top-0 w-3.5 h-3.5 cursor-pointer z-20 ${side === 'in' ? 'left-0' : 'right-0'}`}
+            onPointerDown={handlePointerDown}
+            onContextMenu={handleContextMenu}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
+            title={`Fade de ${side === 'in' ? 'entrada' : 'saída'}: ${seconds.toFixed(2)}s (${curve}) — Botão direito para mudar a curva`}
+          >
+            <div
+              className="w-0 h-0 absolute top-0"
+              style={side === 'in'
+                ? { left: 0, borderTop: '11px solid rgba(255,255,255,0.95)', borderRight: '11px solid transparent' }
+                : { right: 0, borderTop: '11px solid rgba(255,255,255,0.95)', borderLeft: '11px solid transparent' }}
+            />
+          </div>
+
+          {/* LINHA VERTICAL NO FINAL DO FADE */}
+          {widthPx > 2 && (
+            <div
+              className="absolute top-0 bottom-0 z-20 group/fadeLine cursor-ew-resize select-none"
+              style={{
+                [side === 'in' ? 'left' : 'right']: `${widthPx}px`,
+                transform: side === 'in' ? 'translateX(-50%)' : 'translateX(50%)',
+                width: '12px',
+              }}
+              onPointerDown={handlePointerDown}
+              onContextMenu={handleContextMenu}
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
+              title={`Final do Fade (${seconds.toFixed(2)}s, curva: ${curve}) — Arraste para alterar, botão direito para mudar a curva`}
+            >
+              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-1/2 w-[2px] bg-white/80 group-hover/fadeLine:bg-logic-lcd-amber group-hover/fadeLine:w-[2.5px] transition-all shadow-[0_0_4px_rgba(0,0,0,0.9)]" />
+              <div className="absolute top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2 w-2 h-4 rounded-full bg-white group-hover/fadeLine:bg-logic-lcd-amber border border-black shadow" />
+            </div>
+          )}
+
+          {/* Menu de Contexto ao clicar com botão direito na linha do Fade */}
+          {menuPos && (
+            <div
+              className="fixed z-[300] py-1 bg-[#13141a] border border-white/20 rounded-xl shadow-2xl text-xs text-white min-w-[200px] animate-[fadeIn_100ms_ease-out]"
+              style={{ left: menuPos.x, top: menuPos.y }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-3 py-1.5 text-[10px] uppercase font-bold text-logic-text-muted border-b border-white/10 tracking-wider">
+                Curva de Fade ${side === 'in' ? 'Entrada' : 'Saída'}
+              </div>
+              {FADE_CURVE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-white/10 transition ${
+                    curve === opt.id ? 'text-logic-lcd-green font-bold bg-white/[0.04]' : 'text-white'
+                  }`}
+                  onClick={() => {
+                    setClipFade(clipId, side === 'in' ? { fadeCurveIn: opt.id } : { fadeCurveOut: opt.id });
+                    setMenuPos(null);
+                  }}
+                >
+                  <div className="flex flex-col">
+                    <span className="flex items-center gap-1.5 font-semibold">
+                      {opt.id === 'linear' && <span>📈</span>}
+                      {opt.id === 'exponential' && <span>📉</span>}
+                      {opt.id === 's-curve' && <span>〰️</span>}
+                      {opt.id === 'logarithmic' && <span>📊</span>}
+                      <span>{opt.label}</span>
+                    </span>
+                    <span className="text-[10px] text-logic-text-dim font-normal">{opt.desc}</span>
+                  </div>
+                  {curve === opt.id && <Check size={14} className="text-logic-lcd-green shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </>
   );
@@ -356,11 +520,15 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
       >
         <ClipWaveform clip={clip} left={left} width={fullWidth} height={innerHeight} visible={visible} />
         <FadeHandle
-          clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0} playLength={playLength} zoomH={zoomH}
+          clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}
+          curve={clip.fadeCurveIn ?? 'linear'}
+          playLength={playLength} zoomH={zoomH}
           editable={showControls}
         />
         <FadeHandle
-          clipId={clip.id} side="out" seconds={clip.fadeOut ?? 0} playLength={playLength} zoomH={zoomH}
+          clipId={clip.id} side="out" seconds={clip.fadeOut ?? 0}
+          curve={clip.fadeCurveOut ?? 'linear'}
+          playLength={playLength} zoomH={zoomH}
           editable={showControls}
         />
         <div
