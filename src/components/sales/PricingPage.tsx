@@ -157,7 +157,7 @@ export default function PricingPage() {
 
       if (error) {
         const body = await (error as { context?: Response }).context?.json?.().catch(() => null);
-        throw new Error(body?.error ?? 'checkout_failed');
+        throw new Error(body?.message || friendlyError(body?.error || 'checkout_failed'));
       }
 
       if (data?.url) {
@@ -275,7 +275,7 @@ export default function PricingPage() {
 
       if (chErr) {
         const body = await (chErr as { context?: Response }).context?.json?.().catch(() => null);
-        throw new Error(body?.error ?? 'checkout_failed');
+        throw new Error(body?.message || friendlyError(body?.error || 'checkout_failed'));
       }
 
       if (chData?.url) {

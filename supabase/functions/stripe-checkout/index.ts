@@ -122,7 +122,17 @@ Deno.serve(async (req) => {
 
     return json({ url: session.url });
   } catch (e) {
-    console.error("stripe-checkout", e);
-    return json({ error: "checkout_failed" }, 500);
+    const errorObj = e as { message?: string; type?: string; code?: string };
+    const rawMsg = errorObj.message ?? String(e);
+    console.error("stripe-checkout error:", rawMsg);
+
+    let ptMessage = "Não foi possível abrir a tela de pagamento. Tente novamente em instantes.";
+    if (/charges_enabled|charges are not enabled|activate your account|details_submitted|capabilities|cannot currently make live charges/i.test(rawMsg)) {
+      ptMessage = "Sua conta da Stripe precisa ter a ativação de pagamentos concluída. Acesse dashboard.stripe.com e conclua a ativação da conta para receber pagamentos.";
+    } else if (/permission|restricted|unauthorized/i.test(rawMsg)) {
+      ptMessage = "A chave da Stripe configurada não tem permissão para criar sessões de checkout. Verifique as permissões da chave.";
+    }
+
+    return json({ error: "checkout_failed", message: ptMessage, detail: rawMsg }, 500);
   }
 });

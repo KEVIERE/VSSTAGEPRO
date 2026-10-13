@@ -15,6 +15,10 @@ const CODES: Record<string, string> = {
   promo_bad_code: 'Use de 3 a 32 letras, números, - ou _.',
   invalid_value: 'Valor inválido.',
   cannot_block_self: 'Você não pode derrubar a própria conta.',
+  checkout_failed: 'Não foi possível abrir a tela de pagamento. Tente novamente em instantes.',
+  invalid_plan: 'Plano selecionado inválido.',
+  invalid_coupon: 'Cupom inválido ou expirado.',
+  already_active: 'Sua assinatura já está ativa!',
   already_registered: 'Este e-mail já tem cadastro. Use "Entrar".',
   no_account_with_email: 'Não existe conta com esse e-mail. Crie uma conta nova.',
   email_invalid: 'Esse e-mail não é válido.',
@@ -35,6 +39,7 @@ const CODES: Record<string, string> = {
 };
 
 const RULES: Array<[RegExp, string]> = [
+  [/checkout.?failed/i, 'Não foi possível abrir a tela de pagamento. Tente novamente em instantes.'],
   [/quota|no space|enospc|disk.?full|storage.*(full|exceed)/i,
     'O disco do Mac ficou sem espaço. Libere espaço (por exemplo, esvaziando a Lixeira) ou escolha outro disco e tente de novo.'],
   [/failed to fetch|networkerror|network request failed|load failed|err_internet|err_network|fetch failed|timed? ?out|timeout/i,
