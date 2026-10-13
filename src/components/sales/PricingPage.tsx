@@ -4,13 +4,18 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CreditCard,
+  Eye,
+  EyeOff,
   HelpCircle,
+  KeyRound,
   Laptop,
   Layers,
   Loader2,
   Lock,
+  Mail,
   MessageCircle,
   Mic2,
   MonitorPlay,
@@ -18,6 +23,7 @@ import {
   ShieldCheck,
   Sparkles,
   Timer,
+  User,
   Wifi,
   X,
   Zap,
@@ -98,9 +104,11 @@ export default function PricingPage() {
   const [selectedPlan, setSelectedPlan] = useState<Plan>('yearly');
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
+  const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authSuccessMsg, setAuthSuccessMsg] = useState<string | null>(null);
@@ -179,28 +187,88 @@ export default function PricingPage() {
     const password = authPassword;
 
     try {
-      if (authMode === 'signup') {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: { emailRedirectTo: `${window.location.origin}/planos` },
-        });
-        if (error) throw error;
-
-        // Se precisa confirmar e-mail
-        if (data.user && !data.session) {
-          setAuthSuccessMsg(
-            'Conta criada com sucesso! Enviamos um link de confirmação para o seu e-mail. Por favor, confirme seu e-mail para concluir a assinatura.'
-          );
-          setAuthBusy(false);
-          return;
-        }
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
+      if (authMode === 'forgot') {
+        if (!email) throw new Error('email_invalid');
+        const redirectTo = `${window.location.origin}/recuperar`;
+        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+        if (resetErr) throw resetErr;
+        setAuthSuccessMsg(`Enviamos um link de recuperação para ${email}. Verifique seu e-mail para criar uma nova senha.`);
+        setAuthBusy(false);
+        return;
       }
 
-      // Sessão pronta: inicia checkout imediatamente
+      if (authMode === 'signup') {
+        if (!email) throw new Error('email_invalid');
+        if (password.length < 6) throw new Error('password_short');
+
+        // 1. Confere primeiro se já existe conta cadastrada com este e-mail
+        const { data: exists } = await supabase.rpc('email_exists', { p_email: email });
+        if (exists) {
+          // O usuário JÁ POSSUI CONTA! Tenta autenticar diretamente com a senha informada
+          const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+          if (!signInErr && signInData.session) {
+            // Sucesso! Logou na hora, prossegue direto para o Stripe Checkout abaixo
+            setCurrentUserEmail(signInData.session.user.email ?? email);
+          } else {
+            // A conta existe, mas a senha está errada
+            setAuthMode('login');
+            setAuthError('Você já possui uma conta com este e-mail! Por favor, digite sua senha para entrar ou use "Esqueci minha senha".');
+            setAuthBusy(false);
+            return;
+          }
+        } else {
+          // Novo cadastro
+          const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              data: { name: authName.trim() || undefined },
+              emailRedirectTo: `${window.location.origin}/#planos`,
+            },
+          });
+          if (signUpErr) throw signUpErr;
+
+          // Se por segurança do Supabase identities veio vazio, a conta já existe
+          if (signUpData.user && signUpData.user.identities?.length === 0) {
+            setAuthMode('login');
+            setAuthError('Este e-mail já possui cadastro. Use "Já Tenho Conta" para entrar.');
+            setAuthBusy(false);
+            return;
+          }
+
+          if (signUpData.user && !signUpData.session) {
+            setAuthSuccessMsg(
+              `Conta criada com sucesso! Enviamos um link de confirmação para ${email}. Por favor, confirme seu e-mail para concluir a assinatura.`
+            );
+            setAuthBusy(false);
+            return;
+          }
+        }
+      } else {
+        // authMode === 'login'
+        if (!email) throw new Error('email_invalid');
+        if (!password) throw new Error('password_short');
+
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInErr) {
+          if (/invalid login credentials/i.test(signInErr.message)) {
+            const { data: exists } = await supabase.rpc('email_exists', { p_email: email });
+            if (!exists) {
+              setAuthMode('signup');
+              setAuthError('Não encontramos nenhuma conta com esse e-mail. Preencha seus dados para criar sua conta.');
+              setAuthBusy(false);
+              return;
+            }
+          }
+          throw signInErr;
+        }
+
+        if (signInData.session) {
+          setCurrentUserEmail(signInData.session.user.email ?? email);
+        }
+      }
+
+      // Sessão pronta: inicia checkout imediatamente no Stripe
       const { data: chData, error: chErr } = await supabase.functions.invoke('stripe-checkout', {
         body: { plan: selectedPlan },
       });
@@ -218,7 +286,7 @@ export default function PricingPage() {
     } catch (err) {
       const msg = (err as Error).message;
       if (msg === 'already_active') {
-        setAuthSuccessMsg('Sua assinatura já está ativa!');
+        setAuthSuccessMsg('Sua assinatura do VS Stage Pro já está ativa!');
       } else {
         setAuthError(friendlyError(msg));
       }
@@ -255,6 +323,22 @@ export default function PricingPage() {
           </a>
 
           <div className="flex items-center gap-3 sm:gap-4">
+            {currentUserEmail ? (
+              <div className="flex items-center gap-2 text-2xs bg-white/[0.04] border border-white/10 px-3 py-1.5 rounded-full">
+                <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-pulse" />
+                <span className="text-white font-medium max-w-[170px] truncate">{currentUserEmail}</span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    setCurrentUserEmail(null);
+                  }}
+                  className="text-logic-lcd-amber hover:underline font-bold ml-1"
+                >
+                  Sair
+                </button>
+              </div>
+            ) : null}
             <a
               href="/"
               className="text-xs font-semibold text-logic-text-dim hover:text-white transition-colors hidden sm:inline-flex"
@@ -677,51 +761,85 @@ export default function PricingPage() {
             {/* Topo do Modal */}
             <div className="text-center mb-6">
               <div className="mx-auto w-12 h-12 mb-3 rounded-2xl bg-logic-lcd-green/15 border border-logic-lcd-green/30 flex items-center justify-center text-logic-lcd-green">
-                <CreditCard size={24} />
+                {authMode === 'forgot' ? <KeyRound size={24} /> : <CreditCard size={24} />}
               </div>
               <h2 className="text-xl font-black text-white">
-                {authMode === 'signup' ? 'Crie sua conta para assinar' : 'Entre na sua conta para assinar'}
+                {authMode === 'forgot'
+                  ? 'Recuperar Senha'
+                  : authMode === 'signup'
+                  ? 'Criar conta para assinar'
+                  : 'Entre na sua conta para assinar'}
               </h2>
               <p className="text-xs text-logic-text-dim mt-1.5">
-                {selectedPlan === 'yearly'
+                {authMode === 'forgot'
+                  ? 'Digite seu e-mail para receber as instruções de recuperação.'
+                  : selectedPlan === 'yearly'
                   ? `Você escolheu o Plano Anual (${YEARLY_PRICE}/ano)`
                   : `Você escolheu o Plano Mensal (${MONTHLY_PRICE}/mês)`}
               </p>
             </div>
 
-            {/* Alternador Criar Conta / Entrar */}
-            <div className="grid grid-cols-2 gap-1 p-1 bg-black/40 rounded-xl mb-5 border border-white/10">
-              <button
-                type="button"
-                onClick={() => { setAuthMode('signup'); setAuthError(null); }}
-                className={`py-2 text-xs font-bold rounded-lg transition ${authMode === 'signup' ? 'bg-logic-lcd-green text-black' : 'text-logic-text-dim hover:text-white'}`}
-              >
-                Criar Nova Conta
-              </button>
-              <button
-                type="button"
-                onClick={() => { setAuthMode('login'); setAuthError(null); }}
-                className={`py-2 text-xs font-bold rounded-lg transition ${authMode === 'login' ? 'bg-logic-lcd-green text-black' : 'text-logic-text-dim hover:text-white'}`}
-              >
-                Já Tenho Conta
-              </button>
-            </div>
+            {/* Alternador Criar Conta / Entrar (oculto no modo esqueci senha) */}
+            {authMode !== 'forgot' && (
+              <div className="grid grid-cols-2 gap-1 p-1 bg-black/40 rounded-xl mb-5 border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('login'); setAuthError(null); setAuthSuccessMsg(null); }}
+                  className={`py-2 text-xs font-bold rounded-lg transition ${authMode === 'login' ? 'bg-logic-lcd-green text-black shadow' : 'text-logic-text-dim hover:text-white'}`}
+                >
+                  Já Tenho Conta
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode('signup'); setAuthError(null); setAuthSuccessMsg(null); }}
+                  className={`py-2 text-xs font-bold rounded-lg transition ${authMode === 'signup' ? 'bg-logic-lcd-green text-black shadow' : 'text-logic-text-dim hover:text-white'}`}
+                >
+                  Criar Nova Conta
+                </button>
+              </div>
+            )}
 
             {authError && (
-              <div className="mb-4 p-3 rounded-xl bg-logic-lcd-red/15 border border-logic-lcd-red/30 text-logic-lcd-red text-xs text-center">
+              <div className="mb-4 p-3 rounded-xl bg-logic-lcd-red/15 border border-logic-lcd-red/30 text-logic-lcd-red text-xs text-center leading-relaxed">
                 {authError}
               </div>
             )}
 
             {authSuccessMsg ? (
-              <div className="p-4 rounded-xl bg-logic-lcd-green/15 border border-logic-lcd-green/40 text-center space-y-2">
-                <p className="text-xs text-logic-lcd-green font-bold">✓ {authSuccessMsg}</p>
-                <p className="text-2xs text-logic-text-dim">
-                  Após confirmar seu e-mail, volte aqui para prosseguir com a ativação da sua assinatura.
-                </p>
+              <div className="p-4 rounded-xl bg-logic-lcd-green/15 border border-logic-lcd-green/40 text-center space-y-3">
+                <p className="text-xs text-logic-lcd-green font-bold leading-relaxed">✓ {authSuccessMsg}</p>
+                {authMode === 'forgot' ? (
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('login'); setAuthSuccessMsg(null); setAuthError(null); }}
+                    className="text-xs text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg font-bold transition"
+                  >
+                    Voltar para Entrar
+                  </button>
+                ) : (
+                  <p className="text-2xs text-logic-text-dim">
+                    Após confirmar seu e-mail, volte a esta página para concluir o pagamento.
+                  </p>
+                )}
               </div>
             ) : (
               <form onSubmit={handleAuthSubmit} className="space-y-4">
+                {authMode === 'signup' && (
+                  <div>
+                    <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted mb-1.5">
+                      Seu Nome
+                    </label>
+                    <input
+                      type="text"
+                      value={authName}
+                      onChange={(e) => setAuthName(e.target.value)}
+                      placeholder="Seu nome completo"
+                      autoFocus
+                      className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
+                    />
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted mb-1.5">
                     Seu E-mail
@@ -732,42 +850,79 @@ export default function PricingPage() {
                     onChange={(e) => setAuthEmail(e.target.value)}
                     placeholder="seuemail@exemplo.com"
                     required
-                    autoFocus
+                    autoFocus={authMode !== 'signup'}
                     className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted mb-1.5">
-                    Sua Senha
-                  </label>
-                  <input
-                    type="password"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    placeholder="Mínimo de 6 caracteres"
-                    required
-                    minLength={6}
-                    className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
-                  />
-                </div>
+                {authMode !== 'forgot' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted">
+                        Sua Senha
+                      </label>
+                      {authMode === 'login' && (
+                        <button
+                          type="button"
+                          onClick={() => { setAuthMode('forgot'); setAuthError(null); }}
+                          className="text-2xs text-logic-text-dim hover:text-logic-lcd-green transition"
+                        >
+                          Esqueci minha senha
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="Mínimo de 6 caracteres"
+                        required
+                        minLength={6}
+                        className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 pr-10 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-white transition"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <button
                   type="submit"
-                  disabled={authBusy || !authEmail.trim() || authPassword.length < 6}
+                  disabled={authBusy || !authEmail.trim() || (authMode !== 'forgot' && authPassword.length < 6)}
                   className="w-full h-12 rounded-xl btn-neon-green text-black font-black text-sm flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 mt-2"
                 >
                   {authBusy ? (
                     <Loader2 size={18} className="animate-spin text-black" />
+                  ) : authMode === 'forgot' ? (
+                    <KeyRound size={18} />
                   ) : (
                     <CreditCard size={18} />
                   )}
                   <span>
-                    {authMode === 'signup'
+                    {authMode === 'forgot'
+                      ? 'Enviar Link de Recuperação'
+                      : authMode === 'signup'
                       ? 'Criar Conta e Prosseguir para Pagamento'
                       : 'Entrar e Prosseguir para Pagamento'}
                   </span>
                 </button>
+
+                {authMode === 'forgot' && (
+                  <button
+                    type="button"
+                    onClick={() => { setAuthMode('login'); setAuthError(null); setAuthSuccessMsg(null); }}
+                    className="w-full text-center text-xs text-logic-text-dim hover:text-white transition flex items-center justify-center gap-1.5 pt-1"
+                  >
+                    <ChevronLeft size={14} /> Voltar para entrar
+                  </button>
+                )}
               </form>
             )}
 
