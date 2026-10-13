@@ -147,41 +147,58 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
   const signup = view === 'signup';
 
   return (
-    <div className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center p-6"
-      style={{ background: 'radial-gradient(ellipse at top, #1b1c20 0%, #0a0b0d 70%)' }}>
+    <div
+      className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center p-4 sm:p-6 relative overflow-hidden"
+      style={{ background: 'radial-gradient(ellipse at top, #14161f 0%, #08090c 70%)' }}
+    >
       <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[560px] h-[560px] rounded-full bg-logic-lcd-green/10 blur-3xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-logic-lcd-green/8 blur-[140px]" />
       </div>
-      <div className="relative w-[400px] max-w-full bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl overflow-hidden animate-[fadeIn_250ms_ease-out]">
-        <div className="flex items-center px-4 h-9 border-b border-logic-border bg-logic-bg-elevated">
-          <span className="text-2xs font-semibold tracking-widest text-logic-text-muted">{TITLES[view]}</span>
+
+      <div className="relative w-[420px] max-w-full bg-[#111218]/95 border border-white/10 rounded-3xl shadow-2xl backdrop-blur-xl overflow-hidden animate-[fadeIn_250ms_ease-out]">
+        <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.08] bg-white/[0.02]">
+          <div className="flex items-center gap-2">
+            <VsLogo size={20} />
+            <span className="text-2xs font-extrabold tracking-wider text-white">VS STAGE PRO</span>
+          </div>
+          <span className="text-2xs font-extrabold tracking-widest text-logic-lcd-amber uppercase px-2 py-0.5 rounded bg-logic-lcd-amber/10 border border-logic-lcd-amber/20">
+            {TITLES[view]}
+          </span>
         </div>
 
-        <form onSubmit={submit} className="px-6 pt-6 pb-5 space-y-3">
-          <div className="text-center mb-5">
+        <form onSubmit={submit} className="p-6 sm:p-8 space-y-4">
+          <div className="text-center mb-6">
             {justConfirmed && (
-              <div className="mb-4 px-3 py-2 rounded-lg border bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green text-xs flex items-center justify-center gap-1.5">
-                <CheckCircle2 size={14} /> Conta criada com sucesso!
+              <div className="mb-4 px-3 py-2 rounded-xl border bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green text-xs flex items-center justify-center gap-1.5">
+                <CheckCircle2 size={14} /> Conta criada e ativada com sucesso!
               </div>
             )}
-            <div className="mx-auto w-20 h-20 mb-3 flex items-center justify-center">
-              <VsLogo size={80} />
-            </div>
-            <h1 className="text-xl font-semibold">VS Stage Pro</h1>
-            <p className="text-xs text-logic-text-dim mt-1">
-              {view === 'signin' && 'Entre para liberar o download e seu teste grátis'}
-              {view === 'signup' && 'Crie sua conta para liberar o download'}
-              {view === 'forgot' && 'Enviamos um link para redefinir sua senha'}
-              {view === 'recovery' && 'Escolha uma nova senha para continuar'}
+            <h1 className="text-2xl font-black text-white tracking-tight">
+              {view === 'signin' && 'Acessar Downloads'}
+              {view === 'signup' && 'Criar Conta de Acesso'}
+              {view === 'forgot' && 'Recuperar Senha'}
+              {view === 'recovery' && 'Criar Nova Senha'}
+            </h1>
+            <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
+              {view === 'signin' && 'Entre com seu e-mail para liberar o download e o teste de 48 horas.'}
+              {view === 'signup' && 'Cadastre-se para baixar o instalador oficial e começar seu teste grátis.'}
+              {view === 'forgot' && 'Digite seu e-mail para receber as instruções de recuperação.'}
+              {view === 'recovery' && 'Escolha uma nova senha segura para sua conta.'}
             </p>
           </div>
 
           {(view === 'signin' || view === 'signup') && (
-            <div className="grid grid-cols-2 p-1 rounded-lg bg-logic-bg-deep border border-logic-border-dark">
+            <div className="grid grid-cols-2 p-1.5 rounded-2xl bg-black/40 border border-white/[0.08] mb-2">
               {(['signin', 'signup'] as const).map((v) => (
                 <button
-                  key={v} type="button" onClick={() => go(v)}
-                  className={`py-1.5 rounded-md text-xs font-medium transition-colors ${view === v ? 'bg-logic-bg-elevated text-logic-text shadow' : 'text-logic-text-muted hover:text-logic-text'}`}
+                  key={v}
+                  type="button"
+                  onClick={() => go(v)}
+                  className={`py-2 rounded-xl text-xs font-bold transition-all ${
+                    view === v
+                      ? 'bg-white/[0.12] text-white shadow-sm border border-white/10'
+                      : 'text-logic-text-dim hover:text-white'
+                  }`}
                 >
                   {v === 'signin' ? 'Entrar' : 'Criar conta'}
                 </button>
@@ -263,13 +280,14 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           )}
 
           <button
-            type="submit" disabled={busy}
-            className="w-full py-2.5 rounded-lg bg-logic-lcd-green text-black text-sm font-bold hover:brightness-110 transition disabled:opacity-50 flex items-center justify-center gap-2"
+            type="submit"
+            disabled={busy}
+            className="w-full h-12 rounded-2xl btn-neon-green text-black text-sm font-black transition-all hover:scale-[1.01] active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-logic-lcd-green/20"
           >
-            {busy && <Loader2 size={15} className="animate-spin" />}
-            {view === 'signin' && 'Entrar'}
-            {view === 'signup' && 'Criar conta e baixar'}
-            {view === 'forgot' && 'Enviar link'}
+            {busy && <Loader2 size={16} className="animate-spin text-black" />}
+            {view === 'signin' && 'Entrar e Acessar Downloads'}
+            {view === 'signup' && 'Criar Conta e Liberar Download'}
+            {view === 'forgot' && 'Enviar link de recuperação'}
             {view === 'recovery' && 'Salvar nova senha'}
           </button>
 
