@@ -22,7 +22,6 @@ export interface StemSeparationOptions {
   includeClick: boolean;
   beatsPerBar?: 4 | 3 | 6;
   songName?: string;
-  engine?: 'replicate_demucs' | 'local_dsp';
 }
 
 export interface StemResult {
@@ -65,73 +64,61 @@ export async function separateSongToVS(
   let vocalsBuffer: AudioBuffer;
   let otherBuffer: AudioBuffer;
 
-  if (options.engine !== 'local_dsp') {
-    // 1. Prioridade absoluta: Se estiver no app oficial do Mac, roda 100% nativo com Demucs v4 local
-    if (typeof window !== 'undefined' && window.vsDesktop?.separateStemsLocal) {
+  // Separação oficial via Demucs v4 (Meta AI)
+  if (typeof window !== 'undefined' && window.vsDesktop?.separateStemsLocal) {
+    onProgress?.({
+      step: 'drums',
+      message: 'Iniciando Demucs v4 nativo no Mac (Apple Silicon)...',
+      percent: 20,
+    });
+
+    const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
       onProgress?.({
-        step: 'drums',
-        message: 'Iniciando Demucs v4 nativo no Mac (Apple Silicon)...',
-        percent: 20,
+        step: 'vocals',
+        message: data.message,
+        percent: 20 + Math.floor((data.percent || 0) * 0.65),
       });
+    });
 
-      const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
-        onProgress?.({
-          step: 'vocals',
-          message: data.message,
-          percent: 20 + Math.floor((data.percent || 0) * 0.65),
-        });
-      });
-
-      try {
-        const arrayBuf = await file.arrayBuffer();
-        const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
-        onProgress?.({
-          step: 'other',
-          message: 'Decodificando faixas de alta fidelidade para a timeline...',
-          percent: 88,
-        });
-
-        const [v, b, d, o] = await Promise.all([
-          decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
-          decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
-          decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
-          decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
-        ]);
-        vocalsBuffer = v;
-        bassBuffer = b;
-        drumsBuffer = d;
-        otherBuffer = o;
-      } finally {
-        unbind?.();
-      }
-    } else {
-      // 2. No navegador web, conecta ao servidor de IA na nuvem
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
       onProgress?.({
-        step: 'drums',
-        message: 'Conectando ao Demucs v4 na nuvem...',
-        percent: 20,
+        step: 'other',
+        message: 'Decodificando faixas de alta fidelidade para a timeline...',
+        percent: 88,
       });
-      const stems = await separateWithReplicateDemucs(file, (p) => {
-        onProgress?.({
-          step: 'vocals',
-          message: p.message,
-          percent: p.percent,
-        });
-      });
-      vocalsBuffer = stems.vocals;
-      bassBuffer = stems.bass;
-      drumsBuffer = stems.drums;
-      otherBuffer = stems.other;
+
+      const [v, b, d, o] = await Promise.all([
+        decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
+      ]);
+      vocalsBuffer = v;
+      bassBuffer = b;
+      drumsBuffer = d;
+      otherBuffer = o;
+    } finally {
+      unbind?.();
     }
   } else {
-    onProgress?.({ step: 'drums', message: 'Separando Bateria...', percent: 30 });
-    drumsBuffer = await extractDrums(audioBuffer);
-    onProgress?.({ step: 'bass', message: 'Separando Contrabaixo...', percent: 50 });
-    bassBuffer = await extractBass(audioBuffer);
-    onProgress?.({ step: 'vocals', message: 'Separando Voz...', percent: 70 });
-    vocalsBuffer = await extractVocals(audioBuffer);
-    onProgress?.({ step: 'other', message: 'Separando Harmonia...', percent: 85 });
-    otherBuffer = await extractOther(audioBuffer, vocalsBuffer, bassBuffer);
+    onProgress?.({
+      step: 'drums',
+      message: 'Conectando ao Demucs v4 na nuvem...',
+      percent: 20,
+    });
+    const stems = await separateWithReplicateDemucs(file, (p) => {
+      onProgress?.({
+        step: 'vocals',
+        message: p.message,
+        percent: p.percent,
+      });
+    });
+    vocalsBuffer = stems.vocals;
+    bassBuffer = stems.bass;
+    drumsBuffer = stems.drums;
+    otherBuffer = stems.other;
   }
 
   // 2.5 Metrônomo do Show (Click) sincronizado pelo canal de bateria
@@ -257,178 +244,4 @@ export async function separateSongToVS(
     duration,
     stemsCount: stemConfigs.length,
   };
-}
-
-// ─── PROCESSADORES DE ÁUDIO LOCAIS DE ESTÚDIO ────────────────────────────────
-
-/** Isola Baixo e Subgraves (20Hz a 200Hz com saturação suave) */
-async function extractBass(source: AudioBuffer): Promise<AudioBuffer> {
-  const offline = new OfflineAudioContext(source.numberOfChannels, source.length, source.sampleRate);
-  const srcNode = offline.createBufferSource();
-  srcNode.buffer = source;
-
-  // Filtro passa-baixas íngreme de 24dB/oitava em 180Hz
-  const lp1 = offline.createBiquadFilter();
-  lp1.type = 'lowpass';
-  lp1.frequency.value = 180;
-  lp1.Q.value = 1.1;
-
-  const lp2 = offline.createBiquadFilter();
-  lp2.type = 'lowpass';
-  lp2.frequency.value = 220;
-
-  // Boost de pegada no subgrave
-  const boost = offline.createBiquadFilter();
-  boost.type = 'peaking';
-  boost.frequency.value = 75;
-  boost.gain.value = 3.5;
-  boost.Q.value = 1.0;
-
-  srcNode.connect(lp1);
-  lp1.connect(lp2);
-  lp2.connect(boost);
-  boost.connect(offline.destination);
-
-  srcNode.start(0);
-  return offline.startRendering();
-}
-
-/** Isola Bateria e Percussão (Ataque, transientes de bumbo, caixa e pratos) */
-async function extractDrums(source: AudioBuffer): Promise<AudioBuffer> {
-  const offline = new OfflineAudioContext(source.numberOfChannels, source.length, source.sampleRate);
-  const srcNode = offline.createBufferSource();
-  srcNode.buffer = source;
-
-  // Realce de impacto de bumbo (60Hz) e estalo de caixa (3kHz) + pratos (9kHz)
-  const kick = offline.createBiquadFilter();
-  kick.type = 'peaking';
-  kick.frequency.value = 65;
-  kick.gain.value = 4.0;
-  kick.Q.value = 1.4;
-
-  const snare = offline.createBiquadFilter();
-  snare.type = 'peaking';
-  snare.frequency.value = 2800;
-  snare.gain.value = 3.0;
-  snare.Q.value = 1.2;
-
-  const cymbals = offline.createBiquadFilter();
-  cymbals.type = 'highshelf';
-  cymbals.frequency.value = 8500;
-  cymbals.gain.value = 2.5;
-
-  srcNode.connect(kick);
-  kick.connect(snare);
-  snare.connect(cymbals);
-  cymbals.connect(offline.destination);
-
-  srcNode.start(0);
-  return offline.startRendering();
-}
-
-/** Isola Vocais (Centro estéreo Mid limpo de graves com passa-faixa vocal) */
-async function extractVocals(source: AudioBuffer): Promise<AudioBuffer> {
-  const length = source.length;
-  const sampleRate = source.sampleRate;
-  const out = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
-
-  const leftIn = source.getChannelData(0);
-  const rightIn = source.numberOfChannels > 1 ? source.getChannelData(1) : leftIn;
-  const leftOut = out.getChannelData(0);
-  const rightOut = out.getChannelData(1);
-
-  // Isolamento Mid de alta definição com cancelamento ativo de surround
-  const midData = new Float32Array(length);
-  for (let i = 0; i < length; i++) {
-    const l = leftIn[i];
-    const r = rightIn[i];
-    const mid = (l + r) * 0.5;
-    const side = Math.abs(l - r);
-    // Coeficiente dinâmico: voz comercial sempre está perfeitamente no centro estéreo
-    const correlation = Math.max(0, 1 - (side * 2.2));
-    midData[i] = mid * correlation;
-  }
-
-  const tempBuf = new AudioBuffer({ length, numberOfChannels: 1, sampleRate });
-  tempBuf.copyToChannel(midData, 0);
-
-  const offline = new OfflineAudioContext(2, length, sampleRate);
-  const srcNode = offline.createBufferSource();
-  srcNode.buffer = tempBuf;
-
-  // Corta graves/baixo/bumbo abaixo de 160Hz
-  const hp1 = offline.createBiquadFilter();
-  hp1.type = 'highpass';
-  hp1.frequency.value = 160;
-  hp1.Q.value = 1.0;
-
-  const hp2 = offline.createBiquadFilter();
-  hp2.type = 'highpass';
-  hp2.frequency.value = 240;
-
-  // Corta pratos/chiados acima de 5.5kHz
-  const lp = offline.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 5500;
-  lp.Q.value = 0.9;
-
-  // Realce de clareza vocal (2.5kHz)
-  const presence = offline.createBiquadFilter();
-  presence.type = 'peaking';
-  presence.frequency.value = 2400;
-  presence.gain.value = 4.0;
-  presence.Q.value = 1.2;
-
-  srcNode.connect(hp1);
-  hp1.connect(hp2);
-  hp2.connect(lp);
-  lp.connect(presence);
-  presence.connect(offline.destination);
-
-  srcNode.start(0);
-  const filtered = await offline.startRendering();
-
-  leftOut.set(filtered.getChannelData(0));
-  rightOut.set(filtered.getChannelData(1));
-  return out;
-}
-
-/** Isola Harmonia / Playback / Instrumentos (Teclados, Guitarras, Metais) */
-async function extractOther(
-  source: AudioBuffer,
-  vocals: AudioBuffer,
-  bass: AudioBuffer
-): Promise<AudioBuffer> {
-  const length = source.length;
-  const sampleRate = source.sampleRate;
-  const out = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
-
-  const leftIn = source.getChannelData(0);
-  const rightIn = source.numberOfChannels > 1 ? source.getChannelData(1) : leftIn;
-
-  const vocL = vocals.getChannelData(0);
-  const vocR = vocals.getChannelData(1);
-
-  const bassL = bass.getChannelData(0);
-  const bassR = bass.numberOfChannels > 1 ? bass.getChannelData(1) : bassL;
-
-  const leftOut = out.getChannelData(0);
-  const rightOut = out.getChannelData(1);
-
-  // Subtrai voz central e sub-baixo do sinal original para sobrar a cama instrumental limpa
-  for (let i = 0; i < length; i++) {
-    const l = leftIn[i];
-    const r = rightIn[i];
-
-    const vL = vocL[i] * 0.82;
-    const vR = vocR[i] * 0.82;
-
-    const bL = bassL[i] * 0.75;
-    const bR = bassR[i] * 0.75;
-
-    leftOut[i] = l - vL - bL;
-    rightOut[i] = r - vR - bR;
-  }
-
-  return out;
 }

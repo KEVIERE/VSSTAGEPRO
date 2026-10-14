@@ -30,7 +30,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
   const [songName, setSongName] = useState('');
   const [includeClick, setIncludeClick] = useState(true);
   const [beatsPerBar, setBeatsPerBar] = useState<4 | 3 | 6>(4);
-  const [engine, setEngine] = useState<'replicate_demucs' | 'local_dsp'>('replicate_demucs');
+
 
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<StemSeparationProgress | null>(null);
@@ -98,7 +98,6 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
           includeClick,
           beatsPerBar,
           songName: songName.trim() || undefined,
-          engine,
         },
         (p) => setProgress(p)
       );
@@ -226,54 +225,22 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                 />
               </div>
 
-              {/* Seletor de Motor de Separação */}
-              <div className="space-y-1.5 pt-1">
-                <label className="block text-[10px] font-bold text-logic-text-muted uppercase tracking-wider">
-                  Motor de Inteligência Artificial
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setEngine('replicate_demucs')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
-                      engine === 'replicate_demucs'
-                        ? 'bg-logic-lcd-green/15 border-logic-lcd-green text-white shadow'
-                        : 'bg-white/[0.02] border-white/10 text-logic-text-dim hover:text-white'
-                    }`}
-                  >
-                    <span className="font-bold text-xs flex items-center gap-1.5">
-                      <Sparkles size={13} className="text-logic-lcd-green" />
-                      <span>
-                        {typeof window !== 'undefined' && window.vsDesktop
-                          ? 'Demucs v4 Local (Mac)'
-                          : 'Demucs v4 (IA Master)'}
-                      </span>
+              {/* Motor Oficial de IA */}
+              <div className="p-3.5 rounded-xl bg-gradient-to-r from-logic-lcd-green/15 to-emerald-500/5 border border-logic-lcd-green/30 text-xs flex items-center justify-between gap-3 shadow-md">
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={14} className="text-logic-lcd-green" />
+                    <span className="font-bold text-white text-xs">
+                      Demucs v4 (Meta AI) · Qualidade Máxima de Estúdio
                     </span>
-                    <span className="text-[10px] text-logic-text-dim mt-1">
-                      {typeof window !== 'undefined' && window.vsDesktop
-                        ? '100% Grátis & Offline · Qualidade Moises/Logic Pro'
-                        : 'NVIDIA GPU · Stems isolados em alta resolução'}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setEngine('local_dsp')}
-                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
-                      engine === 'local_dsp'
-                        ? 'bg-logic-lcd-green/15 border-logic-lcd-green text-white shadow'
-                        : 'bg-white/[0.02] border-white/10 text-logic-text-dim hover:text-white'
-                    }`}
-                  >
-                    <span className="font-bold text-xs flex items-center gap-1.5">
-                      <Volume2 size={13} className="text-logic-lcd-amber" />
-                      <span>Modo Rápido Local</span>
-                    </span>
-                    <span className="text-[10px] text-logic-text-dim mt-1">
-                      Processamento imediato no Mac sem internet
-                    </span>
-                  </button>
+                  </div>
+                  <p className="text-[11px] text-logic-text-dim">
+                    Rede neural com separação real de 4 stems (padrão Logic Pro 11 e Moises).
+                  </p>
                 </div>
+                <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-logic-lcd-green/20 text-logic-lcd-green border border-logic-lcd-green/40 shrink-0">
+                  IA ATIVA
+                </span>
               </div>
 
               {/* Opções de Click e Compasso */}
