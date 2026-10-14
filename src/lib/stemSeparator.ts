@@ -10,7 +10,7 @@ import {
 } from '@/lib/audioLibrary';
 import { useStore } from '@/store';
 import type { AudioClip, Song } from '@/types';
-import { generateMarkers } from '@/lib/audioDecoder';
+import { generateMarkers, decodeBlob } from '@/lib/audioDecoder';
 
 export interface StemSeparationProgress {
   step: 'analyzing' | 'drums' | 'bass' | 'vocals' | 'other' | 'click' | 'finalizing';
@@ -66,22 +66,63 @@ export async function separateSongToVS(
   let otherBuffer: AudioBuffer;
 
   if (options.engine !== 'local_dsp') {
-    onProgress?.({
-      step: 'drums',
-      message: 'Iniciando separação com Demucs v4 (Meta AI GPU)...',
-      percent: 20,
-    });
-    const stems = await separateWithReplicateDemucs(file, (p) => {
+    // 1. Prioridade absoluta: Se estiver no app oficial do Mac, roda 100% nativo com Demucs v4 local
+    if (typeof window !== 'undefined' && window.vsDesktop?.separateStemsLocal) {
       onProgress?.({
-        step: 'vocals',
-        message: p.message,
-        percent: p.percent,
+        step: 'drums',
+        message: 'Iniciando Demucs v4 nativo no Mac (Apple Silicon)...',
+        percent: 20,
       });
-    });
-    vocalsBuffer = stems.vocals;
-    bassBuffer = stems.bass;
-    drumsBuffer = stems.drums;
-    otherBuffer = stems.other;
+
+      const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
+        onProgress?.({
+          step: 'vocals',
+          message: data.message,
+          percent: 20 + Math.floor((data.percent || 0) * 0.65),
+        });
+      });
+
+      try {
+        const arrayBuf = await file.arrayBuffer();
+        const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
+        onProgress?.({
+          step: 'other',
+          message: 'Decodificando faixas de alta fidelidade para a timeline...',
+          percent: 88,
+        });
+
+        const [v, b, d, o] = await Promise.all([
+          decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
+          decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
+          decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
+          decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
+        ]);
+        vocalsBuffer = v;
+        bassBuffer = b;
+        drumsBuffer = d;
+        otherBuffer = o;
+      } finally {
+        unbind?.();
+      }
+    } else {
+      // 2. No navegador web, conecta ao servidor de IA na nuvem
+      onProgress?.({
+        step: 'drums',
+        message: 'Conectando ao Demucs v4 na nuvem...',
+        percent: 20,
+      });
+      const stems = await separateWithReplicateDemucs(file, (p) => {
+        onProgress?.({
+          step: 'vocals',
+          message: p.message,
+          percent: p.percent,
+        });
+      });
+      vocalsBuffer = stems.vocals;
+      bassBuffer = stems.bass;
+      drumsBuffer = stems.drums;
+      otherBuffer = stems.other;
+    }
   } else {
     onProgress?.({ step: 'drums', message: 'Separando Bateria...', percent: 30 });
     drumsBuffer = await extractDrums(audioBuffer);

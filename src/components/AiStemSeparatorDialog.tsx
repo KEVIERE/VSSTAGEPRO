@@ -243,10 +243,16 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   >
                     <span className="font-bold text-xs flex items-center gap-1.5">
                       <Sparkles size={13} className="text-logic-lcd-green" />
-                      <span>Demucs v4 (Qualidade Moises)</span>
+                      <span>
+                        {typeof window !== 'undefined' && window.vsDesktop
+                          ? 'Demucs v4 Local (Mac)'
+                          : 'Demucs v4 (IA Master)'}
+                      </span>
                     </span>
                     <span className="text-[10px] text-logic-text-dim mt-1">
-                      NVIDIA GPU · Stems isolados em alta resolução
+                      {typeof window !== 'undefined' && window.vsDesktop
+                        ? '100% Grátis & Offline · Qualidade Moises/Logic Pro'
+                        : 'NVIDIA GPU · Stems isolados em alta resolução'}
                     </span>
                   </button>
 

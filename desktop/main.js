@@ -6,6 +6,7 @@ const { LocalServer } = require('./localServer');
 const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const selfUpdate = require('./selfUpdate');
+const { separateStemsLocal } = require('./stemSeparatorLocal');
 
 const SCHEME = 'vsstage';
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '..', 'dist');
@@ -144,6 +145,7 @@ handle('exportPickFile', (name) => exportFiles.pickFile(win, name));
 handle('exportWrite', (id, rel, data) => exportFiles.writeFile(id, rel, data));
 handle('exportFreeSpace', (id) => exportFiles.freeSpace(id));
 handle('exportReveal', (id, rel) => exportFiles.reveal(id, rel));
+handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 
 // Atualização silenciosa: confere, baixa, instala por cima do app atual e reabre —
 // o cliente só vê uma barra de progresso dentro do próprio programa.

@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   exportReveal: call('exportReveal'),
   checkUpdate: call('checkUpdate'),
   installUpdate: call('installUpdate'),
+  separateStemsLocal: call('separateStemsLocal'),
+  onSeparationProgress: (cb) => {
+    const listener = (_event, data) => cb(data);
+    ipcRenderer.on('separation:progress', listener);
+    return () => ipcRenderer.removeListener('separation:progress', listener);
+  },
   onUpdateProgress: (cb) => {
     const listener = (_event, pct) => cb(pct);
     ipcRenderer.on('update:progress', listener);

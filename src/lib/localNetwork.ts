@@ -67,6 +67,16 @@ declare global {
       checkUpdate: (supabaseUrl: string) => Promise<UpdateInfo | null>;
       installUpdate: (info: UpdateInfo) => Promise<void>;
       onUpdateProgress: (cb: (pct: number) => void) => () => void;
+      separateStemsLocal?: (
+        filename: string,
+        audioData: ArrayBuffer
+      ) => Promise<{
+        vocals: ArrayBuffer;
+        bass: ArrayBuffer;
+        drums: ArrayBuffer;
+        other: ArrayBuffer;
+      }>;
+      onSeparationProgress?: (cb: (data: { percent: number; message: string }) => void) => () => void;
     };
     __VS_LOCAL__?: number;
     __VS_HOST__?: string;
