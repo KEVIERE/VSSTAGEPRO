@@ -30,6 +30,11 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
   const [songName, setSongName] = useState('');
   const [includeClick, setIncludeClick] = useState(true);
   const [beatsPerBar, setBeatsPerBar] = useState<4 | 3 | 6>(4);
+  const [engine, setEngine] = useState<'hf_demucs' | 'local_dsp'>('hf_demucs');
+  const [hfToken, setHfToken] = useState(() => {
+    try { return localStorage.getItem('vs_hf_token') || ''; } catch { return ''; }
+  });
+  const [showTokenInput, setShowTokenInput] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<StemSeparationProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +93,10 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
 
       const decoded = await decodeFile(file);
 
+      if (hfToken.trim()) {
+        try { localStorage.setItem('vs_hf_token', hfToken.trim()); } catch {}
+      }
+
       // 2. Separa stems e cria o VS
       await separateSongToVS(
         decoded.audioBuffer,
@@ -96,6 +105,8 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
           includeClick,
           beatsPerBar,
           songName: songName.trim() || undefined,
+          engine,
+          hfToken: hfToken.trim() || undefined,
         },
         (p) => setProgress(p)
       );
@@ -223,6 +234,50 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                 />
               </div>
 
+              {/* Seletor de Motor de Separação */}
+              <div className="space-y-1.5 pt-1">
+                <label className="block text-[10px] font-bold text-logic-text-muted uppercase tracking-wider">
+                  Motor de Inteligência Artificial
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEngine('hf_demucs')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      engine === 'hf_demucs'
+                        ? 'bg-logic-lcd-green/15 border-logic-lcd-green text-white shadow'
+                        : 'bg-white/[0.02] border-white/10 text-logic-text-dim hover:text-white'
+                    }`}
+                  >
+                    <span className="font-bold text-xs flex items-center gap-1.5">
+                      <Sparkles size={13} className="text-logic-lcd-green" />
+                      <span>Demucs v4 (IA Master)</span>
+                    </span>
+                    <span className="text-[10px] text-logic-text-dim mt-1">
+                      Qualidade máxima de estúdio (sem vazamento)
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setEngine('local_dsp')}
+                    className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
+                      engine === 'local_dsp'
+                        ? 'bg-logic-lcd-green/15 border-logic-lcd-green text-white shadow'
+                        : 'bg-white/[0.02] border-white/10 text-logic-text-dim hover:text-white'
+                    }`}
+                  >
+                    <span className="font-bold text-xs flex items-center gap-1.5">
+                      <Volume2 size={13} className="text-logic-lcd-amber" />
+                      <span>Modo Rápido Local</span>
+                    </span>
+                    <span className="text-[10px] text-logic-text-dim mt-1">
+                      Processamento imediato no Mac sem internet
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               {/* Opções de Click e Compasso */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <label className="flex items-center gap-2.5 p-3 rounded-xl bg-white/[0.02] border border-white/10 cursor-pointer hover:bg-white/[0.04] transition">
@@ -268,7 +323,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   <span>Stems separadas automaticamente:</span>
                 </p>
                 <p className="leading-relaxed">
-                  🥁 <strong>Bateria</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎹 <strong>Harmonia/Playback</strong> ➔ Pasta Outros &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Solos/Guia.
+                  🥁 <strong>Bateria</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎹 <strong>Playback</strong> ➔ Pasta Outros &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
                 </p>
               </div>
             </div>

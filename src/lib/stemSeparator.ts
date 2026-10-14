@@ -1,3 +1,4 @@
+import { separateWithHfDemucs } from '@/lib/hfDemucs';
 import { detectBpm } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
@@ -21,6 +22,8 @@ export interface StemSeparationOptions {
   includeClick: boolean;
   beatsPerBar?: 4 | 3 | 6;
   songName?: string;
+  engine?: 'hf_demucs' | 'local_dsp';
+  hfToken?: string;
 }
 
 export interface StemResult {
@@ -58,37 +61,51 @@ export async function separateSongToVS(
   const downbeat = bpmResult?.downbeat || 0;
 
   // 2. SEPARAÇÃO DAS 4 STEMS
-  // 2.1 Bateria (Drums)
-  onProgress?.({
-    step: 'drums',
-    message: 'Separando Bateria e Percussões...',
-    percent: 30,
-  });
-  const drumsBuffer = await extractDrums(audioBuffer);
+  let drumsBuffer: AudioBuffer;
+  let bassBuffer: AudioBuffer;
+  let vocalsBuffer: AudioBuffer;
+  let otherBuffer: AudioBuffer;
 
-  // 2.2 Baixo (Bass)
-  onProgress?.({
-    step: 'bass',
-    message: 'Separando Contrabaixo e Sub-graves...',
-    percent: 50,
-  });
-  const bassBuffer = await extractBass(audioBuffer);
-
-  // 2.3 Vocais (Vocals)
-  onProgress?.({
-    step: 'vocals',
-    message: 'Separando Voz Principal e Coros...',
-    percent: 70,
-  });
-  const vocalsBuffer = await extractVocals(audioBuffer);
-
-  // 2.4 Harmonia / Playback (Other)
-  onProgress?.({
-    step: 'other',
-    message: 'Separando Harmonia, Guitarras e Teclados...',
-    percent: 85,
-  });
-  const otherBuffer = await extractOther(audioBuffer, vocalsBuffer, bassBuffer);
+  if (options.engine !== 'local_dsp') {
+    onProgress?.({
+      step: 'drums',
+      message: 'Conectando ao Demucs v4 no Hugging Face (Qualidade de Estúdio)...',
+      percent: 20,
+    });
+    try {
+      const stems = await separateWithHfDemucs(file, options.hfToken, (p) => {
+        onProgress?.({
+          step: 'vocals',
+          message: p.message,
+          percent: p.percent,
+        });
+      });
+      vocalsBuffer = stems.vocals;
+      bassBuffer = stems.bass;
+      drumsBuffer = stems.drums;
+      otherBuffer = stems.other;
+    } catch (err) {
+      console.warn('[separateSongToVS] Fallback para processador local:', err);
+      onProgress?.({
+        step: 'drums',
+        message: 'Hugging Face ocupado, processando stems localmente...',
+        percent: 35,
+      });
+      drumsBuffer = await extractDrums(audioBuffer);
+      bassBuffer = await extractBass(audioBuffer);
+      vocalsBuffer = await extractVocals(audioBuffer);
+      otherBuffer = await extractOther(audioBuffer, vocalsBuffer, bassBuffer);
+    }
+  } else {
+    onProgress?.({ step: 'drums', message: 'Separando Bateria...', percent: 30 });
+    drumsBuffer = await extractDrums(audioBuffer);
+    onProgress?.({ step: 'bass', message: 'Separando Contrabaixo...', percent: 50 });
+    bassBuffer = await extractBass(audioBuffer);
+    onProgress?.({ step: 'vocals', message: 'Separando Voz...', percent: 70 });
+    vocalsBuffer = await extractVocals(audioBuffer);
+    onProgress?.({ step: 'other', message: 'Separando Harmonia...', percent: 85 });
+    otherBuffer = await extractOther(audioBuffer, vocalsBuffer, bassBuffer);
+  }
 
   // 2.5 Metrônomo do Show (Click) sincronizado pelo canal de bateria
   let clickBuffer: AudioBuffer | null = null;
