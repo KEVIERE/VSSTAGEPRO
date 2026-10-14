@@ -29,7 +29,6 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
   const [file, setFile] = useState<File | null>(null);
   const [songName, setSongName] = useState('');
   const [includeClick, setIncludeClick] = useState(true);
-  const [countIn, setCountIn] = useState(true);
   const [beatsPerBar, setBeatsPerBar] = useState<4 | 3 | 6>(4);
 
 
@@ -97,7 +96,6 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
         file,
         {
           includeClick,
-          countIn,
           beatsPerBar,
           songName: songName.trim() || undefined,
         },
@@ -245,22 +243,9 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                 </span>
               </div>
 
-              {/* Opções de Click, Maestro e Compasso */}
-              <div className="grid grid-cols-3 gap-2.5 pt-1">
-                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-white/[0.02] border border-white/10 cursor-pointer hover:bg-white/[0.04] transition">
-                  <input
-                    type="checkbox"
-                    checked={countIn}
-                    onChange={(e) => setCountIn(e.target.checked)}
-                    className="accent-logic-lcd-green w-4 h-4 rounded cursor-pointer"
-                  />
-                  <div className="text-xs min-w-0">
-                    <span className="font-bold text-white block truncate">Contagem Maestro</span>
-                    <span className="text-[10px] text-logic-text-dim block truncate">1 compasso ("1, 2, 3, 4")</span>
-                  </div>
-                </label>
-
-                <label className="flex items-center gap-2 p-2.5 rounded-xl bg-white/[0.02] border border-white/10 cursor-pointer hover:bg-white/[0.04] transition">
+              {/* Opções de Click e Compasso */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <label className="flex items-center gap-2.5 p-3 rounded-xl bg-white/[0.02] border border-white/10 cursor-pointer hover:bg-white/[0.04] transition">
                   <input
                     type="checkbox"
                     checked={includeClick}
@@ -268,22 +253,22 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                     className="accent-logic-lcd-green w-4 h-4 rounded cursor-pointer"
                   />
                   <div className="text-xs min-w-0">
-                    <span className="font-bold text-white block truncate">Click Automático</span>
-                    <span className="text-[10px] text-logic-text-dim block truncate">Metrônomo do show</span>
+                    <span className="font-bold text-white block">Click Automático (Sincronizado)</span>
+                    <span className="text-[10px] text-logic-text-dim block">1 compasso de metrônomo antes da música</span>
                   </div>
                 </label>
 
-                <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/10 flex flex-col justify-between">
-                  <span className="text-[10px] font-bold text-logic-text-muted uppercase tracking-wider truncate">
-                    Compasso
+                <div className="p-3 rounded-xl bg-white/[0.02] border border-white/10 flex flex-col justify-between">
+                  <span className="text-[10px] font-bold text-logic-text-muted uppercase tracking-wider">
+                    Fórmula de Compasso
                   </span>
-                  <div className="flex gap-1 mt-0.5">
+                  <div className="flex gap-1.5 mt-1">
                     {([4, 3, 6] as const).map((b) => (
                       <button
                         key={b}
                         type="button"
                         onClick={() => setBeatsPerBar(b)}
-                        className={`flex-1 py-0.5 rounded text-xs font-bold transition border ${
+                        className={`flex-1 py-1 rounded-lg text-xs font-bold transition border ${
                           beatsPerBar === b
                             ? 'bg-logic-lcd-green/20 border-logic-lcd-green/50 text-logic-lcd-green'
                             : 'bg-black/30 border-white/10 text-logic-text-dim hover:text-white'
@@ -303,7 +288,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   <span>Stems separadas automaticamente:</span>
                 </p>
                 <p className="leading-relaxed">
-                  🥁 <strong>Bateria</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎸 <strong>Guitarras/Violões</strong> ➔ Pasta Guitarras &nbsp;|&nbsp; 🎹 <strong>Teclados</strong> ➔ Pasta Teclados &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; 🗣️ <strong>Maestro</strong> ➔ Contagem 1 compasso &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
+                  🥁 <strong>Bateria</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎸 <strong>Guitarras/Violões</strong> ➔ Pasta Guitarras &nbsp;|&nbsp; 🎹 <strong>Teclados</strong> ➔ Pasta Teclados &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
                 </p>
               </div>
             </div>

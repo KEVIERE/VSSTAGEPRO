@@ -1,7 +1,6 @@
 import { separateWithReplicateDemucs } from '@/lib/replicateDemucs';
 import { detectBpm } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
-import { generateMaestroCountIn } from '@/lib/maestroCountIn';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { audioEngine } from '@/lib/audioEngine';
 import {
@@ -21,7 +20,6 @@ export interface StemSeparationProgress {
 
 export interface StemSeparationOptions {
   includeClick: boolean;
-  countIn?: boolean; // Contagem prévia do Maestro (1 compasso "1, 2, 3, 4")
   beatsPerBar?: 4 | 3 | 6;
   songName?: string;
 }
@@ -128,57 +126,51 @@ export async function separateSongToVS(
     otherBuffer = stems.other;
   }
 
-  // 2.5 Refinamento de BPM e Downbeat pela bateria isolada
+  // 2.5 Refinamento do BPM e Downbeat analisando os transientes da bateria
   let finalBpm = bpm;
+  let finalDownbeat = downbeat;
   try {
     const drumBpm = await detectBpm(drumsBuffer);
     if (drumBpm && drumBpm.bpm >= 45 && drumBpm.bpm <= 240) {
       finalBpm = drumBpm.bpm;
+      finalDownbeat = Math.max(0, drumBpm.downbeat);
     }
-  } catch { /* usa bpm inicial */ }
+  } catch { /* usa estimativa inicial */ }
 
   const beatsPerBar = options.beatsPerBar || 4;
-  const countInEnabled = options.countIn !== false; // Padrão ligado
-
-  // Cálculo da contagem prévia de 1 compasso do Maestro
   const secondsPerBeat = 60 / finalBpm;
-  const leadInDuration = countInEnabled ? beatsPerBar * secondsPerBeat : 0;
-  const totalSongDuration = leadInDuration + duration;
+  const barDuration = beatsPerBar * secondsPerBeat;
 
-  // 2.6 Gera a voz do Maestro contando "Um, Dois, Três, Quatro" no compasso de entrada
-  let maestroBuffer: AudioBuffer | null = null;
-  if (countInEnabled) {
-    onProgress?.({
-      step: 'click',
-      message: 'Gerando contagem falada do Maestro ("Um, Dois, Três, Quatro")...',
-      percent: 90,
-    });
-    const m = await generateMaestroCountIn(finalBpm, beatsPerBar, sampleRate);
-    maestroBuffer = m.buffer;
-  }
+  // Sincronização de Fase: O 1º compasso (0 a barDuration) é o count-in do click.
+  // A música começa deslocada de modo que o seu primeiro tempo forte (downbeat) caia
+  // EXATAMENTE no tempo 1 do compasso seguinte (t = barDuration).
+  const safeDownbeat = finalDownbeat % barDuration;
+  const leadIn = barDuration - safeDownbeat;
+  const totalSongDuration = leadIn + duration;
 
-  // 2.7 Gera a trilha de Click (Metrônomo) cravada na grade métrica
+  // 2.6 Gera a trilha de Click (Metrônomo) cravada na grade métrica
   let clickBuffer: AudioBuffer | null = null;
   if (options.includeClick) {
     onProgress?.({
       step: 'click',
-      message: 'Sincronizando metrônomo (Click) completo com compasso de entrada...',
-      percent: 94,
+      message: 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
+      percent: 92,
     });
+    // O click começa em 0 (tempo 1 forte agudo do compasso de entrada) e clica a cada secondsPerBeat
     clickBuffer = generateClickTrack(
       totalSongDuration,
       finalBpm,
       sampleRate,
-      0, // começa cravado no tempo 1 do compasso de entrada
+      0,
       beatsPerBar
     );
   }
 
-  // 3. MONTAGEM DO PROJETO E ROTEAMENTO NAS PASTAS
+  // 3. MONTAGEM DO PROJETO E ROTEAMENTO OFICIAL
   onProgress?.({
     step: 'finalizing',
-    message: 'Criando VS e organizando pastas no mixer...',
-    percent: 97,
+    message: 'Roteando stems para as pastas oficiais do programa...',
+    percent: 96,
   });
 
   const songId = 'song-ai-' + Date.now();
@@ -190,7 +182,7 @@ export async function separateSongToVS(
     clips: [],
     bpm: finalBpm,
     bpmDetected: true,
-    bpmSource: bpmResult?.fromClick ? 'click' : 'audio',
+    bpmSource: 'audio',
     downbeat: 0,
     beatsPerBar,
     bpmAdjust: 0,
@@ -206,77 +198,78 @@ export async function separateSongToVS(
 
   interface StemEntry {
     name: string;
+    childName: string;
     buffer: AudioBuffer;
-    targetTrack: string;
+    parentTrackId: string;
     startTime: number;
     duration: number;
   }
 
-  const stemConfigs: StemEntry[] = [];
+  const stemConfigs: StemEntry[] = [
+    {
+      name: songName + ' - Bateria',
+      childName: 'Bateria',
+      buffer: drumsBuffer,
+      parentTrackId: 'track-bateria',
+      startTime: leadIn,
+      duration,
+    },
+    {
+      name: songName + ' - Baixo',
+      childName: 'Baixo',
+      buffer: bassBuffer,
+      parentTrackId: 'track-contrabaixo',
+      startTime: leadIn,
+      duration,
+    },
+  ];
 
-  // MÚSICA PRINCIPAL (começa exatamente após o compasso de contagem)
-  stemConfigs.push(
-    { name: songName + ' - Bateria', buffer: drumsBuffer, targetTrack: 'track-bateria', startTime: leadInDuration, duration },
-    { name: songName + ' - Baixo', buffer: bassBuffer, targetTrack: 'track-contrabaixo', startTime: leadInDuration, duration }
-  );
-
-  // Guitarras / Violões isolados
   if (guitarBuffer) {
     stemConfigs.push({
       name: songName + ' - Guitarras e Violões',
+      childName: 'Guitarras',
       buffer: guitarBuffer,
-      targetTrack: 'track-guitarras',
-      startTime: leadInDuration,
+      parentTrackId: 'track-guitarras',
+      startTime: leadIn,
       duration,
     });
   }
 
-  // Teclados e Pianos isolados
   if (pianoBuffer) {
     stemConfigs.push({
       name: songName + ' - Teclados',
+      childName: 'Teclados',
       buffer: pianoBuffer,
-      targetTrack: 'track-teclados',
-      startTime: leadInDuration,
+      parentTrackId: 'track-teclados',
+      startTime: leadIn,
       duration,
     });
   }
 
-  // Voz Guia
   stemConfigs.push({
     name: songName + ' - Guia (Voz)',
+    childName: 'Guia',
     buffer: vocalsBuffer,
-    targetTrack: 'track-guia',
-    startTime: leadInDuration,
+    parentTrackId: 'track-guia',
+    startTime: leadIn,
     duration,
   });
 
-  // Outros arranjos e instrumentos
   stemConfigs.push({
-    name: songName + ' - Outros (Arranjos)',
+    name: songName + ' - Outros',
+    childName: 'Outros',
     buffer: otherBuffer,
-    targetTrack: 'track-outros',
-    startTime: leadInDuration,
+    parentTrackId: 'track-outros',
+    startTime: leadIn,
     duration,
   });
 
-  // Maestro (Contagem de 1 Compasso de Entrada no tempo zero)
-  if (maestroBuffer) {
-    stemConfigs.push({
-      name: songName + ' - Maestro (Contagem 1 Compasso)',
-      buffer: maestroBuffer,
-      targetTrack: 'track-maestro',
-      startTime: 0,
-      duration: leadInDuration,
-    });
-  }
-
-  // Click / Metrônomo do Show (inicia no tempo zero e vai até o fim)
   if (clickBuffer) {
     stemConfigs.push({
       name: songName + ' - Click Metrônomo',
+      childName: 'Click',
       buffer: clickBuffer,
-      targetTrack: 'track-click',
+      parentTrackId: 'track-click',
       startTime: 0,
       duration: totalSongDuration,
     });
@@ -284,6 +277,25 @@ export async function separateSongToVS(
 
   for (let i = 0; i < stemConfigs.length; i++) {
     const config = stemConfigs[i];
+    const parentId = config.parentTrackId;
+
+    // Roteamento padrão oficial do VS Stage Pro:
+    // Trilhas raiz (Click, Guia, Maestro) recebem o clipe direto.
+    // Subgrupos (Bateria, Contrabaixo, Guitarras, Teclados, Outros) usam/criam a faixa filha.
+    let actualTrackId: string;
+    if (parentId === 'track-guia' || parentId === 'track-click' || parentId === 'track-maestro') {
+      actualTrackId = parentId;
+    } else {
+      const existingChild = store.tracks.find((t) => t.parentId === parentId);
+      if (existingChild) {
+        actualTrackId = existingChild.id;
+      } else {
+        const childId = parentId + '-child-' + Date.now() + '-' + i;
+        store.addChildTrack(parentId, config.childName, childId);
+        actualTrackId = childId;
+      }
+    }
+
     const clipId = 'clip-' + songId + '-' + i;
     const clipAudio = await toClipAudioAsync(config.buffer);
     const wavAb = encodeWavInt16(clipAudio);
@@ -292,7 +304,7 @@ export async function separateSongToVS(
 
     const clip: AudioClip = {
       id: clipId,
-      trackId: config.targetTrack,
+      trackId: actualTrackId,
       name: config.name,
       fileName: config.name + '.wav',
       filePath: URL.createObjectURL(wavBlob),
@@ -304,7 +316,7 @@ export async function separateSongToVS(
       bpm: null,
       markers: generateMarkers(config.duration),
       routingMethod: 'ai',
-      routingConfidence: 0.99,
+      routingConfidence: 1,
       waveformPeaks: peaks,
       gain: 1,
       mute: false,
