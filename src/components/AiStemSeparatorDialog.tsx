@@ -30,11 +30,8 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
   const [songName, setSongName] = useState('');
   const [includeClick, setIncludeClick] = useState(true);
   const [beatsPerBar, setBeatsPerBar] = useState<4 | 3 | 6>(4);
-  const [engine, setEngine] = useState<'hf_demucs' | 'local_dsp'>('hf_demucs');
-  const [hfToken, setHfToken] = useState(() => {
-    try { return localStorage.getItem('vs_hf_token') || ''; } catch { return ''; }
-  });
-  const [showTokenInput, setShowTokenInput] = useState(false);
+  const [engine, setEngine] = useState<'replicate_demucs' | 'local_dsp'>('replicate_demucs');
+
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<StemSeparationProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,11 +90,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
 
       const decoded = await decodeFile(file);
 
-      if (hfToken.trim()) {
-        try { localStorage.setItem('vs_hf_token', hfToken.trim()); } catch {}
-      }
-
-      // 2. Separa stems e cria o VS
+      // 2. Separa stems e cria o VS via Demucs v4
       await separateSongToVS(
         decoded.audioBuffer,
         file,
@@ -106,7 +99,6 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
           beatsPerBar,
           songName: songName.trim() || undefined,
           engine,
-          hfToken: hfToken.trim() || undefined,
         },
         (p) => setProgress(p)
       );
@@ -242,19 +234,19 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setEngine('hf_demucs')}
+                    onClick={() => setEngine('replicate_demucs')}
                     className={`p-3 rounded-xl border text-left transition flex flex-col justify-between ${
-                      engine === 'hf_demucs'
+                      engine === 'replicate_demucs'
                         ? 'bg-logic-lcd-green/15 border-logic-lcd-green text-white shadow'
                         : 'bg-white/[0.02] border-white/10 text-logic-text-dim hover:text-white'
                     }`}
                   >
                     <span className="font-bold text-xs flex items-center gap-1.5">
                       <Sparkles size={13} className="text-logic-lcd-green" />
-                      <span>Demucs v4 (IA Master)</span>
+                      <span>Demucs v4 (Qualidade Moises)</span>
                     </span>
                     <span className="text-[10px] text-logic-text-dim mt-1">
-                      Qualidade máxima de estúdio (sem vazamento)
+                      NVIDIA GPU · Stems isolados em alta resolução
                     </span>
                   </button>
 

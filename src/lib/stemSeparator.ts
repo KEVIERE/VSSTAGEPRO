@@ -1,4 +1,4 @@
-import { separateWithHfDemucs } from '@/lib/hfDemucs';
+import { separateWithReplicateDemucs } from '@/lib/replicateDemucs';
 import { detectBpm } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
@@ -22,8 +22,7 @@ export interface StemSeparationOptions {
   includeClick: boolean;
   beatsPerBar?: 4 | 3 | 6;
   songName?: string;
-  engine?: 'hf_demucs' | 'local_dsp';
-  hfToken?: string;
+  engine?: 'replicate_demucs' | 'local_dsp';
 }
 
 export interface StemResult {
@@ -69,33 +68,20 @@ export async function separateSongToVS(
   if (options.engine !== 'local_dsp') {
     onProgress?.({
       step: 'drums',
-      message: 'Conectando ao Demucs v4 no Hugging Face (Qualidade de Estúdio)...',
+      message: 'Iniciando separação com Demucs v4 (Meta AI GPU)...',
       percent: 20,
     });
-    try {
-      const stems = await separateWithHfDemucs(file, options.hfToken, (p) => {
-        onProgress?.({
-          step: 'vocals',
-          message: p.message,
-          percent: p.percent,
-        });
-      });
-      vocalsBuffer = stems.vocals;
-      bassBuffer = stems.bass;
-      drumsBuffer = stems.drums;
-      otherBuffer = stems.other;
-    } catch (err) {
-      console.warn('[separateSongToVS] Fallback para processador local:', err);
+    const stems = await separateWithReplicateDemucs(file, (p) => {
       onProgress?.({
-        step: 'drums',
-        message: 'Hugging Face ocupado, processando stems localmente...',
-        percent: 35,
+        step: 'vocals',
+        message: p.message,
+        percent: p.percent,
       });
-      drumsBuffer = await extractDrums(audioBuffer);
-      bassBuffer = await extractBass(audioBuffer);
-      vocalsBuffer = await extractVocals(audioBuffer);
-      otherBuffer = await extractOther(audioBuffer, vocalsBuffer, bassBuffer);
-    }
+    });
+    vocalsBuffer = stems.vocals;
+    bassBuffer = stems.bass;
+    drumsBuffer = stems.drums;
+    otherBuffer = stems.other;
   } else {
     onProgress?.({ step: 'drums', message: 'Separando Bateria...', percent: 30 });
     drumsBuffer = await extractDrums(audioBuffer);
