@@ -66,7 +66,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
   return new Promise((resolve, reject) => {
     const proc = spawn(pythonPath, [
       '-m', 'demucs.separate',
-      '-n', 'htdemucs',
+      '-n', 'htdemucs_6s',
       '-o', outDir,
       inputPath
     ], {
@@ -118,7 +118,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
       }
 
       try {
-        const stemsDir = path.join(outDir, 'htdemucs', 'input');
+        const stemsDir = path.join(outDir, 'htdemucs_6s', 'input');
         const vocalsPath = path.join(stemsDir, 'vocals.wav');
         const bassPath = path.join(stemsDir, 'bass.wav');
         const drumsPath = path.join(stemsDir, 'drums.wav');
@@ -128,10 +128,15 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
           throw new Error('As faixas separadas não foram encontradas na pasta de saída.');
         }
 
+        const guitarPath = path.join(stemsDir, 'guitar.wav');
+        const pianoPath = path.join(stemsDir, 'piano.wav');
+
         const vocals = fs.readFileSync(vocalsPath);
         const bass = fs.readFileSync(bassPath);
         const drums = fs.readFileSync(drumsPath);
         const other = fs.readFileSync(otherPath);
+        const guitar = fs.existsSync(guitarPath) ? fs.readFileSync(guitarPath) : null;
+        const piano = fs.existsSync(pianoPath) ? fs.readFileSync(pianoPath) : null;
 
         cleanup();
 
@@ -140,6 +145,8 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
           bass: bass.buffer.slice(bass.byteOffset, bass.byteOffset + bass.byteLength),
           drums: drums.buffer.slice(drums.byteOffset, drums.byteOffset + drums.byteLength),
           other: other.buffer.slice(other.byteOffset, other.byteOffset + other.byteLength),
+          guitar: guitar ? guitar.buffer.slice(guitar.byteOffset, guitar.byteOffset + guitar.byteLength) : null,
+          piano: piano ? piano.buffer.slice(piano.byteOffset, piano.byteOffset + piano.byteLength) : null,
         });
       } catch (err) {
         cleanup();

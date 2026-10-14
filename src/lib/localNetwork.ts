@@ -75,6 +75,8 @@ declare global {
         bass: ArrayBuffer;
         drums: ArrayBuffer;
         other: ArrayBuffer;
+        guitar?: ArrayBuffer | null;
+        piano?: ArrayBuffer | null;
       }>;
       onSeparationProgress?: (cb: (data: { percent: number; message: string }) => void) => () => void;
     };
