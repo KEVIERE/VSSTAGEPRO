@@ -1,13 +1,41 @@
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+
+const PYTHON_CANDIDATES = [
+  '/Library/Frameworks/Python.framework/Versions/Current/bin/python3',
+  '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3',
+  '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
+  '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3',
+  '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
+  '/opt/homebrew/bin/python3',
+  '/usr/local/bin/python3',
+  'python3'
+];
+
+let cachedPythonPath = null;
+
+function findPythonWithDemucs() {
+  if (cachedPythonPath) return cachedPythonPath;
+  for (const p of PYTHON_CANDIDATES) {
+    try {
+      if (p.startsWith('/') && !fs.existsSync(p)) continue;
+      execSync(`"${p}" -c "import demucs"`, { stdio: 'ignore' });
+      cachedPythonPath = p;
+      return p;
+    } catch {}
+  }
+  return 'python3';
+}
 
 /**
  * Motor Local de Separação de Stems via Demucs v4 (Meta AI).
  * Roda 100% nativo no Mac com aceleração Apple Silicon / Metal.
  */
 async function separateStemsLocal(win, filename, audioData, onProgress) {
+  const pythonPath = findPythonWithDemucs();
+
   const tmpId = `vs_demucs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const workDir = path.join(os.tmpdir(), tmpId);
   fs.mkdirSync(workDir, { recursive: true });
@@ -20,20 +48,43 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
   // Salva o arquivo de áudio temporário
   fs.writeFileSync(inputPath, Buffer.from(audioData));
 
+  // Constrói PATH completo para que ffmpeg, python e pacotes sejam encontrados em apps GUI no Mac
+  const extendedPath = [
+    '/Library/Frameworks/Python.framework/Versions/Current/bin',
+    '/Library/Frameworks/Python.framework/Versions/3.14/bin',
+    '/Library/Frameworks/Python.framework/Versions/3.13/bin',
+    '/Library/Frameworks/Python.framework/Versions/3.12/bin',
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+    '/usr/sbin',
+    '/sbin',
+    process.env.PATH || ''
+  ].join(':');
+
   return new Promise((resolve, reject) => {
-    // python3 -m demucs.separate -n htdemucs -o <outDir> <inputPath>
-    const proc = spawn('python3', [
+    const proc = spawn(pythonPath, [
       '-m', 'demucs.separate',
       '-n', 'htdemucs',
       '-o', outDir,
       inputPath
-    ]);
+    ], {
+      env: {
+        ...process.env,
+        PATH: extendedPath
+      }
+    });
 
     let lastProgress = 0;
+    const stderrLogs = [];
 
     const parseProgress = (chunk) => {
       const text = chunk.toString();
-      // Demucs emite progresso tipo " 45%|████...| 2.5/5.8 [00:01<00:01, 1.8s/s]"
+      stderrLogs.push(text);
+      if (stderrLogs.length > 50) stderrLogs.shift();
+
+      // Procura porcentagem do tqdm: " 45%|████"
       const match = text.match(/(\d+)%/);
       if (match) {
         const pct = parseInt(match[1], 10);
@@ -42,7 +93,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
           if (win && !win.isDestroyed()) {
             win.webContents.send('separation:progress', {
               percent: pct,
-              message: `Separando com Demucs v4 no Mac (${pct}%)...`
+              message: `Separando faixas com Demucs v4 no Mac (${pct}%)...`
             });
           }
           if (onProgress) onProgress(pct);
@@ -55,18 +106,19 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
 
     proc.on('error', (err) => {
       cleanup();
-      reject(new Error(`Falha ao iniciar o Demucs: ${err.message}`));
+      reject(new Error(`Falha ao iniciar Python (${pythonPath}): ${err.message}`));
     });
 
     proc.on('close', (code) => {
       if (code !== 0) {
+        const lastErr = stderrLogs.slice(-10).join('\n').trim();
         cleanup();
-        reject(new Error(`O Demucs finalizou com erro (código ${code}).`));
+        reject(new Error(`O Demucs finalizou com erro (código ${code}): ${lastErr || 'Verifique o formato do áudio.'}`));
         return;
       }
 
       try {
-        const stemsDir = path.join(outDir, 'htdemucs', path.basename(inputPath, inputExt));
+        const stemsDir = path.join(outDir, 'htdemucs', 'input');
         const vocalsPath = path.join(stemsDir, 'vocals.wav');
         const bassPath = path.join(stemsDir, 'bass.wav');
         const drumsPath = path.join(stemsDir, 'drums.wav');
