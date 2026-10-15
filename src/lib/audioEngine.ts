@@ -2035,6 +2035,42 @@ class AudioEngine {
     }
     return peaks;
   }
+
+  /**
+   * Reposiciona clipes em tempo real durante a reprodução (comportamento de DAW profissional).
+   * Conforme o clipe é arrastado para a esquerda ou direita, o áudio é resincronizado instantaneamente.
+   */
+  updateLiveClipPosition(clipId: string, newStartTime: number) {
+    if (!this.isPlaying || !this.ctx) return;
+    const active = this.activeClips.get(clipId);
+    if (!active) return;
+
+    active.clipStartTime = newStartTime;
+    const nowTime = this.getCurrentTime();
+    const alpha = this.playbackAlpha || 1;
+    const local = nowTime - newStartTime;
+
+    try {
+      if (local >= 0) {
+        const offsetSamples = Math.min(active.bufferLength, Math.floor(local * active.sampleRate));
+        active.node.port.postMessage({
+          type: 'seek',
+          offsetSamples,
+          startTime: this.ctx.currentTime,
+          fadeInFrames: 256,
+        });
+      } else {
+        const scheduledStart = this.playbackStartTime + newStartTime * alpha;
+        active.scheduledStartWall = scheduledStart;
+        active.node.port.postMessage({
+          type: 'seek',
+          offsetSamples: 0,
+          startTime: scheduledStart,
+          fadeInFrames: 1,
+        });
+      }
+    } catch { /* ignore */ }
+  }
 }
 
 export const audioEngine = new AudioEngine();

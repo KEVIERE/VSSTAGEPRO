@@ -578,7 +578,11 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           borderWidth: isSelected ? '2px' : '1px',
           lineHeight: 0,
         }}
-        onClick={(e) => { e.stopPropagation(); onSelect(e.ctrlKey || e.metaKey); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          // Clicar no clipe mantem selecionado ou expande com ctrl/cmd
+          onSelect(e.ctrlKey || e.metaKey);
+        }}
         onPointerDown={(e) => {
           if (allowMove && e.button === 0) {
             onMoveStart(e, clip);
@@ -933,6 +937,10 @@ export default function TimelinePanel() {
       delta = Math.max(-minStart, snapped - origStart);
       const newStart = origStart + delta;
       setMoveDrag({ ids: idSet, delta, anchorId: clip.id, start: newStart, label: describe(newStart) });
+      // Reposiciona o som ao vivo em tempo real durante o arraste (padrao DAW profissional)
+      for (const c of targets) {
+        audioEngine.updateLiveClipPosition(c.id, Math.max(0, c.startTime + delta));
+      }
     };
     const up = () => {
       el.removeEventListener("pointermove", move);
@@ -1013,7 +1021,7 @@ export default function TimelinePanel() {
     for (const r of song?.regions ?? []) end = Math.max(end, r.end);
     return end;
   }, [song, songClips]);
-  const timelineWidth = Math.max(800, Math.ceil((contentEnd + 10) * zoomH));
+  const timelineWidth = Math.max(200, Math.ceil(contentEnd * zoomH));
 
   const rulerStep = useMemo(() => {
     const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
@@ -1204,8 +1212,10 @@ export default function TimelinePanel() {
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30" disabled={zoomV >= 3} onClick={() => setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100))} title="Aumentar altura das tracks"><UnfoldVertical size={13} /></button>
             </div>
             <div className="flex items-center gap-1">
-              <button className="text-logic-text-muted hover:text-logic-text" onClick={() => zoomButton(1.25)} title="Aproximar (Cmd + roda do mouse)"><ZoomIn size={13} /></button>
-              <button className="text-logic-text-muted hover:text-logic-text" onClick={() => zoomButton(0.8)} title="Afastar (Cmd + roda do mouse)"><ZoomOut size={13} /></button>
+              <button className="text-logic-text-muted hover:text-logic-text px-1 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (-)">−</button>
+              <button className="text-logic-text-muted hover:text-logic-text px-1 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(1.35)} title="Aumentar zoom horizontal (+)">+</button>
+              <button className="text-logic-text-muted hover:text-logic-text" onClick={() => zoomButton(1.35)} title="Aproximar (Cmd + roda do mouse)"><ZoomIn size={13} /></button>
+              <button className="text-logic-text-muted hover:text-logic-text" onClick={() => zoomButton(0.75)} title="Afastar (Cmd + roda do mouse)"><ZoomOut size={13} /></button>
             </div>
           </div>
         </div>

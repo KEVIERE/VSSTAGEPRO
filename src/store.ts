@@ -571,7 +571,7 @@ export const useStore = create<Store>()(
       toggleTimeline: () => set((s) => ({ timelineVisible: !s.timelineVisible })),
       togglePlaylistMaximized: () => set((s) => ({ playlistMaximized: !s.playlistMaximized })),
       setMixerHeight: (height) => set({ mixerHeight: height }),
-      setZoomH: (zoom) => set({ zoomH: Math.max(2, Math.min(200, zoom)) }),
+      setZoomH: (zoom) => set({ zoomH: Math.max(1, Math.min(500, zoom)) }),
       setZoomV: (zoom) => set({ zoomV: Math.max(0.3, Math.min(4, zoom)) }),
       setTrackHeaderWidth: (width) => set({ trackHeaderWidth: Math.max(120, Math.min(400, Math.round(width))) }),
 
