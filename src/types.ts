@@ -85,6 +85,8 @@ export interface AudioClip {
   waveformPeaks: number[];
   /** Segundos cortados do fim do áudio (o arquivo continua inteiro) */
   trimEnd?: number;
+  /** Identificador de agrupamento para clipes agrupados (Cmd+G / Cmd+U) */
+  groupId?: string;
   // Ajustes do modo DAW: editáveis só com o DAW ligado, mas sempre valem na reprodução
   // e na exportação — desligar o DAW só esconde os controles, não desfaz o ajuste.
   /** Multiplicador de ganho do clipe (1 = original). Ex.: 0.5 = -6dB. */

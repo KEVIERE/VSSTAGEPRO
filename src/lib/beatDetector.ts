@@ -227,3 +227,89 @@ export async function detectBpm(audioBuffer: AudioBuffer): Promise<TempoResult |
     return null;
   }
 }
+
+export interface TempoSegment {
+  startTime: number;
+  endTime: number;
+  bpm: number;
+  downbeat: number;
+}
+
+export interface MultiTempoResult {
+  bpm: number;
+  downbeat: number;
+  segments: TempoSegment[];
+  isMultiTempo: boolean;
+}
+
+/**
+ * Detecta o mapa de andamento da música, identificando se há múltiplos andamentos
+ * (ex.: início lento que acelera ou trecho que desacelera).
+ */
+export async function detectMultiTempo(audioBuffer: AudioBuffer): Promise<MultiTempoResult> {
+  const duration = audioBuffer.duration;
+  const initial = await detectBpm(audioBuffer).catch(() => null);
+  const baseBpm = initial?.bpm || 120;
+  const baseDownbeat = initial?.downbeat || 0;
+
+  if (duration < 45) {
+    return {
+      bpm: baseBpm,
+      downbeat: baseDownbeat,
+      segments: [{ startTime: 0, endTime: duration, bpm: baseBpm, downbeat: baseDownbeat }],
+      isMultiTempo: false,
+    };
+  }
+
+  const windowDuration = 35;
+  const step = 20;
+  const windowTempos: { time: number; bpm: number }[] = [];
+
+  for (let t = 0; t + windowDuration <= duration; t += step) {
+    try {
+      const res = await guess(audioBuffer, t, windowDuration, { minTempo: MIN_BPM, maxTempo: MAX_BPM });
+      if (res && Number.isFinite(res.bpm) && res.bpm >= MIN_BPM && res.bpm <= MAX_BPM) {
+        windowTempos.push({ time: t, bpm: Math.round(res.bpm) });
+      }
+    } catch { /* continua */ }
+  }
+
+  if (windowTempos.length >= 2) {
+    const firstBpm = windowTempos[0].bpm;
+    let splitIdx = -1;
+    for (let i = 1; i < windowTempos.length; i++) {
+      if (Math.abs(windowTempos[i].bpm - firstBpm) >= 8) {
+        const subsequentBpms = windowTempos.slice(i).map((w) => w.bpm);
+        const avgSubsequent = subsequentBpms.reduce((a, b) => a + b, 0) / subsequentBpms.length;
+        if (Math.abs(avgSubsequent - firstBpm) >= 8) {
+          splitIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (splitIdx > 0) {
+      const splitTime = windowTempos[splitIdx].time;
+      const secondBpm = Math.round(
+        windowTempos.slice(splitIdx).reduce((acc, w) => acc + w.bpm, 0) / (windowTempos.length - splitIdx)
+      );
+
+      return {
+        bpm: firstBpm,
+        downbeat: baseDownbeat,
+        segments: [
+          { startTime: 0, endTime: splitTime, bpm: firstBpm, downbeat: baseDownbeat },
+          { startTime: splitTime, endTime: duration, bpm: secondBpm, downbeat: 0 },
+        ],
+        isMultiTempo: true,
+      };
+    }
+  }
+
+  return {
+    bpm: baseBpm,
+    downbeat: baseDownbeat,
+    segments: [{ startTime: 0, endTime: duration, bpm: baseBpm, downbeat: baseDownbeat }],
+    isMultiTempo: false,
+  };
+}

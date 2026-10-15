@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2 } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { audioEngine } from '@/lib/audioEngine';
 import Playhead from '@/components/Playhead';
@@ -563,9 +563,21 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
       <div
         data-selectable="clip"
         className={`group/clip absolute rounded-sm border transition-all duration-75 overflow-hidden ${
-          isMuted ? 'bg-[#18181c]/90 opacity-55 grayscale border-[#52525b]' : 'bg-black/30'
+          isSelected
+            ? 'bg-white/15 shadow-[0_0_14px_rgba(255,255,255,0.45)] brightness-110 z-20'
+            : isMuted
+              ? 'bg-[#18181c]/90 opacity-55 grayscale'
+              : 'bg-black/30'
         } ${allowMove ? 'cursor-grab active:cursor-grabbing hover:border-white' : 'cursor-pointer'}`}
-        style={{ left: `${left}px`, top: '2px', width: `${width}px`, height: `${innerHeight}px`, borderColor: isMuted ? '#52525b' : routingColor, lineHeight: 0 }}
+        style={{
+          left: `${left}px`,
+          top: '2px',
+          width: `${width}px`,
+          height: `${innerHeight}px`,
+          borderColor: isSelected ? '#ffffff' : (isMuted ? '#52525b' : routingColor),
+          borderWidth: isSelected ? '2px' : '1px',
+          lineHeight: 0,
+        }}
         onClick={(e) => { e.stopPropagation(); onSelect(e.ctrlKey || e.metaKey); }}
         onPointerDown={(e) => {
           if (allowMove && e.button === 0) {
@@ -614,6 +626,20 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
             )}
           </span>
         </div>
+        {clip.groupId && (
+          <div
+            className="absolute top-0.5 right-6 px-1.5 py-0.5 rounded bg-logic-accent/90 text-[9px] font-bold text-white tracking-wider flex items-center gap-0.5 z-10 pointer-events-none shadow"
+            title="Áudio agrupado (Cmd+G para agrupar, Cmd+U para desagrupar)"
+          >
+            <Link2 size={8} />
+            <span>GRP</span>
+          </div>
+        )}
+        {isSelected && (
+          <div className="absolute bottom-0.5 right-6 px-1.5 py-0.5 rounded bg-logic-lcd-green text-[8px] font-bold text-black uppercase tracking-wider z-10 pointer-events-none shadow">
+            SELECIONADO
+          </div>
+        )}
         {showControls && (
           <div className="absolute bottom-0.5 left-1 flex items-center gap-1 z-10">
             <ClipGainKnob clipId={clip.id} gain={clip.gain ?? 1} />
@@ -626,7 +652,7 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
             title="Este clipe tem ajustes do modo DAW (ganho, mudo, solo ou fade)"
           />
         )}
-        {isSelected && <div className="absolute inset-0 ring-1 ring-white rounded-sm pointer-events-none" />}
+        {isSelected && <div className="absolute inset-0 ring-2 ring-white shadow-[inset_0_0_10px_rgba(255,255,255,0.35)] rounded-sm pointer-events-none" />}
         {/* Linha vertical no final para diminuir ou aumentar o audio */}
         <div
           className={`group/trimEnd absolute top-0 right-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-end z-20 transition-opacity ${isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
@@ -718,6 +744,9 @@ export default function TimelinePanel() {
   const [trimDrag, setTrimDrag] = useState<TrimDrag>(null);
   const [moveDrag, setMoveDrag] = useState<MoveDrag>(null);
   const updateClip = useStore((s) => s.updateClip);
+  const updateClips = useStore((s) => s.updateClips);
+  const groupClips = useStore((s) => s.groupClips);
+  const ungroupClips = useStore((s) => s.ungroupClips);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
@@ -736,15 +765,30 @@ export default function TimelinePanel() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'a') return;
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
-      e.preventDefault();
-      selectAllSongClips();
+
+      const key = e.key.toLowerCase();
+      if (key === 'a') {
+        e.preventDefault();
+        selectAllSongClips();
+      } else if (key === 'g') {
+        e.preventDefault();
+        if (selectedClipIds.length >= 2) {
+          groupClips(selectedClipIds);
+        }
+      } else if (key === 'u') {
+        e.preventDefault();
+        if (selectedClipIds.length > 0) {
+          ungroupClips(selectedClipIds);
+        }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectAllSongClips]);
+  }, [selectAllSongClips, selectedClipIds, groupClips, ungroupClips]);
 
   const handleTrimStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: "start" | "end" = "end") => {
     if (e.button !== 0) return;
@@ -753,8 +797,22 @@ export default function TimelinePanel() {
     const additive = e.ctrlKey || e.metaKey;
     let ids = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
     if (!ids.includes(clip.id)) {
-      ids = additive ? [...ids, clip.id] : [clip.id];
+      const groupMembers = clip.groupId
+        ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
+        : [clip.id];
+      ids = additive ? [...ids, ...groupMembers] : groupMembers;
       selectClips(ids);
+    } else {
+      const targetClips = songClips.filter((c) => ids.includes(c.id));
+      const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
+      if (groupIds.size > 0) {
+        for (const c of songClips) {
+          if (c.groupId && groupIds.has(c.groupId) && !ids.includes(c.id)) {
+            ids.push(c.id);
+          }
+        }
+        selectClips(ids);
+      }
     }
     const idSet = new Set(ids);
     const targets = songClips.filter((c) => idSet.has(c.id));
@@ -784,12 +842,13 @@ export default function TimelinePanel() {
         try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
         setTrimDrag(null);
         if (Math.abs(delta) < 1e-4) return;
-        for (const c of targets) {
-          updateClip(c.id, {
+        updateClips(targets.map((c) => ({
+          id: c.id,
+          patch: {
             startTime: Math.max(0, c.startTime + delta),
             trimEnd: (c.trimEnd ?? 0) + delta,
-          });
-        }
+          },
+        })));
         audioEngine.invalidatePrepared(song?.id);
       };
       el.addEventListener("pointermove", move);
@@ -838,8 +897,22 @@ export default function TimelinePanel() {
     const additive = e.ctrlKey || e.metaKey;
     let ids = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
     if (!ids.includes(clip.id)) {
-      ids = additive ? [...ids, clip.id] : [clip.id];
+      const groupMembers = clip.groupId
+        ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
+        : [clip.id];
+      ids = additive ? [...ids, ...groupMembers] : groupMembers;
       selectClips(ids);
+    } else {
+      const targetClips = songClips.filter((c) => ids.includes(c.id));
+      const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
+      if (groupIds.size > 0) {
+        for (const c of songClips) {
+          if (c.groupId && groupIds.has(c.groupId) && !ids.includes(c.id)) {
+            ids.push(c.id);
+          }
+        }
+        selectClips(ids);
+      }
     }
     const idSet = new Set(ids);
     const targets = songClips.filter((c) => idSet.has(c.id));
@@ -868,9 +941,10 @@ export default function TimelinePanel() {
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       setMoveDrag(null);
       if (Math.abs(delta) < 1e-4) return;
-      for (const c of targets) {
-        updateClip(c.id, { startTime: Math.max(0, c.startTime + delta) });
-      }
+      updateClips(targets.map((c) => ({
+        id: c.id,
+        patch: { startTime: Math.max(0, c.startTime + delta) },
+      })));
       audioEngine.invalidatePrepared(song?.id);
     };
     el.addEventListener("pointermove", move);
@@ -1203,7 +1277,18 @@ export default function TimelinePanel() {
               </div>
             </div>
 
-            <div className="relative flex-shrink-0" style={{ width: `${timelineWidth}px`, ...gridStyle }}>
+            <div
+              className="relative flex-shrink-0"
+              style={{ width: `${timelineWidth}px`, ...gridStyle }}
+              onPointerDown={(e) => {
+                const target = e.target as HTMLElement;
+                if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
+                  if (!e.ctrlKey && !e.metaKey && e.button === 0) {
+                    selectClip(null);
+                  }
+                }
+              }}
+            >
               {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
               {allVisibleTracks.map((track) => {
                 const isFolder = track.isSubgroup;

@@ -359,7 +359,7 @@ function DirectorApp({ license }: { license: License }) {
     const st = useStore.getState();
     if (st.selectedSongId) st.selectSong(null);
     if (st.selectedTrackId) st.selectTrack(null);
-    if (st.selectedClipIds.length) st.selectClip(null);
+    // Preserva a seleção de clipes ao interagir com ferramentas e painéis
     if (st.selectedBlockId) st.selectBlock(null);
   };
 

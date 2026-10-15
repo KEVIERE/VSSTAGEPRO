@@ -161,6 +161,9 @@ interface StoreActions {
   selectSong: (id: string | null) => void;
   selectClip: (id: string | null, additive?: boolean) => void;
   selectClips: (ids: string[]) => void;
+  groupClips: (clipIds: string[]) => void;
+  ungroupClips: (clipIds: string[]) => void;
+  updateClips: (updates: { id: string; patch: Partial<AudioClip> }[]) => void;
   trimClips: (trims: { id: string; trimEnd: number }[]) => void;
   selectBlock: (id: string | null) => void;
   toggleMute: (trackId: string) => void;
@@ -371,14 +374,70 @@ export const useStore = create<Store>()(
       }),
       selectClip: (id, additive) => set((s) => {
         if (!id) return { selectedClipIds: [] };
-        if (!additive) return { selectedClipIds: [id] };
+        const clip = s.clips.find((c) => c.id === id);
+        const groupMembers = clip?.groupId
+          ? s.clips.filter((c) => c.songId === clip.songId && c.groupId === clip.groupId).map((c) => c.id)
+          : [id];
+        if (!additive) return { selectedClipIds: groupMembers };
+        const isSelected = groupMembers.some((m) => s.selectedClipIds.includes(m));
         return {
-          selectedClipIds: s.selectedClipIds.includes(id)
-            ? s.selectedClipIds.filter((c) => c !== id)
-            : [...s.selectedClipIds, id],
+          selectedClipIds: isSelected
+            ? s.selectedClipIds.filter((c) => !groupMembers.includes(c))
+            : [...new Set([...s.selectedClipIds, ...groupMembers])],
         };
       }),
-      selectClips: (ids) => set({ selectedClipIds: ids }),
+      selectClips: (ids) => set((s) => {
+        if (ids.length === 0) return { selectedClipIds: [] };
+        // Expande seleção para todos os membros de grupos aos quais os clipes pertençam
+        const targetClips = s.clips.filter((c) => ids.includes(c.id));
+        const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
+        if (groupIds.size === 0) return { selectedClipIds: ids };
+        const allIds = new Set(ids);
+        for (const c of s.clips) {
+          if (c.groupId && groupIds.has(c.groupId)) allIds.add(c.id);
+        }
+        return { selectedClipIds: Array.from(allIds) };
+      }),
+      groupClips: (clipIds) => set((s) => {
+        if (clipIds.length < 2) return s;
+        const newGroupId = 'grp-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6);
+        const targetSet = new Set(clipIds);
+        return {
+          clips: s.clips.map((c) => targetSet.has(c.id) ? { ...c, groupId: newGroupId } : c),
+          selectedClipIds: Array.from(targetSet),
+        };
+      }),
+      ungroupClips: (clipIds) => set((s) => {
+        if (clipIds.length === 0) return s;
+        const targetSet = new Set(clipIds);
+        const affectedGroups = new Set(
+          s.clips.filter((c) => targetSet.has(c.id) && c.groupId).map((c) => c.groupId!)
+        );
+        if (affectedGroups.size === 0) return s;
+        return {
+          clips: s.clips.map((c) => (c.groupId && affectedGroups.has(c.groupId)) ? { ...c, groupId: undefined } : c),
+        };
+      }),
+      updateClips: (updates) => set((s) => {
+        if (updates.length === 0) return s;
+        const map = new Map(updates.map((u) => [u.id, u.patch]));
+        const clips = s.clips.map((c) => {
+          const patch = map.get(c.id);
+          if (!patch) return c;
+          return { ...c, ...patch };
+        });
+        const touched = new Set(clips.filter((c) => map.has(c.id)).map((c) => c.songId));
+        const ends = new Map<string, number>();
+        for (const c of clips) {
+          if (!touched.has(c.songId)) continue;
+          ends.set(c.songId, Math.max(ends.get(c.songId) ?? 0, c.startTime + clipPlayLength(c)));
+        }
+        return {
+          clips,
+          songs: s.songs.map((sg) => ends.has(sg.id) ? { ...sg, duration: ends.get(sg.id)! } : sg),
+          playlist: s.playlist.map((p) => ends.has(p.songId) ? { ...p, duration: ends.get(p.songId)! } : p),
+        };
+      }),
       trimClips: (trims) => set((s) => {
         const byId = new Map(trims.map((t) => [t.id, t.trimEnd]));
         const clips = s.clips.map((c) => {

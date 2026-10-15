@@ -1,5 +1,5 @@
 import { separateWithReplicateDemucs } from '@/lib/replicateDemucs';
-import { detectBpm } from '@/lib/beatDetector';
+import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { audioEngine } from '@/lib/audioEngine';
@@ -126,16 +126,25 @@ export async function separateSongToVS(
     otherBuffer = stems.other;
   }
 
-  // 2.5 Refinamento do BPM e Downbeat analisando os transientes da bateria
+  // 2.5 Refinamento do BPM, Downbeat e detecção de múltiplos andamentos
   let finalBpm = bpm;
   let finalDownbeat = downbeat;
+  let multiTempoResult: MultiTempoResult | null = null;
   try {
-    const drumBpm = await detectBpm(drumsBuffer);
-    if (drumBpm && drumBpm.bpm >= 45 && drumBpm.bpm <= 240) {
-      finalBpm = drumBpm.bpm;
-      finalDownbeat = Math.max(0, drumBpm.downbeat);
+    multiTempoResult = await detectMultiTempo(drumsBuffer || audioBuffer);
+    if (multiTempoResult && multiTempoResult.bpm >= 45 && multiTempoResult.bpm <= 240) {
+      finalBpm = multiTempoResult.bpm;
+      finalDownbeat = Math.max(0, multiTempoResult.downbeat);
     }
-  } catch { /* usa estimativa inicial */ }
+  } catch {
+    try {
+      const drumBpm = await detectBpm(drumsBuffer);
+      if (drumBpm && drumBpm.bpm >= 45 && drumBpm.bpm <= 240) {
+        finalBpm = drumBpm.bpm;
+        finalDownbeat = Math.max(0, drumBpm.downbeat);
+      }
+    } catch { /* usa estimativa inicial */ }
+  }
 
   const beatsPerBar = options.beatsPerBar || 4;
   const secondsPerBeat = 60 / finalBpm;
@@ -148,21 +157,32 @@ export async function separateSongToVS(
   const leadIn = barDuration - safeDownbeat;
   const totalSongDuration = leadIn + duration;
 
-  // 2.6 Gera a trilha de Click (Metrônomo) cravada na grade métrica
+  // 2.6 Gera a trilha de Click (Metrônomo) cravada na grade métrica (com suporte a múltiplos andamentos)
   let clickBuffer: AudioBuffer | null = null;
   if (options.includeClick) {
     onProgress?.({
       step: 'click',
-      message: 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
+      message: multiTempoResult?.isMultiTempo
+        ? 'Sincronizando metrônomo adaptativo com múltiplos andamentos...'
+        : 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
       percent: 92,
     });
-    // O click começa em 0 com o áudio oficial do usuário e clica a cada secondsPerBeat
+
+    const segments = multiTempoResult?.isMultiTempo
+      ? multiTempoResult.segments.map((seg, idx) => ({
+          ...seg,
+          startTime: idx === 0 ? 0 : seg.startTime + leadIn,
+          endTime: seg.endTime + leadIn,
+        }))
+      : undefined;
+
     clickBuffer = await generateClickTrack(
       totalSongDuration,
       finalBpm,
       sampleRate,
       0,
-      beatsPerBar
+      beatsPerBar,
+      segments
     );
   }
 

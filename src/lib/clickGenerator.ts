@@ -1,5 +1,6 @@
 import { USER_CLICK_SAMPLE_B64 } from '@/lib/clickSampleData';
 import { decodeBlob } from '@/lib/audioDecoder';
+import type { TempoSegment } from '@/lib/beatDetector';
 
 function b64ToBlob(b64: string): Blob {
   const binary = atob(b64);
@@ -34,7 +35,8 @@ export async function generateClickTrack(
   bpm: number,
   sampleRate = 44100,
   downbeatOffset = 0,
-  beatsPerBar = 4
+  beatsPerBar = 4,
+  tempoSegments?: TempoSegment[]
 ): Promise<AudioBuffer> {
   const safeDuration = Math.max(1, durationSeconds);
   const length = Math.ceil(safeDuration * sampleRate);
@@ -54,20 +56,37 @@ export async function generateClickTrack(
   const sR = sampleBuf.numberOfChannels > 1 ? sampleBuf.getChannelData(1) : sL;
   const sampleLen = sampleBuf.length;
 
-  const secondsPerBeat = 60 / Math.max(30, Math.min(300, bpm));
+  if (tempoSegments && tempoSegments.length > 1) {
+    // Modo múltiplos andamentos: cada trecho da música segue seu BPM exato
+    for (const seg of tempoSegments) {
+      const segSpb = 60 / Math.max(30, Math.min(300, seg.bpm));
+      const segStart = Math.max(0, seg.startTime);
+      const segEnd = Math.min(safeDuration, seg.endTime);
+      for (let t = segStart; t < segEnd; t += segSpb) {
+        const startSample = Math.round(t * sampleRate);
+        if (startSample < 0 || startSample >= length) continue;
+        for (let i = 0; i < sampleLen && startSample + i < length; i++) {
+          outL[startSample + i] += sL[i];
+          outR[startSample + i] += sR[i];
+        }
+      }
+    }
+  } else {
+    // Modo padrão métrico contínuo com precisão de grade
+    const secondsPerBeat = 60 / Math.max(30, Math.min(300, bpm));
+    const kMin = Math.ceil(-downbeatOffset / secondsPerBeat);
+    const kMax = Math.floor((safeDuration - downbeatOffset) / secondsPerBeat);
 
-  const kMin = Math.ceil(-downbeatOffset / secondsPerBeat);
-  const kMax = Math.floor((safeDuration - downbeatOffset) / secondsPerBeat);
+    for (let k = kMin; k <= kMax; k++) {
+      const beatTime = downbeatOffset + k * secondsPerBeat;
+      const startSample = Math.round(beatTime * sampleRate);
+      if (startSample < 0 || startSample >= length) continue;
 
-  for (let k = kMin; k <= kMax; k++) {
-    const beatTime = downbeatOffset + k * secondsPerBeat;
-    const startSample = Math.round(beatTime * sampleRate);
-    if (startSample < 0 || startSample >= length) continue;
-
-    // Apenas UM som idêntico em todas as batidas, no volume oficial de estúdio
-    for (let i = 0; i < sampleLen && startSample + i < length; i++) {
-      outL[startSample + i] += sL[i];
-      outR[startSample + i] += sR[i];
+      // Apenas UM som idêntico em todas as batidas, no volume oficial de estúdio
+      for (let i = 0; i < sampleLen && startSample + i < length; i++) {
+        outL[startSample + i] += sL[i];
+        outR[startSample + i] += sR[i];
+      }
     }
   }
 
