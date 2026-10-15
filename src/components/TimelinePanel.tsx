@@ -595,7 +595,7 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
       )}
       <div
         data-selectable="clip"
-        className={`group/clip absolute rounded-sm border transition-all duration-75 overflow-hidden ${
+        className={`group/clip absolute rounded-sm border overflow-hidden ${
           isSelected
             ? 'bg-white/15 shadow-[0_0_14px_rgba(255,255,255,0.45)] brightness-110 z-20'
             : isMuted
@@ -851,28 +851,14 @@ export default function TimelinePanel() {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const additive = e.ctrlKey || e.metaKey;
-    let ids = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
-    if (!ids.includes(clip.id)) {
-      const groupMembers = clip.groupId
-        ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
-        : [clip.id];
-      ids = additive ? [...ids, ...groupMembers] : groupMembers;
-      selectClips(ids);
-    } else {
-      const targetClips = songClips.filter((c) => ids.includes(c.id));
-      const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
-      if (groupIds.size > 0) {
-        for (const c of songClips) {
-          if (c.groupId && groupIds.has(c.groupId) && !ids.includes(c.id)) {
-            ids.push(c.id);
-          }
-        }
-        selectClips(ids);
-      }
-    }
-    const idSet = new Set(ids);
-    const targets = songClips.filter((c) => idSet.has(c.id));
+
+    // Trimming opera exclusivamente no clipe clicado (ou nos membros do seu grupo se estiver agrupado com Cmd+G)
+    const targets = clip.groupId
+      ? songClips.filter((c) => c.groupId === clip.groupId)
+      : [clip];
+    const idSet = new Set(targets.map((c) => c.id));
+    selectClips(targets.map((c) => c.id));
+
     const isStart = side === "start";
     const el = e.currentTarget;
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }

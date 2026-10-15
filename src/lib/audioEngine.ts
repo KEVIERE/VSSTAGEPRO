@@ -2050,10 +2050,32 @@ class AudioEngine {
     const alpha = this.playbackAlpha || 1;
     const local = nowTime - newStartTime;
 
+    const store = useStore.getState();
+    const clip = store.clips.find((c) => c.id === clipId);
+    if (clip) {
+      active.durationSeconds = clipPlayLength(clip);
+      const audio = getClipPlayAudio(clip);
+      if (audio) {
+        const left = audio.channels[0].slice();
+        const right = audio.channels[1] ? audio.channels[1].slice() : left;
+        active.bufferLength = left.length;
+        try {
+          active.node.port.postMessage(
+            { type: 'extend', left, right },
+            right === left ? [left.buffer] : [left.buffer, right.buffer]
+          );
+        } catch { /* ignore */ }
+      }
+      const track = store.tracks.find((t) => t.id === clip.trackId);
+      const target = track?.parentId ? store.tracks.find((t) => t.id === track.parentId) ?? track : track;
+      const baseGain = (target && track?.parentId ? channelGainFor(track, store.tracks, track.volume) : 1) * clipGainFor(clip, store.clips);
+      scheduleClipFade(active.clipGain, this.ctx, baseGain, { ...clip, startTime: newStartTime }, active.durationSeconds, this.playbackStartTime, alpha);
+    }
+
     try {
       if (local >= 0 && local < active.durationSeconds) {
         // Playhead está dentro do clipe na nova posição: toca imediatamente no tempo correto
-        const offsetSamples = Math.min(active.bufferLength, Math.floor(local * active.sampleRate));
+        const offsetSamples = Math.min(Math.max(0, active.bufferLength - 1), Math.max(0, Math.floor(local * active.sampleRate)));
         active.scheduledStartWall = this.ctx.currentTime;
         active.node.port.postMessage({
           type: 'seek',

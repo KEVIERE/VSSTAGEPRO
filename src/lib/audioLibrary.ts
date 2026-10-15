@@ -156,21 +156,23 @@ export function clipPlayLength(clip: { duration: number; trimStart?: number; tri
 // O corte no início ou no fim nunca apaga o arquivo: delimita o trecho do áudio lido.
 export function getClipPlayAudio(clip: { id: string; duration: number; trimStart?: number; trimEnd?: number }): ClipAudio | null {
   const audio = getClipAudio(clip.id);
-  if (!audio) return null;
+  if (!audio || !audio.channels?.length || audio.length <= 0) return null;
   const startSec = Math.max(0, clip.trimStart ?? 0);
   const endSec = Math.max(0, clip.trimEnd ?? 0);
   if (startSec <= 0 && endSec <= 0) return audio;
 
-  const startSample = Math.min(audio.length, Math.floor(startSec * audio.sampleRate));
-  const playLength = clipPlayLength(clip);
-  const playSamples = Math.min(audio.length - startSample, Math.round(playLength * audio.sampleRate));
+  const startSample = Math.min(Math.max(0, audio.length - 1), Math.floor(startSec * audio.sampleRate));
+  const maxAvailSec = Math.max(0.05, (audio.length / audio.sampleRate) - startSec - endSec);
+  const playLength = Math.min(clipPlayLength(clip), maxAvailSec);
+  const playSamples = Math.max(1, Math.min(audio.length - startSample, Math.round(playLength * audio.sampleRate)));
   const endSample = Math.min(audio.length, startSample + playSamples);
-  if (startSample === 0 && endSample >= audio.length) return audio;
+  if (startSample <= 0 && endSample >= audio.length) return audio;
 
+  const finalLen = Math.max(1, endSample - startSample);
   return {
     sampleRate: audio.sampleRate,
-    length: Math.max(1, endSample - startSample),
-    channels: audio.channels.map((ch) => ch.subarray(startSample, endSample)),
+    length: finalLen,
+    channels: audio.channels.map((ch) => ch.subarray(startSample, startSample + finalLen)),
   };
 }
 
