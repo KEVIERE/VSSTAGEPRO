@@ -156,8 +156,8 @@ export async function separateSongToVS(
       message: 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
       percent: 92,
     });
-    // O click começa em 0 (tempo 1 forte agudo do compasso de entrada) e clica a cada secondsPerBeat
-    clickBuffer = generateClickTrack(
+    // O click começa em 0 com o áudio oficial do usuário e clica a cada secondsPerBeat
+    clickBuffer = await generateClickTrack(
       totalSongDuration,
       finalBpm,
       sampleRate,

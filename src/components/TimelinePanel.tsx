@@ -16,6 +16,7 @@ import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string } | null;
+type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
 
 function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu }: {
   childId: string; depth: number; expanded: boolean; onToggle: () => void;
@@ -515,10 +516,11 @@ function FadeHandle({
   );
 }
 
-function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight, zoomH, visible }: {
+function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove }: {
   clip: AudioClip; isSelected: boolean; onSelect: (additive: boolean) => void;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
-  trim: TrimDrag; trackHeight: number; zoomH: number; visible: VisibleRange;
+  onMoveStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
+  trim: TrimDrag; move: MoveDrag; trackHeight: number; zoomH: number; visible: VisibleRange; allowMove: boolean;
 }) {
   const dawMode = useStore((s) => s.dawMode);
   const trimming = !!trim && trim.ids.has(clip.id);
@@ -526,7 +528,9 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
     ? Math.max(0, Math.min(clip.duration - 0.05, (clip.trimEnd ?? 0) - trim.delta))
     : clip.trimEnd ?? 0;
   const playLength = clipPlayLength({ duration: clip.duration, trimEnd });
-  const left = clip.startTime * zoomH;
+  const moving = !!move && move.ids.has(clip.id);
+  const effectiveStart = moving ? Math.max(0, clip.startTime + move.delta) : clip.startTime;
+  const left = effectiveStart * zoomH;
   const fullWidth = Math.max(30, clip.duration * zoomH);
   const width = Math.max(8, playLength * zoomH);
   if (left > visible.end || left + fullWidth < visible.start) return null;
@@ -549,11 +553,16 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, trim, trackHeight,
       )}
       <div
         data-selectable="clip"
-        className={`group/clip absolute rounded-sm border cursor-pointer transition-all duration-75 overflow-hidden ${
+        className={`group/clip absolute rounded-sm border transition-all duration-75 overflow-hidden ${
           isMuted ? 'bg-[#18181c]/90 opacity-55 grayscale border-[#52525b]' : 'bg-black/30'
-        }`}
+        } ${allowMove ? 'cursor-grab active:cursor-grabbing hover:border-white' : 'cursor-pointer'}`}
         style={{ left: `${left}px`, top: '2px', width: `${width}px`, height: `${innerHeight}px`, borderColor: isMuted ? '#52525b' : routingColor, lineHeight: 0 }}
         onClick={(e) => { e.stopPropagation(); onSelect(e.ctrlKey || e.metaKey); }}
+        onPointerDown={(e) => {
+          if (allowMove && e.button === 0) {
+            onMoveStart(e, clip);
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -688,6 +697,8 @@ export default function TimelinePanel() {
   const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
   const [noSpaceHint, setNoSpaceHint] = useState(false);
   const [trimDrag, setTrimDrag] = useState<TrimDrag>(null);
+  const [moveDrag, setMoveDrag] = useState<MoveDrag>(null);
+  const updateClip = useStore((s) => s.updateClip);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
@@ -1104,10 +1115,13 @@ export default function TimelinePanel() {
                         isSelected={selectedSet.has(clip.id)}
                         onSelect={(additive) => selectClip(clip.id, additive)}
                         onTrimStart={handleTrimStart}
+                        onMoveStart={handleMoveStart}
                         trim={trimDrag}
+                        move={moveDrag}
                         trackHeight={rowHeight}
                         zoomH={zoomH}
                         visible={visible}
+                        allowMove={clip.routingMethod === 'ai'}
                       />
                     ))}
                   </div>
@@ -1121,6 +1135,15 @@ export default function TimelinePanel() {
                   <div className="absolute top-0 bottom-0 w-px bg-logic-lcd-amber/80" />
                   <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-amber/60 text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
                     Fim {trimDrag.label}{trimDrag.ids.size > 1 ? ` (${trimDrag.ids.size} áudios)` : ''}
+                  </span>
+                </div>
+              )}
+
+              {moveDrag && (
+                <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${moveDrag.start * zoomH}px` }}>
+                  <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
+                  <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
+                    Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}
                   </span>
                 </div>
               )}
