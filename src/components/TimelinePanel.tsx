@@ -770,6 +770,57 @@ export default function TimelinePanel() {
     el.addEventListener('pointercancel', up);
   };
 
+  const handleMoveStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => {
+    if (clip.routingMethod !== "ai") return;
+    const targetEl = e.target as HTMLElement;
+    if (targetEl.closest("button, input, [role=\"button\"], .group\\/fadeLine")) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const additive = e.ctrlKey || e.metaKey;
+    let ids = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
+    if (!ids.includes(clip.id)) {
+      ids = additive ? [...ids, clip.id] : [clip.id];
+      selectClips(ids);
+    }
+    const idSet = new Set(ids);
+    const targets = songClips.filter((c) => idSet.has(c.id));
+    if (targets.length === 0) return;
+
+    // Menor startTime entre os alvos para nao deixar arrastar antes de zero
+    const minStart = Math.min(...targets.map((c) => c.startTime));
+    const origStart = clip.startTime;
+    const el = e.currentTarget;
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const startX = e.clientX;
+    let delta = 0;
+
+    const describe = (st: number) => (grid ? `${formatRegionTime(st)} | ${barBeatLabel(st, grid)}` : formatRegionTime(st));
+    const move = (ev: PointerEvent) => {
+      const raw = origStart + (ev.clientX - startX) / zoomH;
+      const snapped = snapTime(raw, grid, ev.altKey ? "off" : snapStep);
+      delta = Math.max(-minStart, snapped - origStart);
+      const newStart = origStart + delta;
+      setMoveDrag({ ids: idSet, delta, anchorId: clip.id, start: newStart, label: describe(newStart) });
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+      setMoveDrag(null);
+      if (Math.abs(delta) < 1e-4) return;
+      for (const c of targets) {
+        updateClip(c.id, { startTime: Math.max(0, c.startTime + delta) });
+      }
+      audioEngine.invalidatePrepared(song?.id);
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  };
+
   useEffect(() => {
     setEditingRegionId(null);
     setRegionDrag(null);
