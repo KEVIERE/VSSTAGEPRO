@@ -427,20 +427,20 @@ function FadeHandle({
 
       {editable && (
         <>
-          {/* Alça triangular no topo */}
+          {/* Alça triangular de Fade no topo (prioridade de clique sobre a linha de trim) */}
           <div
-            className={`absolute top-0 w-4 h-4 cursor-pointer z-20 ${side === 'in' ? 'left-0' : 'right-0'}`}
+            className={`absolute top-0 w-6 h-6 cursor-ew-resize z-40 group/fadeHandle ${side === 'in' ? 'left-0' : 'right-0'}`}
             onPointerDown={handlePointerDown}
             onContextMenu={handleContextMenu}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
-            title={`Fade de ${side === 'in' ? 'entrada' : 'saída'}: ${seconds.toFixed(2)}s (${curve}) — Botão direito para mudar a curva`}
+            title={`Fade de ${side === 'in' ? 'entrada' : 'saída'}: ${seconds.toFixed(2)}s (${curve}) — Arraste para criar/ajustar, botão direito para mudar a curva`}
           >
             <div
-              className="w-0 h-0 absolute top-0"
+              className="w-0 h-0 absolute top-0 transition-transform group-hover/fadeHandle:scale-110"
               style={side === 'in'
-                ? { left: 0, borderTop: '12px solid rgba(255,255,255,0.95)', borderRight: '12px solid transparent' }
-                : { right: 0, borderTop: '12px solid rgba(255,255,255,0.95)', borderLeft: '12px solid transparent' }}
+                ? { left: 0, borderTop: '16px solid rgba(255,255,255,0.95)', borderRight: '16px solid transparent' }
+                : { right: 0, borderTop: '16px solid rgba(255,255,255,0.95)', borderLeft: '16px solid transparent' }}
             />
           </div>
 
@@ -526,22 +526,22 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
   const trimming = !!trim && trim.ids.has(clip.id);
   const isTrimStart = trimming && trim.side === "start";
   const isTrimEnd = trimming && trim.side !== "start";
+  const trimStart = isTrimStart
+    ? Math.max(0, (clip.trimStart ?? 0) + trim.delta)
+    : clip.trimStart ?? 0;
   const trimEnd = isTrimEnd
     ? Math.max(0, Math.min(clip.duration - 0.05, (clip.trimEnd ?? 0) - trim.delta))
     : clip.trimEnd ?? 0;
-  const playLength = clipPlayLength({ duration: clip.duration, trimEnd });
+  const playLength = clipPlayLength({ duration: clip.duration, trimStart, trimEnd });
   const moving = !!move && move.ids.has(clip.id);
   const effectiveStart = moving
     ? Math.max(0, clip.startTime + move.delta)
     : isTrimStart
       ? Math.max(0, clip.startTime + trim.delta)
       : clip.startTime;
-  const effectivePlayLength = isTrimStart
-    ? Math.max(0.05, playLength - trim.delta)
-    : playLength;
   const left = effectiveStart * zoomH;
   const fullWidth = Math.max(30, clip.duration * zoomH);
-  const width = Math.max(8, effectivePlayLength * zoomH);
+  const width = Math.max(8, playLength * zoomH);
   if (left > visible.end || left + fullWidth < visible.start) return null;
   const isMuted = !!clip.mute;
   const routingColor = isMuted ? '#666670' : routingColorOf(clip);
@@ -595,12 +595,12 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           openMenu?.(e.nativeEvent, clip.id);
         }}
       >
-        {/* Linha vertical no inicio para diminuir ou aumentar o audio */}
+        {/* Linha vertical no inicio (corta da esquerda para a direita) - abaixo da alça de fade no topo */}
         <div
-          className={`group/trimStart absolute top-0 left-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-start z-20 transition-opacity ${isSelected || isTrimStart ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
+          className={`group/trimStart absolute top-[18px] left-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-start z-20 transition-opacity ${isSelected || isTrimStart ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
           onPointerDown={(e) => onTrimStart(e, clip, "start")}
           onClick={(e) => e.stopPropagation()}
-          title="Arraste para ajustar o início do áudio"
+          title="Arraste para cortar o início do áudio (esquerda para a direita)"
         >
           <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimStart:scale-x-125" />
         </div>
@@ -657,12 +657,12 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           />
         )}
         {isSelected && <div className="absolute inset-0 ring-2 ring-white shadow-[inset_0_0_10px_rgba(255,255,255,0.35)] rounded-sm pointer-events-none" />}
-        {/* Linha vertical no final para diminuir ou aumentar o audio */}
+        {/* Linha vertical no final (corta do fim para a esquerda) - abaixo da alça de fade no topo */}
         <div
-          className={`group/trimEnd absolute top-0 right-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-end z-20 transition-opacity ${isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
+          className={`group/trimEnd absolute top-[18px] right-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-end z-20 transition-opacity ${isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
           onPointerDown={(e) => onTrimStart(e, clip, "end")}
           onClick={(e) => e.stopPropagation()}
-          title="Arraste para ajustar o fim do áudio"
+          title="Arraste para cortar o fim do áudio (fim para a esquerda)"
         >
           <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimEnd:scale-x-125" />
         </div>
@@ -827,15 +827,15 @@ export default function TimelinePanel() {
     let delta = 0;
 
     if (isStart) {
-      // Ajuste de inicio: move o startTime e encurta a duracao proporcionalmente
-      const minStartTime = Math.min(...targets.map((c) => c.startTime));
-      const maxDelta = Math.min(...targets.map((c) => clipPlayLength(c) - 0.05));
+      // Arrastar a aresta esquerda para a direita (+X) corta o início do áudio
+      const maxCut = clipPlayLength(clip) - 0.05; // não deixa o clipe sumir
+      const maxRestore = clip.trimStart ?? 0; // não deixa expandir além do início original
       const origStart = clip.startTime;
       const describe = (st: number) => (grid ? `${formatRegionTime(st)} | ${barBeatLabel(st, grid)}` : formatRegionTime(st));
       const move = (ev: PointerEvent) => {
         const raw = origStart + (ev.clientX - startX) / zoomH;
         const snapped = snapTime(raw, grid, ev.altKey ? "off" : snapStep);
-        delta = Math.max(-minStartTime, Math.min(maxDelta, snapped - origStart));
+        delta = Math.max(-maxRestore, Math.min(maxCut, snapped - origStart));
         const newStart = origStart + delta;
         setTrimDrag({ ids: idSet, delta, anchorId: clip.id, end: newStart, label: describe(newStart), side: "start" });
       };
@@ -850,7 +850,7 @@ export default function TimelinePanel() {
           id: c.id,
           patch: {
             startTime: Math.max(0, c.startTime + delta),
-            trimEnd: (c.trimEnd ?? 0) + delta,
+            trimStart: Math.max(0, (c.trimStart ?? 0) + delta),
           },
         })));
         audioEngine.invalidatePrepared(song?.id);
@@ -859,15 +859,15 @@ export default function TimelinePanel() {
       el.addEventListener("pointerup", up);
       el.addEventListener("pointercancel", up);
     } else {
-      // Ajuste de fim
-      const maxGrow = Math.min(...targets.map((c) => c.trimEnd ?? 0));
-      const maxShrink = Math.min(...targets.map((c) => clipPlayLength(c) - 0.05));
+      // Arrastar a aresta direita para a esquerda (-X) corta o fim do áudio
+      const maxCut = clipPlayLength(clip) - 0.05; // não deixa o clipe sumir
+      const maxRestore = clip.trimEnd ?? 0; // não deixa expandir além do fim original
       const origEnd = clip.startTime + clipPlayLength(clip);
       const describe = (end: number) => (grid ? `${formatRegionTime(end)} | ${barBeatLabel(end, grid)}` : formatRegionTime(end));
       const move = (ev: PointerEvent) => {
         const raw = origEnd + (ev.clientX - startX) / zoomH;
         const snapped = snapTime(raw, grid, ev.altKey ? "off" : snapStep);
-        delta = Math.max(-maxShrink, Math.min(maxGrow, snapped - origEnd));
+        delta = Math.max(-maxCut, Math.min(maxRestore, snapped - origEnd));
         const end = origEnd + delta;
         setTrimDrag({ ids: idSet, delta, anchorId: clip.id, end, label: describe(end), side: "end" });
       };
@@ -878,7 +878,12 @@ export default function TimelinePanel() {
         try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
         setTrimDrag(null);
         if (Math.abs(delta) < 1e-4) return;
-        trimClips(targets.map((c) => ({ id: c.id, trimEnd: (c.trimEnd ?? 0) - delta })));
+        updateClips(targets.map((c) => ({
+          id: c.id,
+          patch: {
+            trimEnd: Math.max(0, (c.trimEnd ?? 0) - delta),
+          },
+        })));
         audioEngine.invalidatePrepared(song?.id);
       };
       el.addEventListener("pointermove", move);

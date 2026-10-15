@@ -83,6 +83,8 @@ export interface AudioClip {
   routingMethod: 'name' | 'ai' | 'manual';
   routingConfidence: number;
   waveformPeaks: number[];
+  /** Segundos cortados do início do áudio (o arquivo continua inteiro) */
+  trimStart?: number;
   /** Segundos cortados do fim do áudio (o arquivo continua inteiro) */
   trimEnd?: number;
   /** Identificador de agrupamento para clipes agrupados (Cmd+G / Cmd+U) */

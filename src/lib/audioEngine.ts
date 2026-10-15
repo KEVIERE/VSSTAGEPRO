@@ -2051,15 +2051,18 @@ class AudioEngine {
     const local = nowTime - newStartTime;
 
     try {
-      if (local >= 0) {
+      if (local >= 0 && local < active.durationSeconds) {
+        // Playhead está dentro do clipe na nova posição: toca imediatamente no tempo correto
         const offsetSamples = Math.min(active.bufferLength, Math.floor(local * active.sampleRate));
+        active.scheduledStartWall = this.ctx.currentTime;
         active.node.port.postMessage({
           type: 'seek',
           offsetSamples,
           startTime: this.ctx.currentTime,
-          fadeInFrames: 256,
+          fadeInFrames: 64,
         });
-      } else {
+      } else if (local < 0) {
+        // Clipe jogado para a frente do cursor atual: agenda para iniciar quando o cursor chegar
         const scheduledStart = this.playbackStartTime + newStartTime * alpha;
         active.scheduledStartWall = scheduledStart;
         active.node.port.postMessage({
@@ -2067,6 +2070,14 @@ class AudioEngine {
           offsetSamples: 0,
           startTime: scheduledStart,
           fadeInFrames: 1,
+        });
+      } else {
+        // Clipe jogado para trás do cursor (já passou): silencia
+        active.node.port.postMessage({
+          type: 'seek',
+          offsetSamples: active.bufferLength,
+          startTime: Number.POSITIVE_INFINITY,
+          silent: true,
         });
       }
     } catch { /* ignore */ }
