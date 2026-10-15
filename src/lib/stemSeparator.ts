@@ -110,7 +110,7 @@ export async function separateSongToVS(
   } else {
     onProgress?.({
       step: 'drums',
-      message: 'Conectando ao Demucs v4 na nuvem...',
+      message: 'Processando com a Inteligência Artificial do VS Stage...',
       percent: 20,
     });
     const stems = await separateWithReplicateDemucs(file, (p) => {

@@ -164,6 +164,19 @@ export default function ContextMenu() {
       <button
         className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
         onClick={() => {
+          if (state.clipId) {
+            const cursor = useStore.getState().transport.currentTime;
+            useStore.getState().splitClipAt(state.clipId, cursor);
+          }
+          closeMenu();
+        }}
+      >
+        Dividir no Cursor (Split)
+      </button>
+
+      <button
+        className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        onClick={() => {
           if (clip) {
             useStore.getState().setImportProgress({
               clipId: clip.id,

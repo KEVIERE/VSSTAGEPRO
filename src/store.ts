@@ -6,7 +6,7 @@ import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve,
 } from '@/types';
-import { clearAudioLibrary, clipPlayLength, getClipAudio, registerClipSource } from '@/lib/audioLibrary';
+import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipSource, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { normalizePages } from '@/lib/prompterTypes';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
@@ -74,6 +74,8 @@ interface ProjectStateExt {
   saveTarget: SaveTarget | null;
   saveStatus: { kind: 'saving' | 'saved' | 'error'; message: string } | null;
   snapStep: SnapStep;
+  /** Trava da timeline (cadeado): impede mover ou cortar clipes acidentalmente */
+  timelineLocked: boolean;
 }
 
 function normalizeLyricMaps(raw: unknown): ProjectState['lyricMaps'] {
@@ -106,6 +108,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   saveTarget: null,
   saveStatus: null,
   snapStep: 'beat',
+  timelineLocked: false,
   clips: [],
   songs: [],
   blocks: [],
@@ -193,6 +196,7 @@ interface StoreActions {
   toggleMixer: () => void;
   togglePlaylist: () => void;
   toggleTimeline: () => void;
+  toggleTimelineLocked: () => void;
   togglePlaylistMaximized: () => void;
   setMixerHeight: (height: number) => void;
   setZoomH: (zoom: number) => void;
@@ -211,6 +215,7 @@ interface StoreActions {
   activateShow: (id: string | null) => void;
   addClip: (clip: AudioClip) => void;
   updateClip: (clipId: string, updates: Partial<AudioClip>) => void;
+  splitClipAt: (clipId: string, atSeconds: number) => boolean;
   removeClip: (clipId: string) => void;
   routeClip: (clipId: string, targetTrackId: string) => void;
   resetClipRouting: (clipId: string) => void;
@@ -569,6 +574,7 @@ export const useStore = create<Store>()(
       toggleMixer: () => set((s) => ({ mixerVisible: !s.mixerVisible })),
       togglePlaylist: () => set((s) => ({ playlistVisible: !s.playlistVisible })),
       toggleTimeline: () => set((s) => ({ timelineVisible: !s.timelineVisible })),
+      toggleTimelineLocked: () => set((s) => ({ timelineLocked: !s.timelineLocked })),
       togglePlaylistMaximized: () => set((s) => ({ playlistMaximized: !s.playlistMaximized })),
       setMixerHeight: (height) => set({ mixerHeight: height }),
       setZoomH: (zoom) => set({ zoomH: Math.max(1, Math.min(500, zoom)) }),
@@ -734,6 +740,43 @@ export const useStore = create<Store>()(
         }
         return { clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c) };
       }),
+      splitClipAt: (clipId, atSeconds) => {
+        const s = get();
+        const clip = s.clips.find((c) => c.id === clipId);
+        if (!clip) return false;
+        const playLen = clipPlayLength(clip);
+        const rel = atSeconds - clip.startTime;
+        // Só divide se o corte estiver com pelo menos 50ms de margem de cada lado
+        if (rel <= 0.05 || rel >= playLen - 0.05) return false;
+
+        const part1TrimEnd = (clip.trimEnd ?? 0) + (playLen - rel);
+        const part2StartTime = atSeconds;
+        const part2TrimStart = (clip.trimStart ?? 0) + rel;
+        const part2Id = `${clip.id}-split-${Date.now()}`;
+
+        // Reutiliza a fonte de áudio registrada para o segundo clipe
+        const source = getClipSource(clip.id);
+        if (source) registerClipSource(part2Id, clip.songId, source);
+        const buffer = getClipAudio(clip.id);
+        if (buffer) putClipAudio(part2Id, clip.songId, buffer);
+
+        const part2Clip: AudioClip = {
+          ...clip,
+          id: part2Id,
+          name: `${clip.name} (Pt 2)`,
+          startTime: part2StartTime,
+          trimStart: part2TrimStart,
+          trimEnd: clip.trimEnd ?? 0,
+          fadeIn: 0,
+        };
+
+        set((state) => ({
+          clips: state.clips.map((c) => (c.id === clipId ? { ...c, trimEnd: part1TrimEnd, fadeOut: 0 } : c)).concat(part2Clip),
+          selectedClipIds: [part2Id],
+        }));
+
+        return true;
+      },
       removeClip: (clipId) => set((s) => ({
         clips: s.clips.filter((c) => c.id !== clipId),
         selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),

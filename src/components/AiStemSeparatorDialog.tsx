@@ -231,11 +231,11 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   <div className="flex items-center gap-2">
                     <Sparkles size={14} className="text-logic-lcd-green" />
                     <span className="font-bold text-white text-xs">
-                      Demucs v4 (Meta AI) · Qualidade Máxima de Estúdio
+                      Inteligência Artificial do VS Stage · Qualidade Máxima de Estúdio
                     </span>
                   </div>
                   <p className="text-[11px] text-logic-text-dim">
-                    Rede neural profunda htdemucs_6s: Bateria, Baixo, Guitarras/Violões, Teclados, Voz e Outros.
+                    Separação avançada em alta fidelidade: Bateria, Contrabaixo, Guitarras, Violões, Teclados, Voz/Guia e Outros.
                   </p>
                 </div>
                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold uppercase tracking-wider bg-logic-lcd-green/20 text-logic-lcd-green border border-logic-lcd-green/40 shrink-0">

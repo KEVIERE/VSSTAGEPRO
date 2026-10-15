@@ -1,9 +1,10 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2 } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Lock, Unlock, Mic } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { audioEngine } from '@/lib/audioEngine';
+import { audioRecorder, listInputAudioDevices, saveRecordingToMaestro, type InputAudioDevice } from '@/lib/audioRecorder';
 import Playhead from '@/components/Playhead';
 import { formatRegionTime, freeSlotAt, suggestRegionStyle } from '@/lib/regions';
 import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
@@ -111,6 +112,74 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
     return s.clips.filter((c) => childIds.has(c.trackId)).length;
   });
 
+  // Gravação na faixa Maestro (REC e Input da placa de áudio)
+  const isMaestro = track.id === 'track-maestro';
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordStartPos, setRecordStartPos] = useState(0);
+  const [inputDevices, setInputDevices] = useState<InputAudioDevice[]>([]);
+  const [selectedInputId, setSelectedInputId] = useState<string>('');
+  const [showInputMenu, setShowInputMenu] = useState(false);
+  const inputMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isMaestro) return;
+    listInputAudioDevices().then((devs) => {
+      setInputDevices(devs);
+      if (devs.length > 0 && !selectedInputId) {
+        setSelectedInputId(devs[0].deviceId);
+      }
+    });
+  }, [isMaestro, selectedInputId]);
+
+  useEffect(() => {
+    if (!showInputMenu) return;
+    const handleDown = (e: MouseEvent) => {
+      if (inputMenuRef.current && !inputMenuRef.current.contains(e.target as Node)) {
+        setShowInputMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleDown);
+    return () => document.removeEventListener('mousedown', handleDown);
+  }, [showInputMenu]);
+
+  const handleToggleRec = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const st = useStore.getState();
+    const activeSongId = st.selectedSongId ?? st.playlist[0]?.songId ?? null;
+    if (!activeSongId) return;
+
+    if (isRecording) {
+      try {
+        const res = await audioRecorder.stop();
+        setIsRecording(false);
+        if (res && res.audioBuffer) {
+          await saveRecordingToMaestro(activeSongId, recordStartPos, res.audioBuffer);
+          st.setImportProgress({
+            clipId: 'maestro',
+            status: 'done',
+            message: 'Gravação da voz do Maestro adicionada à timeline!',
+          });
+          setTimeout(() => st.setImportProgress(null), 3000);
+        }
+      } catch (err) {
+        console.error('[Maestro REC] erro ao salvar gravação:', err);
+        setIsRecording(false);
+      }
+    } else {
+      try {
+        const cursor = st.transport.isPlaying && st.transport.currentSongId === activeSongId
+          ? audioEngine.getCurrentTime()
+          : st.transport.currentTime;
+        setRecordStartPos(cursor);
+        await audioRecorder.start(selectedInputId || undefined);
+        setIsRecording(true);
+      } catch (err) {
+        console.error('[Maestro REC] erro ao iniciar gravação:', err);
+        alert('Não foi possível acessar a entrada de áudio. Verifique as permissões de microfone.');
+      }
+    }
+  };
+
   const isSelected = selectedTrackId === track.id;
   const trackHeight = Math.round((track.height ?? 40) * zoomV);
   const isFolder = track.isSubgroup;
@@ -167,6 +236,71 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
       </span>
 
       <div className="flex items-center gap-1 mr-1">
+        {isMaestro && (
+          <div className="flex items-center gap-1 relative" ref={inputMenuRef}>
+            <button
+              type="button"
+              className={`w-5 h-5 rounded flex items-center justify-center font-bold text-xs transition-all ${
+                isRecording
+                  ? 'bg-logic-lcd-red text-white animate-pulse shadow-[0_0_8px_rgba(255,69,58,0.9)]'
+                  : 'bg-logic-bg-deep text-logic-text-muted hover:text-logic-lcd-red hover:bg-logic-lcd-red/10'
+              }`}
+              onClick={handleToggleRec}
+              title={isRecording ? 'Gravando voz do Maestro: clique para parar e salvar' : 'Gravar áudio na faixa Maestro (REC)'}
+            >
+              <span className="text-[11px] leading-none">●</span>
+            </button>
+            <button
+              type="button"
+              className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
+                showInputMenu ? 'bg-logic-accent text-white' : 'bg-logic-bg-deep text-logic-text-muted hover:text-white'
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowInputMenu(!showInputMenu);
+              }}
+              title="Selecionar entrada da placa de áudio (Input)"
+            >
+              <Mic size={11} />
+            </button>
+            {showInputMenu && (
+              <div
+                className="absolute right-0 top-full mt-1 z-[300] py-1 bg-[#161720] border border-white/20 rounded-xl shadow-2xl text-2xs min-w-[220px] max-w-[300px] animate-[fadeIn_100ms_ease-out]"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-3 py-1.5 text-logic-text-muted font-bold border-b border-white/10 uppercase tracking-wider text-[9px]">
+                  Entrada da Placa de Áudio (Input)
+                </div>
+                {inputDevices.length === 0 ? (
+                  <div className="px-3 py-2 text-logic-text-dim text-[11px]">
+                    Nenhuma entrada de áudio detectada
+                  </div>
+                ) : (
+                  inputDevices.map((d) => (
+                    <button
+                      key={d.deviceId}
+                      type="button"
+                      className={`w-full px-3 py-1.5 text-left truncate flex items-center justify-between hover:bg-white/10 transition ${
+                        (selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId))
+                          ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
+                          : 'text-white'
+                      }`}
+                      onClick={() => {
+                        setSelectedInputId(d.deviceId);
+                        setShowInputMenu(false);
+                      }}
+                    >
+                      <span className="truncate">{d.label}</span>
+                      {(selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId)) && (
+                        <Check size={12} className="text-logic-lcd-green shrink-0 ml-1.5" />
+                      )}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <button
           className={`w-6 h-5 text-2xs font-bold rounded transition-colors duration-75 ${track.mute ? 'bg-logic-lcd-amber text-black' : 'bg-logic-bg-deep text-logic-text-muted hover:text-logic-text'}`}
           onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
@@ -527,11 +661,11 @@ function FadeHandle({
   );
 }
 
-function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove }: {
+function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove, timelineLocked }: {
   clip: AudioClip; isSelected: boolean; onSelect: (additive: boolean) => void;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: 'start' | 'end') => void;
   onMoveStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
-  trim: TrimDrag; move: MoveDrag; trackHeight: number; zoomH: number; visible: VisibleRange; allowMove: boolean;
+  trim: TrimDrag; move: MoveDrag; trackHeight: number; zoomH: number; visible: VisibleRange; allowMove: boolean; timelineLocked: boolean;
 }) {
   const dawMode = useStore((s) => s.dawMode);
   const trimming = !!trim && trim.ids.has(clip.id);
@@ -600,8 +734,10 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
             ? 'bg-white/15 shadow-[0_0_14px_rgba(255,255,255,0.45)] brightness-110 z-20'
             : isMuted
               ? 'bg-[#18181c]/90 opacity-55 grayscale'
-              : 'bg-black/30'
-        } ${allowMove ? 'cursor-grab active:cursor-grabbing hover:border-white' : 'cursor-pointer'}`}
+              : clip.routingMethod === 'ai'
+                ? 'bg-[#0a84ff]/15'
+                : 'bg-black/30'
+        } ${allowMove ? 'cursor-grab active:cursor-grabbing hover:border-white' : timelineLocked ? 'cursor-default' : 'cursor-pointer'}`}
         style={{
           left: `${left}px`,
           top: '2px',
@@ -629,19 +765,21 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
         }}
       >
         {/* Alça de corte inicial com ícone de setas ↔ (Abaixo da área de fade no topo) */}
-        <div
-          className={`group/trimStart absolute top-[20px] left-0 bottom-0 w-3.5 cursor-ew-resize flex items-center justify-start z-30 transition-opacity ${
-            isSelected || isTrimStart ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"
-          }`}
-          onPointerDown={(e) => onTrimStart(e, clip, "start")}
-          onClick={(e) => e.stopPropagation()}
-          title="Cortar início do áudio (arraste para a direita para cortar)"
-        >
-          <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimStart:scale-x-125" />
-          <div className="absolute top-1/2 -translate-y-1/2 left-0.5 px-0.5 py-0.5 rounded bg-black/85 border border-white/60 text-[8px] font-mono text-white leading-none opacity-0 group-hover/trimStart:opacity-100 shadow transition-opacity pointer-events-none">
-            ↔
+        {!timelineLocked && (
+          <div
+            className={`group/trimStart absolute top-[20px] left-0 bottom-0 w-3.5 cursor-ew-resize flex items-center justify-start z-30 transition-opacity ${
+              isSelected || isTrimStart ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"
+            }`}
+            onPointerDown={(e) => onTrimStart(e, clip, "start")}
+            onClick={(e) => e.stopPropagation()}
+            title="Cortar início do áudio (arraste para a direita para cortar)"
+          >
+            <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimStart:scale-x-125" />
+            <div className="absolute top-1/2 -translate-y-1/2 left-0.5 px-0.5 py-0.5 rounded bg-black/85 border border-white/60 text-[8px] font-mono text-white leading-none opacity-0 group-hover/trimStart:opacity-100 shadow transition-opacity pointer-events-none">
+              ↔
+            </div>
           </div>
-        </div>
+        )}
         {/* Forma de onda deslocada por -trimStart para que o corte no início mantenha o áudio travado na timeline */}
         <div
           className="absolute top-0 bottom-0 pointer-events-none overflow-hidden"
@@ -657,20 +795,25 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}
           curve={clip.fadeCurveIn ?? 'linear'}
           playLength={playLength} zoomH={zoomH}
-          editable={showControls}
+          editable={showControls && !timelineLocked}
         />
         <FadeHandle
           clipId={clip.id} side="out" seconds={clip.fadeOut ?? 0}
           curve={clip.fadeCurveOut ?? 'linear'}
           playLength={playLength} zoomH={zoomH}
-          editable={showControls}
+          editable={showControls && !timelineLocked}
         />
         <div
           className="absolute top-0 bottom-0 flex items-start justify-start px-1.5 pt-0.5 text-xs font-medium pointer-events-none"
           style={{ left: `${labelLeft}px`, width: `${Math.max(0, labelWidth)}px`, color: isMuted ? '#a1a1aa' : routingColor, textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
         >
-          <span className="truncate flex items-center gap-1">
+          <span className="truncate flex items-center gap-1.5">
             <span>{clip.name}</span>
+            {clip.routingMethod === 'ai' && (
+              <span className="px-1 py-0.2 rounded bg-[#0a84ff]/30 text-[8px] font-bold text-[#0a84ff] border border-[#0a84ff]/50 uppercase tracking-wider">
+                IA
+              </span>
+            )}
             {isMuted && (
               <span className="px-1 py-0.2 rounded bg-logic-lcd-amber/20 text-[9px] font-bold text-logic-lcd-amber uppercase">
                 MUDO
@@ -706,19 +849,21 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
         )}
         {isSelected && <div className="absolute inset-0 ring-2 ring-white shadow-[inset_0_0_10px_rgba(255,255,255,0.35)] rounded-sm pointer-events-none" />}
         {/* Alça de corte final com ícone de setas ↔ (Abaixo da área de fade no topo) */}
-        <div
-          className={`group/trimEnd absolute top-[20px] right-0 bottom-0 w-3.5 cursor-ew-resize flex items-center justify-end z-30 transition-opacity ${
-            isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"
-          }`}
-          onPointerDown={(e) => onTrimStart(e, clip, "end")}
-          onClick={(e) => e.stopPropagation()}
-          title="Cortar fim do áudio (arraste para a esquerda para cortar)"
-        >
-          <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimEnd:scale-x-125" />
-          <div className="absolute top-1/2 -translate-y-1/2 right-0.5 px-0.5 py-0.5 rounded bg-black/85 border border-white/60 text-[8px] font-mono text-white leading-none opacity-0 group-hover/trimEnd:opacity-100 shadow transition-opacity pointer-events-none">
-            ↔
+        {!timelineLocked && (
+          <div
+            className={`group/trimEnd absolute top-[20px] right-0 bottom-0 w-3.5 cursor-ew-resize flex items-center justify-end z-30 transition-opacity ${
+              isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"
+            }`}
+            onPointerDown={(e) => onTrimStart(e, clip, "end")}
+            onClick={(e) => e.stopPropagation()}
+            title="Cortar fim do áudio (arraste para a esquerda para cortar)"
+          >
+            <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimEnd:scale-x-125" />
+            <div className="absolute top-1/2 -translate-y-1/2 right-0.5 px-0.5 py-0.5 rounded bg-black/85 border border-white/60 text-[8px] font-mono text-white leading-none opacity-0 group-hover/trimEnd:opacity-100 shadow transition-opacity pointer-events-none">
+              ↔
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </>
   );
@@ -802,6 +947,9 @@ export default function TimelinePanel() {
   const [moveDrag, setMoveDrag] = useState<MoveDrag>(null);
   const updateClip = useStore((s) => s.updateClip);
   const updateClips = useStore((s) => s.updateClips);
+  const splitClipAt = useStore((s) => s.splitClipAt);
+  const timelineLocked = useStore((s) => s.timelineLocked);
+  const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
   const groupClips = useStore((s) => s.groupClips);
   const ungroupClips = useStore((s) => s.ungroupClips);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
@@ -820,14 +968,48 @@ export default function TimelinePanel() {
     selectClips(songClips.map((c) => c.id));
   }, [selectClips, songClips]);
 
+  const handleSplitAtCursor = useCallback(() => {
+    if (!song) return;
+    const st = useStore.getState();
+    const cursor = st.transport.isPlaying && st.transport.currentSongId === song.id
+      ? audioEngine.getCurrentTime()
+      : st.transport.currentTime;
+
+    // Prioriza clipe selecionado sob o cursor
+    let target = songClips.find(
+      (c) => selectedSet.has(c.id) && cursor > c.startTime && cursor < c.startTime + clipPlayLength(c)
+    );
+    // Se nenhum selecionado estiver sob o cursor, divide o primeiro clipe sob o cursor
+    if (!target) {
+      target = songClips.find(
+        (c) => cursor > c.startTime && cursor < c.startTime + clipPlayLength(c)
+      );
+    }
+    if (target) {
+      const ok = splitClipAt(target.id, cursor);
+      if (ok) {
+        audioEngine.invalidatePrepared(song.id);
+      }
+    }
+  }, [song, songClips, selectedSet, splitClipAt]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const ctrl = e.ctrlKey || e.metaKey;
-      if (!ctrl) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
 
+      const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+
+      // Atalho S (Split): corta o áudio no meio/cursor
+      if ((!ctrl && key === 's') || (ctrl && key === 't')) {
+        e.preventDefault();
+        handleSplitAtCursor();
+        return;
+      }
+
+      if (!ctrl) return;
+
       if (key === 'a') {
         e.preventDefault();
         selectAllSongClips();
@@ -845,10 +1027,10 @@ export default function TimelinePanel() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectAllSongClips, selectedClipIds, groupClips, ungroupClips]);
+  }, [selectAllSongClips, selectedClipIds, groupClips, ungroupClips, handleSplitAtCursor]);
 
   const handleTrimStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: "start" | "end" = "end") => {
-    if (e.button !== 0) return;
+    if (timelineLocked || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -935,7 +1117,7 @@ export default function TimelinePanel() {
   };
 
   const handleMoveStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => {
-    if (clip.routingMethod !== "ai") return;
+    if (timelineLocked) return;
     const targetEl = e.target as HTMLElement;
     if (targetEl.closest("button, input, [role=\"button\"], .group\\/fadeLine")) return;
     if (e.button !== 0) return;
@@ -1224,16 +1406,24 @@ export default function TimelinePanel() {
     <div className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
-          <div className="h-6 flex items-center justify-between px-3 border-b border-logic-border-dark/60">
-            <span className="text-2xs uppercase tracking-wider text-logic-text-muted truncate">Medley</span>
+          <div className="h-6 flex items-center justify-between px-2.5 border-b border-logic-border-dark/60 gap-1">
             <button
-              className="flex items-center justify-center gap-1 w-16 h-[18px] rounded text-2xs font-medium text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-logic-text hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              className="flex items-center justify-center gap-1 px-1.5 h-[18px] rounded text-2xs font-medium text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+              onClick={handleSplitAtCursor}
+              disabled={!song}
+              title="Dividir áudio no cursor (Split - atalho S)"
+            >
+              <Scissors size={9} />
+              Dividir
+            </button>
+            <button
+              className="flex items-center justify-center gap-1 px-1.5 h-[18px] rounded text-2xs font-medium text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-logic-text hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
               onClick={handleCutMedleyAtCursor}
               disabled={!song}
               title="Fatiar o medley no cursor: separa uma música da outra"
             >
-              <Scissors size={10} />
-              Fatiar
+              <Scissors size={9} />
+              Medley
             </button>
           </div>
           <div className="h-6 flex items-center justify-between px-3 border-b border-logic-border-dark/60">
@@ -1255,6 +1445,23 @@ export default function TimelinePanel() {
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30" disabled={zoomV <= 0.5} onClick={() => setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100))} title="Diminuir altura das tracks"><FoldVertical size={13} /></button>
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30" disabled={zoomV >= 3} onClick={() => setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100))} title="Aumentar altura das tracks"><UnfoldVertical size={13} /></button>
             </div>
+            {/* Trava da Timeline: Cadeado discreto */}
+            <button
+              onClick={toggleTimelineLocked}
+              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-semibold transition-all ${
+                timelineLocked
+                  ? 'bg-logic-lcd-amber/20 border border-logic-lcd-amber/60 text-logic-lcd-amber shadow-[0_0_8px_rgba(255,159,10,0.3)]'
+                  : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated border border-transparent'
+              }`}
+              title={
+                timelineLocked
+                  ? 'Timeline travada: clique para destravar e permitir mover/cortar áudios'
+                  : 'Travar timeline: impede movimentar ou cortar áudios acidentalmente'
+              }
+            >
+              {timelineLocked ? <Lock size={12} className="text-logic-lcd-amber" /> : <Unlock size={12} />}
+              <span className="text-[10px] hidden md:inline">{timelineLocked ? 'TRAVADA' : ''}</span>
+            </button>
             <div className="flex items-center gap-1">
               <button className="text-logic-text-muted hover:text-logic-text px-1 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (-)">−</button>
               <button className="text-logic-text-muted hover:text-logic-text px-1 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(1.35)} title="Aumentar zoom horizontal (+)">+</button>
@@ -1368,7 +1575,8 @@ export default function TimelinePanel() {
                         trackHeight={rowHeight}
                         zoomH={zoomH}
                         visible={visible}
-                        allowMove={clip.routingMethod === 'ai'}
+                        allowMove={!timelineLocked}
+                        timelineLocked={timelineLocked}
                       />
                     ))}
                   </div>

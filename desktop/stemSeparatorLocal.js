@@ -93,7 +93,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
           if (win && !win.isDestroyed()) {
             win.webContents.send('separation:progress', {
               percent: pct,
-              message: `Separando faixas com Demucs v4 no Mac (${pct}%)...`
+              message: `Separando faixas com a Inteligência Artificial do VS Stage (${pct}%)...`
             });
           }
           if (onProgress) onProgress(pct);
@@ -113,7 +113,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
       if (code !== 0) {
         const lastErr = stderrLogs.slice(-10).join('\n').trim();
         cleanup();
-        reject(new Error(`O Demucs finalizou com erro (código ${code}): ${lastErr || 'Verifique o formato do áudio.'}`));
+        reject(new Error(`A Inteligência Artificial finalizou com erro (código ${code}): ${lastErr || 'Verifique o formato do áudio.'}`));
         return;
       }
 
