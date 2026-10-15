@@ -427,21 +427,32 @@ function FadeHandle({
 
       {editable && (
         <>
-          {/* Alça triangular de Fade no topo (prioridade de clique sobre a linha de trim) */}
+          {/* Alça e Ícone de Fade no topo da aresta */}
           <div
-            className={`absolute top-0 w-6 h-6 cursor-ew-resize z-40 group/fadeHandle ${side === 'in' ? 'left-0' : 'right-0'}`}
+            className={`absolute top-0 w-7 h-[18px] cursor-ew-resize z-40 group/fadeHandle flex items-center justify-center select-none ${
+              side === 'in' ? 'left-0' : 'right-0'
+            }`}
             onPointerDown={handlePointerDown}
             onContextMenu={handleContextMenu}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
-            title={`Fade de ${side === 'in' ? 'entrada' : 'saída'}: ${seconds.toFixed(2)}s (${curve}) — Arraste para criar/ajustar, botão direito para mudar a curva`}
+            title={`Fade ${side === 'in' ? 'In (Entrada)' : 'Out (Saída)'}: ${seconds.toFixed(2)}s (${curve}) — Arraste para criar/ajustar, botão direito para mudar a curva`}
           >
             <div
-              className="w-0 h-0 absolute top-0 transition-transform group-hover/fadeHandle:scale-110"
-              style={side === 'in'
-                ? { left: 0, borderTop: '16px solid rgba(255,255,255,0.95)', borderRight: '16px solid transparent' }
-                : { right: 0, borderTop: '16px solid rgba(255,255,255,0.95)', borderLeft: '16px solid transparent' }}
-            />
+              className={`w-5 h-3.5 rounded-sm flex items-center justify-center transition-all ${
+                seconds > 0
+                  ? 'bg-logic-lcd-amber/35 border border-logic-lcd-amber/90 text-logic-lcd-amber shadow'
+                  : 'bg-black/70 border border-white/40 text-white/90 opacity-0 group-hover/clip:opacity-75 group-hover/fadeHandle:opacity-100 group-hover/fadeHandle:bg-logic-accent group-hover/fadeHandle:border-white shadow'
+              }`}
+            >
+              <svg width="10" height="10" viewBox="0 0 16 16" fill="none">
+                {side === 'in' ? (
+                  <path d="M 2 13 Q 8 13 14 3" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                ) : (
+                  <path d="M 2 3 Q 8 13 14 13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+                )}
+              </svg>
+            </div>
           </div>
 
           {/* LINHA VERTICAL NO FINAL DO FADE (indicador visual + arrastável) */}
@@ -554,10 +565,32 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
 
   return (
     <>
-      {isTrimmed && (
+      {trimStart > 0.001 && (
         <div
           className="absolute rounded-sm border border-dashed pointer-events-none"
-          style={{ left: `${left + width}px`, top: '2px', width: `${Math.max(0, fullWidth - width)}px`, height: `${innerHeight}px`, borderColor: isMuted ? '#4b4b52' : routingColor, opacity: trimming ? 0.35 : 0.15 }}
+          style={{
+            left: `${(effectiveStart - trimStart) * zoomH}px`,
+            top: '2px',
+            width: `${trimStart * zoomH}px`,
+            height: `${innerHeight}px`,
+            borderColor: isMuted ? '#4b4b52' : routingColor,
+            opacity: isTrimStart ? 0.35 : 0.15,
+          }}
+          title="Início cortado (esquerda)"
+        />
+      )}
+      {trimEnd > 0.001 && (
+        <div
+          className="absolute rounded-sm border border-dashed pointer-events-none"
+          style={{
+            left: `${left + width}px`,
+            top: '2px',
+            width: `${trimEnd * zoomH}px`,
+            height: `${innerHeight}px`,
+            borderColor: isMuted ? '#4b4b52' : routingColor,
+            opacity: isTrimEnd ? 0.35 : 0.15,
+          }}
+          title="Fim cortado (direita)"
         />
       )}
       <div
@@ -595,16 +628,31 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           openMenu?.(e.nativeEvent, clip.id);
         }}
       >
-        {/* Linha vertical no inicio (corta da esquerda para a direita) - abaixo da alça de fade no topo */}
+        {/* Alça de corte inicial com ícone de setas ↔ (Abaixo da área de fade no topo) */}
         <div
-          className={`group/trimStart absolute top-[18px] left-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-start z-20 transition-opacity ${isSelected || isTrimStart ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
+          className={`group/trimStart absolute top-[20px] left-0 bottom-0 w-3.5 cursor-ew-resize flex items-center justify-start z-30 transition-opacity ${
+            isSelected || isTrimStart ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"
+          }`}
           onPointerDown={(e) => onTrimStart(e, clip, "start")}
           onClick={(e) => e.stopPropagation()}
-          title="Arraste para cortar o início do áudio (esquerda para a direita)"
+          title="Cortar início do áudio (arraste para a direita para cortar)"
         >
           <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimStart:scale-x-125" />
+          <div className="absolute top-1/2 -translate-y-1/2 left-0.5 px-0.5 py-0.5 rounded bg-black/85 border border-white/60 text-[8px] font-mono text-white leading-none opacity-0 group-hover/trimStart:opacity-100 shadow transition-opacity pointer-events-none">
+            ↔
+          </div>
         </div>
-        <ClipWaveform clip={clip} left={left} width={fullWidth} height={innerHeight} visible={visible} />
+        {/* Forma de onda deslocada por -trimStart para que o corte no início mantenha o áudio travado na timeline */}
+        <div
+          className="absolute top-0 bottom-0 pointer-events-none overflow-hidden"
+          style={{
+            left: `${-(trimStart || 0) * zoomH}px`,
+            width: `${fullWidth}px`,
+            height: `${innerHeight}px`,
+          }}
+        >
+          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} />
+        </div>
         <FadeHandle
           clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}
           curve={clip.fadeCurveIn ?? 'linear'}
@@ -657,14 +705,19 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           />
         )}
         {isSelected && <div className="absolute inset-0 ring-2 ring-white shadow-[inset_0_0_10px_rgba(255,255,255,0.35)] rounded-sm pointer-events-none" />}
-        {/* Linha vertical no final (corta do fim para a esquerda) - abaixo da alça de fade no topo */}
+        {/* Alça de corte final com ícone de setas ↔ (Abaixo da área de fade no topo) */}
         <div
-          className={`group/trimEnd absolute top-[18px] right-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-end z-20 transition-opacity ${isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"}`}
+          className={`group/trimEnd absolute top-[20px] right-0 bottom-0 w-3.5 cursor-ew-resize flex items-center justify-end z-30 transition-opacity ${
+            isSelected || isTrimEnd ? "opacity-100" : "opacity-0 group-hover/clip:opacity-100"
+          }`}
           onPointerDown={(e) => onTrimStart(e, clip, "end")}
           onClick={(e) => e.stopPropagation()}
-          title="Arraste para cortar o fim do áudio (fim para a esquerda)"
+          title="Cortar fim do áudio (arraste para a esquerda para cortar)"
         >
           <div className="w-[3px] h-full bg-white/90 shadow-[0_0_6px_rgba(255,255,255,0.7)] rounded-full transition-transform group-hover/trimEnd:scale-x-125" />
+          <div className="absolute top-1/2 -translate-y-1/2 right-0.5 px-0.5 py-0.5 rounded bg-black/85 border border-white/60 text-[8px] font-mono text-white leading-none opacity-0 group-hover/trimEnd:opacity-100 shadow transition-opacity pointer-events-none">
+            ↔
+          </div>
         </div>
       </div>
     </>

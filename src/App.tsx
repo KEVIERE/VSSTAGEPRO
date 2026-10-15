@@ -440,15 +440,23 @@ function DirectorApp({ license }: { license: License }) {
         const prevById = new Map(prevClips.map((c) => [c.id, c]));
         for (const c of state.clips) {
           const p = prevById.get(c.id);
-          if (p && (
-            p.gain !== c.gain ||
-            p.mute !== c.mute ||
-            p.fadeIn !== c.fadeIn ||
-            p.fadeOut !== c.fadeOut ||
-            p.fadeCurveIn !== c.fadeCurveIn ||
-            p.fadeCurveOut !== c.fadeCurveOut
-          )) {
-            audioEngine.updateClipParams(c.id);
+          if (p) {
+            // Se o startTime ou o corte do clipe mudar (ex.: mover clipe ou Cmd+Z Desfazer),
+            // reposiciona o áudio imediatamente em tempo real sem sair do ritmo
+            if (p.startTime !== c.startTime || p.trimStart !== c.trimStart || p.trimEnd !== c.trimEnd) {
+              audioEngine.updateLiveClipPosition(c.id, c.startTime);
+              audioEngine.invalidatePrepared(c.songId);
+            }
+            if (
+              p.gain !== c.gain ||
+              p.mute !== c.mute ||
+              p.fadeIn !== c.fadeIn ||
+              p.fadeOut !== c.fadeOut ||
+              p.fadeCurveIn !== c.fadeCurveIn ||
+              p.fadeCurveOut !== c.fadeCurveOut
+            ) {
+              audioEngine.updateClipParams(c.id);
+            }
           }
         }
       }
