@@ -1871,7 +1871,7 @@ export default function TimelinePanel() {
           </div>
         ) : (
           <div className="flex" style={{ minHeight: '100%', width: `${timelineWidth + HEADER_W}px` }}>
-            <div className="relative bg-logic-bg-panel border-r border-logic-border-dark sticky left-0 z-40 shrink-0" style={{ width: `${HEADER_W}px` }}>
+            <div className="bg-logic-bg-panel border-r border-logic-border-dark sticky left-0 z-40 shrink-0" style={{ width: `${HEADER_W}px` }}>
               <TimecodeTrackRow songId={song.id} />
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
