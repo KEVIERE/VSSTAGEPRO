@@ -27,7 +27,9 @@ export function volumeToDb(volume: number): number {
   return 20 * Math.log10(faderToGain(volume));
 }
 
-const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-guia', 'track-click', 'track-maestro']);
+// Trilhas não-melódicas: apenas bateria, percussões, click e maestro não sofrem transposição de tom (tuner).
+// A faixa "Guia" (voz guia) É melódica e deve transpor junto com a música quando o tuner for alterado.
+const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-click', 'track-maestro']);
 
 export function isMelodicTrack(track: Track, all: Track[]): boolean {
   let t: Track | undefined = track;
@@ -2040,6 +2042,20 @@ class AudioEngine {
    * Reposiciona clipes em tempo real durante a reprodução (comportamento de DAW profissional).
    * Conforme o clipe é arrastado para a esquerda ou direita, o áudio é resincronizado instantaneamente.
    */
+  /** Para e desconecta imediatamente clipes removidos (ex.: tecla Delete) enquanto a música toca. */
+  stopClipsLive(clipIds: string[]) {
+    if (!this.isPlaying) return;
+    for (const clipId of clipIds) {
+      const active = this.activeClips.get(clipId);
+      if (!active) continue;
+      try { active.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
+      try { active.node.disconnect(); } catch { /* ignore */ }
+      try { active.clipGain.disconnect(); } catch { /* ignore */ }
+      if (active.clipPanner) { try { active.clipPanner.disconnect(); } catch { /* ignore */ } }
+      this.activeClips.delete(clipId);
+    }
+  }
+
   updateLiveClipPosition(clipId: string, newStartTime: number) {
     if (!this.isPlaying || !this.ctx) return;
     const active = this.activeClips.get(clipId);

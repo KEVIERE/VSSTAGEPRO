@@ -304,6 +304,21 @@ function DirectorApp({ license }: { license: License }) {
         toggleMixer();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
         const store = useStore.getState();
+        // Se a timeline estiver travada pelo cadeado, não permite deletar clipes
+        if (store.timelineLocked) return;
+
+        // Se houver clipes selecionados na timeline, a tecla Delete/Backspace exclui os clipes selecionados
+        if (store.selectedClipIds.length > 0) {
+          e.preventDefault();
+          const targetIds = [...store.selectedClipIds];
+          audioEngine.stopClipsLive(targetIds);
+          store.removeClips(targetIds);
+          const selSongId = store.selectedSongId ?? store.playlist[0]?.songId;
+          if (selSongId) audioEngine.invalidatePrepared(selSongId);
+          return;
+        }
+
+        // Caso contrário, se o foco não estiver em um elemento editável, mantém comportamento de excluir música
         if (store.selectedSongId && !e.target) {
           store.removeSong(store.selectedSongId);
         }
@@ -438,6 +453,13 @@ function DirectorApp({ license }: { license: License }) {
         for (const c of state.clips) audioEngine.updateClipParams(c.id);
       } else {
         const prevById = new Map(prevClips.map((c) => [c.id, c]));
+        const nextIds = new Set(state.clips.map((c) => c.id));
+        // Se clipes foram removidos (Delete ou Undo), para os nós de áudio imediatamente
+        const removed = prevClips.filter((c) => !nextIds.has(c.id)).map((c) => c.id);
+        if (removed.length > 0) {
+          audioEngine.stopClipsLive(removed);
+        }
+
         for (const c of state.clips) {
           const p = prevById.get(c.id);
           if (p) {

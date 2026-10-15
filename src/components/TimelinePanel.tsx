@@ -5,6 +5,8 @@ import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, 
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { audioEngine } from '@/lib/audioEngine';
 import { audioRecorder, listInputAudioDevices, saveRecordingToMaestro, type InputAudioDevice } from '@/lib/audioRecorder';
+import { useMeterLevel } from '@/lib/meterBus';
+import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import Playhead from '@/components/Playhead';
 import { formatRegionTime, freeSlotAt, suggestRegionStyle } from '@/lib/regions';
 import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
@@ -18,6 +20,58 @@ import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
 type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
+
+/** Medidor VU de LEDs estilo DAW profissional (Logic Pro / Pro Tools) para a entrada da placa */
+function InputVuMeter() {
+  const level = useMeterLevel('input-maestro');
+  return (
+    <div
+      className="flex items-center gap-[1.5px] h-3.5 px-1 bg-black/60 rounded border border-white/10 shrink-0"
+      title={`Nível de entrada da placa: ${Math.round(level * 100)}%`}
+    >
+      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.04 ? 'bg-logic-lcd-green shadow-[0_0_3px_#30d158]' : 'bg-logic-lcd-green/20'}`} />
+      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.18 ? 'bg-logic-lcd-green shadow-[0_0_3px_#30d158]' : 'bg-logic-lcd-green/20'}`} />
+      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.38 ? 'bg-logic-lcd-green shadow-[0_0_3px_#30d158]' : 'bg-logic-lcd-green/20'}`} />
+      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.60 ? 'bg-logic-lcd-amber shadow-[0_0_3px_#ff9f0a]' : 'bg-logic-lcd-amber/20'}`} />
+      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.80 ? 'bg-logic-lcd-amber shadow-[0_0_3px_#ff9f0a]' : 'bg-logic-lcd-amber/20'}`} />
+      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.94 ? 'bg-logic-lcd-red shadow-[0_0_4px_#ff453a]' : 'bg-logic-lcd-red/20'}`} />
+    </div>
+  );
+}
+
+/** Bloco de gravação ao vivo na timeline para a faixa Maestro */
+function LiveRecordingTrackBlock({ startTime, zoomH }: { startTime: number; zoomH: number }) {
+  const [nowTime, setNowTime] = useState(startTime);
+
+  useEffect(() => {
+    let animId: number;
+    const tick = () => {
+      const cur = audioEngine.isRunning() ? audioEngine.getCurrentTime() : useStore.getState().transport.currentTime;
+      setNowTime(cur);
+      animId = requestAnimationFrame(tick);
+    };
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  const widthPx = Math.max(8, (nowTime - startTime) * zoomH);
+
+  return (
+    <div
+      className="absolute top-1 bottom-1 rounded border border-logic-lcd-red bg-logic-lcd-red/40 z-20 flex items-center px-2 overflow-hidden shadow-[0_0_14px_rgba(255,69,58,0.6)] select-none pointer-events-none"
+      style={{
+        left: `${startTime * zoomH}px`,
+        width: `${widthPx}px`,
+      }}
+    >
+      <div className="flex items-center gap-1.5 text-white font-bold text-2xs uppercase tracking-wider shrink-0 z-10 drop-shadow">
+        <span className="w-2 h-2 rounded-full bg-logic-lcd-red animate-ping" />
+        <span>GRAVANDO MAESTRO</span>
+      </div>
+      <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_0%,rgba(255,69,58,0.3)_50%,rgba(255,69,58,0.6)_100%)] animate-pulse" />
+    </div>
+  );
+}
 
 function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu }: {
   childId: string; depth: number; expanded: boolean; onToggle: () => void;
@@ -112,10 +166,11 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
     return s.clips.filter((c) => childIds.has(c.trackId)).length;
   });
 
-  // Gravação na faixa Maestro (REC e Input da placa de áudio)
+  // Gravação na faixa Maestro (REC, Input da placa de áudio e VU Meter)
   const isMaestro = track.id === 'track-maestro';
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordStartPos, setRecordStartPos] = useState(0);
+  const recordingMaestro = useStore((s) => s.recordingMaestro);
+  const setRecordingMaestro = useStore((s) => s.setRecordingMaestro);
+  const isRecording = isMaestro && !!recordingMaestro?.isRecording;
   const [inputDevices, setInputDevices] = useState<InputAudioDevice[]>([]);
   const [selectedInputId, setSelectedInputId] = useState<string>('');
   const [showInputMenu, setShowInputMenu] = useState(false);
@@ -129,6 +184,12 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
         setSelectedInputId(devs[0].deviceId);
       }
     });
+  }, [isMaestro, selectedInputId]);
+
+  // Inicia monitor de VU meter suavemente quando a track Maestro é exibida
+  useEffect(() => {
+    if (!isMaestro) return;
+    audioRecorder.startMonitoring(selectedInputId || undefined).catch(() => {});
   }, [isMaestro, selectedInputId]);
 
   useEffect(() => {
@@ -150,10 +211,12 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
 
     if (isRecording) {
       try {
+        const startPos = recordingMaestro?.startTime ?? 0;
+        setRecordingMaestro(null);
         const res = await audioRecorder.stop();
-        setIsRecording(false);
+        stopPlayback();
         if (res && res.audioBuffer) {
-          await saveRecordingToMaestro(activeSongId, recordStartPos, res.audioBuffer);
+          await saveRecordingToMaestro(activeSongId, startPos, res.audioBuffer);
           st.setImportProgress({
             clipId: 'maestro',
             status: 'done',
@@ -163,16 +226,24 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
         }
       } catch (err) {
         console.error('[Maestro REC] erro ao salvar gravação:', err);
-        setIsRecording(false);
+        setRecordingMaestro(null);
+        stopPlayback();
       }
     } else {
       try {
         const cursor = st.transport.isPlaying && st.transport.currentSongId === activeSongId
           ? audioEngine.getCurrentTime()
           : st.transport.currentTime;
-        setRecordStartPos(cursor);
         await audioRecorder.start(selectedInputId || undefined);
-        setIsRecording(true);
+        setRecordingMaestro({
+          isRecording: true,
+          songId: activeSongId,
+          startTime: cursor,
+          inputDeviceId: selectedInputId,
+        });
+        if (!st.transport.isPlaying) {
+          startPlayback();
+        }
       } catch (err) {
         console.error('[Maestro REC] erro ao iniciar gravação:', err);
         alert('Não foi possível acessar a entrada de áudio. Verifique as permissões de microfone.');
@@ -299,6 +370,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
                 )}
               </div>
             )}
+            {isMaestro && <InputVuMeter />}
           </div>
         )}
         <button
@@ -948,11 +1020,27 @@ export default function TimelinePanel() {
   const updateClip = useStore((s) => s.updateClip);
   const updateClips = useStore((s) => s.updateClips);
   const splitClipAt = useStore((s) => s.splitClipAt);
+  const splitClipsAt = useStore((s) => s.splitClipsAt);
+  const removeClips = useStore((s) => s.removeClips);
+  const recordingMaestro = useStore((s) => s.recordingMaestro);
   const timelineLocked = useStore((s) => s.timelineLocked);
   const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
   const groupClips = useStore((s) => s.groupClips);
   const ungroupClips = useStore((s) => s.ungroupClips);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
+  const [openMenu, setOpenMenu] = useState<'edit' | 'functions' | 'view' | null>(null);
+  const menuBarRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const handleCloseMenu = (e: MouseEvent) => {
+      if (menuBarRef.current && !menuBarRef.current.contains(e.target as Node)) {
+        setOpenMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleCloseMenu);
+    return () => document.removeEventListener('mousedown', handleCloseMenu);
+  }, [openMenu]);
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
@@ -969,29 +1057,40 @@ export default function TimelinePanel() {
   }, [selectClips, songClips]);
 
   const handleSplitAtCursor = useCallback(() => {
-    if (!song) return;
+    if (!song || timelineLocked) return;
     const st = useStore.getState();
     const cursor = st.transport.isPlaying && st.transport.currentSongId === song.id
       ? audioEngine.getCurrentTime()
       : st.transport.currentTime;
 
-    // Prioriza clipe selecionado sob o cursor
-    let target = songClips.find(
-      (c) => selectedSet.has(c.id) && cursor > c.startTime && cursor < c.startTime + clipPlayLength(c)
+    // Todos os clipes da música que cruzam o cursor no momento
+    const crossingClips = songClips.filter(
+      (c) => cursor > c.startTime && cursor < c.startTime + clipPlayLength(c)
     );
-    // Se nenhum selecionado estiver sob o cursor, divide o primeiro clipe sob o cursor
-    if (!target) {
-      target = songClips.find(
-        (c) => cursor > c.startTime && cursor < c.startTime + clipPlayLength(c)
-      );
+    if (crossingClips.length === 0) return;
+
+    // Clipes selecionados que cruzam o cursor
+    const selectedCrossing = crossingClips.filter((c) => selectedSet.has(c.id));
+
+    // Se houver algum clipe selecionado cruzando o cursor, divide eles.
+    // Se nenhum estiver selecionado (ou se todos estiverem), divide todos os que cruzam o cursor!
+    const targetIds = selectedCrossing.length > 0
+      ? selectedCrossing.map((c) => c.id)
+      : crossingClips.map((c) => c.id);
+
+    const ok = splitClipsAt(targetIds, cursor);
+    if (ok) {
+      audioEngine.invalidatePrepared(song.id);
     }
-    if (target) {
-      const ok = splitClipAt(target.id, cursor);
-      if (ok) {
-        audioEngine.invalidatePrepared(song.id);
-      }
-    }
-  }, [song, songClips, selectedSet, splitClipAt]);
+  }, [song, songClips, selectedSet, splitClipsAt, timelineLocked]);
+
+  const handleDeleteSelectedClips = useCallback(() => {
+    if (timelineLocked || selectedClipIds.length === 0) return;
+    const targetIds = [...selectedClipIds];
+    audioEngine.stopClipsLive(targetIds);
+    removeClips(targetIds);
+    if (song) audioEngine.invalidatePrepared(song.id);
+  }, [timelineLocked, selectedClipIds, removeClips, song]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1000,6 +1099,15 @@ export default function TimelinePanel() {
 
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
+
+      // Tecla Delete ou Backspace exclui clipes selecionados
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (selectedClipIds.length > 0 && !timelineLocked) {
+          e.preventDefault();
+          handleDeleteSelectedClips();
+          return;
+        }
+      }
 
       // Atalho S (Split): corta o áudio no meio/cursor
       if ((!ctrl && key === 's') || (ctrl && key === 't')) {
@@ -1027,7 +1135,7 @@ export default function TimelinePanel() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [selectAllSongClips, selectedClipIds, groupClips, ungroupClips, handleSplitAtCursor]);
+  }, [selectAllSongClips, selectedClipIds, groupClips, ungroupClips, handleSplitAtCursor, handleDeleteSelectedClips, timelineLocked]);
 
   const handleTrimStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: "start" | "end" = "end") => {
     if (timelineLocked || e.button !== 0) return;
@@ -1405,46 +1513,247 @@ export default function TimelinePanel() {
   return (
     <div className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
-        <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
-          <div className="h-6 flex items-center justify-between px-2.5 border-b border-logic-border-dark/60 gap-1">
-            <button
-              className="flex items-center justify-center gap-1 px-1.5 h-[18px] rounded text-2xs font-medium text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-              onClick={handleSplitAtCursor}
-              disabled={!song}
-              title="Dividir áudio no cursor (Split - atalho S)"
-            >
-              <Scissors size={9} />
-              Dividir
-            </button>
-            <button
-              className="flex items-center justify-center gap-1 px-1.5 h-[18px] rounded text-2xs font-medium text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-logic-text hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-              onClick={handleCutMedleyAtCursor}
-              disabled={!song}
-              title="Fatiar o medley no cursor: separa uma música da outra"
-            >
-              <Scissors size={9} />
-              Medley
-            </button>
-          </div>
-          <div className="h-6 flex items-center justify-between px-3 border-b border-logic-border-dark/60">
-            <span className="text-2xs uppercase tracking-wider text-logic-text-muted truncate">
-              {noSpaceHint ? <span className="text-logic-lcd-amber normal-case tracking-normal">Sem espaço livre aqui</span> : 'Regiões'}
-            </span>
-            <button
-              className="flex items-center justify-center gap-1 w-16 h-[18px] rounded text-2xs font-medium text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-logic-text hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
-              onClick={handleAddRegionAtCursor}
-              disabled={!song}
-              title="Nova região de 4 compassos a partir do cursor"
-            >
-              <Plus size={10} />
-              Nova
-            </button>
-          </div>
-          <div className="h-10 flex items-center justify-between px-3">
-            <div className="flex items-center gap-1">
-              <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30" disabled={zoomV <= 0.5} onClick={() => setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100))} title="Diminuir altura das tracks"><FoldVertical size={13} /></button>
-              <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30" disabled={zoomV >= 3} onClick={() => setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100))} title="Aumentar altura das tracks"><UnfoldVertical size={13} /></button>
+        <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }} ref={menuBarRef}>
+          {/* Linha 1: Menus estilo Logic Pro 11 (Editar, Funções, Visualizar) + Trava da Timeline */}
+          <div className="h-6 flex items-center justify-between px-2 border-b border-logic-border-dark/60 gap-1 bg-logic-bg-deep relative">
+            <div className="flex items-center gap-0.5 text-2xs">
+              {/* Menu Editar */}
+              <div className="relative">
+                <button
+                  type="button"
+                  className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    openMenu === 'edit'
+                      ? 'bg-logic-accent text-white'
+                      : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated'
+                  }`}
+                  onClick={() => setOpenMenu(openMenu === 'edit' ? null : 'edit')}
+                >
+                  Editar ▾
+                </button>
+                {openMenu === 'edit' && (
+                  <div className="absolute left-0 top-full mt-1 z-[400] py-1 bg-[#161720] border border-white/20 rounded-lg shadow-2xl text-2xs min-w-[210px] animate-[fadeIn_80ms_ease-out]">
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        useStore.temporal.getState().undo();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Desfazer</span>
+                      <span className="text-logic-text-muted text-[10px]">⌘Z</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        useStore.temporal.getState().redo();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Refazer</span>
+                      <span className="text-logic-text-muted text-[10px]">⇧⌘Z</span>
+                    </button>
+                    <div className="h-px bg-white/10 my-1" />
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        selectAllSongClips();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Selecionar Tudo</span>
+                      <span className="text-logic-text-muted text-[10px]">⌘A</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        handleSplitAtCursor();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Dividir no Cursor</span>
+                      <span className="text-logic-text-muted text-[10px]">S</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-logic-lcd-red hover:text-white"
+                      onClick={() => {
+                        handleDeleteSelectedClips();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Excluir Selecionados</span>
+                      <span className="text-logic-text-muted text-[10px]">Del</span>
+                    </button>
+                    <div className="h-px bg-white/10 my-1" />
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        if (selectedClipIds.length >= 2) groupClips(selectedClipIds);
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Agrupar Clipes</span>
+                      <span className="text-logic-text-muted text-[10px]">⌘G</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        if (selectedClipIds.length > 0) ungroupClips(selectedClipIds);
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Desagrupar Clipes</span>
+                      <span className="text-logic-text-muted text-[10px]">⌘U</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Menu Funções */}
+              <div className="relative">
+                <button
+                  type="button"
+                  className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    openMenu === 'functions'
+                      ? 'bg-logic-accent text-white'
+                      : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated'
+                  }`}
+                  onClick={() => setOpenMenu(openMenu === 'functions' ? null : 'functions')}
+                >
+                  Funções ▾
+                </button>
+                {openMenu === 'functions' && (
+                  <div className="absolute left-0 top-full mt-1 z-[400] py-1 bg-[#161720] border border-white/20 rounded-lg shadow-2xl text-2xs min-w-[210px] animate-[fadeIn_80ms_ease-out]">
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        handleSplitAtCursor();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Dividir Áudio Selecionado</span>
+                      <Scissors size={12} className="text-logic-text-muted" />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        handleCutMedleyAtCursor();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Fatiar Medley no Cursor</span>
+                      <Scissors size={12} className="text-logic-text-muted" />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        handleAddRegionAtCursor();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Nova Região no Cursor</span>
+                      <Plus size={12} className="text-logic-text-muted" />
+                    </button>
+                    <div className="h-px bg-white/10 my-1" />
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        toggleTimelineLocked();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>{timelineLocked ? 'Destravar Timeline' : 'Travar Timeline (Cadeado)'}</span>
+                      {timelineLocked ? <Unlock size={12} /> : <Lock size={12} />}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        resetHeaderWidth();
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Largura Padrão das Faixas</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Menu Visualizar */}
+              <div className="relative">
+                <button
+                  type="button"
+                  className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                    openMenu === 'view'
+                      ? 'bg-logic-accent text-white'
+                      : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated'
+                  }`}
+                  onClick={() => setOpenMenu(openMenu === 'view' ? null : 'view')}
+                >
+                  Visualizar ▾
+                </button>
+                {openMenu === 'view' && (
+                  <div className="absolute left-0 top-full mt-1 z-[400] py-1 bg-[#161720] border border-white/20 rounded-lg shadow-2xl text-2xs min-w-[210px] animate-[fadeIn_80ms_ease-out]">
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        zoomButton(1.35);
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Aproximar Zoom Horizontal</span>
+                      <span className="text-logic-text-muted text-[10px]">+</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        zoomButton(0.75);
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Afastar Zoom Horizontal</span>
+                      <span className="text-logic-text-muted text-[10px]">-</span>
+                    </button>
+                    <div className="h-px bg-white/10 my-1" />
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100));
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Aumentar Altura das Faixas</span>
+                      <UnfoldVertical size={12} className="text-logic-text-muted" />
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
+                      onClick={() => {
+                        setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100));
+                        setOpenMenu(null);
+                      }}
+                    >
+                      <span>Diminuir Altura das Faixas</span>
+                      <FoldVertical size={12} className="text-logic-text-muted" />
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
+
             {/* Trava da Timeline: Cadeado discreto */}
             <button
               onClick={toggleTimelineLocked}
@@ -1459,14 +1768,56 @@ export default function TimelinePanel() {
                   : 'Travar timeline: impede movimentar ou cortar áudios acidentalmente'
               }
             >
-              {timelineLocked ? <Lock size={12} className="text-logic-lcd-amber" /> : <Unlock size={12} />}
-              <span className="text-[10px] hidden md:inline">{timelineLocked ? 'TRAVADA' : ''}</span>
+              {timelineLocked ? <Lock size={11} className="text-logic-lcd-amber" /> : <Unlock size={11} />}
+              <span className="text-[9px] font-bold hidden md:inline">{timelineLocked ? 'TRAVADA' : ''}</span>
             </button>
+          </div>
+
+          {/* Linha 2: Ações Rápidas Padronizadas - Rigorosamente com o mesmo tamanho */}
+          <div className="h-6 flex items-center justify-between px-2 border-b border-logic-border-dark/60 gap-1.5">
+            <button
+              className="flex-1 h-[20px] rounded flex items-center justify-center gap-1 text-2xs font-semibold text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent hover:bg-white/[0.04] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              onClick={handleSplitAtCursor}
+              disabled={!song || timelineLocked}
+              title="Dividir áudios selecionados no cursor (Split - atalho S)"
+            >
+              <Scissors size={10} className="shrink-0" />
+              <span>Dividir</span>
+            </button>
+            <button
+              className="flex-1 h-[20px] rounded flex items-center justify-center gap-1 text-2xs font-semibold text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent hover:bg-white/[0.04] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              onClick={handleCutMedleyAtCursor}
+              disabled={!song || timelineLocked}
+              title="Fatiar medley no cursor: separa uma música da outra"
+            >
+              <Scissors size={10} className="shrink-0" />
+              <span>Medley</span>
+            </button>
+            <button
+              className="flex-1 h-[20px] rounded flex items-center justify-center gap-1 text-2xs font-semibold text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent hover:bg-white/[0.04] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              onClick={handleAddRegionAtCursor}
+              disabled={!song || timelineLocked}
+              title="Nova região de 4 compassos a partir do cursor"
+            >
+              <Plus size={11} className="shrink-0" />
+              <span>Região</span>
+            </button>
+          </div>
+
+          {/* Linha 3: Navegação, Altura e Zoom Horizontal */}
+          <div className="h-10 flex items-center justify-between px-3">
             <div className="flex items-center gap-1">
-              <button className="text-logic-text-muted hover:text-logic-text px-1 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (-)">−</button>
-              <button className="text-logic-text-muted hover:text-logic-text px-1 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(1.35)} title="Aumentar zoom horizontal (+)">+</button>
-              <button className="text-logic-text-muted hover:text-logic-text" onClick={() => zoomButton(1.35)} title="Aproximar (Cmd + roda do mouse)"><ZoomIn size={13} /></button>
-              <button className="text-logic-text-muted hover:text-logic-text" onClick={() => zoomButton(0.75)} title="Afastar (Cmd + roda do mouse)"><ZoomOut size={13} /></button>
+              <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30 p-1 rounded hover:bg-logic-bg-elevated" disabled={zoomV <= 0.5} onClick={() => setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100))} title="Diminuir altura das tracks"><FoldVertical size={13} /></button>
+              <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30 p-1 rounded hover:bg-logic-bg-elevated" disabled={zoomV >= 3} onClick={() => setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100))} title="Aumentar altura das tracks"><UnfoldVertical size={13} /></button>
+            </div>
+            <div className="text-[10px] text-logic-text-muted select-none font-mono">
+              {noSpaceHint ? <span className="text-logic-lcd-amber font-sans">Sem espaço</span> : `${Math.round(zoomH * 10)}%`}
+            </div>
+            <div className="flex items-center gap-1">
+              <button className="text-logic-text-muted hover:text-logic-text px-1.5 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (-)">−</button>
+              <button className="text-logic-text-muted hover:text-logic-text px-1.5 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(1.35)} title="Aumentar zoom horizontal (+)">+</button>
+              <button className="text-logic-text-muted hover:text-logic-text p-1 rounded hover:bg-logic-bg-elevated" onClick={() => zoomButton(1.35)} title="Aproximar (Cmd + roda do mouse)"><ZoomIn size={13} /></button>
+              <button className="text-logic-text-muted hover:text-logic-text p-1 rounded hover:bg-logic-bg-elevated" onClick={() => zoomButton(0.75)} title="Afastar (Cmd + roda do mouse)"><ZoomOut size={13} /></button>
             </div>
           </div>
         </div>
@@ -1579,6 +1930,9 @@ export default function TimelinePanel() {
                         timelineLocked={timelineLocked}
                       />
                     ))}
+                    {track.id === 'track-maestro' && recordingMaestro?.isRecording && recordingMaestro.songId === song.id && (
+                      <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} zoomH={zoomH} />
+                    )}
                   </div>
                 );
               })}

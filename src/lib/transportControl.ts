@@ -3,8 +3,30 @@ import { audioEngine } from '@/lib/audioEngine';
 import { computeNextSongId } from '@/lib/playFlow';
 import { previousRegionStart } from '@/lib/regions';
 import { entryPoint } from '@/lib/medley';
+import { audioRecorder, saveRecordingToMaestro } from '@/lib/audioRecorder';
 
 const PLAY_FAILED = 'Não foi possível tocar esta música. Confira a saída de áudio e tente de novo.';
+
+async function finalizeActiveRecording() {
+  const st = useStore.getState();
+  const rec = st.recordingMaestro;
+  if (!rec || !rec.isRecording) return;
+  st.setRecordingMaestro(null);
+  try {
+    const res = await audioRecorder.stop();
+    if (res && res.audioBuffer) {
+      await saveRecordingToMaestro(rec.songId, rec.startTime, res.audioBuffer);
+      st.setImportProgress({
+        clipId: 'maestro',
+        status: 'done',
+        message: 'Gravação da voz do Maestro adicionada à timeline!',
+      });
+      setTimeout(() => st.setImportProgress(null), 3000);
+    }
+  } catch (err) {
+    console.error('[Maestro REC] erro ao salvar gravação:', err);
+  }
+}
 
 function verifyStarted(songId: string) {
   const st = useStore.getState();
@@ -37,6 +59,7 @@ export function startPlayback() {
 }
 
 export function pausePlayback() {
+  finalizeActiveRecording();
   const st = useStore.getState();
   if (!st.transport.isPlaying) return;
   const position = audioEngine.isRunning() ? audioEngine.getCurrentTime() : st.transport.currentTime;
@@ -50,6 +73,7 @@ export function togglePlayPause() {
 }
 
 export function stopPlayback() {
+  finalizeActiveRecording();
   const st = useStore.getState();
   const songId = st.transport.currentSongId ?? st.selectedSongId;
   const position = st.transport.isPlaying && audioEngine.isRunning() ? audioEngine.getCurrentTime() : st.transport.currentTime;

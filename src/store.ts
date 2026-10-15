@@ -76,6 +76,8 @@ interface ProjectStateExt {
   snapStep: SnapStep;
   /** Trava da timeline (cadeado): impede mover ou cortar clipes acidentalmente */
   timelineLocked: boolean;
+  /** Gravação ativa na faixa Maestro */
+  recordingMaestro: { isRecording: boolean; songId: string; startTime: number; inputDeviceId?: string } | null;
 }
 
 function normalizeLyricMaps(raw: unknown): ProjectState['lyricMaps'] {
@@ -109,6 +111,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   saveStatus: null,
   snapStep: 'beat',
   timelineLocked: false,
+  recordingMaestro: null,
   clips: [],
   songs: [],
   blocks: [],
@@ -197,6 +200,7 @@ interface StoreActions {
   togglePlaylist: () => void;
   toggleTimeline: () => void;
   toggleTimelineLocked: () => void;
+  setRecordingMaestro: (rec: { isRecording: boolean; songId: string; startTime: number; inputDeviceId?: string } | null) => void;
   togglePlaylistMaximized: () => void;
   setMixerHeight: (height: number) => void;
   setZoomH: (zoom: number) => void;
@@ -216,7 +220,9 @@ interface StoreActions {
   addClip: (clip: AudioClip) => void;
   updateClip: (clipId: string, updates: Partial<AudioClip>) => void;
   splitClipAt: (clipId: string, atSeconds: number) => boolean;
+  splitClipsAt: (clipIds: string[], atSeconds: number) => boolean;
   removeClip: (clipId: string) => void;
+  removeClips: (clipIds: string[]) => void;
   routeClip: (clipId: string, targetTrackId: string) => void;
   resetClipRouting: (clipId: string) => void;
   setClipMarkers: (clipId: string, markers: AudioClip['markers']) => void;
@@ -575,6 +581,7 @@ export const useStore = create<Store>()(
       togglePlaylist: () => set((s) => ({ playlistVisible: !s.playlistVisible })),
       toggleTimeline: () => set((s) => ({ timelineVisible: !s.timelineVisible })),
       toggleTimelineLocked: () => set((s) => ({ timelineLocked: !s.timelineLocked })),
+      setRecordingMaestro: (rec) => set({ recordingMaestro: rec }),
       togglePlaylistMaximized: () => set((s) => ({ playlistMaximized: !s.playlistMaximized })),
       setMixerHeight: (height) => set({ mixerHeight: height }),
       setZoomH: (zoom) => set({ zoomH: Math.max(1, Math.min(500, zoom)) }),
@@ -741,38 +748,58 @@ export const useStore = create<Store>()(
         return { clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c) };
       }),
       splitClipAt: (clipId, atSeconds) => {
+        return get().splitClipsAt([clipId], atSeconds);
+      },
+      splitClipsAt: (clipIds, atSeconds) => {
         const s = get();
-        const clip = s.clips.find((c) => c.id === clipId);
-        if (!clip) return false;
-        const playLen = clipPlayLength(clip);
-        const rel = atSeconds - clip.startTime;
-        // Só divide se o corte estiver com pelo menos 50ms de margem de cada lado
-        if (rel <= 0.05 || rel >= playLen - 0.05) return false;
+        const targetClips = s.clips.filter((c) => clipIds.includes(c.id));
+        if (targetClips.length === 0) return false;
 
-        const part1TrimEnd = (clip.trimEnd ?? 0) + (playLen - rel);
-        const part2StartTime = atSeconds;
-        const part2TrimStart = (clip.trimStart ?? 0) + rel;
-        const part2Id = `${clip.id}-split-${Date.now()}`;
+        const validSplits: { origId: string; part1TrimEnd: number; part2: AudioClip }[] = [];
+        const now = Date.now();
 
-        // Reutiliza a fonte de áudio registrada para o segundo clipe
-        const source = getClipSource(clip.id);
-        if (source) registerClipSource(part2Id, clip.songId, source);
-        const buffer = getClipAudio(clip.id);
-        if (buffer) putClipAudio(part2Id, clip.songId, buffer);
+        for (let idx = 0; idx < targetClips.length; idx++) {
+          const clip = targetClips[idx];
+          const playLen = clipPlayLength(clip);
+          const rel = atSeconds - clip.startTime;
+          // Só divide se o corte estiver com pelo menos 50ms de margem de cada lado
+          if (rel <= 0.05 || rel >= playLen - 0.05) continue;
 
-        const part2Clip: AudioClip = {
-          ...clip,
-          id: part2Id,
-          name: `${clip.name} (Pt 2)`,
-          startTime: part2StartTime,
-          trimStart: part2TrimStart,
-          trimEnd: clip.trimEnd ?? 0,
-          fadeIn: 0,
-        };
+          const part1TrimEnd = (clip.trimEnd ?? 0) + (playLen - rel);
+          const part2StartTime = atSeconds;
+          const part2TrimStart = (clip.trimStart ?? 0) + rel;
+          const part2Id = `${clip.id}-split-${now}-${idx}`;
+
+          // Reutiliza a fonte de áudio registrada para o segundo clipe
+          const source = getClipSource(clip.id);
+          if (source) registerClipSource(part2Id, clip.songId, source);
+          const buffer = getClipAudio(clip.id);
+          if (buffer) putClipAudio(part2Id, clip.songId, buffer);
+
+          const part2Clip: AudioClip = {
+            ...clip,
+            id: part2Id,
+            name: `${clip.name} (Pt 2)`,
+            startTime: part2StartTime,
+            trimStart: part2TrimStart,
+            trimEnd: clip.trimEnd ?? 0,
+            fadeIn: 0,
+          };
+
+          validSplits.push({ origId: clip.id, part1TrimEnd, part2: part2Clip });
+        }
+
+        if (validSplits.length === 0) return false;
+
+        const splitOrigMap = new Map(validSplits.map((v) => [v.origId, v.part1TrimEnd]));
+        const newPart2Clips = validSplits.map((v) => v.part2);
+        const newSelectedIds = newPart2Clips.map((c) => c.id);
 
         set((state) => ({
-          clips: state.clips.map((c) => (c.id === clipId ? { ...c, trimEnd: part1TrimEnd, fadeOut: 0 } : c)).concat(part2Clip),
-          selectedClipIds: [part2Id],
+          clips: state.clips
+            .map((c) => (splitOrigMap.has(c.id) ? { ...c, trimEnd: splitOrigMap.get(c.id)!, fadeOut: 0 } : c))
+            .concat(newPart2Clips),
+          selectedClipIds: newSelectedIds,
         }));
 
         return true;
@@ -781,6 +808,13 @@ export const useStore = create<Store>()(
         clips: s.clips.filter((c) => c.id !== clipId),
         selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
       })),
+      removeClips: (clipIds) => set((s) => {
+        const toRemove = new Set(clipIds);
+        return {
+          clips: s.clips.filter((c) => !toRemove.has(c.id)),
+          selectedClipIds: s.selectedClipIds.filter((id) => !toRemove.has(id)),
+        };
+      }),
       routeClip: (clipId, targetTrackId) => set((s) => {
         const target = s.tracks.find((t) => t.id === targetTrackId);
         if (!target) return s;

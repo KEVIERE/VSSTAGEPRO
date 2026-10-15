@@ -5,6 +5,7 @@ import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
 import { generateMarkers } from '@/lib/audioDecoder';
+import { publishMeters } from '@/lib/meterBus';
 
 export interface InputAudioDevice {
   deviceId: string;
@@ -20,7 +21,7 @@ export async function listInputAudioDevices(): Promise<InputAudioDevice[]> {
       .filter((d) => d.kind === 'audioinput')
       .map((d, index) => ({
         deviceId: d.deviceId,
-        label: d.label || `Microfone / Entrada ${index + 1}`,
+        label: d.label || `Entrada ${index + 1}`,
       }));
     return inputs;
   } catch (err) {
@@ -34,27 +35,106 @@ class AudioRecorder {
   private mediaStream: MediaStream | null = null;
   private recordedChunks: Blob[] = [];
   private isRecording = false;
+  private monitorCtx: AudioContext | null = null;
+  private monitorSource: MediaStreamAudioSourceNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private animFrameId: number | null = null;
+  private activeDeviceId: string | null = null;
 
   get recording(): boolean {
     return this.isRecording;
+  }
+
+  /** Inicia monitoramento contínuo de entrada para alimentar o VU meter */
+  async startMonitoring(deviceId?: string): Promise<void> {
+    if (this.mediaStream && this.activeDeviceId === (deviceId || 'default')) return;
+    this.stopMonitoring();
+
+    try {
+      this.activeDeviceId = deviceId || 'default';
+      const constraints: MediaStreamConstraints = {
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      this.mediaStream = stream;
+
+      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtxClass();
+      this.monitorCtx = ctx;
+
+      const source = ctx.createMediaStreamSource(stream);
+      this.monitorSource = source;
+
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.5;
+      source.connect(analyser);
+      this.analyser = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateMeter = () => {
+        if (!this.analyser) return;
+        this.analyser.getByteTimeDomainData(dataArray);
+
+        // Calcula amplitude de pico
+        let maxPeak = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          const val = Math.abs((dataArray[i] - 128) / 128);
+          if (val > maxPeak) maxPeak = val;
+        }
+
+        // Converte amplitude linear em escala visual 0..1 com curva perceptiva (dB)
+        const normalized = Math.min(1, maxPeak * 1.6);
+        publishMeters(new Map([['input-maestro', normalized]]));
+
+        this.animFrameId = requestAnimationFrame(updateMeter);
+      };
+      updateMeter();
+    } catch (err) {
+      console.warn('[audioRecorder] Falha ao iniciar monitor de entrada:', err);
+    }
+  }
+
+  stopMonitoring(): void {
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
+    }
+    if (this.monitorSource) {
+      try { this.monitorSource.disconnect(); } catch { /* ignore */ }
+      this.monitorSource = null;
+    }
+    if (this.analyser) {
+      try { this.analyser.disconnect(); } catch { /* ignore */ }
+      this.analyser = null;
+    }
+    if (this.monitorCtx) {
+      try { this.monitorCtx.close(); } catch { /* ignore */ }
+      this.monitorCtx = null;
+    }
+    publishMeters(new Map([['input-maestro', 0]]));
   }
 
   async start(deviceId?: string): Promise<void> {
     if (this.isRecording) return;
     this.recordedChunks = [];
 
-    const constraints: MediaStreamConstraints = {
-      audio: deviceId ? { deviceId: { exact: deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } : { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    };
+    // Garante que o stream de áudio esteja aberto e monitorando
+    if (!this.mediaStream || (deviceId && this.activeDeviceId !== deviceId)) {
+      await this.startMonitoring(deviceId);
+    }
 
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    this.mediaStream = stream;
+    if (!this.mediaStream) {
+      const constraints: MediaStreamConstraints = {
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      };
+      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+    }
 
-    // Prefere WAV/WebM com áudio não comprimido ou de alta fidelidade
     const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', ''];
     const mimeType = mimeTypes.find((m) => !m || MediaRecorder.isTypeSupported(m)) || '';
 
-    const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+    const recorder = mimeType ? new MediaRecorder(this.mediaStream, { mimeType }) : new MediaRecorder(this.mediaStream);
     this.mediaRecorder = recorder;
 
     recorder.ondataavailable = (e) => {
@@ -75,12 +155,6 @@ class AudioRecorder {
       recorder.onstop = async () => {
         try {
           this.isRecording = false;
-          // Desliga trilhas do microfone
-          if (this.mediaStream) {
-            this.mediaStream.getTracks().forEach((t) => t.stop());
-            this.mediaStream = null;
-          }
-
           const rawBlob = new Blob(this.recordedChunks, { type: recorder.mimeType || 'audio/webm' });
           this.recordedChunks = [];
           this.mediaRecorder = null;
@@ -92,8 +166,22 @@ class AudioRecorder {
         }
       };
 
-      recorder.stop();
+      try {
+        recorder.stop();
+      } catch (err) {
+        reject(err);
+      }
     });
+  }
+
+  dispose(): void {
+    this.stopMonitoring();
+    if (this.mediaStream) {
+      this.mediaStream.getTracks().forEach((t) => t.stop());
+      this.mediaStream = null;
+    }
+    this.activeDeviceId = null;
+    this.isRecording = false;
   }
 }
 
