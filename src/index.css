@@ -78,6 +78,28 @@
   .logic-scroll::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.35);
   }
+
+  .timeline-scroll-container::-webkit-scrollbar:horizontal {
+    display: none !important;
+    height: 0 !important;
+    width: 0 !important;
+  }
+  .timeline-scroll-container {
+    scrollbar-width: none;
+  }
+  .timeline-scroll-container::-webkit-scrollbar {
+    width: 6px;
+  }
+  .timeline-scroll-container::-webkit-scrollbar-track {
+    background: #14151a;
+  }
+  .timeline-scroll-container::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 3px;
+  }
+  .timeline-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
 }
 
 @layer utilities {

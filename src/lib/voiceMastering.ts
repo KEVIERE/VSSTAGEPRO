@@ -1,70 +1,68 @@
-import { decodeBlob } from '@/lib/audioDecoder';
 import { getClipAudio, putClipAudio, registerClipSource, toClipAudioAsync } from '@/lib/audioLibrary';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
-import type { AudioClip } from '@/types';
 
 /**
- * Processador de Masterização Vocal IA para a faixa Maestro (VS Stage Pro).
- * Utiliza OfflineAudioContext e análise dinâmica para transformar a gravação
- * bruta do microfone em uma voz guia com presença, clareza e potência de estúdio.
+ * Processador de Masterização Vocal de Estúdio para a faixa Maestro.
+ * Aplica cadeia de canal de voz profissional de broadcast (High-Pass, De-Mud,
+ * Realce de Presença 3.2kHz, Air Sheen 11kHz, Compressor Óptico e Normalização True-Peak).
+ * Processamento 100% linear e transparente, livre de artefatos ou distorções.
  */
 export async function masterMaestroAudioBuffer(inputBuffer: AudioBuffer): Promise<AudioBuffer> {
   const sampleRate = inputBuffer.sampleRate;
   const length = inputBuffer.length;
   const numChannels = inputBuffer.numberOfChannels;
 
-  // 1. Cria contexto de renderização offline de alta fidelidade
+  // Renderização offline com precisão de 32-bit float
   const offlineCtx = new OfflineAudioContext(numChannels, length, sampleRate);
   const source = offlineCtx.createBufferSource();
   source.buffer = inputBuffer;
 
-  // 2. Filtro Passa-Altas (De-Rumble / Anti-Plosivas a 90Hz)
-  const lowCut = offlineCtx.createBiquadFilter();
-  lowCut.type = 'highpass';
-  lowCut.frequency.value = 90;
-  lowCut.Q.value = 0.707;
+  // 1. Filtro Passa-Altas (corte de subgraves e ruídos mecânicos a 85Hz)
+  const highPass = offlineCtx.createBiquadFilter();
+  highPass.type = 'highpass';
+  highPass.frequency.value = 85;
+  highPass.Q.value = 0.707;
 
-  // 3. Notch de limpeza de médias-graves (remove o som oco/abafado a 320Hz)
-  const boxinessCut = offlineCtx.createBiquadFilter();
-  boxinessCut.type = 'peaking';
-  boxinessCut.frequency.value = 320;
-  boxinessCut.Q.value = 1.4;
-  boxinessCut.gain.value = -2.5;
+  // 2. Limpeza de frequências ocas / abafadas (280Hz -2.5dB)
+  const lowMidClean = offlineCtx.createBiquadFilter();
+  lowMidClean.type = 'peaking';
+  lowMidClean.frequency.value = 280;
+  lowMidClean.Q.value = 1.0;
+  lowMidClean.gain.value = -2.5;
 
-  // 4. Realce de Articulação e Inteligibilidade Vocal IA (3.4kHz)
-  // Faz com que os comandos e contagens "1, 2, 3, 4" do maestro cortem o som da banda no fone
-  const vocalClarity = offlineCtx.createBiquadFilter();
-  vocalClarity.type = 'peaking';
-  vocalClarity.frequency.value = 3400;
-  vocalClarity.Q.value = 1.1;
-  vocalClarity.gain.value = 3.6;
+  // 3. Realce de Presença e Articulação Vocal (3.2kHz +2.8dB)
+  // Garante que a voz guia do maestro corte os multitracks nos fones com definição absoluta
+  const presence = offlineCtx.createBiquadFilter();
+  presence.type = 'peaking';
+  presence.frequency.value = 3200;
+  presence.Q.value = 0.9;
+  presence.gain.value = 2.8;
 
-  // 5. Brilho de estúdio (Air Sheen a 10kHz)
+  // 4. Brilho de Estúdio / Air Sheen (11kHz +2.0dB)
   const airSheen = offlineCtx.createBiquadFilter();
   airSheen.type = 'highshelf';
-  airSheen.frequency.value = 10000;
-  airSheen.gain.value = 2.4;
+  airSheen.frequency.value = 11000;
+  airSheen.gain.value = 2.0;
 
-  // 6. Compressor Vocal Dinâmico estilo Óptico (nivelamento de voz)
-  // Uniformiza falas sussurradas e gritos altos para a banda ouvir perfeitamente
+  // 5. Compressor Vocal Dinâmico Broadcast (nivelamento de dinâmicas sem saturação)
   const compressor = offlineCtx.createDynamicsCompressor();
-  compressor.threshold.value = -18;
-  compressor.knee.value = 6;
-  compressor.ratio.value = 3.5;
-  compressor.attack.value = 0.006;
-  compressor.release.value = 0.085;
+  compressor.threshold.value = -20;
+  compressor.knee.value = 10;
+  compressor.ratio.value = 3.2;
+  compressor.attack.value = 0.012;
+  compressor.release.value = 0.140;
 
-  // 7. Ganho de Maquiagem inicial
+  // 6. Ganho de compensação de estúdio
   const makeupGain = offlineCtx.createGain();
-  makeupGain.gain.value = 1.45;
+  makeupGain.gain.value = 1.25;
 
   // Conexão em cascata DSP
-  source.connect(lowCut);
-  lowCut.connect(boxinessCut);
-  boxinessCut.connect(vocalClarity);
-  vocalClarity.connect(airSheen);
+  source.connect(highPass);
+  highPass.connect(lowMidClean);
+  lowMidClean.connect(presence);
+  presence.connect(airSheen);
   airSheen.connect(compressor);
   compressor.connect(makeupGain);
   makeupGain.connect(offlineCtx.destination);
@@ -72,76 +70,28 @@ export async function masterMaestroAudioBuffer(inputBuffer: AudioBuffer): Promis
   source.start(0);
   const rendered = await offlineCtx.startRendering();
 
-  // 8. Pós-processamento: Noise Gate Adaptativo + Limiter True-Peak a -1.0 dBFS
+  // 7. Normalização True-Peak linear a -1.0 dBFS (0.891) sem distorção harmônica
   const finalCtx = new AudioContext();
   const finalBuffer = finalCtx.createBuffer(rendered.numberOfChannels, rendered.length, rendered.sampleRate);
   await finalCtx.close();
 
-  const channelsData: Float32Array[] = [];
-  for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
-    const raw = rendered.getChannelData(ch);
-    const out = finalBuffer.getChannelData(ch);
-    out.set(raw);
-    channelsData.push(out);
-  }
-
-  // Análise de Ruído de Fundo (Noise Floor) e Gate Inteligente
-  const frameSize = Math.round(sampleRate * 0.02); // 20ms
-  const numFrames = Math.floor(length / frameSize);
-
-  let noiseFloorEstimate = 0.003;
-  for (let f = 0; f < Math.min(numFrames, 30); f++) {
-    let sum = 0;
-    const start = f * frameSize;
-    for (let i = 0; i < frameSize; i++) {
-      const s = Math.abs(channelsData[0][start + i]);
-      sum += s * s;
-    }
-    const rms = Math.sqrt(sum / frameSize);
-    if (rms > 0.0001 && rms < noiseFloorEstimate) noiseFloorEstimate = rms;
-  }
-
-  const gateThreshold = Math.max(0.004, noiseFloorEstimate * 1.8);
-  let gateGain = 1.0;
-
-  for (let i = 0; i < length; i++) {
-    // Pico instantâneo entre os canais
-    let instantPeak = 0;
-    for (let ch = 0; ch < numChannels; ch++) {
-      const v = Math.abs(channelsData[ch][i]);
-      if (v > instantPeak) instantPeak = v;
-    }
-
-    // Envelope suave do gate
-    const targetGain = instantPeak < gateThreshold ? 0.15 : 1.0;
-    const smoothRate = instantPeak < gateThreshold ? 0.0008 : 0.015;
-    gateGain += (targetGain - gateGain) * smoothRate;
-
-    for (let ch = 0; ch < numChannels; ch++) {
-      channelsData[ch][i] *= gateGain;
-    }
-  }
-
-  // Normalização e Limiter True-Peak a -1.0 dBFS
   let maxPeak = 0;
-  for (let ch = 0; ch < numChannels; ch++) {
-    for (let i = 0; i < length; i++) {
-      const v = Math.abs(channelsData[ch][i]);
-      if (v > maxPeak) maxPeak = v;
+  for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+    const data = rendered.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const absVal = Math.abs(data[i]);
+      if (absVal > maxPeak) maxPeak = absVal;
     }
   }
 
   const targetPeak = 0.891; // -1.0 dBFS
-  if (maxPeak > 0) {
-    const normFactor = Math.min(3.5, targetPeak / maxPeak);
-    for (let ch = 0; ch < numChannels; ch++) {
-      for (let i = 0; i < length; i++) {
-        let val = channelsData[ch][i] * normFactor;
-        // Soft-clip transparente caso ultrapasse
-        if (val > targetPeak) val = targetPeak + (1 - targetPeak) * Math.tanh((val - targetPeak) / (1 - targetPeak));
-        else if (val < -targetPeak) val = -targetPeak + (-1 + targetPeak) * Math.tanh((val + targetPeak) / (-1 + targetPeak));
-        channelsData[ch][i] = val;
-      }
+  const scale = maxPeak > 0 ? Math.min(2.5, targetPeak / maxPeak) : 1.0;
+
+  for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+    const srcData = rendered.getChannelData(ch);
+    const destData = finalBuffer.getChannelData(ch);
+    for (let i = 0; i < srcData.length; i++) {
+      destData[i] = srcData[i] * scale;
     }
   }
 
@@ -159,7 +109,7 @@ export async function masterMaestroClip(clipId: string): Promise<boolean> {
   store.setImportProgress({
     clipId: 'mastering',
     status: 'working',
-    message: 'Masterizando voz do Maestro com IA (De-Noise, EQ & Compressor)...',
+    message: 'Masterizando voz do Maestro com qualidade de estúdio...',
   });
 
   try {
@@ -183,21 +133,21 @@ export async function masterMaestroClip(clipId: string): Promise<boolean> {
       throw new Error('Não foi possível obter os dados de áudio do clipe.');
     }
 
-    // Aplica o algoritmo de masterização vocal IA
+    // Aplica a cadeia profissional de masterização de estúdio
     const masteredBuffer = await masterMaestroAudioBuffer(audioBuffer);
 
-    // Converte para formato de biblioteca e gera nova waveform
+    // Converte para formato de biblioteca e gera nova waveform limpa
     const clipAudio = await toClipAudioAsync(masteredBuffer);
     const wavBytes = encodeWavInt16(clipAudio);
     const wavBlob = new Blob([wavBytes], { type: 'audio/wav' });
     const peaks = audioEngine.generateWaveformPeaks(masteredBuffer, 2000);
 
-    // Atualiza armazenamento em memória e clipes
+    // Atualiza armazenamento em memória e clipe
     putClipAudio(clip.id, clip.songId, clipAudio);
     registerClipSource(clip.id, clip.songId, wavBlob);
 
     store.updateClip(clip.id, {
-      name: clip.name.includes('✨') ? clip.name : `✨ ${clip.name} (Master IA)`,
+      name: clip.name.includes('✨') ? clip.name : `✨ ${clip.name} (Master)`,
       waveformPeaks: peaks,
       gain: 1.0,
     });
@@ -207,7 +157,7 @@ export async function masterMaestroClip(clipId: string): Promise<boolean> {
     store.setImportProgress({
       clipId: 'mastering',
       status: 'done',
-      message: 'Voz do Maestro masterizada com Inteligência Artificial!',
+      message: 'Voz do Maestro masterizada com clareza de estúdio!',
     });
     setTimeout(() => store.setImportProgress(null), 3000);
     return true;

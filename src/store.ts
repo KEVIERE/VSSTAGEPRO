@@ -144,7 +144,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   mixerHeight: 220,
   zoomH: 20,
   zoomV: 1,
-  trackHeaderWidth: 192,
+  trackHeaderWidth: 220,
   importProgress: null,
   lrMasterActive: false,
   dawMode: true,

@@ -1026,6 +1026,198 @@ function FooterProgress({ importProgress, exportProgress }: {
   );
 }
 
+/** Barra de navegação horizontal estilo DAW profissional com alças de zoom nas pontas */
+function TimelineNavigatorScrollbar({
+  scrollRef,
+  timelineWidth,
+  zoomH,
+  setZoomH,
+  headerWidth,
+}: {
+  scrollRef: React.RefObject<HTMLDivElement>;
+  timelineWidth: number;
+  zoomH: number;
+  setZoomH: (z: number) => void;
+  headerWidth: number;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [scrollState, setScrollState] = useState({ scrollLeft: 0, clientWidth: 1000, scrollWidth: 2000 });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      setScrollState({
+        scrollLeft: el.scrollLeft,
+        clientWidth: el.clientWidth,
+        scrollWidth: el.scrollWidth,
+      });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      el.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [scrollRef, headerWidth, timelineWidth, zoomH]);
+
+  // A área visível da timeline na janela (descontando o painel das faixas)
+  const viewW = Math.max(10, scrollState.clientWidth - headerWidth);
+  const totalW = Math.max(viewW, timelineWidth);
+  const maxScroll = Math.max(1, scrollState.scrollWidth - scrollState.clientWidth);
+
+  // Proporção de largura do thumb
+  const ratio = Math.min(1, Math.max(0.05, viewW / totalW));
+  const thumbWidthPct = ratio * 100;
+  const maxThumbLeftPct = 100 - thumbWidthPct;
+  const scrollRatio = Math.max(0, Math.min(1, scrollState.scrollLeft / maxScroll));
+  const thumbLeftPct = scrollRatio * maxThumbLeftPct;
+
+  // Arraste do corpo do scrollbar (Scroll/Pan da timeline)
+  const handleThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startScroll = scrollRef.current?.scrollLeft ?? 0;
+    const barW = barRef.current?.clientWidth ?? 1;
+
+    let rafId: number | null = null;
+    const move = (ev: PointerEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const deltaX = ev.clientX - startX;
+        const availablePx = barW * (1 - ratio);
+        if (availablePx > 0 && scrollRef.current) {
+          const scrollDelta = (deltaX / availablePx) * maxScroll;
+          scrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, startScroll + scrollDelta));
+        }
+      });
+    };
+    const up = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', move);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  // Alça Esquerda de Zoom
+  const handleLeftZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startZoom = zoomH;
+
+    let rafId: number | null = null;
+    const move = (ev: PointerEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const deltaX = ev.clientX - startX;
+        const factor = Math.exp(-deltaX * 0.008);
+        setZoomH(Math.max(5, Math.min(400, Math.round(startZoom * factor * 10) / 10)));
+      });
+    };
+    const up = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  // Alça Direita de Zoom
+  const handleRightZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startZoom = zoomH;
+
+    let rafId: number | null = null;
+    const move = (ev: PointerEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const deltaX = ev.clientX - startX;
+        const factor = Math.exp(deltaX * 0.008);
+        setZoomH(Math.max(5, Math.min(400, Math.round(startZoom * factor * 10) / 10)));
+      });
+    };
+    const up = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
+  // Clique na pista para saltar a navegação
+  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!barRef.current || !scrollRef.current) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const clickRatio = (e.clientX - rect.left) / rect.width;
+    const targetScroll = (clickRatio - ratio / 2) * maxScroll / Math.max(0.01, 1 - ratio);
+    scrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, targetScroll));
+  };
+
+  return (
+    <div
+      ref={barRef}
+      className="flex-1 h-full bg-[#101116] relative cursor-pointer overflow-hidden border-l border-logic-border-dark select-none"
+      onClick={handleTrackClick}
+      title="Navegador horizontal: arraste o centro para navegar. Arraste as pontas para dar zoom."
+    >
+      <div className="absolute inset-0 bg-white/[0.02]" />
+      <div
+        className="absolute top-1 bottom-1 rounded-[4px] bg-[#282a35] hover:bg-[#343746] border border-white/20 shadow-sm flex items-center justify-between group transition-colors"
+        style={{
+          left: `${thumbLeftPct}%`,
+          width: `${thumbWidthPct}%`,
+          minWidth: '32px',
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={handleThumbPointerDown}
+      >
+        {/* Alça Esquerda de Zoom */}
+        <div
+          className="w-3.5 h-full cursor-ew-resize flex items-center justify-center hover:bg-white/20 rounded-l-[3px] group/leftHandle transition-colors"
+          onPointerDown={handleLeftZoomPointerDown}
+          title="Arraste para ajustar o zoom horizontal pela esquerda"
+        >
+          <div className="w-[2px] h-2.5 bg-white/40 group-hover/leftHandle:bg-white rounded-full" />
+        </div>
+
+        {/* Centro de arraste de navegação */}
+        <div className="flex-1 h-full flex items-center justify-center cursor-grab active:cursor-grabbing gap-[3px] px-1">
+          <div className="w-0.5 h-2 bg-white/25 rounded-full" />
+          <div className="w-0.5 h-2 bg-white/25 rounded-full" />
+          <div className="w-0.5 h-2 bg-white/25 rounded-full" />
+        </div>
+
+        {/* Alça Direita de Zoom */}
+        <div
+          className="w-3.5 h-full cursor-ew-resize flex items-center justify-center hover:bg-white/20 rounded-r-[3px] group/rightHandle transition-colors"
+          onPointerDown={handleRightZoomPointerDown}
+          title="Arraste para ajustar o zoom horizontal pela direita"
+        >
+          <div className="w-[2px] h-2.5 bg-white/40 group-hover/rightHandle:bg-white rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const VIEW_MARGIN_PX = 600;
 
 export default function TimelinePanel() {
@@ -1522,7 +1714,7 @@ export default function TimelinePanel() {
     target.addEventListener('pointerup', up);
     target.addEventListener('pointercancel', up);
   }, []);
-  const resetHeaderWidth = useCallback(() => setTrackHeaderWidth(192), [setTrackHeaderWidth]);
+  const resetHeaderWidth = useCallback(() => setTrackHeaderWidth(220), [setTrackHeaderWidth]);
 
   const handleRulerPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -1566,37 +1758,37 @@ export default function TimelinePanel() {
     <div className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
-          {/* Opção B: Cápsula Segmentada Unificada estilo Logic Pro 11 / Apple macOS */}
+          {/* Ações Rápidas: Cápsula Segmentada Unificada estilo Logic Pro 11 / Apple macOS */}
           <div className="h-10 flex items-center px-2 border-b border-logic-border-dark/60 bg-logic-bg-deep">
-            <div className="flex items-center w-full h-[28px] rounded-lg bg-black/40 border border-white/10 p-[2px] shadow-inner select-none">
+            <div className="flex items-center w-full h-[28px] rounded-lg bg-black/50 border border-white/10 p-[2px] select-none gap-0.5">
               <button
-                className="flex-1 h-full rounded-[6px] flex items-center justify-center gap-1.5 px-2 text-[11px] font-semibold text-logic-text-dim hover:text-white hover:bg-white/[0.08] active:bg-logic-accent/25 active:text-white transition-all disabled:opacity-30 disabled:pointer-events-none truncate"
+                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
                 onClick={handleSplitAtCursor}
                 disabled={!song || timelineLocked}
                 title="Dividir áudios selecionados no cursor (Split - atalho S)"
               >
-                <Scissors size={12} className="shrink-0 text-cyan-400" />
-                <span>Dividir</span>
+                <Scissors size={11} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <span className="leading-none">Dividir</span>
               </button>
               <div className="w-px h-3.5 bg-white/10 shrink-0" />
               <button
-                className="flex-1 h-full rounded-[6px] flex items-center justify-center gap-1.5 px-2 text-[11px] font-semibold text-logic-text-dim hover:text-white hover:bg-white/[0.08] active:bg-logic-accent/25 active:text-white transition-all disabled:opacity-30 disabled:pointer-events-none truncate"
+                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
                 onClick={handleCutMedleyAtCursor}
                 disabled={!song || timelineLocked}
                 title="Fatiar medley no cursor: separa uma música da outra"
               >
-                <ArrowLeftRight size={12} className="shrink-0 text-purple-400" />
-                <span>Medley</span>
+                <ArrowLeftRight size={11} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <span className="leading-none">Medley</span>
               </button>
               <div className="w-px h-3.5 bg-white/10 shrink-0" />
               <button
-                className="flex-1 h-full rounded-[6px] flex items-center justify-center gap-1.5 px-2 text-[11px] font-semibold text-logic-text-dim hover:text-white hover:bg-white/[0.08] active:bg-logic-accent/25 active:text-white transition-all disabled:opacity-30 disabled:pointer-events-none truncate"
+                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
                 onClick={handleAddRegionAtCursor}
                 disabled={!song || timelineLocked}
                 title="Nova região de 4 compassos a partir do cursor"
               >
-                <Plus size={13} className="shrink-0 text-emerald-400" />
-                <span>Regiões</span>
+                <Plus size={12} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <span className="leading-none">Regiões</span>
               </button>
             </div>
           </div>
@@ -1659,7 +1851,7 @@ export default function TimelinePanel() {
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto logic-scroll relative"
+        className="flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative"
         onScroll={handleScroll}
       >
         {!song ? (
@@ -1760,14 +1952,35 @@ export default function TimelinePanel() {
         )}
       </div>
 
+      {/* Barra de Rodapé com Navegador de Scroll Horizontal (exclusivo para as faixas, da aresta direita das tracks em diante) */}
+      <div className="flex items-center h-6 bg-logic-bg-deep border-t border-logic-border-dark text-2xs text-logic-text-muted select-none">
+        {/* Espaço reservado exatamente para a largura das Tracks (aresta esquerda não tem scrollbar) */}
+        <div
+          className="flex items-center justify-between px-2 shrink-0 border-r border-logic-border-dark/60 h-full bg-logic-bg-deep"
+          style={{ width: `${HEADER_W}px` }}
+        >
+          <span className="text-[10px] text-logic-text-muted truncate">
+            {selectedClipIds.length > 0 ? `${selectedClipIds.length} sel.` : `${songClips.length} clips`}
+          </span>
+          <span className="text-[10px] font-mono text-zinc-400">
+            {Math.round(zoomH)}px/s
+          </span>
+        </div>
+
+        {/* Scrollbar & Navegador de Zoom Horizontal da Timeline */}
+        <TimelineNavigatorScrollbar
+          scrollRef={scrollRef}
+          timelineWidth={timelineWidth}
+          zoomH={zoomH}
+          setZoomH={setZoomH}
+          headerWidth={HEADER_W}
+        />
+      </div>
+
       {/* Barra de Ferramentas da Grade e Progresso */}
       <div className="flex items-center justify-between gap-3 px-3 h-7 bg-[#121318] border-t border-logic-border-dark text-2xs text-logic-text-muted">
         <GridToolbar song={song} onSelectAll={selectAllSongClips} />
         <FooterProgress importProgress={importProgress} exportProgress={exportProgress} />
-        <span className="flex-shrink-0 hidden sm:inline text-zinc-400 font-mono text-[11px]">
-          {selectedClipIds.length > 0 ? `${selectedClipIds.length} selecionado${selectedClipIds.length > 1 ? 's' : ''} | ` : ''}
-          {songClips.length} clips | Zoom {Math.round(zoomH)}px/s
-        </span>
       </div>
 
       {isSongLoading && (
