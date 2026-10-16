@@ -97,11 +97,35 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
           <filter id="spBarGlow" x="-20%" y="-200%" width="140%" height="500%">
             <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#4ade80" floodOpacity="0.6" />
           </filter>
+          <clipPath id="spSquircleClip">
+            <rect x="-110" y="-110" width="220" height="220" rx="55" />
+          </clipPath>
         </defs>
 
         <g transform="translate(400, 160)">
           <g className="splash-pop">
             <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#spLogoBase)" stroke="#2c2f38" strokeWidth="1" filter="url(#spShadow)" />
+
+            <g clipPath="url(#spSquircleClip)" opacity="0.25">
+              <line x1="-80" y1="-110" x2="-80" y2="110" stroke="#ffffff" strokeWidth="0.8" opacity="0.3" strokeDasharray="3 3" />
+              <line x1="-35" y1="-110" x2="-35" y2="110" stroke="#ffffff" strokeWidth="0.8" opacity="0.4" />
+              <line x1="10" y1="-110" x2="10" y2="110" stroke="#ffffff" strokeWidth="0.8" opacity="0.3" strokeDasharray="3 3" />
+              <line x1="55" y1="-110" x2="55" y2="110" stroke="#ffffff" strokeWidth="0.8" opacity="0.4" />
+              <rect x="-110" y="-85" width="220" height="34" fill="#ff9f0a" opacity="0.08" />
+              <line x1="-110" y1="-51" x2="110" y2="-51" stroke="#ffffff" strokeWidth="0.8" opacity="0.2" />
+              <rect x="-70" y="-80" width="110" height="24" rx="4" fill="#ff9f0a" opacity="0.35" />
+              <polyline points="-65,-68 -55,-64 -45,-72 -35,-65 -25,-68 -15,-62 -5,-70 5,-66 15,-71 25,-67" fill="none" stroke="#fff" strokeWidth="1.2" opacity="0.75" />
+              <rect x="-110" y="-51" width="220" height="48" fill="#000000" opacity="0.25" />
+              <line x1="-110" y1="-3" x2="110" y2="-3" stroke="#ffffff" strokeWidth="0.8" opacity="0.2" />
+              <rect x="-100" y="-45" width="85" height="36" rx="5" fill="#38bdf8" opacity="0.35" />
+              <polyline points="-95,-27 -85,-18 -75,-35 -65,-22 -55,-30 -45,-25 -35,-32 -25,-27" fill="none" stroke="#e0f2fe" strokeWidth="1.5" opacity="0.8" />
+              <rect x="0" y="-45" width="95" height="36" rx="5" fill="#c084fc" opacity="0.35" />
+              <polyline points="5,-27 15,-18 25,-34 35,-20 45,-32 55,-24 65,-30 75,-27" fill="none" stroke="#f3e8ff" strokeWidth="1.5" opacity="0.8" />
+              <rect x="-110" y="-3" width="220" height="48" fill="#22c55e" opacity="0.06" />
+              <line x1="-110" y1="45" x2="110" y2="45" stroke="#ffffff" strokeWidth="0.8" opacity="0.2" />
+              <rect x="-60" y="5" width="130" height="34" rx="5" fill="#4ade80" opacity="0.3" />
+              <polyline points="-55,22 -45,15 -35,28 -25,18 -15,26 -5,20 5,27 15,19 25,24 35,20 45,26 55,22" fill="none" stroke="#dcfce7" strokeWidth="1.3" opacity="0.7" />
+            </g>
 
             <g className="splash-fade" style={{ animationDelay: '350ms' }}>
               <ellipse transform="rotate(22)" rx="90" ry="22" fill="none" stroke="#9a3412" strokeWidth="1.5" opacity="0.4" />
