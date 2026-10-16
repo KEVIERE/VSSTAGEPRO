@@ -1117,12 +1117,12 @@ function TimelineHorizontalScrollbar({
   return (
     <div
       ref={barRef}
-      className="flex-1 h-full bg-[#0e0f14] relative cursor-pointer overflow-hidden border-l border-logic-border-dark select-none"
+      className="flex-1 h-full bg-[#121212] relative cursor-pointer overflow-hidden border-l border-logic-border-dark select-none"
       onPointerDown={handleTrackPointerDown}
       title="Rolar timeline horizontalmente"
     >
       <div
-        className="absolute top-1 bottom-1 rounded-full bg-zinc-600/70 hover:bg-zinc-500 active:bg-zinc-400 border border-white/10 shadow-sm cursor-grab active:cursor-grabbing transition-colors"
+        className="absolute top-1/2 -translate-y-1/2 h-[6px] rounded-full bg-[#3a3a3a] hover:bg-[#4e4e4e] active:bg-[#5e5e5e] border border-white/[0.08] shadow-sm cursor-grab active:cursor-grabbing transition-colors"
         style={{
           left: `${thumbLeftPct}%`,
           width: `${thumbWidthPct}%`,
@@ -1869,16 +1869,16 @@ export default function TimelinePanel() {
       </div>
 
       {/* Barra de Rodapé com Navegador de Scroll Horizontal (exclusivo para as faixas, da aresta direita das tracks em diante) */}
-      <div className="flex items-center h-6 bg-logic-bg-deep border-t border-logic-border-dark text-2xs text-logic-text-muted select-none">
+      <div className="flex items-center h-[18px] bg-logic-bg-deep border-t border-logic-border-dark text-2xs text-logic-text-muted select-none">
         {/* Espaço reservado exatamente para a largura das Tracks (aresta esquerda não tem scrollbar) */}
         <div
           className="flex items-center justify-between px-2 shrink-0 border-r border-logic-border-dark/60 h-full bg-logic-bg-deep"
           style={{ width: `${HEADER_W}px` }}
         >
-          <span className="text-[10px] text-logic-text-muted truncate">
+          <span className="text-[9px] text-logic-text-muted truncate">
             {selectedClipIds.length > 0 ? `${selectedClipIds.length} sel.` : `${songClips.length} clips`}
           </span>
-          <span className="text-[10px] font-mono text-zinc-400">
+          <span className="text-[9px] font-mono text-logic-text-muted">
             {Math.round(zoomH)}px/s
           </span>
         </div>
