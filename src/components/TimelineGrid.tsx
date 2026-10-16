@@ -4,7 +4,6 @@ import { useStore } from '@/store';
 import type { Song } from '@/types';
 import { barBeatLabel, gridLines, SNAP_LABELS, type SnapStep, type SongGrid } from '@/lib/grid';
 import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
-import { beginGesture, endGesture } from '@/lib/undoGestures';
 import type { VisibleRange } from '@/components/ClipWaveform';
 
 const LINE_COLORS = {
@@ -29,39 +28,8 @@ export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoo
 }
 
 export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid: SongGrid; zoomH: number; visible: VisibleRange }) {
-  const updateSong = useStore((s) => s.updateSong);
-  const [dragTime, setDragTime] = useState<number | null>(null);
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
   const beatPx = grid.beat * zoomH;
-
-  const handleDownbeatPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
-    const startX = e.clientX;
-    const origin = grid.downbeat;
-    const limit = Math.max(0, song.duration);
-    beginGesture();
-    const timeAt = (clientX: number) => Math.min(limit, Math.max(0, origin + (clientX - startX) / zoomH));
-    const move = (ev: PointerEvent) => {
-      const t = timeAt(ev.clientX);
-      setDragTime(t);
-      updateSong(song.id, { downbeat: Math.round(t * 1000) / 1000 });
-    };
-    const up = () => {
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerup', up);
-      el.removeEventListener('pointercancel', up);
-      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-      setDragTime(null);
-      endGesture();
-    };
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
-  };
 
   return (
     <>
@@ -81,19 +49,6 @@ export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid
           </div>
         );
       })}
-      <div
-        className="absolute top-0 z-10 -translate-x-1/2 cursor-ew-resize group"
-        style={{ left: `${grid.downbeat * zoomH}px` }}
-        onPointerDown={handleDownbeatPointerDown}
-        title="Primeiro tempo forte: arraste para alinhar a grade"
-      >
-        <div className="w-0 h-0 border-l-[6px] border-r-[6px] border-t-[8px] border-l-transparent border-r-transparent border-t-logic-lcd-amber transition-transform group-hover:scale-125" />
-        {dragTime !== null && (
-          <span className="absolute left-1/2 top-2.5 -translate-x-1/2 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-border-light text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
-            {dragTime.toFixed(3)}s
-          </span>
-        )}
-      </div>
     </>
   );
 }

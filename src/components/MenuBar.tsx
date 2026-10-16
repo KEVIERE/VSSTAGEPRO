@@ -12,6 +12,8 @@ import { autoOpenEnabled, clearRecentProjects, listRecentProjects, setAutoOpenEn
 import NetworkModeButton, { useModeSwitch } from '@/components/network/NetworkModeButton';
 import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
 import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
+import { audioEngine } from '@/lib/audioEngine';
+import { clipPlayLength } from '@/lib/audioLibrary';
 
 // O programa é Mac-only: atalhos sempre no padrão do teclado Mac (⌘), nunca Ctrl.
 const SAVE_SHORTCUT = '⌘S';
@@ -134,8 +136,77 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         { label: 'Desfazer', shortcut: '⌘Z', action: undo },
         { label: 'Refazer', shortcut: '⌘⇧Z', action: redo },
         { separator: true },
+        {
+          label: 'Selecionar Todos os Clipes',
+          shortcut: '⌘A',
+          action: () => {
+            const st = useStore.getState();
+            const sid = st.selectedSongId ?? st.playlist[0]?.songId;
+            if (sid) {
+              const songClips = st.clips.filter((c) => c.songId === sid);
+              st.selectClips(songClips.map((c) => c.id));
+            }
+            setOpenMenu(null);
+          },
+        },
+        {
+          label: 'Dividir Clipes no Cursor',
+          shortcut: 'S',
+          action: () => {
+            const st = useStore.getState();
+            const sid = st.selectedSongId ?? st.playlist[0]?.songId;
+            if (sid && !st.timelineLocked) {
+              const songClips = st.clips.filter((c) => c.songId === sid);
+              const cursor = st.transport.isPlaying && st.transport.currentSongId === sid
+                ? audioEngine.getCurrentTime()
+                : st.transport.currentTime;
+              const crossing = songClips.filter((c) => cursor > c.startTime && cursor < c.startTime + clipPlayLength(c));
+              const sel = crossing.filter((c) => st.selectedClipIds.includes(c.id));
+              const targetIds = sel.length > 0 ? sel.map((c) => c.id) : crossing.map((c) => c.id);
+              if (targetIds.length > 0) {
+                st.splitClipsAt(targetIds, cursor);
+                audioEngine.invalidatePrepared(sid);
+              }
+            }
+            setOpenMenu(null);
+          },
+        },
+        {
+          label: 'Excluir Clipes Selecionados',
+          shortcut: 'Del',
+          action: () => {
+            const st = useStore.getState();
+            if (st.selectedClipIds.length > 0 && !st.timelineLocked) {
+              const ids = [...st.selectedClipIds];
+              audioEngine.stopClipsLive(ids);
+              st.removeClips(ids);
+              const sid = st.selectedSongId ?? st.playlist[0]?.songId;
+              if (sid) audioEngine.invalidatePrepared(sid);
+            }
+            setOpenMenu(null);
+          },
+        },
+        {
+          label: 'Agrupar Clipes',
+          shortcut: '⌘G',
+          action: () => {
+            const st = useStore.getState();
+            if (st.selectedClipIds.length >= 2) st.groupClips(st.selectedClipIds);
+            setOpenMenu(null);
+          },
+        },
+        {
+          label: 'Desagrupar Clipes',
+          shortcut: '⌘U',
+          action: () => {
+            const st = useStore.getState();
+            if (st.selectedClipIds.length > 0) st.ungroupClips(st.selectedClipIds);
+            setOpenMenu(null);
+          },
+        },
+        { separator: true },
         { label: 'Duplicar Música', shortcut: '⌘D', action: () => { if (selectedSongId) duplicatePlaylistEntry(selectedSongId); setOpenMenu(null); } },
-        { label: 'Excluir Música', shortcut: 'Delete', action: () => { if (selectedSongId) removeSong(selectedSongId); setOpenMenu(null); } },
+        { label: 'Excluir Música', action: () => { if (selectedSongId) removeSong(selectedSongId); setOpenMenu(null); } },
       ],
     },
     {
@@ -145,6 +216,11 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         { label: 'Mostrar/Ocultar Playlist', action: () => { togglePlaylist(); setOpenMenu(null); } },
         { label: 'Maximizar Playlist', action: () => { togglePlaylistMaximized(); setOpenMenu(null); } },
         { label: 'Mostrar/Ocultar Controles de Clipe', action: () => { toggleDawMode(); setOpenMenu(null); } },
+        { separator: true },
+        {
+          label: useStore.getState().timelineLocked ? 'Destravar Timeline' : 'Travar Timeline (Cadeado)',
+          action: () => { useStore.getState().toggleTimelineLocked(); setOpenMenu(null); },
+        },
       ],
     },
   ];

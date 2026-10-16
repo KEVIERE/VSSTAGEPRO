@@ -186,11 +186,15 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
     });
   }, [isMaestro, selectedInputId]);
 
-  // Inicia monitor de VU meter suavemente quando a track Maestro é exibida
+  // Monitor de VU meter só inicia e modula quando o REC estiver efetivamente ligado
   useEffect(() => {
     if (!isMaestro) return;
-    audioRecorder.startMonitoring(selectedInputId || undefined).catch(() => {});
-  }, [isMaestro, selectedInputId]);
+    if (isRecording) {
+      audioRecorder.startMonitoring(selectedInputId || undefined).catch(() => {});
+    } else {
+      audioRecorder.stopMonitoring();
+    }
+  }, [isMaestro, isRecording, selectedInputId]);
 
   useEffect(() => {
     if (!showInputMenu) return;
@@ -370,7 +374,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
                 )}
               </div>
             )}
-            {isMaestro && <InputVuMeter />}
+            {isMaestro && isRecording && <InputVuMeter />}
           </div>
         )}
         <button
@@ -1028,19 +1032,6 @@ export default function TimelinePanel() {
   const groupClips = useStore((s) => s.groupClips);
   const ungroupClips = useStore((s) => s.ungroupClips);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
-  const [openMenu, setOpenMenu] = useState<'edit' | 'functions' | 'view' | null>(null);
-  const menuBarRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!openMenu) return;
-    const handleCloseMenu = (e: MouseEvent) => {
-      if (menuBarRef.current && !menuBarRef.current.contains(e.target as Node)) {
-        setOpenMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handleCloseMenu);
-    return () => document.removeEventListener('mousedown', handleCloseMenu);
-  }, [openMenu]);
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
@@ -1227,32 +1218,36 @@ export default function TimelinePanel() {
   const handleMoveStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => {
     if (timelineLocked) return;
     const targetEl = e.target as HTMLElement;
-    if (targetEl.closest("button, input, [role=\"button\"], .group\\/fadeLine")) return;
+    if (targetEl.closest("button, input, [role=\"button\"], .group\\/fadeLine, .group\\/trimStart, .group\\/trimEnd")) return;
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
 
     const additive = e.ctrlKey || e.metaKey;
-    let ids = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
-    if (!ids.includes(clip.id)) {
-      const groupMembers = clip.groupId
-        ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
-        : [clip.id];
-      ids = additive ? [...ids, ...groupMembers] : groupMembers;
-      selectClips(ids);
+    const isAlreadySelected = selectedSet.has(clip.id);
+    let currentSelection = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
+
+    const groupMembers = clip.groupId
+      ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
+      : [clip.id];
+
+    if (additive) {
+      // Toggle de seleção com Command / Ctrl (adiciona ou remove do conjunto)
+      if (isAlreadySelected) {
+        currentSelection = currentSelection.filter((id) => !groupMembers.includes(id));
+      } else {
+        currentSelection = Array.from(new Set([...currentSelection, ...groupMembers]));
+      }
+      selectClips(currentSelection);
     } else {
-      const targetClips = songClips.filter((c) => ids.includes(c.id));
-      const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
-      if (groupIds.size > 0) {
-        for (const c of songClips) {
-          if (c.groupId && groupIds.has(c.groupId) && !ids.includes(c.id)) {
-            ids.push(c.id);
-          }
-        }
-        selectClips(ids);
+      // Clique normal sem Command: se ainda não estiver selecionado, seleciona exclusivamente este
+      if (!isAlreadySelected) {
+        currentSelection = groupMembers;
+        selectClips(currentSelection);
       }
     }
-    const idSet = new Set(ids);
+
+    const idSet = new Set(currentSelection);
     const targets = songClips.filter((c) => idSet.has(c.id));
     if (targets.length === 0) return;
 
@@ -1262,10 +1257,16 @@ export default function TimelinePanel() {
     const el = e.currentTarget;
     try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     const startX = e.clientX;
+    const startY = e.clientY;
     let delta = 0;
+    let hasMoved = false;
 
     const describe = (st: number) => (grid ? `${formatRegionTime(st)} | ${barBeatLabel(st, grid)}` : formatRegionTime(st));
     const move = (ev: PointerEvent) => {
+      const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
+      if (!hasMoved && dist < 4) return;
+      hasMoved = true;
+
       const raw = origStart + (ev.clientX - startX) / zoomH;
       const snapped = snapTime(raw, grid, ev.altKey ? "off" : snapStep);
       delta = Math.max(-minStart, snapped - origStart);
@@ -1282,6 +1283,13 @@ export default function TimelinePanel() {
       el.removeEventListener("pointercancel", up);
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       setMoveDrag(null);
+
+      // Se não moveu e foi clique simples sem Command em um item de uma seleção múltipla anterior, foca só nele
+      if (!hasMoved && !additive && isAlreadySelected && currentSelection.length > 1) {
+        selectClips(groupMembers);
+        return;
+      }
+
       if (Math.abs(delta) < 1e-4) return;
       updateClips(targets.map((c) => ({
         id: c.id,
@@ -1513,299 +1521,63 @@ export default function TimelinePanel() {
   return (
     <div className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
-        <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }} ref={menuBarRef}>
-          {/* Linha 1: Menus estilo Logic Pro 11 (Editar, Funções, Visualizar) + Trava da Timeline */}
-          <div className="h-6 flex items-center justify-between px-2 border-b border-logic-border-dark/60 gap-1 bg-logic-bg-deep relative">
-            <div className="flex items-center gap-0.5 text-2xs">
-              {/* Menu Editar */}
-              <div className="relative">
-                <button
-                  type="button"
-                  className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                    openMenu === 'edit'
-                      ? 'bg-logic-accent text-white'
-                      : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated'
-                  }`}
-                  onClick={() => setOpenMenu(openMenu === 'edit' ? null : 'edit')}
-                >
-                  Editar ▾
-                </button>
-                {openMenu === 'edit' && (
-                  <div className="absolute left-0 top-full mt-1 z-[400] py-1 bg-[#161720] border border-white/20 rounded-lg shadow-2xl text-2xs min-w-[210px] animate-[fadeIn_80ms_ease-out]">
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        useStore.temporal.getState().undo();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Desfazer</span>
-                      <span className="text-logic-text-muted text-[10px]">⌘Z</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        useStore.temporal.getState().redo();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Refazer</span>
-                      <span className="text-logic-text-muted text-[10px]">⇧⌘Z</span>
-                    </button>
-                    <div className="h-px bg-white/10 my-1" />
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        selectAllSongClips();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Selecionar Tudo</span>
-                      <span className="text-logic-text-muted text-[10px]">⌘A</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        handleSplitAtCursor();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Dividir no Cursor</span>
-                      <span className="text-logic-text-muted text-[10px]">S</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-logic-lcd-red hover:text-white"
-                      onClick={() => {
-                        handleDeleteSelectedClips();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Excluir Selecionados</span>
-                      <span className="text-logic-text-muted text-[10px]">Del</span>
-                    </button>
-                    <div className="h-px bg-white/10 my-1" />
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        if (selectedClipIds.length >= 2) groupClips(selectedClipIds);
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Agrupar Clipes</span>
-                      <span className="text-logic-text-muted text-[10px]">⌘G</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        if (selectedClipIds.length > 0) ungroupClips(selectedClipIds);
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Desagrupar Clipes</span>
-                      <span className="text-logic-text-muted text-[10px]">⌘U</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Menu Funções */}
-              <div className="relative">
-                <button
-                  type="button"
-                  className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                    openMenu === 'functions'
-                      ? 'bg-logic-accent text-white'
-                      : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated'
-                  }`}
-                  onClick={() => setOpenMenu(openMenu === 'functions' ? null : 'functions')}
-                >
-                  Funções ▾
-                </button>
-                {openMenu === 'functions' && (
-                  <div className="absolute left-0 top-full mt-1 z-[400] py-1 bg-[#161720] border border-white/20 rounded-lg shadow-2xl text-2xs min-w-[210px] animate-[fadeIn_80ms_ease-out]">
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        handleSplitAtCursor();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Dividir Áudio Selecionado</span>
-                      <Scissors size={12} className="text-logic-text-muted" />
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        handleCutMedleyAtCursor();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Fatiar Medley no Cursor</span>
-                      <Scissors size={12} className="text-logic-text-muted" />
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        handleAddRegionAtCursor();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Nova Região no Cursor</span>
-                      <Plus size={12} className="text-logic-text-muted" />
-                    </button>
-                    <div className="h-px bg-white/10 my-1" />
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        toggleTimelineLocked();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>{timelineLocked ? 'Destravar Timeline' : 'Travar Timeline (Cadeado)'}</span>
-                      {timelineLocked ? <Unlock size={12} /> : <Lock size={12} />}
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        resetHeaderWidth();
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Largura Padrão das Faixas</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Menu Visualizar */}
-              <div className="relative">
-                <button
-                  type="button"
-                  className={`px-1.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                    openMenu === 'view'
-                      ? 'bg-logic-accent text-white'
-                      : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated'
-                  }`}
-                  onClick={() => setOpenMenu(openMenu === 'view' ? null : 'view')}
-                >
-                  Visualizar ▾
-                </button>
-                {openMenu === 'view' && (
-                  <div className="absolute left-0 top-full mt-1 z-[400] py-1 bg-[#161720] border border-white/20 rounded-lg shadow-2xl text-2xs min-w-[210px] animate-[fadeIn_80ms_ease-out]">
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        zoomButton(1.35);
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Aproximar Zoom Horizontal</span>
-                      <span className="text-logic-text-muted text-[10px]">+</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        zoomButton(0.75);
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Afastar Zoom Horizontal</span>
-                      <span className="text-logic-text-muted text-[10px]">-</span>
-                    </button>
-                    <div className="h-px bg-white/10 my-1" />
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100));
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Aumentar Altura das Faixas</span>
-                      <UnfoldVertical size={12} className="text-logic-text-muted" />
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-white/10 text-white"
-                      onClick={() => {
-                        setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100));
-                        setOpenMenu(null);
-                      }}
-                    >
-                      <span>Diminuir Altura das Faixas</span>
-                      <FoldVertical size={12} className="text-logic-text-muted" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Trava da Timeline: Cadeado discreto */}
+        <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
+          {/* Linha 1: Título de Faixas e Trava da Timeline (Cadeado 100% visível e sem corte) */}
+          <div className="h-7 flex items-center justify-between px-2.5 border-b border-logic-border-dark/60 bg-logic-bg-deep">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted">
+              Faixas
+            </span>
             <button
               onClick={toggleTimelineLocked}
-              className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-semibold transition-all shrink-0 ${
                 timelineLocked
-                  ? 'bg-logic-lcd-amber/20 border border-logic-lcd-amber/60 text-logic-lcd-amber shadow-[0_0_8px_rgba(255,159,10,0.3)]'
-                  : 'text-logic-text-muted hover:text-white hover:bg-logic-bg-elevated border border-transparent'
+                  ? 'bg-logic-lcd-amber/20 border border-logic-lcd-amber/70 text-logic-lcd-amber shadow-[0_0_8px_rgba(255,159,10,0.35)]'
+                  : 'bg-logic-bg-elevated border border-logic-border-light text-logic-text-muted hover:text-white hover:border-white/20'
               }`}
               title={
                 timelineLocked
-                  ? 'Timeline travada: clique para destravar e permitir mover/cortar áudios'
+                  ? 'Timeline travada: clique para destravar e permitir mover ou cortar áudios'
                   : 'Travar timeline: impede movimentar ou cortar áudios acidentalmente'
               }
             >
-              {timelineLocked ? <Lock size={11} className="text-logic-lcd-amber" /> : <Unlock size={11} />}
-              <span className="text-[9px] font-bold hidden md:inline">{timelineLocked ? 'TRAVADA' : ''}</span>
+              {timelineLocked ? <Lock size={12} className="text-logic-lcd-amber shrink-0" /> : <Unlock size={12} className="shrink-0" />}
+              <span className="text-[10px] font-bold">{timelineLocked ? 'TRAVADA' : 'LIVRE'}</span>
             </button>
           </div>
 
-          {/* Linha 2: Ações Rápidas Padronizadas - Rigorosamente com o mesmo tamanho */}
-          <div className="h-6 flex items-center justify-between px-2 border-b border-logic-border-dark/60 gap-1.5">
+          {/* Linha 2: Ações Rápidas (Dividir, Medley e + Região) com Design de Console de Estúdio */}
+          <div className="h-8 flex items-center justify-between px-2 border-b border-logic-border-dark/60 gap-1.5 bg-logic-bg-deep/80">
             <button
-              className="flex-1 h-[20px] rounded flex items-center justify-center gap-1 text-2xs font-semibold text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent hover:bg-white/[0.04] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              className="flex-1 h-[25px] rounded-md flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white/90 bg-gradient-to-b from-[#2a2c3a] to-[#1c1d27] border border-white/15 hover:border-[#64d2ff]/80 hover:from-[#35384b] hover:to-[#222432] shadow-[0_1px_3px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
               onClick={handleSplitAtCursor}
               disabled={!song || timelineLocked}
               title="Dividir áudios selecionados no cursor (Split - atalho S)"
             >
-              <Scissors size={10} className="shrink-0" />
+              <Scissors size={11} className="text-[#64d2ff] shrink-0" />
               <span>Dividir</span>
             </button>
             <button
-              className="flex-1 h-[20px] rounded flex items-center justify-center gap-1 text-2xs font-semibold text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent hover:bg-white/[0.04] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              className="flex-1 h-[25px] rounded-md flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white/90 bg-gradient-to-b from-[#2a2c3a] to-[#1c1d27] border border-white/15 hover:border-[#bf5af2]/80 hover:from-[#35384b] hover:to-[#222432] shadow-[0_1px_3px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
               onClick={handleCutMedleyAtCursor}
               disabled={!song || timelineLocked}
               title="Fatiar medley no cursor: separa uma música da outra"
             >
-              <Scissors size={10} className="shrink-0" />
+              <Scissors size={11} className="text-[#bf5af2] shrink-0" />
               <span>Medley</span>
             </button>
             <button
-              className="flex-1 h-[20px] rounded flex items-center justify-center gap-1 text-2xs font-semibold text-logic-text-dim bg-logic-bg-elevated border border-logic-border-light hover:text-white hover:border-logic-accent hover:bg-white/[0.04] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              className="flex-1 h-[25px] rounded-md flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white/90 bg-gradient-to-b from-[#2a2c3a] to-[#1c1d27] border border-white/15 hover:border-logic-lcd-green/80 hover:from-[#35384b] hover:to-[#222432] shadow-[0_1px_3px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
               onClick={handleAddRegionAtCursor}
               disabled={!song || timelineLocked}
               title="Nova região de 4 compassos a partir do cursor"
             >
-              <Plus size={11} className="shrink-0" />
+              <Plus size={12} className="text-logic-lcd-green shrink-0" />
               <span>Região</span>
             </button>
           </div>
 
           {/* Linha 3: Navegação, Altura e Zoom Horizontal */}
-          <div className="h-10 flex items-center justify-between px-3">
+          <div className="h-9 flex items-center justify-between px-3">
             <div className="flex items-center gap-1">
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30 p-1 rounded hover:bg-logic-bg-elevated" disabled={zoomV <= 0.5} onClick={() => setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100))} title="Diminuir altura das tracks"><FoldVertical size={13} /></button>
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30 p-1 rounded hover:bg-logic-bg-elevated" disabled={zoomV >= 3} onClick={() => setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100))} title="Aumentar altura das tracks"><UnfoldVertical size={13} /></button>
