@@ -6,6 +6,7 @@ import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
 import { generateMarkers } from '@/lib/audioDecoder';
 import { publishMeters } from '@/lib/meterBus';
+import { masterMaestroAudioBuffer } from '@/lib/voiceMastering';
 
 export interface InputAudioDevice {
   deviceId: string;
@@ -193,9 +194,18 @@ export const audioRecorder = new AudioRecorder();
 export async function saveRecordingToMaestro(
   songId: string,
   startTime: number,
-  audioBuffer: AudioBuffer
+  rawAudioBuffer: AudioBuffer
 ): Promise<AudioClip> {
   const store = useStore.getState();
+
+  // Aplica masterização vocal inteligente com IA (De-Noise, EQ de Presença e Nivelamento)
+  let audioBuffer = rawAudioBuffer;
+  try {
+    audioBuffer = await masterMaestroAudioBuffer(rawAudioBuffer);
+  } catch (err) {
+    console.warn('[saveRecordingToMaestro] Fallback áudio bruto:', err);
+  }
+
   const sampleRate = audioBuffer.sampleRate;
   const duration = Math.max(0.1, audioBuffer.duration);
 
@@ -209,7 +219,7 @@ export async function saveRecordingToMaestro(
   const clip: AudioClip = {
     id: clipId,
     trackId: 'track-maestro',
-    name: `Voz Maestro (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`,
+    name: `Voz Maestro ✨ (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})`,
     fileName: `maestro_${Date.now()}.wav`,
     filePath: URL.createObjectURL(wavBlob),
     songId,
