@@ -1,0 +1,298 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="100%" height="100%">
+  <defs>
+    <!-- ==================== GRADIENTES DO CHASSIS (VS STAGE PRO) ==================== -->
+    <radialGradient id="bgSurface" cx="50%" cy="38%" r="65%">
+      <stop offset="0%" stop-color="#23252E" />
+      <stop offset="55%" stop-color="#15171C" />
+      <stop offset="100%" stop-color="#0B0C0F" />
+    </radialGradient>
+
+    <linearGradient id="squircleRimOuter" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#4A4E5D" />
+      <stop offset="35%" stop-color="#282A33" />
+      <stop offset="100%" stop-color="#0A0B0D" />
+    </linearGradient>
+
+    <linearGradient id="squircleBevelTop" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
+      <stop offset="25%" stop-color="#FFFFFF" stop-opacity="0.03" />
+      <stop offset="85%" stop-color="#000000" stop-opacity="0.4" />
+      <stop offset="100%" stop-color="#000000" stop-opacity="0.85" />
+    </linearGradient>
+
+    <!-- Iluminação Ambiente no Piso do Ícone -->
+    <radialGradient id="ambientEmerald" cx="28%" cy="48%" r="40%">
+      <stop offset="0%" stop-color="#10B981" stop-opacity="0.28" />
+      <stop offset="60%" stop-color="#059669" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#059669" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="ambientBlue" cx="52%" cy="68%" r="32%">
+      <stop offset="0%" stop-color="#2563EB" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#1D4ED8" stop-opacity="0" />
+    </radialGradient>
+
+    <radialGradient id="ambientAmber" cx="76%" cy="56%" r="38%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.28" />
+      <stop offset="55%" stop-color="#EA580C" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#EA580C" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- ==================== GRADIENTES DO TUBO 3D (ONDA SONORA) ==================== -->
+    <!-- Corpo Principal do Tubo: Verde Guia/Click -> Azul Track -> Âmbar LTC/Master -->
+    <linearGradient id="tubeBodyGrad" x1="12%" y1="35%" x2="88%" y2="65%">
+      <stop offset="0%" stop-color="#6EE7B7" />
+      <stop offset="14%" stop-color="#10B981" />
+      <stop offset="32%" stop-color="#059669" />
+      <stop offset="48%" stop-color="#1D4ED8" />
+      <stop offset="64%" stop-color="#2563EB" />
+      <stop offset="78%" stop-color="#D97706" />
+      <stop offset="92%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#FB923C" />
+    </linearGradient>
+
+    <!-- Filamento Interno Incandescente -->
+    <linearGradient id="tubeCoreGrad" x1="12%" y1="35%" x2="88%" y2="65%">
+      <stop offset="0%" stop-color="#ECFDF5" />
+      <stop offset="18%" stop-color="#6EE7B7" />
+      <stop offset="36%" stop-color="#34D399" />
+      <stop offset="52%" stop-color="#60A5FA" />
+      <stop offset="68%" stop-color="#93C5FD" />
+      <stop offset="82%" stop-color="#FDE68A" />
+      <stop offset="100%" stop-color="#FFFBEB" />
+    </linearGradient>
+
+    <!-- Reflexo Especular de Vidro no Topo do Tubo -->
+    <linearGradient id="tubeGlassHighlight" x1="10%" y1="20%" x2="90%" y2="80%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9" />
+      <stop offset="28%" stop-color="#FFFFFF" stop-opacity="0.75" />
+      <stop offset="50%" stop-color="#93C5FD" stop-opacity="0.45" />
+      <stop offset="72%" stop-color="#FFFFFF" stop-opacity="0.35" />
+      <stop offset="90%" stop-color="#FEF3C7" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.95" />
+    </linearGradient>
+
+    <!-- ==================== GRADIENTES DO PLAY 3D EM ACRÍLICO/VIDRO ==================== -->
+    <!-- Extrusão 3D Lateral/Inferior do Triângulo -->
+    <linearGradient id="playExtrusionGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2C303C" />
+      <stop offset="45%" stop-color="#171920" />
+      <stop offset="75%" stop-color="#0E1015" />
+      <stop offset="100%" stop-color="#29231E" />
+    </linearGradient>
+
+    <!-- Face Principal de Vidro Fosco Acetinado -->
+    <linearGradient id="playGlassSurface" x1="15%" y1="10%" x2="85%" y2="90%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.52" />
+      <stop offset="25%" stop-color="#D4D8E2" stop-opacity="0.32" />
+      <stop offset="55%" stop-color="#788094" stop-opacity="0.24" />
+      <stop offset="82%" stop-color="#4A5060" stop-opacity="0.34" />
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.28" />
+    </linearGradient>
+
+    <!-- Reflexo Diagonal de Estúdio na Face do Vidro -->
+    <linearGradient id="playDiagonalSheen" x1="0%" y1="0%" x2="75%" y2="75%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.65" />
+      <stop offset="32%" stop-color="#FFFFFF" stop-opacity="0.18" />
+      <stop offset="33%" stop-color="#FFFFFF" stop-opacity="0.0" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0" />
+    </linearGradient>
+
+    <!-- Chanfro Externo (Bevel) da Moldura Play -->
+    <linearGradient id="playOuterBevel" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95" />
+      <stop offset="35%" stop-color="#E2E8F0" stop-opacity="0.7" />
+      <stop offset="70%" stop-color="#64748B" stop-opacity="0.35" />
+      <stop offset="100%" stop-color="#FBBF24" stop-opacity="0.75" />
+    </linearGradient>
+
+    <!-- Chanfro Interno da Janela Vazada do Play -->
+    <linearGradient id="playInnerBevel" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.8" />
+      <stop offset="45%" stop-color="#94A3B8" stop-opacity="0.25" />
+      <stop offset="80%" stop-color="#0F172A" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.6" />
+    </linearGradient>
+
+    <!-- ==================== GEOMETRIAS BASE E MÁSCARAS ==================== -->
+    <!-- Curva Exata da Onda 3D -->
+    <path id="wavePath" d="M 158 508 C 218 504, 268 264, 358 264 C 448 264, 494 756, 586 756 C 672 756, 756 516, 852 496" />
+
+    <!-- Geometria Vazada (Compound Path) da Moldura Triangular Play -->
+    <path id="playHollowFrame" fill-rule="evenodd"
+          d="M 354 316
+             C 354 276, 384 260, 418 281
+             L 708 461
+             C 742 482, 742 522, 708 543
+             L 418 723
+             C 384 744, 354 728, 354 688
+             Z
+             M 426 392
+             C 426 372, 442 364, 460 375
+             L 614 471
+             C 632 482, 632 522, 614 533
+             L 460 629
+             C 442 640, 426 632, 426 612
+             Z" />
+
+    <!-- ClipPath da Moldura Play para Refração Interna do Vidro -->
+    <clipPath id="playGlassClip">
+      <use href="#playHollowFrame" />
+    </clipPath>
+
+    <!-- ClipPath do Squircle para Conter Luzes Ambientes -->
+    <clipPath id="squircleClip">
+      <rect x="44" y="44" width="936" height="936" rx="212" ry="212" />
+    </clipPath>
+
+    <!-- ==================== FILTROS 3D REALISTAS ==================== -->
+    <!-- Sombra Externa do Ícone no macOS -->
+    <filter id="iconDropShadow" x="-15%" y="-15%" width="130%" height="135%">
+      <feDropShadow dx="0" dy="24" stdDeviation="22" flood-color="#000000" flood-opacity="0.75" />
+    </filter>
+
+    <!-- Sombra Profunda da Onda no Piso -->
+    <filter id="waveFloorShadow" x="-25%" y="-25%" width="150%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="20" result="blur" />
+      <feOffset in="blur" dx="0" dy="38" result="offsetBlur" />
+      <feComponentTransfer in="offsetBlur" result="shadow">
+        <feFuncA type="linear" slope="0.85" />
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadow" />
+      </feMerge>
+    </filter>
+
+    <!-- Difusão Néon do Tubo -->
+    <filter id="neonBloom" x="-35%" y="-35%" width="170%" height="170%">
+      <feGaussianBlur stdDeviation="22" result="blur1" />
+      <feGaussianBlur stdDeviation="8" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur1" />
+        <feMergeNode in="blur2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Suavização Cilíndrica Interna do Tubo -->
+    <filter id="softCylinder" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" />
+    </filter>
+
+    <filter id="glassSpecBlur" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="2.2" />
+    </filter>
+
+    <!-- Refração do Vidro Fosco (Onda vista através do Acrílico) -->
+    <filter id="frostedRefraction" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="14" result="blurWave" />
+      <feColorMatrix type="saturate" values="1.35" />
+    </filter>
+
+    <!-- Sombra Projetada de Alta Profundidade do Play 3D -->
+    <filter id="playDeepShadow" x="-30%" y="-25%" width="160%" height="165%">
+      <feDropShadow dx="-8" dy="36" stdDeviation="22" flood-color="#000000" flood-opacity="0.88" />
+      <feDropShadow dx="-2" dy="12" stdDeviation="7" flood-color="#000000" flood-opacity="0.65" />
+    </filter>
+  </defs>
+
+  <!-- ==================== 1. CHASSIS SQUIRCLE 3D (FUNDO DO ÍCONE) ==================== -->
+  <g filter="url(#iconDropShadow)">
+    <!-- Borda Externa Metálica Escura -->
+    <rect x="40" y="40" width="944" height="944" rx="216" ry="216" fill="url(#squircleRimOuter)" />
+    <!-- Superfície Mate Principal -->
+    <rect x="44" y="44" width="936" height="936" rx="212" ry="212" fill="url(#bgSurface)" />
+  </g>
+
+  <!-- Conteúdo Interno do Squircle -->
+  <g clip-path="url(#squircleClip)">
+    <!-- Luzes Ambientes Refletidas no Chassis Escuro -->
+    <circle cx="290" cy="460" r="380" fill="url(#ambientEmerald)" />
+    <circle cx="540" cy="680" r="320" fill="url(#ambientBlue)" />
+    <circle cx="770" cy="540" r="360" fill="url(#ambientAmber)" />
+
+    <!-- Grelha Subtil de Compasso da Timeline (Estilo VS STAGE PRO) -->
+    <g stroke="#FFFFFF" stroke-opacity="0.022" stroke-width="2">
+      <line x1="256" y1="44" x2="256" y2="980" />
+      <line x1="512" y1="44" x2="512" y2="980" />
+      <line x1="768" y1="44" x2="768" y2="980" />
+      <line x1="44" y1="256" x2="980" y2="256" />
+      <line x1="44" y1="512" x2="980" y2="512" />
+      <line x1="44" y1="768" x2="980" y2="768" />
+    </g>
+
+    <!-- ==================== 2. TUBO DE ONDA SONORA 3D ==================== -->
+    <!-- Camada 2.1: Sombra Projetada do Tubo no Piso -->
+    <use href="#wavePath" fill="none" stroke="#000000" stroke-width="68" stroke-linecap="round" filter="url(#waveFloorShadow)" />
+
+    <!-- Camada 2.2: Brilho Néon Difuso e Corpo Base do Tubo -->
+    <use href="#wavePath" fill="none" stroke="url(#tubeBodyGrad)" stroke-width="62" stroke-linecap="round" filter="url(#neonBloom)" />
+
+    <!-- Camada 2.3: Sombra Cilíndrica Inferior Interna (Volume 3D do Tubo) -->
+    <use href="#wavePath" fill="none" stroke="#04060A" stroke-width="58" stroke-linecap="round" opacity="0.45" transform="translate(0, 6)" filter="url(#softCylinder)" />
+    <use href="#wavePath" fill="none" stroke="url(#tubeBodyGrad)" stroke-width="54" stroke-linecap="round" />
+
+    <!-- Camada 2.4: Filamento de Plasma Luminoso Central -->
+    <use href="#wavePath" fill="none" stroke="url(#tubeCoreGrad)" stroke-width="24" stroke-linecap="round" filter="url(#softCylinder)" opacity="0.9" />
+
+    <!-- Camada 2.5: Reflexo Especular de Vidro Curvo no Topo do Tubo -->
+    <use href="#wavePath" fill="none" stroke="url(#tubeGlassHighlight)" stroke-width="8" stroke-linecap="round" transform="translate(-3, -12)" filter="url(#glassSpecBlur)" />
+    <use href="#wavePath" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" transform="translate(-3, -13)" opacity="0.65" />
+
+    <!-- Camada 2.6: Sombra de Oclusão do Botão Play Projetada SOBRE o Tubo -->
+    <g filter="url(#softCylinder)" opacity="0.75">
+      <!-- Sombra na interseção superior esquerda -->
+      <ellipse cx="384" cy="300" rx="46" ry="54" fill="#000000" transform="rotate(-22 384 300)" />
+      <!-- Sombra na interseção inferior direita -->
+      <ellipse cx="534" cy="662" rx="52" ry="44" fill="#000000" transform="rotate(-30 534 662)" />
+    </g>
+
+    <!-- ==================== 3. BOTÃO PLAY 3D EM VIDRO/ACRÍLICO ESCULPIDO ==================== -->
+    <!-- Camada 3.1: Sombra Profunda Projetada pelo Triângulo Play -->
+    <g filter="url(#playDeepShadow)">
+      <use href="#playHollowFrame" fill="#090A0F" fill-opacity="0.55" />
+    </g>
+
+    <!-- Camada 3.2: Parede de Extrusão 3D (Espessura Lateral/Inferior do Acrílico) -->
+    <use href="#playHollowFrame" fill="url(#playExtrusionGrad)" stroke="#1E222A" stroke-width="3" transform="translate(-7, 13)" />
+    <use href="#playHollowFrame" fill="none" stroke="#000000" stroke-width="4" opacity="0.65" transform="translate(-3, 7)" />
+
+    <!-- Camada 3.3: Refração Ótica Real (A Onda Vista Através do Vidro Fosco) -->
+    <g clip-path="url(#playGlassClip)">
+      <!-- Fundo escuro translúcido do vidro -->
+      <rect x="300" y="220" width="480" height="560" fill="#181B24" fill-opacity="0.52" />
+
+      <!-- Onda refratada (deslocada pela espessura da lente de vidro e desfocada) -->
+      <g filter="url(#frostedRefraction)" transform="translate(8, -6) scale(1.015)" transform-origin="512 512">
+        <use href="#wavePath" fill="none" stroke="url(#tubeBodyGrad)" stroke-width="76" stroke-linecap="round" opacity="0.95" />
+        <use href="#wavePath" fill="none" stroke="#FFFFFF" stroke-width="26" stroke-linecap="round" opacity="0.55" />
+      </g>
+
+      <!-- Textura de Acrílico Fosco e Gradiente Volumétrico da Face -->
+      <use href="#playHollowFrame" fill="url(#playGlassSurface)" />
+
+      <!-- Reflexo Especular Diagonal (Efeito Vidro de Estúdio) -->
+      <polygon points="320,230 620,230 390,620 320,620" fill="url(#playDiagonalSheen)" />
+
+      <!-- Sombra Interna da Cavidade Central do Triângulo -->
+      <path d="M 426 392 C 426 372, 442 364, 460 375 L 614 471 C 632 482, 632 522, 614 533 L 460 629 C 442 640, 426 632, 426 612 Z"
+            fill="none" stroke="url(#playInnerBevel)" stroke-width="8" />
+    </g>
+
+    <!-- Camada 3.4: Chanfro 3D Luminoso (Bevel Externo e Interno da Moldura) -->
+    <use href="#playHollowFrame" fill="none" stroke="url(#playOuterBevel)" stroke-width="5.5" stroke-linejoin="round" />
+
+    <!-- Camada 3.5: Brilho Especular de Quina Superior (Fresnel Highlight) -->
+    <path d="M 354 670 L 354 316 C 354 276, 384 260, 418 281 L 708 461 C 726 472, 734 488, 733 502"
+          fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" opacity="0.85" />
+
+    <!-- Reflexo Verde Esmeralda na Aresta Esquerda do Vidro -->
+    <path d="M 353 560 L 353 330" fill="none" stroke="#6EE7B7" stroke-width="3" stroke-linecap="round" opacity="0.6" filter="url(#glassSpecBlur)" />
+
+    <!-- Reflexo Âmbar LTC na Ponta Direita Inferior do Vidro -->
+    <path d="M 712 540 L 490 678" fill="none" stroke="#FBBF24" stroke-width="3" stroke-linecap="round" opacity="0.55" filter="url(#glassSpecBlur)" />
+  </g>
+
+  <!-- Rebordo 3D Interno do Squircle (Acabamento macOS) -->
+  <rect x="45" y="45" width="934" height="934" rx="211" ry="211" fill="none" stroke="url(#squircleBevelTop)" stroke-width="4" />
+</svg>
