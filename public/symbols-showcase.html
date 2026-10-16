@@ -1,0 +1,513 @@
+<title>Símbolos VS Stage</title>
+<style>
+  :root {
+    --bg-page: #0c0d12;
+    --bg-card: #15161e;
+    --bg-card-hover: #1b1d28;
+    --border: rgba(255, 255, 255, 0.1);
+    --border-hover: rgba(255, 255, 255, 0.25);
+    --text-primary: #ffffff;
+    --text-secondary: #9ea3b5;
+    --text-muted: #656a7d;
+    --accent-amber: #ff9f0a;
+    --accent-blue: #0a84ff;
+    --accent-glow: rgba(255, 159, 10, 0.25);
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    padding-inline: 24px;
+    padding-block: 36px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(255, 159, 10, 0.08) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(10, 132, 255, 0.05) 0%, transparent 60%);
+  }
+
+  .container {
+    max-width: 1100px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .tag {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    color: var(--accent-amber);
+    background: rgba(255, 159, 10, 0.12);
+    border: 1px solid rgba(255, 159, 10, 0.3);
+    padding: 4px 12px;
+    border-radius: 999px;
+  }
+
+  h1 {
+    font-size: clamp(26px, 4vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(180deg, #ffffff 0%, #b0b4c3 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    max-width: 600px;
+    line-height: 1.6;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 20px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+    transform: translateY(-4px);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+  }
+
+  .card-badge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.06);
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+
+  .logo-preview-box {
+    width: 100%;
+    aspect-ratio: 1;
+    background: radial-gradient(circle at center, #1e202a 0%, #111218 80%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
+    padding: 28px;
+  }
+
+  .logo-preview-box svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.4));
+    transition: transform 0.3s ease;
+  }
+
+  .card:hover .logo-preview-box svg {
+    transform: scale(1.05);
+  }
+
+  .info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .title-row h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .daw-ref {
+    font-size: 11px;
+    color: var(--accent-amber);
+    font-weight: 600;
+  }
+
+  .desc {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .detail-item {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    line-height: 1.4;
+  }
+
+  .detail-item strong {
+    color: #e0e3ed;
+  }
+
+  /* Seção de Demonstração no Dock e na DAW */
+  .dock-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .dock-title {
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+
+  .dock-bar {
+    background: rgba(30, 32, 42, 0.6);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 22px;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .dock-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+
+  .dock-item:hover {
+    transform: translateY(-8px) scale(1.1);
+  }
+
+  .dock-icon-squircle {
+    width: 60px;
+    height: 60px;
+    border-radius: 14px;
+    background: linear-gradient(180deg, #252834 0%, #14151c 100%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 11px;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  .dock-item span {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .dock-item.active span {
+    color: var(--accent-amber);
+  }
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+<div class="container">
+  <div class="header">
+    <div class="tag">Identidade Visual & Branding</div>
+    <h1>Símbolos Oficiais para o VS Stage Pro</h1>
+    <p class="subtitle">
+      Conceitos de símbolos desenhados com a mesma filosofia das maiores DAWs mundiais (Ableton Live, Logic Pro, Studio One e Pro Tools): geometria marcante, autoridade de palco e reconhecimento instantâneo em qualquer tamanho.
+    </p>
+  </div>
+
+  <div class="grid">
+
+    <!-- OPÇÃO 1: O Monograma Wave V+S -->
+    <div class="card">
+      <span class="card-badge">Opção 1</span>
+      <div class="logo-preview-box">
+        <!-- SVG Símbolo 1: V e S em onda sonora entrelaçada -->
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="100%" stop-color="#8b90a4"/>
+            </linearGradient>
+            <linearGradient id="amberGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffb340"/>
+              <stop offset="100%" stop-color="#ff8c00"/>
+            </linearGradient>
+          </defs>
+          <!-- Fundo sutil de grid geométrico -->
+          <circle cx="50" cy="50" r="44" stroke="rgba(255,255,255,0.06)" stroke-width="1" />
+          <!-- V e S contínuos estilo Ableton/Studio One -->
+          <path d="M 22 26 L 44 74 L 56 74 L 78 26 L 66 26 L 50 61 L 34 26 Z" fill="url(#g1)" />
+          <path d="M 46 36 C 46 29 55 26 63 26 C 73 26 77 31 77 31 L 71 39 C 71 39 67 35 63 35 C 59 35 55 36 55 40 C 55 49 78 46 78 61 C 78 71 68 76 58 76 C 47 76 42 70 42 70 L 48 62 C 48 62 53 67 58 67 C 63 67 68 65 68 60 C 68 50 46 51 46 36 Z" fill="url(#amberGlow)" opacity="0.95" />
+          <circle cx="50" cy="74" r="2.5" fill="#ffb340" />
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>The Waveform V+S</h3>
+          <span class="daw-ref">Estilo Ableton</span>
+        </div>
+        <p class="desc">
+          O <strong>V</strong> estrutural de palco fundido com o <strong>S</strong> orgânico em curva senoidal dourada.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Conceito:</strong> Precisão digital do "V" e fluidez das ondas do "S".</div>
+        <div class="detail-item"><strong>Destaque:</strong> Funciona perfeito em 16px como favicon e no Dock.</div>
+      </div>
+    </div>
+
+    <!-- OPÇÃO 2: O Prisma do Palco com Play -->
+    <div class="card">
+      <span class="card-badge">Opção 2</span>
+      <div class="logo-preview-box">
+        <!-- SVG Símbolo 2: Palco angular + Playhead + Holofotes -->
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="vStageBeam" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="60%" stop-color="#9aa0b5"/>
+              <stop offset="100%" stop-color="#4a4e60"/>
+            </linearGradient>
+            <linearGradient id="playCore" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffb834"/>
+              <stop offset="100%" stop-color="#e67e00"/>
+            </linearGradient>
+          </defs>
+          <!-- Palco V em perspectiva frontal (Boca de cena) -->
+          <path d="M 16 22 L 44 82 L 56 82 L 84 22 L 70 22 L 50 67 L 30 22 Z" fill="url(#vStageBeam)" />
+          <!-- Sombra e profundidade interna -->
+          <polygon points="50,67 70,22 84,22" fill="#ffffff" opacity="0.12" />
+          <!-- Play central flutuante em neon âmbar (o Play do show) -->
+          <polygon points="45,41 61,51 45,61" fill="url(#playCore)" />
+          <!-- Feixe de luz superior do palco -->
+          <path d="M 40 22 L 50 36 L 60 22" stroke="#ffb834" stroke-width="2" stroke-linecap="round" opacity="0.6" />
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>The Stage Spotlight</h3>
+          <span class="daw-ref">Estilo Logic Pro</span>
+        </div>
+        <p class="desc">
+          O <strong>V</strong> aberto como os holofotes e a boca de cena do palco, com o triângulo de <strong>Play</strong> puro ao centro.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Conceito:</strong> O "Play" da banda no palco. Autoridade de show ao vivo.</div>
+        <div class="detail-item"><strong>Destaque:</strong> Transmite que o app é feito para a pressão do palco.</div>
+      </div>
+    </div>
+
+    <!-- OPÇÃO 3: Fitas Multitrack em V (Stems & Tracks) -->
+    <div class="card">
+      <span class="card-badge">Opção 3</span>
+      <div class="logo-preview-box">
+        <!-- SVG Símbolo 3: Barras paralelas geométricas de Multitrack -->
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="stemBar" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="100%" stop-color="#6e7387"/>
+            </linearGradient>
+          </defs>
+          <!-- 3 Pistas / Stems convergindo em V de alta precisão -->
+          <!-- Pista 1 (Esquerda externa) -->
+          <rect x="18" y="24" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.5" />
+          <!-- Pista 2 (Esquerda média) -->
+          <rect x="30" y="32" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.8" />
+          <!-- Pista Central (O Vértice do Palco - Dourado) -->
+          <path d="M 45 42 L 50 78 L 55 42 Z" fill="#ff9f0a" />
+          <circle cx="50" cy="80" r="3" fill="#ff9f0a" />
+          <!-- Pista 4 (Direita média) -->
+          <rect x="62" y="32" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.8" />
+          <!-- Pista 5 (Direita externa) -->
+          <rect x="74" y="24" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.5" />
+          <!-- Linhas horizontais do Grid da Timeline unindo tudo -->
+          <line x1="20" y1="46" x2="80" y2="46" stroke="rgba(255,255,255,0.2)" stroke-dasharray="2 4" stroke-width="1.5" />
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>The Multitrack Wings</h3>
+          <span class="daw-ref">Estilo Pro Tools</span>
+        </div>
+        <p class="desc">
+          Colunas de faders e multitracks dispostas em asas simétricas apontando para o click central.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Conceito:</strong> Pistas de áudio, bateria, baixo e voz convergindo em sincronismo.</div>
+        <div class="detail-item"><strong>Destaque:</strong> Muito técnico e imediatamente associado a áudio profissional.</div>
+      </div>
+    </div>
+
+    <!-- OPÇÃO 4: O Monograma Geométrico Puro (V & S Infinito) -->
+    <div class="card">
+      <span class="card-badge">Opção 4</span>
+      <div class="logo-preview-box">
+        <!-- SVG Símbolo 4: Linha contínua fita de Moebius V e S -->
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="ribbon1" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="50%" stop-color="#cfd3e0"/>
+              <stop offset="100%" stop-color="#707589"/>
+            </linearGradient>
+            <linearGradient id="amberGold" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffbf47"/>
+              <stop offset="100%" stop-color="#e07700"/>
+            </linearGradient>
+          </defs>
+          <!-- Fita angular moderna unindo o V ao S -->
+          <!-- Asa esquerda do V -->
+          <path d="M 22 28 L 44 76 L 56 76 L 36 32 L 48 32 C 58 32 64 36 64 43 C 64 51 56 54 48 56 L 40 58 C 28 61 22 68 22 78 C 22 88 32 94 46 94" stroke="url(#ribbon1)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.3" />
+
+          <path d="M 24 28 L 46 76 L 56 76 L 78 28" stroke="url(#ribbon1)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M 44 32 C 44 24 53 20 62 20 C 72 20 78 26 78 33 C 78 44 54 46 54 57 C 54 66 64 70 74 68" stroke="url(#amberGold)" stroke-width="7" stroke-linecap="round" />
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>The Infinite Stem (V/S)</h3>
+          <span class="daw-ref">Estilo Studio One</span>
+        </div>
+        <p class="desc">
+          Traço arquitetural que une a letra <strong>V</strong> em base metálica sólida com a curva do <strong>S</strong> em ouro âmbar.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Conceito:</strong> Transições fluidas de medley e estabilidade ininterrupta.</div>
+        <div class="detail-item"><strong>Destaque:</strong> Minimalismo premium, nobre e ultra contemporâneo.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Demonstração Realista no Dock do Mac / Barra do Windows -->
+  <div class="dock-section">
+    <div class="dock-title">Visualização no Dock do macOS (Ícone do Aplicativo)</div>
+    <div class="dock-bar">
+      <!-- Item 1 -->
+      <div class="dock-item" onclick="selectDock(1)">
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 100 100" fill="none">
+            <path d="M 22 26 L 44 74 L 56 74 L 78 26 L 66 26 L 50 61 L 34 26 Z" fill="#ffffff" />
+            <path d="M 46 36 C 46 29 55 26 63 26 C 73 26 77 31 77 31 L 71 39 C 71 39 67 35 63 35 C 59 35 55 36 55 40 C 55 49 78 46 78 61 C 78 71 68 76 58 76 C 47 76 42 70 42 70 L 48 62 C 48 62 53 67 58 67 C 63 67 68 65 68 60 C 68 50 46 51 46 36 Z" fill="#ff9f0a" />
+          </svg>
+        </div>
+        <span>Opção 1</span>
+      </div>
+
+      <!-- Item 2 -->
+      <div class="dock-item active" onclick="selectDock(2)">
+        <div class="dock-icon-squircle" style="border-color: rgba(255, 159, 10, 0.4); box-shadow: 0 0 20px rgba(255,159,10,0.2);">
+          <svg viewBox="0 0 100 100" fill="none">
+            <path d="M 16 22 L 44 82 L 56 82 L 84 22 L 70 22 L 50 67 L 30 22 Z" fill="#ffffff" />
+            <polygon points="45,41 61,51 45,61" fill="#ff9f0a" />
+          </svg>
+        </div>
+        <span>Opção 2</span>
+      </div>
+
+      <!-- Item 3 -->
+      <div class="dock-item" onclick="selectDock(3)">
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 100 100" fill="none">
+            <rect x="20" y="24" width="8" height="42" rx="4" fill="#888" />
+            <rect x="32" y="32" width="8" height="42" rx="4" fill="#bbb" />
+            <path d="M 45 42 L 50 78 L 55 42 Z" fill="#ff9f0a" />
+            <rect x="60" y="32" width="8" height="42" rx="4" fill="#bbb" />
+            <rect x="72" y="24" width="8" height="42" rx="4" fill="#888" />
+          </svg>
+        </div>
+        <span>Opção 3</span>
+      </div>
+
+      <!-- Item 4 -->
+      <div class="dock-item" onclick="selectDock(4)">
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 100 100" fill="none">
+            <path d="M 24 28 L 46 76 L 56 76 L 78 28" stroke="#ffffff" stroke-width="10" stroke-linecap="round" />
+            <path d="M 44 32 C 44 24 53 20 62 20 C 72 20 78 26 78 33 C 78 44 54 46 54 57 C 54 66 64 70 74 68" stroke="#ff9f0a" stroke-width="8" stroke-linecap="round" />
+          </svg>
+        </div>
+        <span>Opção 4</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function selectDock(id) {
+    document.querySelectorAll('.dock-item').forEach((el, idx) => {
+      if (idx + 1 === id) {
+        el.classList.add('active');
+        el.querySelector('.dock-icon-squircle').style.borderColor = 'rgba(255, 159, 10, 0.4)';
+        el.querySelector('.dock-icon-squircle').style.boxShadow = '0 0 20px rgba(255,159,10,0.2)';
+      } else {
+        el.classList.remove('active');
+        el.querySelector('.dock-icon-squircle').style.borderColor = 'rgba(255, 255, 255, 0.15)';
+        el.querySelector('.dock-icon-squircle').style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
+      }
+    });
+  }
+</script>
