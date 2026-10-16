@@ -1719,10 +1719,8 @@ export default function TimelinePanel() {
               {noSpaceHint ? <span className="text-logic-lcd-amber font-sans">Sem espaço</span> : `${Math.round(zoomH * 10)}%`}
             </div>
             <div className="flex items-center gap-1">
-              <button className="text-logic-text-muted hover:text-logic-text px-1.5 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (-)">−</button>
-              <button className="text-logic-text-muted hover:text-logic-text px-1.5 py-0.5 rounded hover:bg-logic-bg-elevated font-mono font-bold text-xs leading-none" onClick={() => zoomButton(1.35)} title="Aumentar zoom horizontal (+)">+</button>
-              <button className="text-logic-text-muted hover:text-logic-text p-1 rounded hover:bg-logic-bg-elevated" onClick={() => zoomButton(1.35)} title="Aproximar (Cmd + roda do mouse)"><ZoomIn size={13} /></button>
-              <button className="text-logic-text-muted hover:text-logic-text p-1 rounded hover:bg-logic-bg-elevated" onClick={() => zoomButton(0.75)} title="Afastar (Cmd + roda do mouse)"><ZoomOut size={13} /></button>
+              <button className="text-logic-text-muted hover:text-white p-1 rounded hover:bg-logic-bg-elevated transition-colors" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (Afastar)"><ZoomOut size={13} /></button>
+              <button className="text-logic-text-muted hover:text-white p-1 rounded hover:bg-logic-bg-elevated transition-colors" onClick={() => zoomButton(1.35)} title="Aumentar zoom horizontal (Aproximar)"><ZoomIn size={13} /></button>
             </div>
           </div>
         </div>
