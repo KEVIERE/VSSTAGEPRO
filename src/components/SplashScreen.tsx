@@ -59,59 +59,108 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
       aria-label="Abrindo o VS Stage"
     >
       <div
-        className="splash-card w-full max-w-[646px] aspect-[16/9] rounded-[24px] overflow-hidden flex flex-col items-center justify-between p-8 relative"
+        className="splash-card w-full max-w-[646px] aspect-[16/9] rounded-[24px] overflow-hidden"
         style={{
-          background: 'radial-gradient(ellipse at 50% 30%, rgba(38, 40, 48, 0.8) 0%, rgba(10, 11, 14, 0.95) 100%)',
-          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.1), inset 0 1px 0 rgba(255,255,255,0.15), 0 40px 90px -20px rgba(0,0,0,0.9), 0 0 60px -10px rgba(255,159,10,0.18)',
+          background: 'linear-gradient(180deg, rgba(36, 38, 43, 0.6) 0%, rgba(12, 13, 16, 0.78) 100%)',
+          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.09), inset 0 1px 0 rgba(255,255,255,0.12), 0 40px 80px -20px rgba(0,0,0,0.8)',
           transform: leaving ? 'scale(1.03)' : 'scale(1)',
           transition: `transform ${EXIT_MS}ms ease`,
         }}
       >
-        {/* Halo neon de fundo da logo */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-72 h-72 rounded-full bg-gradient-to-tr from-amber-500/20 via-orange-600/15 to-transparent blur-3xl pointer-events-none animate-pulse" />
+      <svg viewBox="0 0 800 450" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <linearGradient id="spLogoBase" x1="0%" y1="0%" x2="0%" y2="100%">
+            <stop offset="0%" stopColor="#22242a" />
+            <stop offset="100%" stopColor="#0f1013" />
+          </linearGradient>
+          <radialGradient id="spSphere" cx="45%" cy="30%" r="65%">
+            <stop offset="0%" stopColor="#555861" />
+            <stop offset="35%" stopColor="#15171c" />
+            <stop offset="85%" stopColor="#000000" />
+            <stop offset="100%" stopColor="#030303" />
+          </radialGradient>
+          <filter id="spNeon" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="3.5" result="b1" />
+            <feGaussianBlur stdDeviation="7" result="b2" />
+            <feMerge>
+              <feMergeNode in="b2" />
+              <feMergeNode in="b1" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="spShadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="12" stdDeviation="15" floodColor="#000" floodOpacity="0.9" />
+          </filter>
+          <filter id="spPlayShadow" x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#000" floodOpacity="0.8" />
+          </filter>
+          <filter id="spBarGlow" x="-20%" y="-200%" width="140%" height="500%">
+            <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#4ade80" floodOpacity="0.6" />
+          </filter>
+        </defs>
 
-        {/* Logo Oficial Animada */}
-        <div className="relative z-10 flex flex-col items-center mt-3">
-          <div className="relative group">
-            <div className="absolute -inset-2 bg-gradient-to-r from-amber-500 to-orange-600 rounded-3xl blur-xl opacity-40 group-hover:opacity-75 transition duration-1000 animate-pulse" />
-            <img
-              src="/vs-stage-icon.png"
-              alt="VS Stage Pro"
-              className="relative w-32 h-32 rounded-[24px] object-contain shadow-2xl drop-shadow-[0_12px_32px_rgba(255,159,10,0.45)] transform transition-transform duration-700 hover:scale-105 animate-[pop_900ms_cubic-bezier(0.22,1,0.36,1)_both]"
-              draggable={false}
-            />
-          </div>
+        <g transform="translate(400, 160)">
+          <g className="splash-pop">
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#spLogoBase)" stroke="#2c2f38" strokeWidth="1" filter="url(#spShadow)" />
 
-          {/* Tipografia Estilizada VS STAGE */}
-          <div className="mt-5 text-center">
-            <h1 className="text-3xl font-black tracking-[0.22em] text-white flex items-center justify-center gap-2 drop-shadow-[0_2px_10px_rgba(0,0,0,0.9)] font-['Montserrat',sans-serif]">
-              <span className="bg-gradient-to-r from-[#e5a882] via-[#d48b62] to-[#b86f48] bg-clip-text text-transparent">VS</span>
-              <span className="bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">STAGE</span>
-            </h1>
-            <p className="text-[10px] font-bold tracking-[0.35em] text-zinc-400 uppercase mt-1 drop-shadow">
-              MOTOR DE PERFORMANCE AO VIVO
-            </p>
-          </div>
-        </div>
+            <g className="splash-fade" style={{ animationDelay: '350ms' }}>
+              <ellipse transform="rotate(22)" rx="90" ry="22" fill="none" stroke="#9a3412" strokeWidth="1.5" opacity="0.4" />
+              <ellipse transform="rotate(-18)" rx="110" ry="28" fill="none" stroke="#14532d" strokeWidth="1.5" opacity="0.4" />
+            </g>
 
-        {/* Barra de Progresso e Status em Neon Âmbar */}
-        <div className="w-full max-w-sm flex flex-col items-center gap-2 z-10">
-          <span className="text-xs text-zinc-300 font-medium tracking-wide">
+            <circle r="55" fill="url(#spSphere)" filter="url(#spShadow)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#fff" opacity="0.07" />
+            <path d="M -35 40 A 45 45 0 0 0 35 40 Q 0 30 -35 40" fill="#4ade80" opacity="0.08" />
+
+            <g transform="rotate(22)">
+              <g className="splash-breathe" style={{ animationDelay: '1300ms' }}>
+                <path className="splash-draw" style={{ animationDelay: '450ms' }} pathLength={1} d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" strokeWidth="3.5" filter="url(#spNeon)" strokeLinecap="round" />
+                <path className="splash-draw" style={{ animationDelay: '450ms' }} pathLength={1} d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" strokeWidth="1.2" strokeLinecap="round" opacity="0.9" />
+              </g>
+            </g>
+            <g transform="rotate(-18)">
+              <g className="splash-breathe" style={{ animationDelay: '1700ms' }}>
+                <path className="splash-draw splash-draw-rev" style={{ animationDelay: '600ms' }} pathLength={1} d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" strokeWidth="3.5" filter="url(#spNeon)" strokeLinecap="round" />
+                <path className="splash-draw splash-draw-rev" style={{ animationDelay: '600ms' }} pathLength={1} d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" strokeWidth="1.5" strokeLinecap="round" opacity="0.9" />
+              </g>
+            </g>
+
+            <polygon className="splash-play" points="-8,-16 18,0 -8,16" fill="#fff" stroke="#fff" strokeWidth="1" strokeLinejoin="round" filter="url(#spPlayShadow)" />
+          </g>
+        </g>
+
+        <text x="400" y="325" textAnchor="middle" fontFamily={FONT} fontSize="28" fontWeight="800" fill="#fff" letterSpacing="4">
+          {TITLE.split('').map((ch, i) => (
+            <tspan key={i} className="splash-letter" style={{ animationDelay: `${900 + i * 55}ms` }}>{ch}</tspan>
+          ))}
+        </text>
+        <text className="splash-rise" style={{ animationDelay: '1400ms' }} x="400" y="348" textAnchor="middle" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#6b7280" letterSpacing="3">
+          MOTOR DE PERFORMANCE AO VIVO
+        </text>
+
+        <g className="splash-fade" style={{ animationDelay: '500ms' }}>
+          <text key={step} className="splash-status" x="400" y="380" textAnchor="middle" fontFamily={FONT} fontSize="11" fill="#8b929e">
             {current.text}
-          </span>
-          <div className="w-full h-1.5 rounded-full bg-black/60 border border-white/10 p-[1px] overflow-hidden shadow-inner">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400 shadow-[0_0_12px_rgba(255,159,10,0.8)] transition-all duration-700 ease-out"
-              style={{ width: `${current.progress * 100}%` }}
+          </text>
+          <g transform="translate(250, 395)">
+            <rect width="300" height="6" rx="3" fill="#0d0e11" stroke="#2a2c34" strokeWidth="1" />
+            <rect
+              x="1" y="1" width="298" height="4" rx="2" fill="#4ade80" filter="url(#spBarGlow)"
+              style={{
+                transformBox: 'fill-box',
+                transformOrigin: 'left center',
+                transform: `scaleX(${current.progress})`,
+                transition: 'transform 700ms cubic-bezier(0.22, 1, 0.36, 1)',
+              }}
             />
-          </div>
-        </div>
+          </g>
+        </g>
 
-        {/* Rodapé da Splash */}
-        <div className="w-full flex items-center justify-between text-[11px] font-medium text-zinc-500 z-10 pt-1 border-t border-white/[0.04]">
-          <span>© 2026 VS Stage</span>
-          <span className="text-amber-500 font-bold tracking-wider">v{__APP_VERSION__} PRO</span>
-        </div>
+        <g className="splash-fade" style={{ animationDelay: '800ms' }}>
+          <text x="40" y="425" fontFamily={FONT} fontSize="11" fontWeight="500" fill="#71717a">© 2026 VS Stage</text>
+          <text x="760" y="425" textAnchor="end" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#f59e0b">v{__APP_VERSION__} PRO</text>
+        </g>
+      </svg>
       </div>
     </div>
   );

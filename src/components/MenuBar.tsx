@@ -242,12 +242,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
 
   return (
     <div ref={menuRef} className="flex items-center h-7 bg-logic-bg-deep border-b border-logic-border-dark text-xs select-none">
-      <img
-        src="/icon-192.png"
-        alt="VS Stage"
-        className="w-4 h-4 ml-2.5 mr-1 rounded-[4px] object-contain shrink-0 drop-shadow-[0_0_8px_rgba(255,159,10,0.5)] transition-transform hover:scale-110 cursor-pointer"
-        title="VS Stage Pro"
-      />
       {menus.map((menu) => (
         <div key={menu.label} className="relative" {...hoverProps(menu.label)}>
           <button
