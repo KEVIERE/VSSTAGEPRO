@@ -115,64 +115,69 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
           </filter>
         </defs>
 
-        <g transform="translate(400, 160)">
-          <g className="splash-pop" transform="scale(0.22) translate(-512, -512)">
-            <rect x="32" y="32" width="960" height="960" rx="216" ry="216" fill="url(#stageBg)" stroke="url(#stageBorder)" strokeWidth="10" />
+        <svg x="310" y="38" width="180" height="180" viewBox="0 0 1024 1024" className="splash-logo-pop overflow-visible">
+          {/* Base Squircle */}
+          <rect x="32" y="32" width="960" height="960" rx="216" ry="216" fill="url(#stageBg)" stroke="url(#stageBorder)" strokeWidth="10" />
 
-            <g stroke="#FFFFFF" strokeOpacity={0.035} strokeWidth="2">
-              <line x1="212" y1="80" x2="212" y2="944" />
-              <line x1="362" y1="80" x2="362" y2="944" />
-              <line x1="512" y1="80" x2="512" y2="944" />
-              <line x1="662" y1="80" x2="662" y2="944" />
-              <line x1="812" y1="80" x2="812" y2="944" />
-            </g>
-
-            <line x1="382" y1="140" x2="382" y2="884" stroke="#F59E0B" strokeWidth="3" strokeOpacity={0.35} strokeDasharray="8 8" />
-
-            <path
-              d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
-              fill="none"
-              stroke="url(#waveGrad)"
-              strokeWidth="54"
-              strokeLinecap="round"
-              filter="url(#waveGlow)"
-            />
-
-            <path
-              d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
-              fill="none"
-              stroke="#FFFFFF"
-              strokeWidth="10"
-              strokeLinecap="round"
-              opacity={0.45}
-            />
-
-            <g filter="url(#playDropShadow)">
-              <path
-                d="M 382 324 C 382 298, 410 282, 432 295 L 704 459 C 726 472, 726 504, 704 517 L 432 681 C 410 694, 382 678, 382 652 Z"
-                fill="url(#playFill)"
-                stroke="url(#playStroke)"
-                strokeWidth="28"
-                strokeLinejoin="round"
-              />
-            </g>
+          {/* Linhas Verticais Subtis da Timeline */}
+          <g className="splash-timeline-grid" stroke="#FFFFFF" strokeOpacity={0.035} strokeWidth="2">
+            <line x1="212" y1="80" x2="212" y2="944" />
+            <line x1="362" y1="80" x2="362" y2="944" />
+            <line x1="512" y1="80" x2="512" y2="944" />
+            <line x1="662" y1="80" x2="662" y2="944" />
+            <line x1="812" y1="80" x2="812" y2="944" />
           </g>
-        </g>
 
-        <text x="400" y="325" textAnchor="middle" fontFamily={FONT} fontSize="28" fontWeight="800" fill="#fff" letterSpacing="4">
+          {/* Marcador de Playhead */}
+          <line className="splash-playhead-sweep" x1="382" y1="140" x2="382" y2="884" stroke="#F59E0B" strokeWidth="3" strokeOpacity={0.4} strokeDasharray="8 8" />
+
+          {/* Onda Sonora Principal */}
+          <path
+            className="splash-wave-glow"
+            d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
+            fill="none"
+            stroke="url(#waveGrad)"
+            strokeWidth="54"
+            strokeLinecap="round"
+            filter="url(#waveGlow)"
+          />
+
+          {/* Núcleo Luminoso da Onda */}
+          <path
+            d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth="10"
+            strokeLinecap="round"
+            opacity={0.45}
+          />
+
+          {/* Triângulo PLAY Central */}
+          <g className="splash-play-pop" filter="url(#playDropShadow)">
+            <path
+              d="M 382 324 C 382 298, 410 282, 432 295 L 704 459 C 726 472, 726 504, 704 517 L 432 681 C 410 694, 382 678, 382 652 Z"
+              fill="url(#playFill)"
+              stroke="url(#playStroke)"
+              strokeWidth="28"
+              strokeLinejoin="round"
+            />
+          </g>
+        </svg>
+
+        <text x="400" y="260" textAnchor="middle" fontFamily={FONT} fontSize="28" fontWeight="800" fill="#fff" letterSpacing="4">
           {TITLE.split('').map((ch, i) => (
             <tspan key={i} className="splash-letter" style={{ animationDelay: `${900 + i * 55}ms` }}>{ch}</tspan>
           ))}
         </text>
-        <text className="splash-rise" style={{ animationDelay: '1400ms' }} x="400" y="348" textAnchor="middle" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#6b7280" letterSpacing="3">
+        <text className="splash-rise" style={{ animationDelay: '1400ms' }} x="400" y="285" textAnchor="middle" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#6b7280" letterSpacing="3">
           MOTOR DE PERFORMANCE AO VIVO
         </text>
 
         <g className="splash-fade" style={{ animationDelay: '500ms' }}>
-          <text key={step} className="splash-status" x="400" y="380" textAnchor="middle" fontFamily={FONT} fontSize="11" fill="#8b929e">
+          <text key={step} className="splash-status" x="400" y="325" textAnchor="middle" fontFamily={FONT} fontSize="11" fill="#8b929e">
             {current.text}
           </text>
-          <g transform="translate(250, 395)">
+          <g transform="translate(250, 342)">
             <rect width="300" height="6" rx="3" fill="#0d0e11" stroke="#2a2c34" strokeWidth="1" />
             <rect
               x="1" y="1" width="298" height="4" rx="2" fill="#4ade80" filter="url(#spBarGlow)"
