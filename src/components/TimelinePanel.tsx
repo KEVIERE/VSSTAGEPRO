@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Lock, Unlock, Mic } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Lock, Unlock, Mic, GitMerge } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { audioEngine } from '@/lib/audioEngine';
 import { audioRecorder, listInputAudioDevices, saveRecordingToMaestro, type InputAudioDevice } from '@/lib/audioRecorder';
@@ -22,19 +22,37 @@ type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number
 type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
 
 /** Medidor VU de LEDs estilo DAW profissional (Logic Pro / Pro Tools) para a entrada da placa */
-function InputVuMeter() {
+function InputVuMeter({ trackHeight = 40 }: { trackHeight?: number }) {
   const level = useMeterLevel('input-maestro');
+  const isLarge = trackHeight > 55;
+  const isExtraLarge = trackHeight > 75;
+  const count = isExtraLarge ? 14 : isLarge ? 11 : 8;
+  const hCls = isExtraLarge ? 'h-5' : isLarge ? 'h-4' : 'h-3.5';
+  const wLed = isExtraLarge ? 'w-[3px]' : isLarge ? 'w-[2.5px]' : 'w-[2px]';
+
   return (
     <div
-      className="flex items-center gap-[1.5px] h-3.5 px-1 bg-black/60 rounded border border-white/10 shrink-0"
+      className={`flex items-center gap-[1.5px] ${hCls} px-1.5 bg-black/75 rounded border border-white/15 shrink-0 shadow-inner transition-all duration-100`}
       title={`Nível de entrada da placa: ${Math.round(level * 100)}%`}
     >
-      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.04 ? 'bg-logic-lcd-green shadow-[0_0_3px_#30d158]' : 'bg-logic-lcd-green/20'}`} />
-      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.18 ? 'bg-logic-lcd-green shadow-[0_0_3px_#30d158]' : 'bg-logic-lcd-green/20'}`} />
-      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.38 ? 'bg-logic-lcd-green shadow-[0_0_3px_#30d158]' : 'bg-logic-lcd-green/20'}`} />
-      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.60 ? 'bg-logic-lcd-amber shadow-[0_0_3px_#ff9f0a]' : 'bg-logic-lcd-amber/20'}`} />
-      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.80 ? 'bg-logic-lcd-amber shadow-[0_0_3px_#ff9f0a]' : 'bg-logic-lcd-amber/20'}`} />
-      <div className={`w-[2.5px] h-2 rounded-[1px] transition-colors duration-75 ${level > 0.94 ? 'bg-logic-lcd-red shadow-[0_0_4px_#ff453a]' : 'bg-logic-lcd-red/20'}`} />
+      {Array.from({ length: count }).map((_, i) => {
+        const threshold = (i + 1) / (count + 1);
+        const isActive = level >= threshold;
+        const isRed = i >= count - 2;
+        const isAmber = !isRed && i >= count - (isExtraLarge ? 5 : 4);
+        const colorCls = isRed
+          ? (isActive ? 'bg-[#ff453a] shadow-[0_0_5px_#ff453a]' : 'bg-[#ff453a]/20')
+          : isAmber
+          ? (isActive ? 'bg-[#ff9f0a] shadow-[0_0_4px_#ff9f0a]' : 'bg-[#ff9f0a]/20')
+          : (isActive ? 'bg-[#30d158] shadow-[0_0_4px_#30d158]' : 'bg-[#30d158]/20');
+
+        return (
+          <div
+            key={i}
+            className={`${wLed} h-full max-h-[85%] rounded-[1px] transition-colors duration-75 ${colorCls}`}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -340,11 +358,16 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
             </button>
             {showInputMenu && (
               <div
-                className="absolute right-0 top-full mt-1 z-[300] py-1 bg-[#161720] border border-white/20 rounded-xl shadow-2xl text-2xs min-w-[220px] max-w-[300px] animate-[fadeIn_100ms_ease-out]"
+                className="fixed mt-1 z-[999] py-1 bg-[#161720]/95 backdrop-blur-xl border border-white/20 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.85)] text-2xs min-w-[240px] max-w-[320px] animate-[fadeIn_100ms_ease-out]"
+                style={{
+                  top: inputMenuRef.current ? inputMenuRef.current.getBoundingClientRect().bottom + 4 : undefined,
+                  left: inputMenuRef.current ? Math.min(window.innerWidth - 320, Math.max(10, inputMenuRef.current.getBoundingClientRect().left)) : undefined,
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="px-3 py-1.5 text-logic-text-muted font-bold border-b border-white/10 uppercase tracking-wider text-[9px]">
-                  Entrada da Placa de Áudio (Input)
+                <div className="px-3 py-1.5 text-logic-text-muted font-bold border-b border-white/10 uppercase tracking-wider text-[9px] flex items-center justify-between">
+                  <span>Entrada da Placa de Áudio</span>
+                  <span className="text-[8px] px-1 py-0.2 rounded bg-white/10 text-zinc-300">INPUT</span>
                 </div>
                 {inputDevices.length === 0 ? (
                   <div className="px-3 py-2 text-logic-text-dim text-[11px]">
@@ -374,7 +397,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
                 )}
               </div>
             )}
-            {isMaestro && isRecording && <InputVuMeter />}
+            {isMaestro && isRecording && <InputVuMeter trackHeight={trackHeight} />}
           </div>
         )}
         <button
@@ -981,6 +1004,184 @@ function FooterProgress({ importProgress, exportProgress }: {
   );
 }
 
+/** Barra de navegação horizontal estilo DAW profissional (Logic Pro) com alças de zoom nas pontas */
+function TimelineNavigatorScrollbar({
+  scrollRef,
+  timelineWidth,
+  zoomH,
+  setZoomH,
+  headerWidth,
+}: {
+  scrollRef: React.RefObject<HTMLDivElement>;
+  timelineWidth: number;
+  zoomH: number;
+  setZoomH: (z: number) => void;
+  headerWidth: number;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [scrollState, setScrollState] = useState({ scrollLeft: 0, clientWidth: 1000 });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      setScrollState({
+        scrollLeft: el.scrollLeft,
+        clientWidth: Math.max(10, el.clientWidth - headerWidth),
+      });
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      el.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, [scrollRef, headerWidth, timelineWidth, zoomH]);
+
+  const totalW = Math.max(1, timelineWidth);
+  const viewW = scrollState.clientWidth;
+  const ratio = Math.min(1, Math.max(0.04, viewW / totalW));
+  const leftPct = Math.max(0, Math.min(1 - ratio, scrollState.scrollLeft / totalW)) * 100;
+  const widthPct = ratio * 100;
+
+  // Arraste do corpo do scrollbar (Scroll/Pan da timeline)
+  const handleThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const startX = e.clientX;
+    const startScroll = scrollRef.current?.scrollLeft ?? 0;
+    const barW = barRef.current?.clientWidth ?? 1;
+
+    const move = (ev: PointerEvent) => {
+      const deltaX = ev.clientX - startX;
+      const scrollDelta = (deltaX / barW) * totalW;
+      if (scrollRef.current) {
+        scrollRef.current.scrollLeft = Math.max(0, Math.min(totalW - viewW, startScroll + scrollDelta));
+      }
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+
+  // Alça Esquerda: Zoom horizontal pela aresta esquerda
+  const handleLeftZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const startX = e.clientX;
+    const startZoom = zoomH;
+
+    const move = (ev: PointerEvent) => {
+      const deltaX = ev.clientX - startX;
+      const factor = Math.exp(-deltaX * 0.012);
+      setZoomH(Math.max(1, Math.min(500, Math.round(startZoom * factor * 100) / 100)));
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+
+  // Alça Direita: Zoom horizontal pela aresta direita
+  const handleRightZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget;
+    try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    const startX = e.clientX;
+    const startZoom = zoomH;
+
+    const move = (ev: PointerEvent) => {
+      const deltaX = ev.clientX - startX;
+      const factor = Math.exp(deltaX * 0.012);
+      setZoomH(Math.max(1, Math.min(500, Math.round(startZoom * factor * 100) / 100)));
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+
+  // Clique na pista para saltar a navegação
+  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!barRef.current || !scrollRef.current) return;
+    const rect = barRef.current.getBoundingClientRect();
+    const clickRatio = (e.clientX - rect.left) / rect.width;
+    const targetScroll = clickRatio * totalW - viewW / 2;
+    scrollRef.current.scrollLeft = Math.max(0, Math.min(totalW - viewW, targetScroll));
+  };
+
+  return (
+    <div
+      ref={barRef}
+      className="flex-1 h-full bg-[#111216] relative cursor-pointer overflow-hidden border-l border-logic-border-dark"
+      onClick={handleTrackClick}
+      title="Navegador horizontal: arraste o centro para navegar. Arraste as pontas para dar zoom."
+    >
+      <div className="absolute inset-0 bg-white/[0.02]" />
+      <div
+        className="absolute top-0.5 bottom-0.5 rounded-[4px] bg-[#2a2d38] hover:bg-[#343846] border border-white/20 shadow-sm flex items-center justify-between group transition-colors select-none"
+        style={{
+          left: `${leftPct}%`,
+          width: `${widthPct}%`,
+          minWidth: '28px',
+        }}
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={handleThumbPointerDown}
+      >
+        {/* Alça Esquerda de Zoom */}
+        <div
+          className="w-3 h-full cursor-ew-resize flex items-center justify-center hover:bg-logic-lcd-amber/30 rounded-l-[3px] group/leftHandle transition-colors"
+          onPointerDown={handleLeftZoomPointerDown}
+          title="Arraste para ajustar o zoom horizontal pela esquerda"
+        >
+          <div className="w-[2px] h-2 bg-white/40 group-hover/leftHandle:bg-logic-lcd-amber rounded-full" />
+        </div>
+
+        {/* Centro de arraste de navegação */}
+        <div className="flex-1 h-full flex items-center justify-center cursor-grab active:cursor-grabbing gap-[2px] px-1">
+          <div className="w-0.5 h-1.5 bg-white/20 rounded-full" />
+          <div className="w-0.5 h-1.5 bg-white/20 rounded-full" />
+          <div className="w-0.5 h-1.5 bg-white/20 rounded-full" />
+        </div>
+
+        {/* Alça Direita de Zoom */}
+        <div
+          className="w-3 h-full cursor-ew-resize flex items-center justify-center hover:bg-logic-lcd-amber/30 rounded-r-[3px] group/rightHandle transition-colors"
+          onPointerDown={handleRightZoomPointerDown}
+          title="Arraste para ajustar o zoom horizontal pela direita"
+        >
+          <div className="w-[2px] h-2 bg-white/40 group-hover/rightHandle:bg-logic-lcd-amber rounded-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const VIEW_MARGIN_PX = 600;
 
 export default function TimelinePanel() {
@@ -1522,61 +1723,38 @@ export default function TimelinePanel() {
     <div className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
-          {/* Linha 1: Título de Faixas e Trava da Timeline (Cadeado 100% visível e sem corte) */}
-          <div className="h-7 flex items-center justify-between px-2.5 border-b border-logic-border-dark/60 bg-logic-bg-deep">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted">
-              Faixas
-            </span>
+          {/* Linha 1: Ações Rápidas (Dividir, Medley e + Região) no Estilo dos Botões do Mixer, BPM e Tuner */}
+          <div className="h-10 flex items-center justify-between px-2.5 border-b border-logic-border-dark/60 gap-2 bg-logic-bg-deep">
             <button
-              onClick={toggleTimelineLocked}
-              className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-2xs font-semibold transition-all shrink-0 ${
-                timelineLocked
-                  ? 'bg-logic-lcd-amber/20 border border-logic-lcd-amber/70 text-logic-lcd-amber shadow-[0_0_8px_rgba(255,159,10,0.35)]'
-                  : 'bg-logic-bg-elevated border border-logic-border-light text-logic-text-muted hover:text-white hover:border-white/20'
-              }`}
-              title={
-                timelineLocked
-                  ? 'Timeline travada: clique para destravar e permitir mover ou cortar áudios'
-                  : 'Travar timeline: impede movimentar ou cortar áudios acidentalmente'
-              }
-            >
-              {timelineLocked ? <Lock size={12} className="text-logic-lcd-amber shrink-0" /> : <Unlock size={12} className="shrink-0" />}
-              <span className="text-[10px] font-bold">{timelineLocked ? 'TRAVADA' : 'LIVRE'}</span>
-            </button>
-          </div>
-
-          {/* Linha 2: Ações Rápidas (Dividir, Medley e + Região) com Design de Console de Estúdio */}
-          <div className="h-8 flex items-center justify-between px-2 border-b border-logic-border-dark/60 gap-1.5 bg-logic-bg-deep/80">
-            <button
-              className="flex-1 h-[25px] rounded-md flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white/90 bg-gradient-to-b from-[#2a2c3a] to-[#1c1d27] border border-white/15 hover:border-[#64d2ff]/80 hover:from-[#35384b] hover:to-[#222432] shadow-[0_1px_3px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              className="flex-1 h-8 px-2.5 rounded border border-logic-border-light bg-logic-bg-elevated hover:bg-logic-bg-panel-light hover:text-logic-text text-logic-text-muted hover:border-logic-accent/70 transition-all duration-150 flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none truncate"
               onClick={handleSplitAtCursor}
               disabled={!song || timelineLocked}
               title="Dividir áudios selecionados no cursor (Split - atalho S)"
             >
-              <Scissors size={11} className="text-[#64d2ff] shrink-0" />
+              <Scissors size={13} className="text-logic-text-muted shrink-0" />
               <span>Dividir</span>
             </button>
             <button
-              className="flex-1 h-[25px] rounded-md flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white/90 bg-gradient-to-b from-[#2a2c3a] to-[#1c1d27] border border-white/15 hover:border-[#bf5af2]/80 hover:from-[#35384b] hover:to-[#222432] shadow-[0_1px_3px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              className="flex-1 h-8 px-2.5 rounded border border-logic-border-light bg-logic-bg-elevated hover:bg-logic-bg-panel-light hover:text-logic-text text-logic-text-muted hover:border-logic-accent/70 transition-all duration-150 flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none truncate"
               onClick={handleCutMedleyAtCursor}
               disabled={!song || timelineLocked}
               title="Fatiar medley no cursor: separa uma música da outra"
             >
-              <Scissors size={11} className="text-[#bf5af2] shrink-0" />
+              <GitMerge size={13} className="text-logic-text-muted shrink-0" />
               <span>Medley</span>
             </button>
             <button
-              className="flex-1 h-[25px] rounded-md flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white/90 bg-gradient-to-b from-[#2a2c3a] to-[#1c1d27] border border-white/15 hover:border-logic-lcd-green/80 hover:from-[#35384b] hover:to-[#222432] shadow-[0_1px_3px_rgba(0,0,0,0.4)] active:scale-[0.98] transition-all disabled:opacity-40 disabled:pointer-events-none truncate"
+              className="flex-1 h-8 px-2.5 rounded border border-logic-border-light bg-logic-bg-elevated hover:bg-logic-bg-panel-light hover:text-logic-text text-logic-text-muted hover:border-logic-accent/70 transition-all duration-150 flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none truncate"
               onClick={handleAddRegionAtCursor}
               disabled={!song || timelineLocked}
               title="Nova região de 4 compassos a partir do cursor"
             >
-              <Plus size={12} className="text-logic-lcd-green shrink-0" />
-              <span>Região</span>
+              <Plus size={13} className="text-logic-text-muted shrink-0" />
+              <span>Regiões</span>
             </button>
           </div>
 
-          {/* Linha 3: Navegação, Altura e Zoom Horizontal */}
+          {/* Linha 2: Navegação, Altura e Zoom Horizontal */}
           <div className="h-9 flex items-center justify-between px-3">
             <div className="flex items-center gap-1">
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30 p-1 rounded hover:bg-logic-bg-elevated" disabled={zoomV <= 0.5} onClick={() => setZoomV(Math.max(0.5, Math.round(zoomV * 0.8 * 100) / 100))} title="Diminuir altura das tracks"><FoldVertical size={13} /></button>
@@ -1634,7 +1812,7 @@ export default function TimelinePanel() {
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto logic-scroll relative"
+        className="flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative"
         onScroll={handleScroll}
       >
         {!song ? (
@@ -1735,13 +1913,35 @@ export default function TimelinePanel() {
         )}
       </div>
 
-      <div className="flex items-center justify-between gap-3 px-3 h-7 bg-logic-bg-deep border-t border-logic-border-dark text-2xs text-logic-text-muted">
+      {/* Barra de Rodapé com Navegador de Scroll Horizontal (exclusivo para as faixas, da aresta direita das tracks em diante) */}
+      <div className="flex items-center h-8 bg-logic-bg-deep border-t border-logic-border-dark text-2xs text-logic-text-muted select-none">
+        {/* Espaço reservado exatamente para a largura das Tracks */}
+        <div
+          className="flex items-center justify-between px-2 shrink-0 border-r border-logic-border-dark/60 h-full bg-logic-bg-deep"
+          style={{ width: `${HEADER_W}px` }}
+        >
+          <span className="text-[10px] text-logic-text-muted truncate">
+            {selectedClipIds.length > 0 ? `${selectedClipIds.length} sel.` : `${songClips.length} clips`}
+          </span>
+          <span className="text-[10px] font-mono text-zinc-400">
+            {Math.round(zoomH)}px/s
+          </span>
+        </div>
+
+        {/* Scrollbar & Navegador de Zoom Horizontal da Timeline */}
+        <TimelineNavigatorScrollbar
+          scrollRef={scrollRef}
+          timelineWidth={timelineWidth}
+          zoomH={zoomH}
+          setZoomH={setZoomH}
+          headerWidth={HEADER_W}
+        />
+      </div>
+
+      {/* Barra de Ferramentas da Grade e Progresso */}
+      <div className="flex items-center justify-between gap-3 px-3 h-7 bg-[#121318] border-t border-logic-border-dark text-2xs text-logic-text-muted">
         <GridToolbar song={song} onSelectAll={selectAllSongClips} />
         <FooterProgress importProgress={importProgress} exportProgress={exportProgress} />
-        <span className="flex-shrink-0 hidden sm:inline">
-          {selectedClipIds.length > 0 ? `${selectedClipIds.length} selecionado${selectedClipIds.length > 1 ? 's' : ''} | ` : ''}
-          {songClips.length} clips | Zoom {Math.round(zoomH)}px/s
-        </span>
       </div>
 
       {isSongLoading && (

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Magnet, RefreshCw, Loader2, CheckCheck, Lock, Unlock } from 'lucide-react';
+import { Magnet, RefreshCw, Loader2, CheckCheck } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
 import { barBeatLabel, gridLines, SNAP_LABELS, type SnapStep, type SongGrid } from '@/lib/grid';
@@ -176,22 +176,6 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
       >
         <CheckCheck size={10} />
         <span className="hidden lg:inline">Selecionar todos</span>
-      </button>
-      <button
-        className={`flex items-center gap-1 px-1.5 h-[18px] rounded border transition-colors ${
-          timelineLocked
-            ? 'bg-logic-lcd-amber/20 border-logic-lcd-amber/60 text-logic-lcd-amber font-bold'
-            : 'bg-logic-bg-elevated border-logic-border-light text-logic-text-dim hover:text-logic-text hover:border-logic-accent'
-        }`}
-        onClick={toggleTimelineLocked}
-        title={
-          timelineLocked
-            ? 'Timeline travada: clique para destravar e permitir mover/cortar áudios'
-            : 'Travar timeline: impede movimentar ou cortar áudios acidentalmente'
-        }
-      >
-        {timelineLocked ? <Lock size={10} className="text-logic-lcd-amber" /> : <Unlock size={10} />}
-        <span>{timelineLocked ? 'Travada' : 'Trava'}</span>
       </button>
       {note && <span className="text-logic-lcd-amber animate-[fadeIn_120ms_ease-out]">{note}</span>}
     </div>

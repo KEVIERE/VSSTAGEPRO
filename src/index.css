@@ -78,6 +78,22 @@
   .logic-scroll::-webkit-scrollbar-thumb:hover {
     background: #4a4a4a;
   }
+
+  .timeline-scroll-container::-webkit-scrollbar:horizontal {
+    display: none;
+    height: 0;
+    width: 0;
+  }
+  .timeline-scroll-container::-webkit-scrollbar {
+    width: 6px;
+  }
+  .timeline-scroll-container::-webkit-scrollbar-track {
+    background: #14151a;
+  }
+  .timeline-scroll-container::-webkit-scrollbar-thumb {
+    background: #2a2c35;
+    border-radius: 3px;
+  }
 }
 
 @layer utilities {
