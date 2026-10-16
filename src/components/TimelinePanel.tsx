@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Lock, Unlock, Mic, ArrowLeftRight, Sparkles } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { audioEngine } from '@/lib/audioEngine';
 import { audioRecorder, listInputAudioDevices, saveRecordingToMaestro, type InputAudioDevice } from '@/lib/audioRecorder';
@@ -1073,7 +1073,6 @@ export default function TimelinePanel() {
   const removeClips = useStore((s) => s.removeClips);
   const recordingMaestro = useStore((s) => s.recordingMaestro);
   const timelineLocked = useStore((s) => s.timelineLocked);
-  const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
   const groupClips = useStore((s) => s.groupClips);
   const ungroupClips = useStore((s) => s.ungroupClips);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);

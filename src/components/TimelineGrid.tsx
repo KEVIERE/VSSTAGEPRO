@@ -64,8 +64,6 @@ const selectCls = 'h-[18px] rounded bg-logic-bg-elevated border border-logic-bor
 export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onSelectAll: () => void }) {
   const snapStep = useStore((s) => s.snapStep);
   const setSnapStep = useStore((s) => s.setSnapStep);
-  const timelineLocked = useStore((s) => s.timelineLocked);
-  const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
   const updateSong = useStore((s) => s.updateSong);
   const [lastStep, setLastStep] = useState<Exclude<SnapStep, 'off'>>('beat');
   const [measuring, setMeasuring] = useState(false);

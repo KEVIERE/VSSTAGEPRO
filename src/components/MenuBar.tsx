@@ -61,6 +61,8 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const saveStatus = useStore((s) => s.saveStatus);
   const activeShowId = useStore((s) => s.activeShowId);
   const activeShowName = useStore((s) => s.shows.find((sh) => sh.id === s.activeShowId)?.name ?? DEFAULT_SHOW_NAME);
+  const timelineLocked = useStore((s) => s.timelineLocked);
+  const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
 
   const [confirmNew, setConfirmNew] = useState(false);
   const [recent, setRecent] = useState<RecentProject[]>([]);
@@ -218,8 +220,9 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         { label: 'Mostrar/Ocultar Controles de Clipe', action: () => { toggleDawMode(); setOpenMenu(null); } },
         { separator: true },
         {
-          label: useStore.getState().timelineLocked ? 'Destravar Timeline' : 'Travar Timeline (Cadeado)',
-          action: () => { useStore.getState().toggleTimelineLocked(); setOpenMenu(null); },
+          label: timelineLocked ? 'Destravar Timeline' : 'Travar Timeline (Cadeado)',
+          checked: timelineLocked,
+          action: () => { toggleTimelineLocked(); setOpenMenu(null); },
         },
       ],
     },
