@@ -113,7 +113,16 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
           <filter id="spBarGlow" x="-20%" y="-200%" width="140%" height="500%">
             <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#4ade80" floodOpacity={0.6} />
           </filter>
+          <radialGradient id="spStageAura" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#ff9f0a" stopOpacity={0.4} />
+            <stop offset="40%" stopColor="#10b981" stopOpacity={0.2} />
+            <stop offset="70%" stopColor="#0a84ff" stopOpacity={0.08} />
+            <stop offset="100%" stopColor="#0a84ff" stopOpacity={0} />
+          </radialGradient>
         </defs>
+
+        {/* Aura de Holofote do Palco Pulsante Atrás do Logo */}
+        <circle cx="400" cy="128" r="140" fill="url(#spStageAura)" className="splash-stage-aura" />
 
         <svg x="310" y="38" width="180" height="180" viewBox="0 0 1024 1024" className="splash-logo-pop overflow-visible">
           {/* Base Squircle */}
@@ -131,28 +140,31 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
           {/* Marcador de Playhead */}
           <line className="splash-playhead-sweep" x1="382" y1="140" x2="382" y2="884" stroke="#F59E0B" strokeWidth="3" strokeOpacity={0.4} strokeDasharray="8 8" />
 
-          {/* Onda Sonora Principal */}
+          {/* Onda Sonora Principal com Desenho Laser Dinâmico */}
           <path
-            className="splash-wave-glow"
+            className="splash-wave-draw"
+            pathLength={1}
             d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
             fill="none"
             stroke="url(#waveGrad)"
-            strokeWidth="54"
+            strokeWidth="56"
             strokeLinecap="round"
             filter="url(#waveGlow)"
           />
 
           {/* Núcleo Luminoso da Onda */}
           <path
+            className="splash-wave-core-draw"
+            pathLength={1}
             d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
             fill="none"
             stroke="#FFFFFF"
-            strokeWidth="10"
+            strokeWidth="11"
             strokeLinecap="round"
-            opacity={0.45}
+            opacity={0.55}
           />
 
-          {/* Triângulo PLAY Central */}
+          {/* Triângulo PLAY Central com Efeito Mola Elástica */}
           <g className="splash-play-pop" filter="url(#playDropShadow)">
             <path
               d="M 382 324 C 382 298, 410 282, 432 295 L 704 459 C 726 472, 726 504, 704 517 L 432 681 C 410 694, 382 678, 382 652 Z"
@@ -164,13 +176,11 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
           </g>
         </svg>
 
-        <text x="400" y="260" textAnchor="middle" fontFamily={FONT} fontSize="28" fontWeight="800" fill="#fff" letterSpacing="4">
-          {TITLE.split('').map((ch, i) => (
-            <tspan key={i} className="splash-letter" style={{ animationDelay: `${900 + i * 55}ms` }}>{ch}</tspan>
-          ))}
+        <text x="400" y="260" textAnchor="middle" fontFamily={FONT} fontSize="28" fontWeight="800" fill="#fff" className="splash-title-cinematic">
+          {TITLE}
         </text>
-        <text className="splash-rise" style={{ animationDelay: '1400ms' }} x="400" y="285" textAnchor="middle" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#6b7280" letterSpacing="3">
-          MOTOR DE PERFORMANCE AO VIVO
+        <text className="splash-rise" style={{ animationDelay: '1200ms' }} x="400" y="285" textAnchor="middle" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#9ca3af" letterSpacing="4">
+          LIVE PERFORMANCE ENGINE
         </text>
 
         <g className="splash-fade" style={{ animationDelay: '500ms' }}>
