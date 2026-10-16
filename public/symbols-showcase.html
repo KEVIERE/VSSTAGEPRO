@@ -1,4 +1,4 @@
-<title>Símbolos Abstratos VS Stage</title>
+<title>Símbolo VS Stage Oficial</title>
 <style>
   :root {
     --bg-page: #0a0b0e;
@@ -10,7 +10,7 @@
     --text-secondary: #9ea3b5;
     --text-muted: #656a7d;
     --accent-amber: #ff9f0a;
-    --accent-blue: #0a84ff;
+    --accent-green: #22c55e;
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     color-scheme: dark;
   }
@@ -28,8 +28,8 @@
     flex-direction: column;
     align-items: center;
     background-image:
-      radial-gradient(ellipse at 50% 0%, rgba(255, 159, 10, 0.07) 0%, transparent 60%),
-      radial-gradient(ellipse at 80% 80%, rgba(10, 132, 255, 0.04) 0%, transparent 60%);
+      radial-gradient(ellipse at 50% 0%, rgba(255, 159, 10, 0.09) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(34, 197, 94, 0.05) 0%, transparent 60%);
   }
 
   .container {
@@ -78,14 +78,14 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 22px;
   }
 
   .card {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    border-radius: 18px;
+    border-radius: 20px;
     padding: 24px;
     display: flex;
     flex-direction: column;
@@ -99,7 +99,7 @@
     border-color: var(--border-hover);
     background: var(--bg-card-hover);
     transform: translateY(-4px);
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
   }
 
   .card-badge {
@@ -110,8 +110,9 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--text-muted);
-    background: rgba(255, 255, 255, 0.06);
+    color: var(--accent-amber);
+    background: rgba(255, 159, 10, 0.12);
+    border: 1px solid rgba(255, 159, 10, 0.25);
     padding: 3px 8px;
     border-radius: 6px;
   }
@@ -119,25 +120,25 @@
   .logo-preview-box {
     width: 100%;
     aspect-ratio: 1;
-    background: radial-gradient(circle at center, #181a23 0%, #0d0e13 85%);
+    background: radial-gradient(circle at center, #1a1c24 0%, #0c0d12 85%);
     border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
+    border-radius: 16px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
-    padding: 24px;
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6);
+    padding: 20px;
   }
 
   .logo-preview-box svg {
     width: 100%;
     height: 100%;
-    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
+    filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.6));
     transition: transform 0.3s ease;
   }
 
   .card:hover .logo-preview-box svg {
-    transform: scale(1.05);
+    transform: scale(1.04);
   }
 
   .info {
@@ -156,12 +157,6 @@
     font-size: 17px;
     font-weight: 700;
     color: #fff;
-  }
-
-  .daw-ref {
-    font-size: 11px;
-    color: var(--accent-amber);
-    font-weight: 600;
   }
 
   .desc {
@@ -215,11 +210,11 @@
     backdrop-filter: blur(20px);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 22px;
-    padding: 12px 24px;
+    padding: 14px 28px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 28px;
+    gap: 32px;
     box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
   }
 
@@ -227,7 +222,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     cursor: pointer;
     transition: transform 0.2s ease;
   }
@@ -237,20 +232,20 @@
   }
 
   .dock-icon-squircle {
-    width: 60px;
-    height: 60px;
-    border-radius: 14px;
-    background: linear-gradient(180deg, #222530 0%, #111218 100%);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+    width: 68px;
+    height: 68px;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 11px;
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  }
+
+  .dock-icon-squircle svg {
+    width: 100%;
+    height: 100%;
   }
 
   .dock-item span {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     color: var(--text-secondary);
   }
@@ -266,186 +261,317 @@
 
 <div class="container">
   <div class="header">
-    <div class="tag">Identidade Visual Pura • Sem Letras</div>
-    <h1>Símbolos Abstratos para o VS Stage Pro</h1>
+    <div class="tag">Conceito Aprovado • Símbolo do App</div>
+    <h1>O Símbolo Oficial + Detalhe Esmaecido da Timeline</h1>
     <p class="subtitle">
-      Seguindo o padrão das maiores DAWs do mundo (Logic Pro, Ableton, Cubase e FL Studio), que <strong>não usam letras</strong>, mas sim <strong>ícones geométricos icônicos</strong> que representam som, ondas, lentes acústicas e dinâmica de palco.
+      Unindo o poder da esfera cósmica com anéis de órbita néon (Laranja = Timecode / Verde = Play) com a <strong>verdadeira timeline da nossa DAW</strong> esmaecida no fundo do ícone (faixas multitrack, ondas de áudio e grid de compassos).
     </p>
   </div>
 
   <div class="grid">
 
-    <!-- SÍMBOLO 1: O Prisma Acústico (A Lente Sonora / Sonic Core) -->
+    <!-- VARIAÇÃO 1: Timeline com Formas de Onda (Waveforms Reais) -->
     <div class="card">
-      <span class="card-badge">Símbolo 1</span>
+      <span class="card-badge">Variação 1</span>
       <div class="logo-preview-box">
-        <!-- SVG 1: Lente acústica concêntrica estilo Logic Pro / Dolby -->
-        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
           <defs>
-            <radialGradient id="prismGrad" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="50%" stop-color="#a4a9be"/>
-              <stop offset="100%" stop-color="#363948"/>
+            <linearGradient id="appBase1" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#22242a" />
+              <stop offset="100%" stop-color="#0e0f13" />
+            </linearGradient>
+            <radialGradient id="sphere1" cx="45%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#555861" />
+              <stop offset="35%" stop-color="#15171c" />
+              <stop offset="85%" stop-color="#000000" />
+              <stop offset="100%" stop-color="#030303" />
             </radialGradient>
-            <radialGradient id="amberCore" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#ffb834"/>
-              <stop offset="70%" stop-color="#e67e00"/>
-              <stop offset="100%" stop-color="#994d00"/>
+            <filter id="glowOrange1" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <filter id="glowGreen1" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <!-- Máscara do squircle para a timeline não vazar -->
+            <clipPath id="squircleClip1">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" />
+            </clipPath>
+          </defs>
+
+          <g transform="translate(160, 160)">
+            <!-- Fundo Squircle Base -->
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#appBase1)" stroke="#2c2f38" stroke-width="1.2" />
+
+            <!-- CAMADA ESMAECIDA: A TIMELINE REAL POR TRÁS -->
+            <g clip-path="url(#squircleClip1)" opacity="0.28">
+              <!-- Grade de Compassos da Timeline (Linhas Verticais) -->
+              <line x1="-80" y1="-110" x2="-80" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.3" stroke-dasharray="3 3" />
+              <line x1="-35" y1="-110" x2="-35" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.4" />
+              <line x1="10" y1="-110" x2="10" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.3" stroke-dasharray="3 3" />
+              <line x1="55" y1="-110" x2="55" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.4" />
+
+              <!-- Faixa 1: Timecode Track (Superior) -->
+              <rect x="-110" y="-85" width="220" height="34" fill="#ff9f0a" opacity="0.08" />
+              <line x1="-110" y1="-51" x2="110" y2="-51" stroke="#ffffff" stroke-width="0.8" opacity="0.2" />
+              <!-- Bloco Timecode -->
+              <rect x="-70" y="-80" width="110" height="24" rx="4" fill="#ff9f0a" opacity="0.35" />
+              <polyline points="-65,-68 -55,-64 -45,-72 -35,-65 -25,-68 -15,-62 -5,-70 5,-66 15,-71 25,-67" fill="none" stroke="#fff" stroke-width="1.2" opacity="0.7" />
+
+              <!-- Faixa 2: Pista de Áudio (Central) -->
+              <rect x="-110" y="-51" width="220" height="48" fill="#000000" opacity="0.25" />
+              <line x1="-110" y1="-3" x2="110" y2="-3" stroke="#ffffff" stroke-width="0.8" opacity="0.2" />
+              <!-- Clipes de Áudio com Waveform -->
+              <rect x="-100" y="-45" width="85" height="36" rx="5" fill="#38bdf8" opacity="0.35" />
+              <polyline points="-95,-27 -85,-18 -75,-35 -65,-22 -55,-30 -45,-25 -35,-32 -25,-27" fill="none" stroke="#e0f2fe" stroke-width="1.5" opacity="0.8" />
+              <rect x="0" y="-45" width="95" height="36" rx="5" fill="#c084fc" opacity="0.35" />
+              <polyline points="5,-27 15,-18 25,-34 35,-20 45,-32 55,-24 65,-30 75,-27" fill="none" stroke="#f3e8ff" stroke-width="1.5" opacity="0.8" />
+
+              <!-- Faixa 3: Pista Maestro/Voz (Inferior) -->
+              <rect x="-110" y="-3" width="220" height="48" fill="#22c55e" opacity="0.06" />
+              <line x1="-110" y1="45" x2="110" y2="45" stroke="#ffffff" stroke-width="0.8" opacity="0.2" />
+              <!-- Clipes Maestro -->
+              <rect x="-60" y="5" width="130" height="34" rx="5" fill="#4ade80" opacity="0.3" />
+              <polyline points="-55,22 -45,15 -35,28 -25,18 -15,26 -5,20 5,27 15,19 25,24 35,20 45,26 55,22" fill="none" stroke="#dcfce7" stroke-width="1.3" opacity="0.7" />
+            </g>
+
+            <!-- ANÉIS DE ÓRBITA TRASEIROS -->
+            <g transform="rotate(22)">
+              <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+            </g>
+            <g transform="rotate(-18)">
+              <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+            </g>
+
+            <!-- ESFERA CENTRAL -->
+            <circle cx="0" cy="0" r="55" fill="url(#sphere1)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.08" />
+            <path d="M -35 40 A 45 45 0 0 0 35 40 Q 0 30 -35 40" fill="#4ade80" opacity="0.08" />
+
+            <!-- ANÉIS DE ÓRBITA FRONTAIS NÉON -->
+            <g transform="rotate(22)">
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#glowOrange1)" stroke-linecap="round" />
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.95" />
+            </g>
+            <g transform="rotate(-18)">
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glowGreen1)" stroke-linecap="round" />
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.95" />
+            </g>
+
+            <!-- BOTÃO PLAY -->
+            <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+          </g>
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>Waveforms & Stems</h3>
+        </div>
+        <p class="desc">
+          Faixas horizontais com blocos de áudio multitrack (azul, lilás e verde) e ondas senoidais esmaecidas por trás dos anéis.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Fundo:</strong> Clipes de áudio reais com formato de onda cortando o fundo.</div>
+        <div class="detail-item"><strong>Sensação:</strong> DAW de alta tecnologia em plena execução.</div>
+      </div>
+    </div>
+
+    <!-- VARIAÇÃO 2: Grade Arquitetural de DAW com Compassos -->
+    <div class="card">
+      <span class="card-badge">Variação 2</span>
+      <div class="logo-preview-box">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
+          <defs>
+            <linearGradient id="appBase2" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#24262c" />
+              <stop offset="100%" stop-color="#0d0e12" />
+            </linearGradient>
+            <radialGradient id="sphere2" cx="45%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#555861" />
+              <stop offset="35%" stop-color="#15171c" />
+              <stop offset="85%" stop-color="#000000" />
+              <stop offset="100%" stop-color="#030303" />
             </radialGradient>
+            <filter id="glowOrange2" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <filter id="glowGreen2" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <clipPath id="squircleClip2">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" />
+            </clipPath>
           </defs>
-          <!-- Anéis elípticos de dispersão sonora (Ondas acústicas em perspectiva) -->
-          <ellipse cx="50" cy="50" rx="42" ry="24" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" />
-          <ellipse cx="50" cy="50" rx="34" ry="18" stroke="rgba(255,255,255,0.3)" stroke-width="2" />
-          <ellipse cx="50" cy="50" rx="25" ry="12" stroke="#ff9f0a" stroke-width="2.5" opacity="0.85" />
 
-          <!-- Prisma / Diamante Acústico central lapidado -->
-          <polygon points="50,22 68,50 50,78 32,50" fill="url(#prismGrad)" />
-          <!-- Facetas internas de reflexão de estúdio -->
-          <polygon points="50,22 68,50 50,50" fill="#ffffff" opacity="0.25" />
-          <polygon points="50,50 68,50 50,78" fill="#000000" opacity="0.25" />
-          <polygon points="32,50 50,50 50,78" fill="#ffffff" opacity="0.1" />
+          <g transform="translate(160, 160)">
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#appBase2)" stroke="#2c2f38" stroke-width="1.2" />
 
-          <!-- Núcleo de emissão de som (O pulso da luz de palco) -->
-          <circle cx="50" cy="50" r="5" fill="url(#amberCore)" />
+            <!-- CAMADA ESMAECIDA: GRADE MINIMALISTA DE COMPASSOS & FADERS -->
+            <g clip-path="url(#squircleClip2)" opacity="0.22">
+              <!-- Grid denso de compassos (1, 2, 3, 4...) -->
+              <line x1="-90" y1="-110" x2="-90" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+              <line x1="-60" y1="-110" x2="-60" y2="110" stroke="#ffffff" stroke-width="0.5" opacity="0.2" />
+              <line x1="-30" y1="-110" x2="-30" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+              <line x1="0" y1="-110" x2="0" y2="110" stroke="#ff9f0a" stroke-width="1.5" opacity="0.5" /> <!-- Playhead central -->
+              <line x1="30" y1="-110" x2="30" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+              <line x1="60" y1="-110" x2="60" y2="110" stroke="#ffffff" stroke-width="0.5" opacity="0.2" />
+              <line x1="90" y1="-110" x2="90" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+
+              <!-- Linhas horizontais das faixas -->
+              <line x1="-110" y1="-70" x2="110" y2="-70" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+              <line x1="-110" y1="-25" x2="110" y2="-25" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+              <line x1="-110" y1="20" x2="110" y2="20" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+              <line x1="-110" y1="65" x2="110" y2="65" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+
+              <!-- Blocos sólidos geométricos de regiões -->
+              <rect x="-85" y="-66" width="50" height="38" rx="3" fill="#ffffff" opacity="0.15" />
+              <rect x="-30" y="-66" width="85" height="38" rx="3" fill="#ffffff" opacity="0.22" />
+              <rect x="-60" y="-21" width="115" height="38" rx="3" fill="#ffffff" opacity="0.25" />
+              <rect x="-85" y="24" width="70" height="38" rx="3" fill="#ffffff" opacity="0.18" />
+              <rect x="-10" y="24" width="75" height="38" rx="3" fill="#ffffff" opacity="0.22" />
+            </g>
+
+            <!-- ANÉIS DE ÓRBITA TRASEIROS -->
+            <g transform="rotate(22)">
+              <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+            </g>
+            <g transform="rotate(-18)">
+              <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+            </g>
+
+            <!-- ESFERA CENTRAL -->
+            <circle cx="0" cy="0" r="55" fill="url(#sphere2)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.08" />
+
+            <!-- ANÉIS DE ÓRBITA FRONTAIS NÉON -->
+            <g transform="rotate(22)">
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#glowOrange2)" stroke-linecap="round" />
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.95" />
+            </g>
+            <g transform="rotate(-18)">
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glowGreen2)" stroke-linecap="round" />
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.95" />
+            </g>
+
+            <!-- BOTÃO PLAY -->
+            <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+          </g>
         </svg>
       </div>
       <div class="info">
         <div class="title-row">
-          <h3>The Sonic Prism</h3>
-          <span class="daw-ref">Estilo Logic Pro</span>
+          <h3>Grid & Compassos</h3>
         </div>
         <p class="desc">
-          Lente acústica com anéis de dispersão sonora concêntricos envolvendo um prisma lapidado de alta fidelidade.
+          Grade arquitetural monocromática em alta precisão com linhas métricas e playhead central sob a esfera.
         </p>
       </div>
       <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> Precisão acústica e foco do som no palco. Zero letras.</div>
-        <div class="detail-item"><strong>Identidade:</strong> Extremamente refinado, transmite sofisticação e hardware caro.</div>
+        <div class="detail-item"><strong>Fundo:</strong> Traços geométricos puros de tempo e compasso.</div>
+        <div class="detail-item"><strong>Sensação:</strong> Padrão sóbrio e industrial como hardware de rack.</div>
       </div>
     </div>
 
-    <!-- SÍMBOLO 2: As Lâminas da Timeline / Arranjo (The Stem Blades) -->
+    <!-- VARIAÇÃO 3: Multitrack Colors + Regiões de Medley -->
     <div class="card">
-      <span class="card-badge">Símbolo 2</span>
+      <span class="card-badge">Variação 3</span>
       <div class="logo-preview-box">
-        <!-- SVG 2: Três lâminas angulares simétricas estilo Ableton / Teenage Engineering -->
-        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
           <defs>
-            <linearGradient id="bladeGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="100%" stop-color="#696f86"/>
+            <linearGradient id="appBase3" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#212328" />
+              <stop offset="100%" stop-color="#0c0d11" />
             </linearGradient>
-            <linearGradient id="bladeGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffb834"/>
-              <stop offset="100%" stop-color="#d97000"/>
-            </linearGradient>
+            <radialGradient id="sphere3" cx="45%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#555861" />
+              <stop offset="35%" stop-color="#15171c" />
+              <stop offset="85%" stop-color="#000000" />
+              <stop offset="100%" stop-color="#030303" />
+            </radialGradient>
+            <filter id="glowOrange3" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <filter id="glowGreen3" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <clipPath id="squircleClip3">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" />
+            </clipPath>
           </defs>
-          <!-- 4 Lâminas geométricas paralelas representando stems e tracks da DAW -->
-          <!-- Barra 1 (Vertical alta esquerda) -->
-          <rect x="20" y="20" width="8" height="60" rx="4" fill="url(#bladeGrad1)" />
-          <!-- Barra 2 (Horizontal superior) -->
-          <rect x="36" y="20" width="44" height="8" rx="4" fill="url(#bladeGrad1)" opacity="0.85" />
-          <!-- Barra 3 (Horizontal central - Playhead/Click dourado) -->
-          <rect x="36" y="46" width="34" height="8" rx="4" fill="url(#bladeGrad2)" />
-          <!-- Barra 4 (Horizontal inferior) -->
-          <rect x="36" y="72" width="44" height="8" rx="4" fill="url(#bladeGrad1)" opacity="0.85" />
+
+          <g transform="translate(160, 160)">
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#appBase3)" stroke="#2c2f38" stroke-width="1.2" />
+
+            <!-- CAMADA ESMAECIDA: FAIXA MEDLEY SUPERIOR + BLOCOS DA TIMELINE -->
+            <g clip-path="url(#squircleClip3)" opacity="0.32">
+              <!-- Faixa de Medley colorida no topo da timeline -->
+              <rect x="-110" y="-95" width="90" height="18" fill="#a855f7" opacity="0.4" />
+              <rect x="-20" y="-95" width="130" height="18" fill="#3b82f6" opacity="0.4" />
+              <line x1="-110" y1="-77" x2="110" y2="-77" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+
+              <!-- Pistas com blocos de áudio reais -->
+              <rect x="-110" y="-77" width="220" height="42" fill="#000" opacity="0.2" />
+              <rect x="-80" y="-72" width="70" height="32" rx="4" fill="#38bdf8" opacity="0.35" />
+              <rect x="0" y="-72" width="90" height="32" rx="4" fill="#38bdf8" opacity="0.35" />
+              <line x1="-110" y1="-35" x2="110" y2="-35" stroke="#ffffff" stroke-width="0.8" opacity="0.15" />
+
+              <rect x="-110" y="-35" width="220" height="42" fill="#000" opacity="0.3" />
+              <rect x="-100" y="-30" width="120" height="32" rx="4" fill="#eab308" opacity="0.35" />
+              <rect x="30" y="-30" width="70" height="32" rx="4" fill="#eab308" opacity="0.35" />
+              <line x1="-110" y1="7" x2="110" y2="7" stroke="#ffffff" stroke-width="0.8" opacity="0.15" />
+
+              <rect x="-110" y="7" width="220" height="42" fill="#000" opacity="0.2" />
+              <rect x="-70" y="12" width="140" height="32" rx="4" fill="#ec4899" opacity="0.3" />
+              <line x1="-110" y1="49" x2="110" y2="49" stroke="#ffffff" stroke-width="0.8" opacity="0.15" />
+
+              <!-- Linha de Playhead Brilhante descendo -->
+              <line x1="15" y1="-95" x2="15" y2="110" stroke="#ffffff" stroke-width="1.5" opacity="0.7" />
+            </g>
+
+            <!-- ANÉIS DE ÓRBITA TRASEIROS -->
+            <g transform="rotate(22)">
+              <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+            </g>
+            <g transform="rotate(-18)">
+              <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+            </g>
+
+            <!-- ESFERA CENTRAL -->
+            <circle cx="0" cy="0" r="55" fill="url(#sphere3)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.08" />
+
+            <!-- ANÉIS DE ÓRBITA FRONTAIS NÉON -->
+            <g transform="rotate(22)">
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#glowOrange3)" stroke-linecap="round" />
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.95" />
+            </g>
+            <g transform="rotate(-18)">
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glowGreen3)" stroke-linecap="round" />
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.95" />
+            </g>
+
+            <!-- BOTÃO PLAY -->
+            <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+          </g>
         </svg>
       </div>
       <div class="info">
         <div class="title-row">
-          <h3>The Session Matrix</h3>
-          <span class="daw-ref">Estilo Ableton Live</span>
+          <h3>Medley & Multitrack</h3>
         </div>
         <p class="desc">
-          Geometria pura com a barra mestre vertical de tempo e três faixas de multitrack horizontais em arranjo.
+          Inclui a faixa superior roxa/azul de Medley e blocos de clipes distribuídos com a agulha vertical do playhead.
         </p>
       </div>
       <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> A arquitetura da DAW (faixa mestre + clipes de áudio).</div>
-        <div class="detail-item"><strong>Identidade:</strong> Minimalismo radical, autoridade instantânea e memorável.</div>
-      </div>
-    </div>
-
-    <!-- SÍMBOLO 3: O Pulso Acústico Orbital (The Sonic Orb / Portal) -->
-    <div class="card">
-      <span class="card-badge">Símbolo 3</span>
-      <div class="logo-preview-box">
-        <!-- SVG 3: Anéis orbitais de pressão sonora em rotação dinâmica -->
-        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="70%" stop-color="#7d839a"/>
-              <stop offset="100%" stop-color="#2a2c38"/>
-            </linearGradient>
-          </defs>
-          <!-- Arco externo esquerdo de compressão acústica -->
-          <path d="M 50 14 A 36 36 0 0 0 20 68" stroke="url(#arcGrad)" stroke-width="7" stroke-linecap="round" />
-          <!-- Arco externo direito -->
-          <path d="M 50 86 A 36 36 0 0 0 80 32" stroke="url(#arcGrad)" stroke-width="7" stroke-linecap="round" />
-
-          <!-- Anel interno sincronizado em ouro âmbar -->
-          <path d="M 50 28 A 22 22 0 0 1 72 50 A 22 22 0 0 1 50 72" stroke="#ff9f0a" stroke-width="5" stroke-linecap="round" stroke-dasharray="24 8" />
-
-          <!-- Núcleo de pressão sonora -->
-          <circle cx="50" cy="50" r="8" fill="#ffffff" />
-          <circle cx="50" cy="50" r="4" fill="#0d0e13" />
-        </svg>
-      </div>
-      <div class="info">
-        <div class="title-row">
-          <h3>The Dynamic Pulse</h3>
-          <span class="daw-ref">Estilo Pro Tools / Cubase</span>
-        </div>
-        <p class="desc">
-          Dois arcos orbitais de pressão dinâmica envolvendo o pulso interno sincrônico de timecode e click.
-        </p>
-      </div>
-      <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> O relógio mestre de sincronismo (LTC) e a pressão das caixas de som.</div>
-        <div class="detail-item"><strong>Identidade:</strong> Equilíbrio perfeito entre técnica e energia ao vivo.</div>
-      </div>
-    </div>
-
-    <!-- SÍMBOLO 4: A Crista de Onda Sônica (The Audio Crest) -->
-    <div class="card">
-      <span class="card-badge">Símbolo 4</span>
-      <div class="logo-preview-box">
-        <!-- SVG 4: Crista geométrica ascendente de som e transição estilo REAPER / Studio One -->
-        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="crestGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="#3a3d4d"/>
-              <stop offset="50%" stop-color="#9aa0b5"/>
-              <stop offset="100%" stop-color="#ffffff"/>
-            </linearGradient>
-            <linearGradient id="waveFlame" x1="0%" y1="100%" x2="0%" y2="0%">
-              <stop offset="0%" stop-color="#e67300"/>
-              <stop offset="100%" stop-color="#ffb834"/>
-            </linearGradient>
-          </defs>
-          <!-- Onda acústica em leque de frequências sonoras -->
-          <path d="M 22 76 C 22 76 34 26 50 26 C 66 26 78 76 78 76 C 68 62 58 56 50 56 C 42 56 32 62 22 76 Z" fill="url(#crestGrad)" />
-
-          <!-- Núcleo central pulsante em ascensão harmônica -->
-          <path d="M 38 76 C 38 76 44 42 50 42 C 56 42 62 76 62 76 C 56 68 53 66 50 66 C 47 66 44 68 38 76 Z" fill="url(#waveFlame)" />
-
-          <!-- Feixe de agudos / pico de áudio -->
-          <circle cx="50" cy="20" r="3" fill="#ffffff" />
-        </svg>
-      </div>
-      <div class="info">
-        <div class="title-row">
-          <h3>The Acoustic Crest</h3>
-          <span class="daw-ref">Estilo FL Studio / REAPER</span>
-        </div>
-        <p class="desc">
-          Uma crista geométrica de onda senoidal acústica que se ergue como uma labareda/holofote de palco.
-        </p>
-      </div>
-      <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> A intensidade da energia sonora ao vivo e dinâmica vocal.</div>
-        <div class="detail-item"><strong>Identidade:</strong> Impacto visual forte, moderno e inesquecível.</div>
+        <div class="detail-item"><strong>Fundo:</strong> As cores autênticas dos stems do VS Stage Pro.</div>
+        <div class="detail-item"><strong>Sensação:</strong> Reconhecimento imediato do layout do software.</div>
       </div>
     </div>
 
@@ -453,55 +579,70 @@
 
   <!-- Demonstração Realista no Dock do Mac -->
   <div class="dock-section">
-    <div class="dock-title">Visualização Aplicada no Dock do macOS (Sem nenhuma letra)</div>
+    <div class="dock-title">Visualização Aplicada no Dock do macOS</div>
     <div class="dock-bar">
       <!-- Item 1 -->
       <div class="dock-item active" onclick="selectDock(1)">
-        <div class="dock-icon-squircle" style="border-color: rgba(255, 159, 10, 0.4); box-shadow: 0 0 20px rgba(255,159,10,0.2);">
-          <svg viewBox="0 0 100 100" fill="none">
-            <ellipse cx="50" cy="50" rx="40" ry="20" stroke="rgba(255,255,255,0.25)" stroke-width="2" />
-            <polygon points="50,22 68,50 50,78 32,50" fill="#ffffff" />
-            <circle cx="50" cy="50" r="5" fill="#ff9f0a" />
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 320 320" fill="none">
+            <g transform="translate(160, 160)">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" fill="#1b1d24" stroke="#333" stroke-width="1" />
+              <!-- mini timeline -->
+              <line x1="-110" y1="-40" x2="110" y2="-40" stroke="#fff" opacity="0.15" />
+              <line x1="-110" y1="10" x2="110" y2="10" stroke="#fff" opacity="0.15" />
+              <rect x="-80" y="-35" width="60" height="35" rx="3" fill="#38bdf8" opacity="0.25" />
+              <rect x="-10" y="15" width="80" height="35" rx="3" fill="#4ade80" opacity="0.25" />
+              <!-- anéis e esfera -->
+              <ellipse cx="0" cy="0" rx="90" ry="22" stroke="#9a3412" stroke-width="1.5" opacity="0.4" transform="rotate(22)" />
+              <ellipse cx="0" cy="0" rx="110" ry="28" stroke="#14532d" stroke-width="1.5" opacity="0.4" transform="rotate(-18)" />
+              <circle cx="0" cy="0" r="55" fill="#101116" />
+              <g transform="rotate(22)"><path d="M -90 0 A 90 22 0 0 0 90 0" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" /></g>
+              <g transform="rotate(-18)"><path d="M -110 0 A 110 28 0 0 0 110 0" stroke="#22c55e" stroke-width="4" stroke-linecap="round" /></g>
+              <polygon points="-8,-16 18,0 -8,16" fill="#fff" />
+            </g>
           </svg>
         </div>
-        <span>Símbolo 1</span>
+        <span>Variação 1 (Waveforms)</span>
       </div>
 
       <!-- Item 2 -->
       <div class="dock-item" onclick="selectDock(2)">
         <div class="dock-icon-squircle">
-          <svg viewBox="0 0 100 100" fill="none">
-            <rect x="22" y="20" width="8" height="60" rx="4" fill="#ffffff" />
-            <rect x="38" y="20" width="40" height="8" rx="4" fill="#a0a5ba" />
-            <rect x="38" y="46" width="30" height="8" rx="4" fill="#ff9f0a" />
-            <rect x="38" y="72" width="40" height="8" rx="4" fill="#a0a5ba" />
+          <svg viewBox="0 0 320 320" fill="none">
+            <g transform="translate(160, 160)">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" fill="#1b1d24" stroke="#333" stroke-width="1" />
+              <!-- mini grid -->
+              <line x1="-50" y1="-110" x2="-50" y2="110" stroke="#fff" opacity="0.15" />
+              <line x1="0" y1="-110" x2="0" y2="110" stroke="#ff9f0a" opacity="0.4" />
+              <line x1="50" y1="-110" x2="50" y2="110" stroke="#fff" opacity="0.15" />
+              <!-- anéis e esfera -->
+              <circle cx="0" cy="0" r="55" fill="#101116" />
+              <g transform="rotate(22)"><path d="M -90 0 A 90 22 0 0 0 90 0" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" /></g>
+              <g transform="rotate(-18)"><path d="M -110 0 A 110 28 0 0 0 110 0" stroke="#22c55e" stroke-width="4" stroke-linecap="round" /></g>
+              <polygon points="-8,-16 18,0 -8,16" fill="#fff" />
+            </g>
           </svg>
         </div>
-        <span>Símbolo 2</span>
+        <span>Variação 2 (Grid)</span>
       </div>
 
       <!-- Item 3 -->
       <div class="dock-item" onclick="selectDock(3)">
         <div class="dock-icon-squircle">
-          <svg viewBox="0 0 100 100" fill="none">
-            <path d="M 50 14 A 36 36 0 0 0 20 68" stroke="#ffffff" stroke-width="7" stroke-linecap="round" />
-            <path d="M 50 86 A 36 36 0 0 0 80 32" stroke="#ffffff" stroke-width="7" stroke-linecap="round" />
-            <path d="M 50 28 A 22 22 0 0 1 72 50" stroke="#ff9f0a" stroke-width="5" stroke-linecap="round" />
-            <circle cx="50" cy="50" r="6" fill="#ffffff" />
+          <svg viewBox="0 0 320 320" fill="none">
+            <g transform="translate(160, 160)">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" fill="#1b1d24" stroke="#333" stroke-width="1" />
+              <!-- mini medley -->
+              <rect x="-110" y="-95" width="100" height="16" fill="#a855f7" opacity="0.3" />
+              <rect x="-10" y="-95" width="120" height="16" fill="#3b82f6" opacity="0.3" />
+              <circle cx="0" cy="0" r="55" fill="#101116" />
+              <g transform="rotate(22)"><path d="M -90 0 A 90 22 0 0 0 90 0" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" /></g>
+              <g transform="rotate(-18)"><path d="M -110 0 A 110 28 0 0 0 110 0" stroke="#22c55e" stroke-width="4" stroke-linecap="round" /></g>
+              <polygon points="-8,-16 18,0 -8,16" fill="#fff" />
+            </g>
           </svg>
         </div>
-        <span>Símbolo 3</span>
-      </div>
-
-      <!-- Item 4 -->
-      <div class="dock-item" onclick="selectDock(4)">
-        <div class="dock-icon-squircle">
-          <svg viewBox="0 0 100 100" fill="none">
-            <path d="M 22 76 C 22 76 34 26 50 26 C 66 26 78 76 78 76 C 68 62 58 56 50 56 C 42 56 32 62 22 76 Z" fill="#ffffff" />
-            <path d="M 38 76 C 38 76 44 42 50 42 C 56 42 62 76 62 76 C 56 68 53 66 50 66 C 47 66 44 68 38 76 Z" fill="#ff9f0a" />
-          </svg>
-        </div>
-        <span>Símbolo 4</span>
+        <span>Variação 3 (Medley)</span>
       </div>
     </div>
   </div>
@@ -512,12 +653,10 @@
     document.querySelectorAll('.dock-item').forEach((el, idx) => {
       if (idx + 1 === id) {
         el.classList.add('active');
-        el.querySelector('.dock-icon-squircle').style.borderColor = 'rgba(255, 159, 10, 0.4)';
-        el.querySelector('.dock-icon-squircle').style.boxShadow = '0 0 20px rgba(255,159,10,0.2)';
+        el.style.transform = 'translateY(-6px) scale(1.08)';
       } else {
         el.classList.remove('active');
-        el.querySelector('.dock-icon-squircle').style.borderColor = 'rgba(255, 255, 255, 0.15)';
-        el.querySelector('.dock-icon-squircle').style.boxShadow = '0 6px 16px rgba(0, 0, 0, 0.4)';
+        el.style.transform = 'none';
       }
     });
   }
