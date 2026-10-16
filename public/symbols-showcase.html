@@ -1,17 +1,16 @@
-<title>Símbolos VS Stage</title>
+<title>Símbolos Abstratos VS Stage</title>
 <style>
   :root {
-    --bg-page: #0c0d12;
-    --bg-card: #15161e;
-    --bg-card-hover: #1b1d28;
-    --border: rgba(255, 255, 255, 0.1);
-    --border-hover: rgba(255, 255, 255, 0.25);
+    --bg-page: #0a0b0e;
+    --bg-card: #13141b;
+    --bg-card-hover: #191b24;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.22);
     --text-primary: #ffffff;
     --text-secondary: #9ea3b5;
     --text-muted: #656a7d;
     --accent-amber: #ff9f0a;
     --accent-blue: #0a84ff;
-    --accent-glow: rgba(255, 159, 10, 0.25);
     --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     color-scheme: dark;
   }
@@ -29,8 +28,8 @@
     flex-direction: column;
     align-items: center;
     background-image:
-      radial-gradient(ellipse at 50% 0%, rgba(255, 159, 10, 0.08) 0%, transparent 60%),
-      radial-gradient(ellipse at 80% 80%, rgba(10, 132, 255, 0.05) 0%, transparent 60%);
+      radial-gradient(ellipse at 50% 0%, rgba(255, 159, 10, 0.07) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(10, 132, 255, 0.04) 0%, transparent 60%);
   }
 
   .container {
@@ -62,7 +61,7 @@
   }
 
   h1 {
-    font-size: clamp(26px, 4vw, 36px);
+    font-size: clamp(24px, 4vw, 34px);
     font-weight: 800;
     letter-spacing: -0.03em;
     background: linear-gradient(180deg, #ffffff 0%, #b0b4c3 100%);
@@ -73,7 +72,7 @@
   .subtitle {
     font-size: 14px;
     color: var(--text-secondary);
-    max-width: 600px;
+    max-width: 650px;
     line-height: 1.6;
   }
 
@@ -100,7 +99,7 @@
     border-color: var(--border-hover);
     background: var(--bg-card-hover);
     transform: translateY(-4px);
-    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
   }
 
   .card-badge {
@@ -120,20 +119,20 @@
   .logo-preview-box {
     width: 100%;
     aspect-ratio: 1;
-    background: radial-gradient(circle at center, #1e202a 0%, #111218 80%);
+    background: radial-gradient(circle at center, #181a23 0%, #0d0e13 85%);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);
-    padding: 28px;
+    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.6);
+    padding: 24px;
   }
 
   .logo-preview-box svg {
     width: 100%;
     height: 100%;
-    filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.4));
+    filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.5));
     transition: transform 0.3s ease;
   }
 
@@ -192,7 +191,7 @@
     color: #e0e3ed;
   }
 
-  /* Seção de Demonstração no Dock e na DAW */
+  /* Seção de Demonstração no Dock */
   .dock-section {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -204,7 +203,7 @@
   }
 
   .dock-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -212,9 +211,9 @@
   }
 
   .dock-bar {
-    background: rgba(30, 32, 42, 0.6);
+    background: rgba(24, 25, 34, 0.7);
     backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 22px;
     padding: 12px 24px;
     display: flex;
@@ -241,7 +240,7 @@
     width: 60px;
     height: 60px;
     border-radius: 14px;
-    background: linear-gradient(180deg, #252834 0%, #14151c 100%);
+    background: linear-gradient(180deg, #222530 0%, #111218 100%);
     border: 1px solid rgba(255, 255, 255, 0.15);
     display: flex;
     align-items: center;
@@ -267,230 +266,242 @@
 
 <div class="container">
   <div class="header">
-    <div class="tag">Identidade Visual & Branding</div>
-    <h1>Símbolos Oficiais para o VS Stage Pro</h1>
+    <div class="tag">Identidade Visual Pura • Sem Letras</div>
+    <h1>Símbolos Abstratos para o VS Stage Pro</h1>
     <p class="subtitle">
-      Conceitos de símbolos desenhados com a mesma filosofia das maiores DAWs mundiais (Ableton Live, Logic Pro, Studio One e Pro Tools): geometria marcante, autoridade de palco e reconhecimento instantâneo em qualquer tamanho.
+      Seguindo o padrão das maiores DAWs do mundo (Logic Pro, Ableton, Cubase e FL Studio), que <strong>não usam letras</strong>, mas sim <strong>ícones geométricos icônicos</strong> que representam som, ondas, lentes acústicas e dinâmica de palco.
     </p>
   </div>
 
   <div class="grid">
 
-    <!-- OPÇÃO 1: O Monograma Wave V+S -->
+    <!-- SÍMBOLO 1: O Prisma Acústico (A Lente Sonora / Sonic Core) -->
     <div class="card">
-      <span class="card-badge">Opção 1</span>
+      <span class="card-badge">Símbolo 1</span>
       <div class="logo-preview-box">
-        <!-- SVG Símbolo 1: V e S em onda sonora entrelaçada -->
+        <!-- SVG 1: Lente acústica concêntrica estilo Logic Pro / Dolby -->
         <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <radialGradient id="prismGrad" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="100%" stop-color="#8b90a4"/>
-            </linearGradient>
-            <linearGradient id="amberGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffb340"/>
-              <stop offset="100%" stop-color="#ff8c00"/>
-            </linearGradient>
-          </defs>
-          <!-- Fundo sutil de grid geométrico -->
-          <circle cx="50" cy="50" r="44" stroke="rgba(255,255,255,0.06)" stroke-width="1" />
-          <!-- V e S contínuos estilo Ableton/Studio One -->
-          <path d="M 22 26 L 44 74 L 56 74 L 78 26 L 66 26 L 50 61 L 34 26 Z" fill="url(#g1)" />
-          <path d="M 46 36 C 46 29 55 26 63 26 C 73 26 77 31 77 31 L 71 39 C 71 39 67 35 63 35 C 59 35 55 36 55 40 C 55 49 78 46 78 61 C 78 71 68 76 58 76 C 47 76 42 70 42 70 L 48 62 C 48 62 53 67 58 67 C 63 67 68 65 68 60 C 68 50 46 51 46 36 Z" fill="url(#amberGlow)" opacity="0.95" />
-          <circle cx="50" cy="74" r="2.5" fill="#ffb340" />
-        </svg>
-      </div>
-      <div class="info">
-        <div class="title-row">
-          <h3>The Waveform V+S</h3>
-          <span class="daw-ref">Estilo Ableton</span>
-        </div>
-        <p class="desc">
-          O <strong>V</strong> estrutural de palco fundido com o <strong>S</strong> orgânico em curva senoidal dourada.
-        </p>
-      </div>
-      <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> Precisão digital do "V" e fluidez das ondas do "S".</div>
-        <div class="detail-item"><strong>Destaque:</strong> Funciona perfeito em 16px como favicon e no Dock.</div>
-      </div>
-    </div>
-
-    <!-- OPÇÃO 2: O Prisma do Palco com Play -->
-    <div class="card">
-      <span class="card-badge">Opção 2</span>
-      <div class="logo-preview-box">
-        <!-- SVG Símbolo 2: Palco angular + Playhead + Holofotes -->
-        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="vStageBeam" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="60%" stop-color="#9aa0b5"/>
-              <stop offset="100%" stop-color="#4a4e60"/>
-            </linearGradient>
-            <linearGradient id="playCore" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="50%" stop-color="#a4a9be"/>
+              <stop offset="100%" stop-color="#363948"/>
+            </radialGradient>
+            <radialGradient id="amberCore" cx="50%" cy="50%" r="50%">
               <stop offset="0%" stop-color="#ffb834"/>
-              <stop offset="100%" stop-color="#e67e00"/>
-            </linearGradient>
+              <stop offset="70%" stop-color="#e67e00"/>
+              <stop offset="100%" stop-color="#994d00"/>
+            </radialGradient>
           </defs>
-          <!-- Palco V em perspectiva frontal (Boca de cena) -->
-          <path d="M 16 22 L 44 82 L 56 82 L 84 22 L 70 22 L 50 67 L 30 22 Z" fill="url(#vStageBeam)" />
-          <!-- Sombra e profundidade interna -->
-          <polygon points="50,67 70,22 84,22" fill="#ffffff" opacity="0.12" />
-          <!-- Play central flutuante em neon âmbar (o Play do show) -->
-          <polygon points="45,41 61,51 45,61" fill="url(#playCore)" />
-          <!-- Feixe de luz superior do palco -->
-          <path d="M 40 22 L 50 36 L 60 22" stroke="#ffb834" stroke-width="2" stroke-linecap="round" opacity="0.6" />
+          <!-- Anéis elípticos de dispersão sonora (Ondas acústicas em perspectiva) -->
+          <ellipse cx="50" cy="50" rx="42" ry="24" stroke="rgba(255,255,255,0.18)" stroke-width="1.5" />
+          <ellipse cx="50" cy="50" rx="34" ry="18" stroke="rgba(255,255,255,0.3)" stroke-width="2" />
+          <ellipse cx="50" cy="50" rx="25" ry="12" stroke="#ff9f0a" stroke-width="2.5" opacity="0.85" />
+
+          <!-- Prisma / Diamante Acústico central lapidado -->
+          <polygon points="50,22 68,50 50,78 32,50" fill="url(#prismGrad)" />
+          <!-- Facetas internas de reflexão de estúdio -->
+          <polygon points="50,22 68,50 50,50" fill="#ffffff" opacity="0.25" />
+          <polygon points="50,50 68,50 50,78" fill="#000000" opacity="0.25" />
+          <polygon points="32,50 50,50 50,78" fill="#ffffff" opacity="0.1" />
+
+          <!-- Núcleo de emissão de som (O pulso da luz de palco) -->
+          <circle cx="50" cy="50" r="5" fill="url(#amberCore)" />
         </svg>
       </div>
       <div class="info">
         <div class="title-row">
-          <h3>The Stage Spotlight</h3>
+          <h3>The Sonic Prism</h3>
           <span class="daw-ref">Estilo Logic Pro</span>
         </div>
         <p class="desc">
-          O <strong>V</strong> aberto como os holofotes e a boca de cena do palco, com o triângulo de <strong>Play</strong> puro ao centro.
+          Lente acústica com anéis de dispersão sonora concêntricos envolvendo um prisma lapidado de alta fidelidade.
         </p>
       </div>
       <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> O "Play" da banda no palco. Autoridade de show ao vivo.</div>
-        <div class="detail-item"><strong>Destaque:</strong> Transmite que o app é feito para a pressão do palco.</div>
+        <div class="detail-item"><strong>Conceito:</strong> Precisão acústica e foco do som no palco. Zero letras.</div>
+        <div class="detail-item"><strong>Identidade:</strong> Extremamente refinado, transmite sofisticação e hardware caro.</div>
       </div>
     </div>
 
-    <!-- OPÇÃO 3: Fitas Multitrack em V (Stems & Tracks) -->
+    <!-- SÍMBOLO 2: As Lâminas da Timeline / Arranjo (The Stem Blades) -->
     <div class="card">
-      <span class="card-badge">Opção 3</span>
+      <span class="card-badge">Símbolo 2</span>
       <div class="logo-preview-box">
-        <!-- SVG Símbolo 3: Barras paralelas geométricas de Multitrack -->
+        <!-- SVG 2: Três lâminas angulares simétricas estilo Ableton / Teenage Engineering -->
         <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <linearGradient id="stemBar" x1="0%" y1="0%" x2="0%" y2="100%">
+            <linearGradient id="bladeGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="100%" stop-color="#6e7387"/>
+              <stop offset="100%" stop-color="#696f86"/>
+            </linearGradient>
+            <linearGradient id="bladeGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#ffb834"/>
+              <stop offset="100%" stop-color="#d97000"/>
             </linearGradient>
           </defs>
-          <!-- 3 Pistas / Stems convergindo em V de alta precisão -->
-          <!-- Pista 1 (Esquerda externa) -->
-          <rect x="18" y="24" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.5" />
-          <!-- Pista 2 (Esquerda média) -->
-          <rect x="30" y="32" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.8" />
-          <!-- Pista Central (O Vértice do Palco - Dourado) -->
-          <path d="M 45 42 L 50 78 L 55 42 Z" fill="#ff9f0a" />
-          <circle cx="50" cy="80" r="3" fill="#ff9f0a" />
-          <!-- Pista 4 (Direita média) -->
-          <rect x="62" y="32" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.8" />
-          <!-- Pista 5 (Direita externa) -->
-          <rect x="74" y="24" width="8" height="42" rx="4" fill="url(#stemBar)" opacity="0.5" />
-          <!-- Linhas horizontais do Grid da Timeline unindo tudo -->
-          <line x1="20" y1="46" x2="80" y2="46" stroke="rgba(255,255,255,0.2)" stroke-dasharray="2 4" stroke-width="1.5" />
+          <!-- 4 Lâminas geométricas paralelas representando stems e tracks da DAW -->
+          <!-- Barra 1 (Vertical alta esquerda) -->
+          <rect x="20" y="20" width="8" height="60" rx="4" fill="url(#bladeGrad1)" />
+          <!-- Barra 2 (Horizontal superior) -->
+          <rect x="36" y="20" width="44" height="8" rx="4" fill="url(#bladeGrad1)" opacity="0.85" />
+          <!-- Barra 3 (Horizontal central - Playhead/Click dourado) -->
+          <rect x="36" y="46" width="34" height="8" rx="4" fill="url(#bladeGrad2)" />
+          <!-- Barra 4 (Horizontal inferior) -->
+          <rect x="36" y="72" width="44" height="8" rx="4" fill="url(#bladeGrad1)" opacity="0.85" />
         </svg>
       </div>
       <div class="info">
         <div class="title-row">
-          <h3>The Multitrack Wings</h3>
-          <span class="daw-ref">Estilo Pro Tools</span>
+          <h3>The Session Matrix</h3>
+          <span class="daw-ref">Estilo Ableton Live</span>
         </div>
         <p class="desc">
-          Colunas de faders e multitracks dispostas em asas simétricas apontando para o click central.
+          Geometria pura com a barra mestre vertical de tempo e três faixas de multitrack horizontais em arranjo.
         </p>
       </div>
       <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> Pistas de áudio, bateria, baixo e voz convergindo em sincronismo.</div>
-        <div class="detail-item"><strong>Destaque:</strong> Muito técnico e imediatamente associado a áudio profissional.</div>
+        <div class="detail-item"><strong>Conceito:</strong> A arquitetura da DAW (faixa mestre + clipes de áudio).</div>
+        <div class="detail-item"><strong>Identidade:</strong> Minimalismo radical, autoridade instantânea e memorável.</div>
       </div>
     </div>
 
-    <!-- OPÇÃO 4: O Monograma Geométrico Puro (V & S Infinito) -->
+    <!-- SÍMBOLO 3: O Pulso Acústico Orbital (The Sonic Orb / Portal) -->
     <div class="card">
-      <span class="card-badge">Opção 4</span>
+      <span class="card-badge">Símbolo 3</span>
       <div class="logo-preview-box">
-        <!-- SVG Símbolo 4: Linha contínua fita de Moebius V e S -->
+        <!-- SVG 3: Anéis orbitais de pressão sonora em rotação dinâmica -->
         <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <linearGradient id="ribbon1" x1="0%" y1="0%" x2="100%" y2="100%">
+            <linearGradient id="arcGrad" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stop-color="#ffffff"/>
-              <stop offset="50%" stop-color="#cfd3e0"/>
-              <stop offset="100%" stop-color="#707589"/>
-            </linearGradient>
-            <linearGradient id="amberGold" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#ffbf47"/>
-              <stop offset="100%" stop-color="#e07700"/>
+              <stop offset="70%" stop-color="#7d839a"/>
+              <stop offset="100%" stop-color="#2a2c38"/>
             </linearGradient>
           </defs>
-          <!-- Fita angular moderna unindo o V ao S -->
-          <!-- Asa esquerda do V -->
-          <path d="M 22 28 L 44 76 L 56 76 L 36 32 L 48 32 C 58 32 64 36 64 43 C 64 51 56 54 48 56 L 40 58 C 28 61 22 68 22 78 C 22 88 32 94 46 94" stroke="url(#ribbon1)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" opacity="0.3" />
+          <!-- Arco externo esquerdo de compressão acústica -->
+          <path d="M 50 14 A 36 36 0 0 0 20 68" stroke="url(#arcGrad)" stroke-width="7" stroke-linecap="round" />
+          <!-- Arco externo direito -->
+          <path d="M 50 86 A 36 36 0 0 0 80 32" stroke="url(#arcGrad)" stroke-width="7" stroke-linecap="round" />
 
-          <path d="M 24 28 L 46 76 L 56 76 L 78 28" stroke="url(#ribbon1)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M 44 32 C 44 24 53 20 62 20 C 72 20 78 26 78 33 C 78 44 54 46 54 57 C 54 66 64 70 74 68" stroke="url(#amberGold)" stroke-width="7" stroke-linecap="round" />
+          <!-- Anel interno sincronizado em ouro âmbar -->
+          <path d="M 50 28 A 22 22 0 0 1 72 50 A 22 22 0 0 1 50 72" stroke="#ff9f0a" stroke-width="5" stroke-linecap="round" stroke-dasharray="24 8" />
+
+          <!-- Núcleo de pressão sonora -->
+          <circle cx="50" cy="50" r="8" fill="#ffffff" />
+          <circle cx="50" cy="50" r="4" fill="#0d0e13" />
         </svg>
       </div>
       <div class="info">
         <div class="title-row">
-          <h3>The Infinite Stem (V/S)</h3>
-          <span class="daw-ref">Estilo Studio One</span>
+          <h3>The Dynamic Pulse</h3>
+          <span class="daw-ref">Estilo Pro Tools / Cubase</span>
         </div>
         <p class="desc">
-          Traço arquitetural que une a letra <strong>V</strong> em base metálica sólida com a curva do <strong>S</strong> em ouro âmbar.
+          Dois arcos orbitais de pressão dinâmica envolvendo o pulso interno sincrônico de timecode e click.
         </p>
       </div>
       <div class="details">
-        <div class="detail-item"><strong>Conceito:</strong> Transições fluidas de medley e estabilidade ininterrupta.</div>
-        <div class="detail-item"><strong>Destaque:</strong> Minimalismo premium, nobre e ultra contemporâneo.</div>
+        <div class="detail-item"><strong>Conceito:</strong> O relógio mestre de sincronismo (LTC) e a pressão das caixas de som.</div>
+        <div class="detail-item"><strong>Identidade:</strong> Equilíbrio perfeito entre técnica e energia ao vivo.</div>
+      </div>
+    </div>
+
+    <!-- SÍMBOLO 4: A Crista de Onda Sônica (The Audio Crest) -->
+    <div class="card">
+      <span class="card-badge">Símbolo 4</span>
+      <div class="logo-preview-box">
+        <!-- SVG 4: Crista geométrica ascendente de som e transição estilo REAPER / Studio One -->
+        <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="crestGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#3a3d4d"/>
+              <stop offset="50%" stop-color="#9aa0b5"/>
+              <stop offset="100%" stop-color="#ffffff"/>
+            </linearGradient>
+            <linearGradient id="waveFlame" x1="0%" y1="100%" x2="0%" y2="0%">
+              <stop offset="0%" stop-color="#e67300"/>
+              <stop offset="100%" stop-color="#ffb834"/>
+            </linearGradient>
+          </defs>
+          <!-- Onda acústica em leque de frequências sonoras -->
+          <path d="M 22 76 C 22 76 34 26 50 26 C 66 26 78 76 78 76 C 68 62 58 56 50 56 C 42 56 32 62 22 76 Z" fill="url(#crestGrad)" />
+
+          <!-- Núcleo central pulsante em ascensão harmônica -->
+          <path d="M 38 76 C 38 76 44 42 50 42 C 56 42 62 76 62 76 C 56 68 53 66 50 66 C 47 66 44 68 38 76 Z" fill="url(#waveFlame)" />
+
+          <!-- Feixe de agudos / pico de áudio -->
+          <circle cx="50" cy="20" r="3" fill="#ffffff" />
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>The Acoustic Crest</h3>
+          <span class="daw-ref">Estilo FL Studio / REAPER</span>
+        </div>
+        <p class="desc">
+          Uma crista geométrica de onda senoidal acústica que se ergue como uma labareda/holofote de palco.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Conceito:</strong> A intensidade da energia sonora ao vivo e dinâmica vocal.</div>
+        <div class="detail-item"><strong>Identidade:</strong> Impacto visual forte, moderno e inesquecível.</div>
       </div>
     </div>
 
   </div>
 
-  <!-- Demonstração Realista no Dock do Mac / Barra do Windows -->
+  <!-- Demonstração Realista no Dock do Mac -->
   <div class="dock-section">
-    <div class="dock-title">Visualização no Dock do macOS (Ícone do Aplicativo)</div>
+    <div class="dock-title">Visualização Aplicada no Dock do macOS (Sem nenhuma letra)</div>
     <div class="dock-bar">
       <!-- Item 1 -->
-      <div class="dock-item" onclick="selectDock(1)">
-        <div class="dock-icon-squircle">
+      <div class="dock-item active" onclick="selectDock(1)">
+        <div class="dock-icon-squircle" style="border-color: rgba(255, 159, 10, 0.4); box-shadow: 0 0 20px rgba(255,159,10,0.2);">
           <svg viewBox="0 0 100 100" fill="none">
-            <path d="M 22 26 L 44 74 L 56 74 L 78 26 L 66 26 L 50 61 L 34 26 Z" fill="#ffffff" />
-            <path d="M 46 36 C 46 29 55 26 63 26 C 73 26 77 31 77 31 L 71 39 C 71 39 67 35 63 35 C 59 35 55 36 55 40 C 55 49 78 46 78 61 C 78 71 68 76 58 76 C 47 76 42 70 42 70 L 48 62 C 48 62 53 67 58 67 C 63 67 68 65 68 60 C 68 50 46 51 46 36 Z" fill="#ff9f0a" />
+            <ellipse cx="50" cy="50" rx="40" ry="20" stroke="rgba(255,255,255,0.25)" stroke-width="2" />
+            <polygon points="50,22 68,50 50,78 32,50" fill="#ffffff" />
+            <circle cx="50" cy="50" r="5" fill="#ff9f0a" />
           </svg>
         </div>
-        <span>Opção 1</span>
+        <span>Símbolo 1</span>
       </div>
 
       <!-- Item 2 -->
-      <div class="dock-item active" onclick="selectDock(2)">
-        <div class="dock-icon-squircle" style="border-color: rgba(255, 159, 10, 0.4); box-shadow: 0 0 20px rgba(255,159,10,0.2);">
+      <div class="dock-item" onclick="selectDock(2)">
+        <div class="dock-icon-squircle">
           <svg viewBox="0 0 100 100" fill="none">
-            <path d="M 16 22 L 44 82 L 56 82 L 84 22 L 70 22 L 50 67 L 30 22 Z" fill="#ffffff" />
-            <polygon points="45,41 61,51 45,61" fill="#ff9f0a" />
+            <rect x="22" y="20" width="8" height="60" rx="4" fill="#ffffff" />
+            <rect x="38" y="20" width="40" height="8" rx="4" fill="#a0a5ba" />
+            <rect x="38" y="46" width="30" height="8" rx="4" fill="#ff9f0a" />
+            <rect x="38" y="72" width="40" height="8" rx="4" fill="#a0a5ba" />
           </svg>
         </div>
-        <span>Opção 2</span>
+        <span>Símbolo 2</span>
       </div>
 
       <!-- Item 3 -->
       <div class="dock-item" onclick="selectDock(3)">
         <div class="dock-icon-squircle">
           <svg viewBox="0 0 100 100" fill="none">
-            <rect x="20" y="24" width="8" height="42" rx="4" fill="#888" />
-            <rect x="32" y="32" width="8" height="42" rx="4" fill="#bbb" />
-            <path d="M 45 42 L 50 78 L 55 42 Z" fill="#ff9f0a" />
-            <rect x="60" y="32" width="8" height="42" rx="4" fill="#bbb" />
-            <rect x="72" y="24" width="8" height="42" rx="4" fill="#888" />
+            <path d="M 50 14 A 36 36 0 0 0 20 68" stroke="#ffffff" stroke-width="7" stroke-linecap="round" />
+            <path d="M 50 86 A 36 36 0 0 0 80 32" stroke="#ffffff" stroke-width="7" stroke-linecap="round" />
+            <path d="M 50 28 A 22 22 0 0 1 72 50" stroke="#ff9f0a" stroke-width="5" stroke-linecap="round" />
+            <circle cx="50" cy="50" r="6" fill="#ffffff" />
           </svg>
         </div>
-        <span>Opção 3</span>
+        <span>Símbolo 3</span>
       </div>
 
       <!-- Item 4 -->
       <div class="dock-item" onclick="selectDock(4)">
         <div class="dock-icon-squircle">
           <svg viewBox="0 0 100 100" fill="none">
-            <path d="M 24 28 L 46 76 L 56 76 L 78 28" stroke="#ffffff" stroke-width="10" stroke-linecap="round" />
-            <path d="M 44 32 C 44 24 53 20 62 20 C 72 20 78 26 78 33 C 78 44 54 46 54 57 C 54 66 64 70 74 68" stroke="#ff9f0a" stroke-width="8" stroke-linecap="round" />
+            <path d="M 22 76 C 22 76 34 26 50 26 C 66 26 78 76 78 76 C 68 62 58 56 50 56 C 42 56 32 62 22 76 Z" fill="#ffffff" />
+            <path d="M 38 76 C 38 76 44 42 50 42 C 56 42 62 76 62 76 C 56 68 53 66 50 66 C 47 66 44 68 38 76 Z" fill="#ff9f0a" />
           </svg>
         </div>
-        <span>Opção 4</span>
+        <span>Símbolo 4</span>
       </div>
     </div>
   </div>
