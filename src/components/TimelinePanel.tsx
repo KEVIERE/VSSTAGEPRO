@@ -1026,32 +1026,28 @@ function FooterProgress({ importProgress, exportProgress }: {
   );
 }
 
-/** Barra de navegação horizontal estilo DAW profissional com alças de zoom nas pontas */
-function TimelineNavigatorScrollbar({
+/** Barra de rolagem horizontal nativa customizada (exclusiva para as faixas, sem alças de zoom) */
+function TimelineHorizontalScrollbar({
   scrollRef,
   timelineWidth,
-  zoomH,
-  setZoomH,
   headerWidth,
 }: {
   scrollRef: React.RefObject<HTMLDivElement>;
   timelineWidth: number;
-  zoomH: number;
-  setZoomH: (z: number) => void;
   headerWidth: number;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
-  const [scrollState, setScrollState] = useState({ scrollLeft: 0, clientWidth: 1000, scrollWidth: 2000 });
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [clientWidth, setClientWidth] = useState(1000);
+  const [scrollWidth, setScrollWidth] = useState(2000);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const update = () => {
-      setScrollState({
-        scrollLeft: el.scrollLeft,
-        clientWidth: el.clientWidth,
-        scrollWidth: el.scrollWidth,
-      });
+      setScrollLeft(el.scrollLeft);
+      setClientWidth(el.clientWidth);
+      setScrollWidth(el.scrollWidth);
     };
     update();
     el.addEventListener('scroll', update, { passive: true });
@@ -1060,25 +1056,26 @@ function TimelineNavigatorScrollbar({
       el.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [scrollRef, headerWidth, timelineWidth, zoomH]);
+  }, [scrollRef, headerWidth, timelineWidth]);
 
-  // A área visível da timeline na janela (descontando o painel das faixas)
-  const viewW = Math.max(10, scrollState.clientWidth - headerWidth);
+  // A área visível da timeline (descontando a largura fixa das tracks)
+  const viewW = Math.max(10, clientWidth - headerWidth);
   const totalW = Math.max(viewW, timelineWidth);
-  const maxScroll = Math.max(1, scrollState.scrollWidth - scrollState.clientWidth);
+  const maxScroll = Math.max(1, scrollWidth - clientWidth);
 
-  // Proporção de largura do thumb
-  const ratio = Math.min(1, Math.max(0.05, viewW / totalW));
+  // Proporção do thumb
+  const ratio = Math.min(1, Math.max(0.06, viewW / totalW));
   const thumbWidthPct = ratio * 100;
   const maxThumbLeftPct = 100 - thumbWidthPct;
-  const scrollRatio = Math.max(0, Math.min(1, scrollState.scrollLeft / maxScroll));
+  const scrollRatio = Math.max(0, Math.min(1, scrollLeft / maxScroll));
   const thumbLeftPct = scrollRatio * maxThumbLeftPct;
 
-  // Arraste do corpo do scrollbar (Scroll/Pan da timeline)
+  // Arraste suave do thumb
   const handleThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+
     const startX = e.clientX;
     const startScroll = scrollRef.current?.scrollLeft ?? 0;
     const barW = barRef.current?.clientWidth ?? 1;
@@ -1095,76 +1092,22 @@ function TimelineNavigatorScrollbar({
         }
       });
     };
-    const up = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', move);
-      window.removeEventListener('pointercancel', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-  };
 
-  // Alça Esquerda de Zoom
-  const handleLeftZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startZoom = zoomH;
-
-    let rafId: number | null = null;
-    const move = (ev: PointerEvent) => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const deltaX = ev.clientX - startX;
-        const factor = Math.exp(-deltaX * 0.008);
-        setZoomH(Math.max(5, Math.min(400, Math.round(startZoom * factor * 10) / 10)));
-      });
-    };
     const up = () => {
       if (rafId) cancelAnimationFrame(rafId);
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
     };
+
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
   };
 
-  // Alça Direita de Zoom
-  const handleRightZoomPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startZoom = zoomH;
-
-    let rafId: number | null = null;
-    const move = (ev: PointerEvent) => {
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        const deltaX = ev.clientX - startX;
-        const factor = Math.exp(deltaX * 0.008);
-        setZoomH(Math.max(5, Math.min(400, Math.round(startZoom * factor * 10) / 10)));
-      });
-    };
-    const up = () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', up);
-  };
-
-  // Clique na pista para saltar a navegação
-  const handleTrackClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!barRef.current || !scrollRef.current) return;
+  // Clique na pista para pular para a posição
+  const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !barRef.current || !scrollRef.current) return;
     const rect = barRef.current.getBoundingClientRect();
     const clickRatio = (e.clientX - rect.left) / rect.width;
     const targetScroll = (clickRatio - ratio / 2) * maxScroll / Math.max(0.01, 1 - ratio);
@@ -1174,46 +1117,19 @@ function TimelineNavigatorScrollbar({
   return (
     <div
       ref={barRef}
-      className="flex-1 h-full bg-[#101116] relative cursor-pointer overflow-hidden border-l border-logic-border-dark select-none"
-      onClick={handleTrackClick}
-      title="Navegador horizontal: arraste o centro para navegar. Arraste as pontas para dar zoom."
+      className="flex-1 h-full bg-[#0e0f14] relative cursor-pointer overflow-hidden border-l border-logic-border-dark select-none"
+      onPointerDown={handleTrackPointerDown}
+      title="Rolar timeline horizontalmente"
     >
-      <div className="absolute inset-0 bg-white/[0.02]" />
       <div
-        className="absolute top-1 bottom-1 rounded-[4px] bg-[#282a35] hover:bg-[#343746] border border-white/20 shadow-sm flex items-center justify-between group transition-colors"
+        className="absolute top-1 bottom-1 rounded-full bg-zinc-600/70 hover:bg-zinc-500 active:bg-zinc-400 border border-white/10 shadow-sm cursor-grab active:cursor-grabbing transition-colors"
         style={{
           left: `${thumbLeftPct}%`,
           width: `${thumbWidthPct}%`,
-          minWidth: '32px',
+          minWidth: '24px',
         }}
-        onClick={(e) => e.stopPropagation()}
         onPointerDown={handleThumbPointerDown}
-      >
-        {/* Alça Esquerda de Zoom */}
-        <div
-          className="w-3.5 h-full cursor-ew-resize flex items-center justify-center hover:bg-white/20 rounded-l-[3px] group/leftHandle transition-colors"
-          onPointerDown={handleLeftZoomPointerDown}
-          title="Arraste para ajustar o zoom horizontal pela esquerda"
-        >
-          <div className="w-[2px] h-2.5 bg-white/40 group-hover/leftHandle:bg-white rounded-full" />
-        </div>
-
-        {/* Centro de arraste de navegação */}
-        <div className="flex-1 h-full flex items-center justify-center cursor-grab active:cursor-grabbing gap-[3px] px-1">
-          <div className="w-0.5 h-2 bg-white/25 rounded-full" />
-          <div className="w-0.5 h-2 bg-white/25 rounded-full" />
-          <div className="w-0.5 h-2 bg-white/25 rounded-full" />
-        </div>
-
-        {/* Alça Direita de Zoom */}
-        <div
-          className="w-3.5 h-full cursor-ew-resize flex items-center justify-center hover:bg-white/20 rounded-r-[3px] group/rightHandle transition-colors"
-          onPointerDown={handleRightZoomPointerDown}
-          title="Arraste para ajustar o zoom horizontal pela direita"
-        >
-          <div className="w-[2px] h-2.5 bg-white/40 group-hover/rightHandle:bg-white rounded-full" />
-        </div>
-      </div>
+      />
     </div>
   );
 }
@@ -1967,12 +1883,10 @@ export default function TimelinePanel() {
           </span>
         </div>
 
-        {/* Scrollbar & Navegador de Zoom Horizontal da Timeline */}
-        <TimelineNavigatorScrollbar
+        {/* Scrollbar Horizontal da Timeline (sem alças de zoom, exclusivo a partir da aresta direita das faixas) */}
+        <TimelineHorizontalScrollbar
           scrollRef={scrollRef}
           timelineWidth={timelineWidth}
-          zoomH={zoomH}
-          setZoomH={setZoomH}
           headerWidth={HEADER_W}
         />
       </div>
