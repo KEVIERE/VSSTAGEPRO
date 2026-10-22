@@ -14,7 +14,6 @@ import {
   LogOut,
   RotateCcw,
   ShieldCheck,
-  Sparkles,
   Terminal,
   Timer,
   Wifi,
@@ -124,38 +123,24 @@ function MacDownloadPageContent({ session }: { session: Session }) {
   const busy = status.kind === 'downloading';
 
   return (
-    <div
-      className="min-h-screen bg-logic-bg-deep text-logic-text flex flex-col relative overflow-x-hidden selection:bg-logic-lcd-green selection:text-black"
-      style={{ background: 'radial-gradient(ellipse at top, #14161f 0%, #08090c 70%)' }}
-    >
-      {/* Luzes neon de fundo estilo DAW */}
+    <div className="min-h-screen bg-[#000000] text-[#f5f5f7] font-sans flex flex-col relative overflow-x-hidden selection:bg-[#0071e3] selection:text-white antialiased">
+      {/* Glow atmosférico suave estilo Apple */}
       <div className="hidden sm:block fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
-        <div className="absolute top-0 left-1/4 -translate-x-1/2 w-[700px] h-[700px] rounded-full bg-logic-lcd-green/8 blur-[160px] animate-pulse" style={{ animationDuration: '8s' }} />
-        <div className="absolute top-1/3 right-1/4 translate-x-1/2 w-[650px] h-[650px] rounded-full bg-logic-lcd-amber/7 blur-[180px] animate-pulse" style={{ animationDuration: '10s' }} />
-        <div className="absolute bottom-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[800px] rounded-full bg-emerald-500/5 blur-[200px]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-b from-[#0071e3]/10 via-emerald-500/5 to-transparent blur-[140px]" />
       </div>
 
-      {/* Header Superior Fixo Estilo DAW */}
-      <header className="sticky top-0 z-50 bg-[#0c0d12]/85 backdrop-blur-xl border-b border-white/[0.08]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-3 group">
-            <div className="transition-transform group-hover:scale-105">
-              <VsLogo size={36} />
-            </div>
-            <div className="flex flex-col">
-              <span className="font-extrabold text-base tracking-wider text-white flex items-center gap-2">
-                VS STAGE <span className="text-2xs font-black px-1.5 py-0.5 rounded bg-logic-lcd-green/15 text-logic-lcd-green border border-logic-lcd-green/30">PRO</span>
-              </span>
-              <span className="text-[9px] tracking-widest text-logic-text-muted font-semibold uppercase">
-                Live Performance Engine
-              </span>
-            </div>
+      {/* Header Superior Fixo Estilo Apple */}
+      <header className="sticky top-0 z-50 bg-[#000000]/80 backdrop-blur-xl border-b border-white/[0.12]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2.5 group">
+            <VsLogo size={24} />
+            <span className="text-white font-semibold text-sm tracking-tight">VS Stage Pro</span>
           </a>
 
           <div className="flex items-center gap-4">
             <a
               href="/"
-              className="text-xs font-semibold text-logic-text-dim hover:text-white transition-colors hidden sm:inline-flex"
+              className="text-xs font-medium text-[#86868b] hover:text-white transition-colors hidden sm:inline-flex"
             >
               ← Voltar ao Início
             </a>
@@ -163,13 +148,13 @@ function MacDownloadPageContent({ session }: { session: Session }) {
             <div className="flex items-center gap-2 pl-3 border-l border-white/10">
               <div className="text-right hidden md:block">
                 <div className="text-2xs font-bold text-white truncate max-w-[160px]">{session.user.email}</div>
-                <div className="text-[10px] text-logic-lcd-green font-medium">Conta Liberada</div>
+                <div className="text-[10px] text-emerald-400 font-medium">Conta Liberada</div>
               </div>
 
               <button
                 onClick={() => supabase.auth.signOut()}
                 title="Sair da conta"
-                className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-logic-text-dim hover:text-white border border-white/10 transition flex items-center gap-1.5 text-xs"
+                className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-[#86868b] hover:text-white border border-white/10 transition flex items-center gap-1.5 text-xs"
               >
                 <LogOut size={14} />
                 <span className="hidden sm:inline">Sair</span>
@@ -180,37 +165,39 @@ function MacDownloadPageContent({ session }: { session: Session }) {
       </header>
 
       {/* Conteúdo Principal */}
-      <main className="relative z-10 flex-1 max-w-6xl mx-auto px-4 sm:px-6 py-10 sm:py-14 w-full">
-        {/* Hero do Download */}
-        <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 backdrop-blur-md mb-6 animate-[fadeIn_400ms_ease-out]">
-            <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-ping" />
-            <span className="text-2xs sm:text-xs font-bold tracking-wider text-logic-text-dim uppercase">
-              INSTALADOR OFICIAL PARA MACOS
+      <main className="relative z-10 flex-1 max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 w-full">
+        {/* Hero do Download - Estilo Apple */}
+        <div className="text-center max-w-3xl mx-auto mb-16 sm:mb-20">
+          <div className="mx-auto w-16 h-16 mb-6 drop-shadow-[0_12px_24px_rgba(255,159,10,0.25)]">
+            <VsLogo size={64} />
+          </div>
+
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 mb-6">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-semibold tracking-wide text-[#86868b] uppercase">
+              Instalador Oficial para macOS
             </span>
             {manifest?.version && (
-              <span className="px-2 py-0.5 rounded-full bg-logic-lcd-green/15 text-logic-lcd-green text-[11px] font-black border border-logic-lcd-green/30">
+              <span className="px-2 py-0.5 rounded-full bg-[#0071e3]/15 text-[#2997ff] text-[10px] font-bold">
                 v{manifest.version}
               </span>
             )}
           </div>
 
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.12]">
-            Baixe o instalador oficial <br />
-            <span className="bg-gradient-to-r from-logic-lcd-green via-emerald-300 to-logic-lcd-amber bg-clip-text text-transparent">
-              e teste grátis por 48 horas.
-            </span>
+          <h1 className="text-4xl sm:text-6xl font-extrabold text-white tracking-tight leading-[1.08]">
+            Baixe e teste grátis <br className="hidden sm:block" />
+            por 48 horas.
           </h1>
 
-          <p className="text-logic-text-dim text-sm sm:text-base max-w-2xl mx-auto mt-4 leading-relaxed font-normal">
+          <p className="text-[#86868b] text-base sm:text-lg max-w-2xl mx-auto mt-5 leading-relaxed">
             Escolha o tipo de processador do seu Mac abaixo. O tempo do teste grátis só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu computador.
           </p>
 
           {/* Badges de Confiança */}
-          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 mt-6 text-xs text-logic-text-dim">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2.5 mt-8 text-xs text-[#86868b]">
             {TRUST_BADGES.map(({ icon: Icon, text }) => (
               <div key={text} className="flex items-center gap-2">
-                <Icon size={14} className="text-logic-lcd-green shrink-0" />
+                <Icon size={14} className="text-emerald-400 shrink-0" />
                 <span>{text}</span>
               </div>
             ))}
@@ -220,10 +207,10 @@ function MacDownloadPageContent({ session }: { session: Session }) {
         {/* Cards de Download (Apple Silicon vs Intel) */}
         <div className="max-w-4xl mx-auto mb-16">
           {!manifest && !loadError && (
-            <div className="p-12 rounded-2xl border border-white/10 bg-[#121318]/90 text-center flex flex-col items-center justify-center">
-              <Loader2 size={32} className="text-logic-lcd-green animate-spin mb-3" />
+            <div className="p-12 rounded-2xl border border-white/10 bg-[#161618] text-center flex flex-col items-center justify-center">
+              <Loader2 size={32} className="text-[#2997ff] animate-spin mb-3" />
               <p className="text-sm font-semibold text-white">Carregando instaladores oficiais...</p>
-              <p className="text-xs text-logic-text-muted mt-1">Conectando aos servidores de alta velocidade</p>
+              <p className="text-xs text-[#86868b] mt-1">Conectando aos servidores de alta velocidade</p>
             </div>
           )}
 
@@ -253,15 +240,14 @@ function MacDownloadPageContent({ session }: { session: Session }) {
                     key={build.arch}
                     className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 border ${
                       isSuggested
-                        ? 'bg-gradient-to-b from-[#141b16] via-[#101318] to-[#0c0e12] border-logic-lcd-green/50 shadow-[0_0_40px_rgba(48,209,88,0.14)]'
-                        : 'bg-[#111218]/90 border-white/10 hover:border-white/20'
+                        ? 'bg-gradient-to-b from-[#1a1c24] via-[#161618] to-[#101116] border-[#0071e3]/60 shadow-[0_0_40px_rgba(0,113,227,0.2)]'
+                        : 'bg-[#161618] border-white/10 hover:border-white/20'
                     }`}
                   >
                     {/* Badge Recomendado */}
                     {isSuggested && (
-                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3.5 py-0.5 rounded-full bg-gradient-to-r from-logic-lcd-green to-emerald-400 text-black text-2xs font-black tracking-wider uppercase shadow-md flex items-center gap-1.5">
-                        <Sparkles size={11} />
-                        <span>RECOMENDADO PARA O SEU MAC</span>
+                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3.5 py-0.5 rounded-full bg-[#0071e3] text-white text-2xs font-bold tracking-wide uppercase shadow-md flex items-center gap-1.5">
+                        <span>Recomendado para o seu Mac</span>
                       </div>
                     )}
 
@@ -272,30 +258,30 @@ function MacDownloadPageContent({ session }: { session: Session }) {
                           {build.arch === 'arm64' ? <Apple size={24} /> : <Cpu size={24} />}
                         </div>
 
-                        <span className="px-2.5 py-1 rounded-full bg-white/[0.05] border border-white/10 text-2xs font-extrabold text-logic-text-dim uppercase tracking-wider">
+                        <span className="px-2.5 py-1 rounded-full bg-white/[0.05] border border-white/10 text-2xs font-bold text-[#86868b] uppercase tracking-wider">
                           {mb(build.size)}
                         </span>
                       </div>
 
-                      <h3 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+                      <h3 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
                         {chip.title}
                       </h3>
-                      <p className="text-xs font-semibold text-logic-lcd-green mt-1">
+                      <p className="text-xs font-semibold text-[#2997ff] mt-1">
                         {chip.subtitle}
                       </p>
-                      <p className="text-xs text-logic-text-dim mt-2.5 leading-relaxed">
+                      <p className="text-xs text-[#86868b] mt-2.5 leading-relaxed">
                         {chip.hint}
                       </p>
 
                       {/* Informações da Build */}
-                      <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-1.5 text-2xs text-logic-text-muted">
+                      <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-1.5 text-2xs text-[#6e6e73]">
                         <div className="flex items-center justify-between">
                           <span>Arquivo:</span>
-                          <span className="font-mono text-logic-text-dim">{build.file}</span>
+                          <span className="font-mono text-[#86868b]">{build.file}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span>Segurança:</span>
-                          <span className="text-logic-lcd-green font-semibold">Assinado & Verificado</span>
+                          <span className="text-emerald-400 font-semibold">Assinado & Verificado</span>
                         </div>
                       </div>
                     </div>
@@ -305,29 +291,29 @@ function MacDownloadPageContent({ session }: { session: Session }) {
                       {isDownloading ? (
                         <div className="space-y-2">
                           <div className="flex items-center justify-between text-xs font-bold text-white">
-                            <span className="flex items-center gap-1.5 text-logic-lcd-green">
+                            <span className="flex items-center gap-1.5 text-[#2997ff]">
                               <Loader2 size={14} className="animate-spin" />
                               Baixando...
                             </span>
                             <span>{pct.toFixed(0)}%</span>
                           </div>
                           {/* Barra de Progresso */}
-                          <div className="w-full h-2.5 rounded-full bg-white/10 overflow-hidden relative">
+                          <div className="w-full h-2 rounded-full bg-white/10 overflow-hidden relative">
                             <div
-                              className="h-full bg-gradient-to-r from-logic-lcd-green to-emerald-400 rounded-full transition-all duration-200"
+                              className="h-full bg-[#0071e3] rounded-full transition-all duration-200"
                               style={{ width: `${pct}%` }}
                             />
                           </div>
-                          <p className="text-2xs text-logic-text-muted text-center mt-1">
+                          <p className="text-2xs text-[#6e6e73] text-center mt-1">
                             {mb(status.received)} de {mb(build.size)} baixados
                           </p>
                         </div>
                       ) : isDone ? (
-                        <div className="p-3.5 rounded-2xl bg-logic-lcd-green/15 border border-logic-lcd-green/30 text-center space-y-1">
-                          <p className="text-xs font-bold text-logic-lcd-green flex items-center justify-center gap-1.5">
+                        <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-center space-y-1">
+                          <p className="text-xs font-bold text-emerald-400 flex items-center justify-center gap-1.5">
                             <CheckCircle2 size={16} /> Download concluído com sucesso!
                           </p>
-                          <p className="text-2xs text-logic-text-dim">
+                          <p className="text-2xs text-[#86868b]">
                             Abra a pasta <strong>Downloads</strong> e dê dois cliques no arquivo .dmg.
                           </p>
                         </div>
@@ -338,7 +324,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
                           </div>
                           <button
                             onClick={() => start(build)}
-                            className="w-full h-12 rounded-2xl bg-logic-lcd-green hover:brightness-110 text-black font-extrabold text-xs flex items-center justify-center gap-2 transition"
+                            className="w-full h-12 rounded-full bg-[#0071e3] hover:bg-[#0077ed] text-white font-semibold text-xs flex items-center justify-center gap-2 transition"
                           >
                             <RotateCcw size={16} /> Tentar novamente
                           </button>
@@ -347,17 +333,14 @@ function MacDownloadPageContent({ session }: { session: Session }) {
                         <button
                           onClick={() => start(build)}
                           disabled={busy}
-                          className={`relative overflow-hidden w-full h-14 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
+                          className={`relative overflow-hidden w-full h-13 rounded-full font-bold text-sm tracking-tight flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-[0.98] ${
                             isSuggested
-                              ? 'btn-neon-green text-black'
+                              ? 'bg-[#0071e3] hover:bg-[#0077ed] text-white shadow-lg shadow-[#0071e3]/30'
                               : 'bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15'
                           }`}
                         >
-                          {isSuggested && (
-                            <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
-                          )}
                           <Download size={18} />
-                          <span>BAIXAR PARA {chip.title.toUpperCase()}</span>
+                          <span>Baixar para {chip.title} (.dmg)</span>
                         </button>
                       )}
                     </div>
@@ -369,14 +352,14 @@ function MacDownloadPageContent({ session }: { session: Session }) {
         </div>
 
         {/* Guia de Instalação Passo a Passo */}
-        <div className="max-w-4xl mx-auto rounded-3xl border border-white/10 bg-[#0f1015]/90 backdrop-blur-xl p-6 sm:p-10 shadow-2xl">
+        <div className="max-w-4xl mx-auto rounded-3xl border border-white/10 bg-[#161618] p-6 sm:p-10">
           <div className="flex items-center gap-2.5 mb-2">
-            <FolderOpen size={20} className="text-logic-lcd-amber" />
+            <FolderOpen size={20} className="text-[#ff9f0a]" />
             <h2 className="text-lg sm:text-xl font-extrabold text-white">
               Como instalar no seu Mac (Passo a Passo)
             </h2>
           </div>
-          <p className="text-xs sm:text-sm text-logic-text-dim mb-8">
+          <p className="text-xs sm:text-sm text-[#86868b] mb-8">
             Siga os passos abaixo na primeira vez que for abrir o programa.
           </p>
 
@@ -384,47 +367,47 @@ function MacDownloadPageContent({ session }: { session: Session }) {
             {STEPS.map((s) => (
               <div
                 key={s.num}
-                className="p-5 rounded-2xl bg-[#14151c] border border-white/[0.08] flex flex-col justify-between"
+                className="p-5 rounded-2xl bg-[#1d1d1f] border border-white/[0.08] flex flex-col justify-between"
               >
                 <div>
-                  <div className="w-8 h-8 rounded-xl bg-logic-lcd-green/15 text-logic-lcd-green font-black text-sm flex items-center justify-center mb-3">
+                  <div className="w-8 h-8 rounded-xl bg-[#0071e3]/15 text-[#2997ff] font-bold text-sm flex items-center justify-center mb-3">
                     {s.num}
                   </div>
                   <h3 className="text-sm font-bold text-white mb-1.5">{s.title}</h3>
-                  <p className="text-xs text-logic-text-dim leading-relaxed">{s.desc}</p>
+                  <p className="text-xs text-[#86868b] leading-relaxed">{s.desc}</p>
                 </div>
               </div>
             ))}
           </div>
 
           {/* Ajuda do macOS Gatekeeper / Terminal */}
-          <div className="mt-8 rounded-2xl border border-white/10 bg-[#090a0d] overflow-hidden shadow-xl">
+          <div className="mt-8 rounded-2xl border border-white/10 bg-[#0a0a0c] overflow-hidden">
             {/* Barra superior estilo Terminal Mac */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.08] bg-white/[0.02]">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-[#ff5f56] inline-block" />
                 <span className="w-3 h-3 rounded-full bg-[#ffbd2e] inline-block" />
                 <span className="w-3 h-3 rounded-full bg-[#27c93f] inline-block" />
-                <span className="ml-2 text-2xs font-mono text-logic-text-muted flex items-center gap-1.5">
+                <span className="ml-2 text-2xs font-mono text-[#86868b] flex items-center gap-1.5">
                   <Terminal size={12} />
                   Terminal — Ajuda de Instalação macOS
                 </span>
               </div>
-              <span className="text-2xs text-logic-lcd-amber font-semibold">Gatekeeper Fix</span>
+              <span className="text-2xs text-[#ff9f0a] font-semibold">Gatekeeper Fix</span>
             </div>
 
             <div className="p-5 sm:p-6">
               <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <HelpCircle size={16} className="text-logic-lcd-amber" />
+                <HelpCircle size={16} className="text-[#ff9f0a]" />
                 Apareceu o aviso "O aplicativo está danificado e não pode ser aberto"?
               </h4>
-              <p className="text-xs text-logic-text-dim mt-2 leading-relaxed">
+              <p className="text-xs text-[#86868b] mt-2 leading-relaxed">
                 Isso é uma proteção comum do macOS chamada Gatekeeper para programas profissionais distribuídos fora da Mac App Store. Basta abrir o aplicativo <strong>Terminal</strong> do Mac, colar o comando abaixo e apertar Enter:
               </p>
 
               <div className="mt-4 flex flex-col sm:flex-row items-stretch gap-2.5">
                 <div className="flex-1 min-w-0 bg-black/60 rounded-xl border border-white/10 px-4 py-3 flex items-center overflow-x-auto">
-                  <code className="text-xs font-mono text-logic-lcd-green whitespace-nowrap">
+                  <code className="text-xs font-mono text-emerald-400 whitespace-nowrap">
                     {FIX_COMMAND}
                   </code>
                 </div>
@@ -434,7 +417,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
                   onClick={copyFix}
                   className="px-5 h-12 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] text-white border border-white/15 text-xs font-bold flex items-center justify-center gap-2 transition shrink-0 active:scale-95"
                 >
-                  {copied ? <Check size={16} className="text-logic-lcd-green" /> : <Copy size={16} />}
+                  {copied ? <Check size={16} className="text-emerald-400" /> : <Copy size={16} />}
                   <span>{copied ? 'Copiado!' : 'Copiar Comando'}</span>
                 </button>
               </div>
@@ -444,12 +427,12 @@ function MacDownloadPageContent({ session }: { session: Session }) {
       </main>
 
       {/* Rodapé */}
-      <footer className="relative z-10 border-t border-white/[0.08] bg-[#08090b] py-8 text-xs text-logic-text-muted mt-16">
+      <footer className="relative z-10 border-t border-white/[0.1] bg-[#000000] py-8 text-xs text-[#86868b] mt-16">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <VsLogo size={24} />
-            <span className="font-bold text-white">VS STAGE PRO</span>
-            <span className="text-logic-text-dim">© 2026 Todos os direitos reservados.</span>
+            <span className="font-bold text-white">VS Stage Pro</span>
+            <span className="text-[#6e6e73]">© 2026 Todos os direitos reservados.</span>
           </div>
 
           <div className="flex items-center gap-6">

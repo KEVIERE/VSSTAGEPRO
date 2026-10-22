@@ -304,28 +304,18 @@ export default function PricingPage() {
         <div className="absolute bottom-1/4 left-[-10%] w-[500px] h-[500px] bg-logic-lcd-green/6 blur-[130px]" />
       </div>
 
-      {/* Topo / Barra de Navegação */}
-      <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#08090b]/80 border-b border-white/[0.08]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      {/* Topo / Barra de Navegação estilo Apple */}
+      <header className="sticky top-0 z-40 backdrop-blur-xl bg-[#000000]/80 border-b border-white/[0.12]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2.5 group">
-            <VsLogo size={28} />
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1.5">
-                <span className="font-black text-sm tracking-wider text-white">VS STAGE</span>
-                <span className="px-1.5 py-0.2 rounded bg-logic-lcd-green/20 text-logic-lcd-green text-[10px] font-extrabold tracking-widest border border-logic-lcd-green/40">
-                  PRO
-                </span>
-              </div>
-              <span className="text-[9px] font-medium tracking-widest text-logic-text-muted">
-                LIVE PERFORMANCE ENGINE
-              </span>
-            </div>
+            <VsLogo size={24} />
+            <span className="text-white font-semibold text-sm tracking-tight">VS Stage Pro</span>
           </a>
 
           <div className="flex items-center gap-3 sm:gap-4">
             {currentUserEmail ? (
-              <div className="flex items-center gap-2 text-2xs bg-white/[0.04] border border-white/10 px-3 py-1.5 rounded-full">
-                <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-pulse" />
+              <div className="flex items-center gap-2 text-2xs bg-white/[0.06] border border-white/10 px-3 py-1.5 rounded-full">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="text-white font-medium max-w-[170px] truncate">{currentUserEmail}</span>
                 <button
                   type="button"
@@ -333,7 +323,7 @@ export default function PricingPage() {
                     await supabase.auth.signOut();
                     setCurrentUserEmail(null);
                   }}
-                  className="text-logic-lcd-amber hover:underline font-bold ml-1"
+                  className="text-[#2997ff] hover:underline font-semibold ml-1"
                 >
                   Sair
                 </button>
@@ -341,15 +331,15 @@ export default function PricingPage() {
             ) : null}
             <a
               href="/"
-              className="text-xs font-semibold text-logic-text-dim hover:text-white transition-colors hidden sm:inline-flex"
+              className="text-xs font-medium text-[#86868b] hover:text-white transition-colors hidden sm:inline-flex"
             >
               ← Voltar ao Início
             </a>
             <a
               href="#baixar"
-              className="relative group overflow-hidden px-4 h-9.5 rounded-xl btn-neon-green text-black text-xs font-black tracking-wide flex items-center justify-center gap-1.5 transition-all hover:scale-[1.02]"
+              className="h-7 px-3.5 rounded-full bg-[#0071e3] hover:bg-[#0077ed] text-white text-xs font-semibold tracking-tight transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5"
             >
-              <Apple size={15} />
+              <Apple size={13} />
               <span>Baixar para Mac</span>
             </a>
           </div>

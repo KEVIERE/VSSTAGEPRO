@@ -8,8 +8,10 @@ import {
   ChevronRight,
   Clock,
   Lock,
+  Mic2,
   Monitor,
   Smartphone,
+  Sparkles,
   Tablet,
   Zap,
 } from 'lucide-react';
@@ -89,14 +91,12 @@ function IPhoneFrame({ img, alt }: { img: string; alt: string }) {
     <div className="relative mx-auto w-[240px] sm:w-[280px] drop-shadow-[0_30px_50px_rgba(0,0,0,0.85)] group">
       {/* Chassi de Titânio do iPhone */}
       <div className="relative rounded-[44px] sm:rounded-[50px] bg-[#1f2026] p-[9px] sm:p-[11px] border-[2.5px] border-[#3f424e] shadow-2xl">
-        {/* Antena bands sutis */}
         <div className="absolute top-20 -left-[3px] w-[3px] h-6 bg-[#2d2f38]" />
         <div className="absolute top-32 -left-[3px] w-[3px] h-10 bg-[#2d2f38]" />
         <div className="absolute top-24 -right-[3px] w-[3px] h-12 bg-[#2d2f38]" />
 
         {/* Tela Super Retina com Dynamic Island */}
         <div className="relative aspect-[9/19.5] w-full overflow-hidden rounded-[36px] sm:rounded-[40px] bg-black">
-          {/* Dynamic Island */}
           <div className="absolute top-2.5 left-1/2 -translate-x-1/2 w-20 sm:w-24 h-5 sm:h-6 bg-black rounded-full z-30 flex items-center justify-between px-2">
             <div className="w-2.5 h-2.5 rounded-full bg-[#111] border border-white/10" />
             <div className="w-2 h-2 rounded-full bg-[#0a84ff] opacity-80" />
@@ -116,8 +116,6 @@ function IPadFrame({ img, alt }: { img: string; alt: string }) {
     <div className="relative mx-auto w-full max-w-[560px] drop-shadow-[0_35px_60px_rgba(0,0,0,0.9)] group">
       {/* Moldura Uniforme de Alumínio do iPad Pro */}
       <div className="relative rounded-[28px] sm:rounded-[34px] bg-[#1a1b22] p-[10px] sm:p-[14px] border border-[#383a45] shadow-2xl">
-        {/* Câmera Frontal Discreta na Borda */}
-        <div className="absolute top-1/2 -left-1.5 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-black border border-white/20 hidden" />
         <div className="absolute top-2.5 sm:top-3.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-black border border-white/20" />
 
         {/* Display Liquid Retina */}
@@ -126,6 +124,109 @@ function IPadFrame({ img, alt }: { img: string; alt: string }) {
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent pointer-events-none" />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+   COMPOSIÇÃO HERO DOS DISPOSITIVOS APPLE (TODOS JUNTOS NA FRENTE)
+   ========================================================================= */
+function HeroAppleEcosystemStage() {
+  const [activeTab, setActiveTab] = useState<'all' | 'macbook' | 'imac' | 'iphone' | 'ipad'>('all');
+
+  return (
+    <div className="relative w-full max-w-6xl mx-auto mt-12 sm:mt-16">
+      {/* Seletor de visualização estilo Apple Pill */}
+      <div className="flex items-center justify-center gap-1.5 sm:gap-2 mb-8 sm:mb-12 overflow-x-auto p-1.5 rounded-full bg-white/[0.06] border border-white/10 backdrop-blur-xl max-w-fit mx-auto">
+        {[
+          { key: 'all', label: 'Todos os Dispositivos' },
+          { key: 'macbook', label: 'MacBook Pro • Modo Show' },
+          { key: 'imac', label: 'iMac • Timeline' },
+          { key: 'iphone', label: 'iPhone • Cifras' },
+          { key: 'ipad', label: 'iPad Pro • Teleprompter' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setActiveTab(tab.key as any)}
+            className={`px-3.5 sm:px-4 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap ${
+              activeTab === tab.key
+                ? 'bg-white text-black shadow-md'
+                : 'text-[#86868b] hover:text-white hover:bg-white/[0.04]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* COMPOSIÇÃO DOS 4 DISPOSITIVOS JUNTOS NO PALCO */}
+      {activeTab === 'all' && (
+        <div className="relative w-full min-h-[460px] sm:min-h-[580px] lg:min-h-[660px] flex items-end justify-center pb-6 sm:pb-12 animate-[fadeIn_600ms_ease-out]">
+          {/* Fundo Atmosférico de Cores Apple (Preto, Laranja, Vermelho, Roxo, Azul) */}
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-[850px] h-[380px] sm:h-[480px] rounded-full bg-gradient-to-r from-orange-500/20 via-purple-600/25 to-blue-500/25 blur-[120px] pointer-events-none animate-pulse"
+            style={{ animationDuration: '6s' }}
+          />
+
+          {/* 1. IMAC (Em segundo plano, centralizado, mostrando a Timeline) */}
+          <div className="relative z-10 w-[84%] sm:w-[72%] lg:w-[65%] -mb-4 sm:-mb-6 opacity-90 transition-transform duration-500 hover:scale-[1.01]">
+            <IMacFrame img="/shots/timeline.jpg" alt="Timeline completa do VS Stage Pro no iMac" />
+          </div>
+
+          {/* 2. MACBOOK PRO 16" (Em primeiro plano central, aberto no Modo Show) */}
+          <div className="absolute z-20 bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 w-[74%] sm:w-[60%] lg:w-[52%] transition-transform duration-500 hover:scale-[1.02]">
+            <MacBookFrame img="/shots/modo_show.jpg" alt="Modo Show no MacBook Pro" />
+          </div>
+
+          {/* 3. IPAD PRO (Flanqueando o lado esquerdo com o Teleprompter) */}
+          <div className="absolute z-25 bottom-4 sm:bottom-8 left-1 sm:left-4 lg:left-10 w-[30%] sm:w-[24%] lg:w-[21%] hidden xs:block transition-transform duration-500 hover:scale-105">
+            <IPadFrame img="/shots/teleprompt.jpg" alt="Teleprompter no iPad Pro" />
+          </div>
+
+          {/* 4. IPHONE 16 PRO (Flanqueando o lado direito com a Área do Músico) */}
+          <div className="absolute z-30 bottom-2 sm:bottom-6 right-2 sm:right-6 lg:right-14 w-[18%] sm:w-[15%] lg:w-[13%] transition-transform duration-500 hover:scale-105">
+            <IPhoneFrame img="/shots/area_do_musico.jpg" alt="Área do Músico no iPhone" />
+          </div>
+        </div>
+      )}
+
+      {/* Visualização focada por dispositivo */}
+      {activeTab === 'macbook' && (
+        <div className="animate-[fadeIn_400ms_ease-out]">
+          <MacBookFrame img="/shots/modo_show.jpg" alt="Modo Show no MacBook Pro" />
+          <div className="text-center mt-6 text-sm text-[#86868b]">
+            <strong className="text-white">MacBook Pro 16"</strong> rodando o <span className="text-[#ff9f0a]">Modo Show</span> em tela cheia com trava de segurança e contagem regressiva.
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'imac' && (
+        <div className="animate-[fadeIn_400ms_ease-out]">
+          <IMacFrame img="/shots/timeline.jpg" alt="Timeline no iMac" />
+          <div className="text-center mt-6 text-sm text-[#86868b]">
+            <strong className="text-white">iMac 24"</strong> exibindo a <span className="text-[#0a84ff]">Timeline Pro</span> com arranjo de medleys, detecção de BPM e formas de onda em alta resolução.
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'iphone' && (
+        <div className="animate-[fadeIn_400ms_ease-out]">
+          <IPhoneFrame img="/shots/area_do_musico.jpg" alt="Área do Músico no iPhone" />
+          <div className="text-center mt-6 text-sm text-[#86868b]">
+            <strong className="text-white">iPhone 16 Pro</strong> com a <span className="text-emerald-400">Área do Músico</span> transmitindo cifras sincronizadas via rede Wi-Fi local sem internet.
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'ipad' && (
+        <div className="animate-[fadeIn_400ms_ease-out]">
+          <IPadFrame img="/shots/teleprompt.jpg" alt="Teleprompter no iPad Pro" />
+          <div className="text-center mt-6 text-sm text-[#86868b]">
+            <strong className="text-white">iPad Pro</strong> exibindo o <span className="text-[#a855f7]">Teleprompter de Palco</span> com letras em tempo real e avisos ao vivo para os cantores.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -245,9 +346,9 @@ export default function SalesPage() {
           <div className="flex items-center gap-6">
             <nav className="hidden md:flex items-center gap-5 text-xs text-[#86868b] font-medium">
               <a href="#visao-geral" className="hover:text-white transition-colors">Visão Geral</a>
-              <a href="#macbook" className="hover:text-white transition-colors">Modo Show</a>
-              <a href="#imac" className="hover:text-white transition-colors">Timeline</a>
-              <a href="#dispositivos" className="hover:text-white transition-colors">iPhone & iPad</a>
+              <a href="#dispositivos-show" className="hover:text-white transition-colors">Dispositivos de Palco</a>
+              <a href="#fluxos" className="hover:text-white transition-colors">Fluxos</a>
+              <a href="#inteligencia" className="hover:text-white transition-colors">Inteligência</a>
               <a href="#diferenciais" className="hover:text-white transition-colors">Por Que o VS Stage?</a>
               <a href="#faq" className="hover:text-white transition-colors">Dúvidas</a>
             </nav>
@@ -275,8 +376,8 @@ export default function SalesPage() {
           2. HERO SECTION — ESTILO APPLE LOGIC PRO
           ===================================================================== */}
       <section id="visao-geral" className="relative pt-16 sm:pt-24 pb-20 sm:pb-32 overflow-hidden text-center">
-        {/* Glow de palco atmosférico suave */}
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-b from-[#ff9f0a]/12 via-[#0a84ff]/6 to-transparent blur-[140px] pointer-events-none" />
+        {/* Glow de palco atmosférico suave estilo Apple (Cores se misturando) */}
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[950px] h-[480px] bg-gradient-to-b from-[#ff9f0a]/14 via-purple-600/10 to-transparent blur-[140px] pointer-events-none" />
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10">
           {/* Logo Oficial Centralizado */}
@@ -323,11 +424,10 @@ export default function SalesPage() {
           </div>
 
           {/* ===================================================================
-              COMPOSIÇÃO HERO DOS DISPOSITIVOS APPLE
-              O MacBook Pro no centro rodando o Modo Show!
+              FRONT HERO: OS 4 DISPOSITIVOS JUNTOS NO PALCO (IMAC, MACBOOK, IPHONE, IPAD)
               =================================================================== */}
-          <div className="mt-16 sm:mt-24">
-            <MacBookFrame img="/shots/modo_show.jpg" alt="VS Stage Pro no Modo Show rodando em um MacBook Pro" />
+          <div id="dispositivos-show">
+            <HeroAppleEcosystemStage />
           </div>
         </div>
       </section>
@@ -348,10 +448,10 @@ export default function SalesPage() {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             {[
-              { id: '#macbook', icon: LaptopIcon, title: 'MacBook Pro', subtitle: 'Modo Show no Palco' },
-              { id: '#imac', icon: Monitor, title: 'iMac', subtitle: 'Timeline & Arranjo' },
-              { id: '#dispositivos', icon: Smartphone, title: 'iPhone', subtitle: 'Área do Músico (Cifras)' },
-              { id: '#dispositivos', icon: Tablet, title: 'iPad Pro', subtitle: 'Teleprompter na TV' },
+              { id: '#macbook-detalhe', icon: LaptopIcon, title: 'MacBook Pro', subtitle: 'Modo Show no Palco' },
+              { id: '#imac-detalhe', icon: Monitor, title: 'iMac', subtitle: 'Timeline & Arranjo' },
+              { id: '#dispositivos-show', icon: Smartphone, title: 'iPhone', subtitle: 'Área do Músico (Cifras)' },
+              { id: '#dispositivos-show', icon: Tablet, title: 'iPad Pro', subtitle: 'Teleprompter na TV' },
             ].map(({ id, icon: Icon, title, subtitle }) => (
               <a
                 key={title}
@@ -370,9 +470,9 @@ export default function SalesPage() {
       </section>
 
       {/* =====================================================================
-          4. DISPOSITIVO 1: MACBOOK PRO NO MODO SHOW
+          4. SEÇÃO: MACBOOK PRO NO MODO SHOW
           ===================================================================== */}
-      <section id="macbook" className="py-24 sm:py-32 relative">
+      <section id="macbook-detalhe" className="py-24 sm:py-32 relative">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <RevealBlock>
             <div className="text-center max-w-3xl mx-auto mb-16">
@@ -422,9 +522,9 @@ export default function SalesPage() {
       </section>
 
       {/* =====================================================================
-          5. DISPOSITIVO 2: IMAC COM A TIMELINE COMPLETA
+          5. SEÇÃO: IMAC COM A TIMELINE COMPLETA
           ===================================================================== */}
-      <section id="imac" className="py-24 sm:py-32 bg-[#0c0d12]/90 border-y border-white/[0.1] relative">
+      <section id="imac-detalhe" className="py-24 sm:py-32 bg-[#0c0d12]/90 border-y border-white/[0.1] relative">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <RevealBlock>
             <div className="text-center max-w-3xl mx-auto mb-16">
@@ -462,56 +562,53 @@ export default function SalesPage() {
       </section>
 
       {/* =====================================================================
-          6. DISPOSITIVOS 3 & 4: IPHONE (MÚSICO) E IPAD (TELEPROMPTER)
+          6. SEÇÃO: INTELIGÊNCIA ARTIFICIAL
           ===================================================================== */}
-      <section id="dispositivos" className="py-24 sm:py-32 relative">
+      <section id="inteligencia" className="py-24 sm:py-32 relative">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <RevealBlock>
-            <div className="text-center max-w-3xl mx-auto mb-20">
+            <div className="max-w-3xl mb-16">
               <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
-                No iPhone & iPad • Ecossistema Sem Fio
+                Inteligência Artificial
               </span>
               <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mt-2.5">
-                A banda inteira no mesmo compasso.
+                Uma sonora mesa de som inteligente.
               </h2>
               <p className="text-base sm:text-lg text-[#86868b] mt-4 leading-relaxed">
-                O VS Stage Pro conecta todos os integrantes no palco em tempo real via rede Wi-Fi local, sem precisar de internet.
+                Algoritmos treinados especificamente para engenharia de áudio ao vivo reconhecem instrumentos, detectam andamentos e tratam a voz do maestro.
               </p>
             </div>
           </RevealBlock>
 
-          {/* Grid Lado a Lado: iPhone e iPad */}
-          <div className="grid lg:grid-cols-12 gap-12 sm:gap-16 items-center">
-            {/* iPhone - Área do Músico */}
-            <div className="lg:col-span-5 flex flex-col items-center">
-              <RevealBlock delay={80}>
-                <div className="mb-6 text-center">
-                  <span className="text-[11px] font-bold text-[#ff9f0a] px-3 py-1 rounded-full bg-[#ff9f0a]/10 border border-[#ff9f0a]/20 uppercase tracking-wider">
-                    No iPhone • Cifras em Tempo Real
-                  </span>
-                  <h3 className="text-2xl font-bold text-white mt-3">Área do Músico</h3>
-                  <p className="text-xs sm:text-sm text-[#86868b] mt-2 max-w-xs mx-auto">
-                    O músico escaneia o QR Code e acompanha a cifra rolando automaticamente compasso a compasso.
-                  </p>
-                </div>
-                <IPhoneFrame img="/shots/area_do_musico.jpg" alt="Área do músico no iPhone com cifras" />
-              </RevealBlock>
+          <div className="grid md:grid-cols-3 gap-6">
+            <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-6">
+                <Sparkles size={22} />
+              </div>
+              <h3 className="text-xl font-bold text-white">Roteamento por Nome & Stems</h3>
+              <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                Basta arrastar a pasta das multitracks: o motor reconhece as palavras nos nomes dos arquivos (Bateria, Baixo, Teclados, Guitarras, Metais, Vozes, Guia e Click) e encaminha cada pista para seu fader correto automaticamente.
+              </p>
             </div>
 
-            {/* iPad Pro - Teleprompter para TV e Telão */}
-            <div className="lg:col-span-7 flex flex-col items-center">
-              <RevealBlock delay={160}>
-                <div className="mb-6 text-center">
-                  <span className="text-[11px] font-bold text-emerald-400 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 uppercase tracking-wider">
-                    No iPad Pro • TV & Telão do Palco
-                  </span>
-                  <h3 className="text-2xl font-bold text-white mt-3">Teleprompter de Palco</h3>
-                  <p className="text-xs sm:text-sm text-[#86868b] mt-2 max-w-sm mx-auto">
-                    Letras gigantes sincronizadas, avisos ao vivo do diretor musical e contagem regressiva para os cantores.
-                  </p>
-                </div>
-                <IPadFrame img="/shots/teleprompt.jpg" alt="Teleprompter do VS Stage Pro em tela de iPad Pro" />
-              </RevealBlock>
+            <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+              <div className="w-12 h-12 rounded-2xl bg-[#ff9f0a]/10 text-[#ff9f0a] flex items-center justify-center mb-6">
+                <Zap size={22} />
+              </div>
+              <h3 className="text-xl font-bold text-white">Detecção de BPM & Afinador (Tuner)</h3>
+              <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                A IA calcula o BPM exato analisando o click ou as faixas rítmicas. Com a Torre de BPM e o Afinador nativo, você ajusta o andamento e transpõe o tom (+/- semitons) para o cantor na hora do show, sem mudar a velocidade.
+              </p>
+            </div>
+
+            <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+              <div className="w-12 h-12 rounded-2xl bg-[#a855f7]/10 text-[#a855f7] flex items-center justify-center mb-6">
+                <Mic2 size={22} />
+              </div>
+              <h3 className="text-xl font-bold text-white">Masterização Vocal do Maestro</h3>
+              <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                Grave contagens e guias diretamente no microfone: o motor de masterização aplica corte de subgraves a 85Hz, realce de presença em 3.5kHz e compressor óptico com limiter broadcast para a voz cortar com força no fone da banda.
+              </p>
             </div>
           </div>
         </div>
@@ -660,9 +757,9 @@ export default function SalesPage() {
             </div>
             <div className="flex items-center gap-6 text-xs text-[#86868b]">
               <a href="#visao-geral" className="hover:text-white transition-colors">Visão Geral</a>
-              <a href="#macbook" className="hover:text-white transition-colors">Modo Show</a>
-              <a href="#imac" className="hover:text-white transition-colors">Timeline</a>
-              <a href="#dispositivos" className="hover:text-white transition-colors">iPhone & iPad</a>
+              <a href="#macbook-detalhe" className="hover:text-white transition-colors">Modo Show</a>
+              <a href="#imac-detalhe" className="hover:text-white transition-colors">Timeline</a>
+              <a href="#dispositivos-show" className="hover:text-white transition-colors">iPhone & iPad</a>
               <a href="#faq" className="hover:text-white transition-colors">Dúvidas</a>
               <button type="button" onClick={subscribe} className="hover:text-white transition-colors">Planos</button>
             </div>
