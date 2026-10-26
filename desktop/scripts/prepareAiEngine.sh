@@ -40,9 +40,9 @@ if [ "$ARCH" = "x64" ]; then
   softwareupdate --install-rosetta --agree-to-license 2>/dev/null || true
 fi
 
-echo "3. Instalando Torch e Demucs no ambiente embutido..."
-$EXEC_CMD "$PY_BIN" -m pip install --no-cache-dir --quiet torch torchaudio demucs || \
-python3 -m pip install --target "$ENGINE_DIR/python/lib/python3.11/site-packages" --platform macosx_11_0_x86_64 --only-binary=:all: --python-version 311 torch torchaudio demucs
+echo "3. Instalando Torch e Demucs 4.0.1 no ambiente embutido..."
+$EXEC_CMD "$PY_BIN" -m pip install --no-cache-dir --quiet "demucs==4.0.1" torch torchaudio || \
+python3 -m pip install --target "$ENGINE_DIR/python/lib/python3.11/site-packages" --platform macosx_11_0_x86_64 --only-binary=:all: --python-version 311 "demucs==4.0.1" torch torchaudio
 
 echo "4. Pré-carregando pesos da rede neural htdemucs_6s..."
 export TORCH_HOME="$ENGINE_DIR/torch-cache"

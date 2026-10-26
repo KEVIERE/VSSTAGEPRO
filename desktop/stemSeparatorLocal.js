@@ -178,7 +178,7 @@ async function ensureAiEngine(win) {
     notify(12, 'Instalando motor neural de áudio de estúdio...');
     try {
       const execPrefix = process.arch === 'x64' && process.platform === 'darwin' ? 'arch -x86_64 ' : '';
-      execSync(`${execPrefix}"${APP_AI_PYTHON}" -m pip install --no-cache-dir --quiet torch torchaudio demucs`, {
+      execSync(`${execPrefix}"${APP_AI_PYTHON}" -m pip install --no-cache-dir --quiet "demucs==4.0.1" torch torchaudio`, {
         timeout: 420000,
         env: {
           ...process.env,
@@ -197,7 +197,7 @@ async function ensureAiEngine(win) {
   if (python) {
     notify(15, 'Ativando motor de IA no sistema...');
     try {
-      execSync(`"${python}" -m pip install --quiet demucs`, { stdio: 'ignore', timeout: 180000 });
+      execSync(`"${python}" -m pip install --quiet "demucs==4.0.1"`, { stdio: 'ignore', timeout: 180000 });
       cachedRunner = null;
       runner = findDemucsRunner();
       if (runner) return runner;
