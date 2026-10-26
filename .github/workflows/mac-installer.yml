@@ -155,5 +155,47 @@ jobs:
               --data-raw "{\"p_version\":\"$VERSION\",\"p_build\":$BUILD_NUMBER,\"p_manifest\":$(cat manifest.json),\"p_by\":null}" \
               "$SUPABASE_URL/rest/v1/rpc/admin_release_record"
           fi
-          echo "Publicado na VPS: VS Stage $VERSION (build $BUILD_NUMBER)"
+          # Mantém o bucket Supabase leve (plano gratuito / limite de storage):
+          # Remove automaticamente partes de versões antigas no Supabase mantendo apenas a versão atual publicada.
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "Limpando versões antigas do Supabase app-downloads para economizar memória..."
+            OLD_FOLDERS=$(curl -s -X POST \
+              -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+              -H "Content-Type: application/json" \
+              --data '{"prefix":"mac","limit":100}' \
+              "$SUPABASE_URL/storage/v1/object/list/app-downloads" | \
+              node -e '
+                const fs = require("fs");
+                const current = process.argv[1];
+                let input = "";
+                process.stdin.on("data", c => input += c);
+                process.stdin.on("end", () => {
+                  try {
+                    const list = JSON.parse(input);
+                    const toDelete = [];
+                    for (const item of list) {
+                      if (item.name && item.name.includes("-") && item.name !== current) {
+                        for (const arch of ["arm64", "x64"]) {
+                          for (const p of ["partaa.bin", "partab.bin", "partac.bin", "partad.bin"]) {
+                            toDelete.push(`mac/${item.name}/${arch}/${p}`);
+                          }
+                        }
+                      }
+                    }
+                    if (toDelete.length > 0) console.log(JSON.stringify({ prefixes: toDelete }));
+                  } catch (e) {}
+                });
+              ' "${VERSION}-${BUILD_NUMBER}")
+
+            if [ -n "$OLD_FOLDERS" ]; then
+              curl -s -X DELETE \
+                -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+                -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+                -H "Content-Type: application/json" \
+                --data "$OLD_FOLDERS" \
+                "$SUPABASE_URL/storage/v1/object/app-downloads" > /dev/null || true
+              echo "✓ Versões anteriores removidas do Supabase com sucesso."
+            fi
+          fi
 
