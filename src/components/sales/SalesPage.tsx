@@ -163,33 +163,98 @@ function HeroAppleEcosystemStage() {
 
       {/* COMPOSIÇÃO DOS 4 DISPOSITIVOS JUNTOS NO PALCO */}
       {activeTab === 'all' && (
-        <div className="relative w-full min-h-[460px] sm:min-h-[580px] lg:min-h-[660px] flex items-end justify-center pb-6 sm:pb-12 animate-[fadeIn_600ms_ease-out]">
-          {/* Fundo Atmosférico de Cores Apple (Preto, Laranja, Vermelho, Roxo, Azul) */}
-          <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-[850px] h-[380px] sm:h-[480px] rounded-full bg-gradient-to-r from-orange-500/20 via-purple-600/25 to-blue-500/25 blur-[120px] pointer-events-none animate-pulse"
-            style={{ animationDuration: '6s' }}
-          />
+        <>
+          {/* DESKTOP / TABLET (sm:flex): Composição em camadas no palco */}
+          <div className="hidden sm:flex relative w-full min-h-[580px] lg:min-h-[660px] items-end justify-center pb-6 sm:pb-12 animate-[fadeIn_600ms_ease-out]">
+            {/* Fundo Atmosférico de Cores Apple (Preto, Laranja, Vermelho, Roxo, Azul) */}
+            <div
+              className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92%] max-w-[850px] h-[380px] sm:h-[480px] rounded-full bg-gradient-to-r from-orange-500/20 via-purple-600/25 to-blue-500/25 blur-[120px] pointer-events-none animate-pulse"
+              style={{ animationDuration: '6s' }}
+            />
 
-          {/* 1. IMAC (Em segundo plano, centralizado, mostrando a Timeline) */}
-          <div className="relative z-10 w-[84%] sm:w-[72%] lg:w-[65%] -mb-4 sm:-mb-6 opacity-90 transition-transform duration-500 hover:scale-[1.01]">
-            <IMacFrame img="/shots/device-imac.png" alt="Timeline completa do VS Stage Pro no estúdio" />
+            {/* 1. IMAC (Em segundo plano, centralizado, mostrando a Timeline) */}
+            <div className="relative z-10 w-[84%] sm:w-[72%] lg:w-[65%] -mb-4 sm:-mb-6 opacity-90 transition-transform duration-500 hover:scale-[1.01]">
+              <IMacFrame img="/shots/device-imac.png" alt="Timeline completa do VS Stage Pro no estúdio" />
+            </div>
+
+            {/* 2. MACBOOK PRO 16" (Em primeiro plano central, aberto no Modo Show) */}
+            <div className="absolute z-20 bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 w-[74%] sm:w-[60%] lg:w-[52%] transition-transform duration-500 hover:scale-[1.02]">
+              <MacBookFrame img="/shots/device-macbook.png" alt="Modo Show no computador" />
+            </div>
+
+            {/* 3. IPAD PRO (Flanqueando o lado esquerdo com o Teleprompter, em destaque acima da base) */}
+            <div className="absolute z-25 bottom-14 sm:bottom-20 lg:bottom-24 left-[-4%] sm:left-0 lg:left-0 w-[40%] sm:w-[32%] lg:w-[28%] block transition-transform duration-500 hover:scale-105 hover:-translate-y-1">
+              <IPadFrame img="/shots/device-ipad.png" alt="Teleprompter na TV do palco" />
+            </div>
+
+            {/* 4. IPHONE 16 PRO (Flanqueando o lado direito com a Área do Músico) */}
+            <div className="absolute z-30 bottom-2 sm:bottom-6 right-2 sm:right-6 lg:right-14 w-[18%] sm:w-[15%] lg:w-[13%] transition-transform duration-500 hover:scale-105">
+              <IPhoneFrame img="/shots/device-iphone.png" alt="Área do Músico no celular" />
+            </div>
           </div>
 
-          {/* 2. MACBOOK PRO 16" (Em primeiro plano central, aberto no Modo Show) */}
-          <div className="absolute z-20 bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 w-[74%] sm:w-[60%] lg:w-[52%] transition-transform duration-500 hover:scale-[1.02]">
-            <MacBookFrame img="/shots/device-macbook.png" alt="Modo Show no computador" />
-          </div>
+          {/* MOBILE (< sm): Dispositivos organizados e nítidos, sem sobreposição */}
+          <div className="sm:hidden space-y-7 animate-[fadeIn_400ms_ease-out]">
+            {/* 1. Herói no Palco: MacBook Pro rodando Modo Show */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#ff9f0a] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#ff9f0a] animate-pulse" />
+                  No Palco • Modo Show
+                </span>
+                <span className="text-2xs text-[#86868b]">MacBook Pro</span>
+              </div>
+              <MacBookFrame img="/shots/device-macbook.png" alt="Modo Show no computador" />
+              <p className="text-xs text-[#86868b] text-center px-2 leading-relaxed">
+                Tela cheia com trava de segurança, metrônomo visual e disparo instantâneo sem travamentos.
+              </p>
+            </div>
 
-          {/* 3. IPAD PRO (Flanqueando o lado esquerdo com o Teleprompter, em destaque acima da base) */}
-          <div className="absolute z-25 bottom-14 sm:bottom-20 lg:bottom-24 left-[-4%] sm:left-0 lg:left-0 w-[40%] sm:w-[32%] lg:w-[28%] block transition-transform duration-500 hover:scale-105 hover:-translate-y-1">
-            <IPadFrame img="/shots/device-ipad.png" alt="Teleprompter na TV do palco" />
-          </div>
+            {/* 2. Grid Conectado: Celular da Banda + TV do Palco */}
+            <div className="grid grid-cols-2 gap-3 items-end pt-2">
+              {/* iPhone: Área do Músico */}
+              <div className="space-y-2">
+                <div className="text-center">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+                    No Celular
+                  </span>
+                  <span className="text-2xs text-[#86868b]">Cifras da Banda</span>
+                </div>
+                <div className="w-[130px] mx-auto">
+                  <IPhoneFrame img="/shots/device-iphone.png" alt="Área do Músico no celular" />
+                </div>
+              </div>
 
-          {/* 4. IPHONE 16 PRO (Flanqueando o lado direito com a Área do Músico) */}
-          <div className="absolute z-30 bottom-2 sm:bottom-6 right-2 sm:right-6 lg:right-14 w-[18%] sm:w-[15%] lg:w-[13%] transition-transform duration-500 hover:scale-105">
-            <IPhoneFrame img="/shots/device-iphone.png" alt="Área do Músico no celular" />
+              {/* iPad: Teleprompter de Palco */}
+              <div className="space-y-2">
+                <div className="text-center">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#a855f7] block">
+                    Na TV do Palco
+                  </span>
+                  <span className="text-2xs text-[#86868b]">Teleprompter</span>
+                </div>
+                <div className="w-full">
+                  <IPadFrame img="/shots/device-ipad.png" alt="Teleprompter na TV do palco" />
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Estúdio: iMac com Timeline Pro */}
+            <div className="space-y-2.5 pt-4 border-t border-white/10">
+              <div className="flex items-center justify-between px-1">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-[#0a84ff] flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#0a84ff]" />
+                  No Estúdio • Timeline Pro
+                </span>
+                <span className="text-2xs text-[#86868b]">iMac 24"</span>
+              </div>
+              <IMacFrame img="/shots/device-imac.png" alt="Timeline no estúdio" />
+              <p className="text-xs text-[#86868b] text-center px-2 leading-relaxed">
+                Edição profissional multitrack, ajuste de tom, timecode LTC e IA de stems.
+              </p>
+            </div>
           </div>
-        </div>
+        </>
       )}
 
       {/* Visualização focada por dispositivo */}
