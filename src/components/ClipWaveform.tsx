@@ -18,13 +18,14 @@ export function routingColorOf(clip: AudioClip) {
 interface TileProps {
   peaks: number[] | undefined;
   color: string;
+  gain?: number;
   fullWidth: number;
   offset: number;
   width: number;
   height: number;
 }
 
-const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width, height }: TileProps) {
+const WaveTile = memo(function WaveTile({ peaks, color, gain = 1, fullWidth, offset, width, height }: TileProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -67,8 +68,9 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     };
 
     const values = new Float32Array(width + 1);
+    const gainFactor = Math.max(0.01, gain || 1);
     for (let x = 0; x <= width; x++) {
-      const raw = samplePeak(x);
+      const raw = samplePeak(x) * gainFactor;
       // Escala perceptual de sonoridade (curva dinâmica que destaca nuances sem achatar a forma)
       values[x] = Math.pow(Math.max(0, Math.min(1, raw)), 0.68);
     }
@@ -150,7 +152,7 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();
-  }, [peaks, color, fullWidth, offset, width, height]);
+  }, [peaks, color, gain, fullWidth, offset, width, height]);
 
   return (
     <canvas
@@ -206,6 +208,7 @@ export function ClipWaveform({ clip, left, width, height, visible, color: propCo
             key={i}
             peaks={clip.waveformPeaks}
             color={color}
+            gain={clip.gain ?? 1}
             fullWidth={baseWidth}
             offset={offset}
             width={Math.min(WAVE_TILE_PX, Math.ceil(baseWidth - offset))}

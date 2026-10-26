@@ -92,6 +92,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bmetais\b/i, target: 'track-outros', childName: 'Metais', weight: 10 },
   { pattern: /\bmetaleira/i, target: 'track-outros', childName: 'Metais', weight: 10 },
   { pattern: /\bbrass\b/i, target: 'track-outros', childName: 'Metais', weight: 10 },
+  { pattern: /\bsopros?\b/i, target: 'track-outros', childName: 'Metais', weight: 10 },
   { pattern: /\bnaipe\s*de\s*(metais|sopros)/i, target: 'track-outros', childName: 'Metais', weight: 11 },
   { pattern: /\bnaipe\b/i, target: 'track-outros', childName: 'Metais', weight: 7 },
   { pattern: /\btrompete/i, target: 'track-outros', childName: 'Trompete', weight: 10 },

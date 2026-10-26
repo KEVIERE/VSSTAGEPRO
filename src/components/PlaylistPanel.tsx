@@ -682,7 +682,7 @@ function CurrentProgressBar() {
   return (
     <div className="h-1 bg-[#0a1a0a]">
       <div
-        className="h-full bg-logic-lcd-green transition-all duration-150 ease-linear"
+        className="h-full bg-logic-lcd-green transition-all duration-75 ease-linear"
         style={{ width: `${progress * 100}%` }}
       />
     </div>
@@ -695,7 +695,7 @@ function NextCountdownBar({ currentDuration }: { currentDuration: number }) {
   return (
     <div className="h-1 bg-[#1a1000]">
       <div
-        className="h-full bg-logic-lcd-amber ml-auto transition-all duration-150 ease-linear"
+        className="h-full bg-logic-lcd-amber ml-auto transition-all duration-75 ease-linear"
         style={{ width: `${Math.min(100, (1 - countdown / currentDuration) * 100)}%` }}
       />
     </div>

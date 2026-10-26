@@ -1625,8 +1625,21 @@ class AudioEngine {
     }
     const channel = this.channels.get(trackId);
     if (!channel) return;
-    this.rampParam(channel.gain.gain, channelGainFor(track, all, track.volume));
+    const chGain = channelGainFor(track, all, track.volume);
+    this.rampParam(channel.gain.gain, chGain);
     this.rampParam(channel.panner.pan, effectivePan(track.id, track.pan, lrActive));
+
+    // Também garante silenciamento a nível de clipe para trilhas raiz (Guia, Click, Maestro)
+    const store = useStore.getState();
+    store.clips.forEach((c) => {
+      if (c.trackId === trackId) {
+        const g = this.clipGains.get(c.id);
+        if (g) {
+          const songClips = store.clips.filter((sc) => sc.songId === c.songId);
+          this.rampParam(g.gain, chGain * clipGainFor(c, songClips));
+        }
+      }
+    });
   }
 
   // Ganho/mute/solo de UM clipe mudou (modo DAW): reaplica só o clipGain dele, sem
@@ -1725,8 +1738,8 @@ class AudioEngine {
 
   private startMetering() {
     this.stopMetering();
-    const METER_INTERVAL_MS = 40;
-    const STORE_INTERVAL_MS = 200;
+    const METER_INTERVAL_MS = 33; // ~30 fps para medidores VU
+    const STORE_INTERVAL_MS = 20; // 50 Hz em tempo real para cursor e barras de progresso/regresso sem engasgos
     let lastMeterTick = 0;
     let lastStoreTick = 0;
     const levels = new Map<string, number>();

@@ -44,7 +44,7 @@ function SongCard({ label, name, tone, progress, time, reverse = false, medley }
         {medley && <div className="text-xs leading-tight truncate text-logic-text-dim">{medley}</div>}
       </div>
       <div className={`flex h-1.5 rounded-full bg-black/40 overflow-hidden ${reverse ? 'justify-end' : ''}`}>
-        <div className={`h-full ${c.bar} transition-[width] duration-200 ease-linear`} style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }} />
+        <div className={`h-full ${c.bar} transition-[width] duration-75 ease-linear`} style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }} />
       </div>
     </div>
   );

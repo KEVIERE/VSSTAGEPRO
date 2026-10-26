@@ -1,8 +1,9 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
 import { audioRecorder, listInputAudioDevices, saveRecordingToMaestro, type InputAudioDevice } from '@/lib/audioRecorder';
 import { masterMaestroClip } from '@/lib/voiceMastering';
@@ -419,15 +420,15 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
   );
 }
 
-function FolderGroup({ track, onContextMenu }: {
+function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
   track: Track;
+  expanded?: boolean;
+  onToggle?: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
-  const toggle = useCallback(() => setExpanded((v) => !v), []);
   return (
     <>
-      <TrackRow track={track} depth={0} expanded={expanded} onToggle={toggle} onContextMenu={onContextMenu} />
+      <TrackRow track={track} depth={0} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} />
       {expanded && track.children.map((childId) => (
         <ChildTrackRow key={childId} childId={childId} depth={1} expanded={true} onToggle={() => {}} onContextMenu={onContextMenu} />
       ))}
@@ -1017,6 +1018,8 @@ function FooterProgress({ importProgress, exportProgress }: {
   const done = item.status === 'done';
   const failed = item.status === 'error';
   const tone = done ? 'bg-logic-lcd-green' : failed ? 'bg-logic-lcd-red' : 'bg-logic-accent';
+  const isImportActive = importProgress && !done && !failed;
+
   return (
     <div className="flex-1 min-w-0 flex items-center justify-center gap-2 px-4 animate-[fadeIn_120ms_ease-out]" role="status">
       <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${tone} ${!done && !failed ? 'animate-pulse' : ''}`} />
@@ -1029,6 +1032,20 @@ function FooterProgress({ importProgress, exportProgress }: {
           <div className={`h-full rounded-full transition-all duration-300 ${tone}`} style={{ width: `${item.pct}%` }} />
         )}
       </div>
+      {isImportActive && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            cancelImport();
+          }}
+          className="ml-2 px-2 py-0.5 rounded text-[10px] font-bold bg-logic-lcd-red/20 text-logic-lcd-red hover:bg-logic-lcd-red/35 border border-logic-lcd-red/40 transition flex items-center gap-1 shrink-0"
+          title="Cancelar importação do VS"
+        >
+          <X size={10} />
+          Cancelar
+        </button>
+      )}
     </div>
   );
 }
@@ -1193,6 +1210,17 @@ export default function TimelinePanel() {
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
   const lastSelectedClipIdRef = useRef<string | null>(null);
 
+  // Controle de expansão/recolhimento sincronizado entre a barra de cabeçalhos e as faixas da timeline
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(() => new Set());
+  const toggleFolder = useCallback((folderId: string) => {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) next.delete(folderId);
+      else next.add(folderId);
+      return next;
+    });
+  }, []);
+
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
   const isSongLoading = !!song && loadingSongIds.includes(song.id);
@@ -1216,7 +1244,7 @@ export default function TimelinePanel() {
       const track = tracks.find((t) => t.id === id);
       if (!track) continue;
       result.push(track);
-      if (track.isSubgroup) {
+      if (track.isSubgroup && !collapsedFolders.has(track.id)) {
         for (const childId of track.children) {
           const child = tracks.find((t) => t.id === childId);
           if (child) result.push(child);
@@ -1224,7 +1252,7 @@ export default function TimelinePanel() {
       }
     }
     return result;
-  }, [tracks]);
+  }, [tracks, collapsedFolders]);
 
   const selectAllSongClips = useCallback(() => {
     selectClips(songClips.map((c) => c.id));
@@ -1855,7 +1883,17 @@ export default function TimelinePanel() {
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
                 if (!track) return null;
-                if (track.isSubgroup) return <FolderGroup key={track.id} track={track} onContextMenu={handleOpenTrackMenu} />;
+                if (track.isSubgroup) {
+                  return (
+                    <FolderGroup
+                      key={track.id}
+                      track={track}
+                      expanded={!collapsedFolders.has(track.id)}
+                      onToggle={() => toggleFolder(track.id)}
+                      onContextMenu={handleOpenTrackMenu}
+                    />
+                  );
+                }
                 return <TrackRow key={track.id} track={track} depth={0} onContextMenu={handleOpenTrackMenu} />;
               })}
               <div

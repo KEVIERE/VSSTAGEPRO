@@ -115,9 +115,29 @@ export async function groupDroppedEntries(entries: FsEntry[]): Promise<SongGroup
 }
 
 let queueBusy = false;
+let cancelRequested = false;
+const currentImportSongIds = new Set<string>();
 
 export function isImportRunning() {
   return queueBusy;
+}
+
+/** Cancela imediatamente qualquer importação de VSs em andamento e limpa músicas incompletas. */
+export function cancelImport() {
+  if (!queueBusy) return;
+  cancelRequested = true;
+  const store = useStore.getState();
+  store.setImportProgress({
+    clipId: 'cancelled',
+    status: 'error',
+    message: 'Importação cancelada pelo usuário.',
+  });
+  // Remove as músicas adicionadas nesta leva que foram interrompidas
+  for (const sId of currentImportSongIds) {
+    store.removeSong(sId);
+  }
+  currentImportSongIds.clear();
+  setTimeout(() => useStore.getState().setImportProgress(null), 2500);
 }
 
 /** Importa as músicas uma por vez, liberando memória entre elas, e mostra um resumo no final. */
@@ -131,22 +151,33 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
     return;
   }
   queueBusy = true;
+  cancelRequested = false;
+  currentImportSongIds.clear();
+
   const results: SongImportResult[] = [];
   const brokenSongs: string[] = [];
   try {
     for (let k = 0; k < groups.length; k++) {
+      if (cancelRequested) break;
       const label = groups.length > 1 ? `Música ${k + 1} de ${groups.length}: ` : '';
       try {
-        results.push(await importSong(groups[k].name, groups[k].files, label));
+        const res = await importSong(groups[k].name, groups[k].files, label);
+        if (cancelRequested) break;
+        results.push(res);
       } catch (err) {
+        if (cancelRequested || (err instanceof Error && err.message === 'import_cancelled')) break;
         console.warn('[import] música não importada', groups[k].name, err);
         brokenSongs.push(groups[k].name);
       }
     }
-    reportSummary(results, brokenSongs);
-    await measurePendingBpm(results);
+    if (!cancelRequested) {
+      reportSummary(results, brokenSongs);
+      await measurePendingBpm(results);
+    }
   } finally {
     queueBusy = false;
+    currentImportSongIds.clear();
+    cancelRequested = false;
   }
 }
 
@@ -250,6 +281,7 @@ async function measurePendingBpm(results: SongImportResult[]) {
 async function importSong(folderName: string, audioFiles: File[], label: string): Promise<SongImportResult> {
   const store = useStore.getState();
   const songId = `song-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  currentImportSongIds.add(songId);
 
   const song: Song = {
     id: songId,
@@ -278,14 +310,19 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
   let completed = 0;
   const decodedEntries: (DecodedEntry | null)[] = new Array(total).fill(null);
 
-  const clipIds = audioFiles.map((_, i) => `clip-${Date.now()}-${i}`);
+  // Identificadores de clipe únicos com songId e entropia para nunca colidirem em importações em lote
+  const clipIds = audioFiles.map((_, i) => `clip-${songId}-${i}-${Math.random().toString(36).slice(2, 7)}`);
   const errors = new Map<number, string>();
 
   const tryDecode = async (i: number): Promise<boolean> => {
+    if (cancelRequested) return false;
     const file = audioFiles[i];
     try {
       const { audioBuffer, duration, sampleRate, channels } = await decodeFile(file);
-      const waveformPeaks = audioEngine.generateWaveformPeaks(audioBuffer, 2000);
+      if (cancelRequested) return false;
+      // Resolução de estúdio HD (100 picos por segundo), padrão Apple Logic Pro 11 / Pro Tools HD
+      const peakResolution = Math.min(24000, Math.max(8000, Math.round(duration * 100)));
+      const waveformPeaks = audioEngine.generateWaveformPeaks(audioBuffer, peakResolution);
       // guarda já no formato leve; o formato nativo do navegador ocupa o dobro
       decodedEntries[i] = { index: i, file, clipId: clipIds[i], audio: await toClipAudioAsync(audioBuffer), duration, sampleRate, channels, waveformPeaks };
       errors.delete(i);
@@ -297,7 +334,9 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
   };
 
   const runOne = async (i: number) => {
+    if (cancelRequested) return;
     await tryDecode(i);
+    if (cancelRequested) return;
     completed++;
     useStore.getState().setImportProgress({
       clipId: clipIds[i],
@@ -312,6 +351,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
   const workers: Promise<void>[] = [];
   const next = async (): Promise<void> => {
     while (true) {
+      if (cancelRequested) return;
       const idx = cursor++;
       if (idx >= total) return;
       await runOne(idx);
@@ -320,9 +360,16 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
   for (let w = 0; w < Math.min(DECODE_CONCURRENCY, total); w++) workers.push(next());
   await Promise.all(workers);
 
+  if (cancelRequested) {
+    store.removeSong(songId);
+    currentImportSongIds.delete(songId);
+    throw new Error('import_cancelled');
+  }
+
   // Falhas costumam ser falta de memória momentânea: tenta de novo, um arquivo por vez.
-  for (let attempt = 1; attempt <= 3 && errors.size > 0; attempt++) {
+  for (let attempt = 1; attempt <= 3 && errors.size > 0 && !cancelRequested; attempt++) {
     for (const i of Array.from(errors.keys())) {
+      if (cancelRequested) break;
       useStore.getState().setImportProgress({
         clipId: clipIds[i],
         status: 'decoding',
@@ -331,8 +378,15 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
         total,
       });
       await new Promise((r) => setTimeout(r, 150 * attempt));
+      if (cancelRequested) break;
       await tryDecode(i);
     }
+  }
+
+  if (cancelRequested) {
+    store.removeSong(songId);
+    currentImportSongIds.delete(songId);
+    throw new Error('import_cancelled');
   }
   if (errors.size > 0) {
     console.warn('[import] arquivos que não abriram', Array.from(errors, ([i, msg]) => `${audioFiles[i].name}: ${msg}`));

@@ -18,6 +18,7 @@ export async function importTimecodeForSong(songId: string, file: File): Promise
     store.removeClip(old.id);
   }
   const clipId = `timecode-${songId}-${Date.now()}`;
+  const peakResolution = Math.min(24000, Math.max(8000, Math.round(buffer.duration * 100)));
   const clip: AudioClip = {
     id: clipId,
     trackId: TIMECODE_TRACK_ID,
@@ -33,7 +34,7 @@ export async function importTimecodeForSong(songId: string, file: File): Promise
     markers: [],
     routingMethod: 'manual',
     routingConfidence: 1,
-    waveformPeaks: audioEngine.generateWaveformPeaks(buffer, 2000),
+    waveformPeaks: audioEngine.generateWaveformPeaks(buffer, peakResolution),
   };
   registerClipSource(clipId, songId, file);
   putClipAudio(clipId, songId, toClipAudio(buffer));
