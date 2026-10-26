@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, DownloadCloud, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, DownloadCloud, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import type { UpdateInfo } from '@/lib/localNetwork';
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
+const MANUAL_TOAST_MS = 5000;
 
 /**
  * Confere, de tempos em tempos (e quase na hora, via Supabase Realtime, sempre que o
@@ -21,16 +22,24 @@ export default function UpdateBanner() {
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // Resultado do item de menu "Verificar Atualizações...": só aparece quando a pessoa
+  // pede explicitamente, inclusive para avisar "já está atualizado" (a barra/tela normal
+  // já cobre o caso de ter atualização — aqui é só o aviso de "está tudo certo").
+  const [manualNotice, setManualNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!window.vsDesktop) return;
     const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
     let alive = true;
-    const check = async () => {
+    const check = async (): Promise<UpdateInfo | null> => {
       try {
         const result = await window.vsDesktop!.checkUpdate(supabaseUrl);
         if (alive) setInfo(result);
-      } catch { /* sem internet ou falha no feed: fica em silêncio */ }
+        return result;
+      } catch {
+        /* sem internet ou falha no feed: fica em silêncio */
+        return null;
+      }
     };
     check();
     const id = window.setInterval(check, CHECK_INTERVAL_MS);
@@ -41,15 +50,44 @@ export default function UpdateBanner() {
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'release_events' }, () => check())
       .subscribe();
 
-    return () => { alive = false; window.clearInterval(id); supabase.removeChannel(channel); };
+    // Item de menu "VS Stage Pro > Verificar Atualizações...": força a checagem na hora,
+    // ignorando o intervalo de 30min, e sempre dá um retorno visível (mesmo sem atualização).
+    const unbindManual = window.vsDesktop.onManualUpdateCheck?.(() => {
+      setError(null);
+      check().then((result) => {
+        if (!alive) return;
+        if (!result) setManualNotice('O VS Stage já está na versão mais recente.');
+      });
+    });
+
+    return () => { alive = false; window.clearInterval(id); supabase.removeChannel(channel); unbindManual?.(); };
   }, []);
+
+  useEffect(() => {
+    if (!manualNotice) return;
+    const t = window.setTimeout(() => setManualNotice(null), MANUAL_TOAST_MS);
+    return () => window.clearTimeout(t);
+  }, [manualNotice]);
 
   useEffect(() => {
     if (!window.vsDesktop) return;
     return window.vsDesktop.onUpdateProgress(setProgress);
   }, []);
 
-  if (!info || !window.vsDesktop) return null;
+  if (!window.vsDesktop) return null;
+
+  if (!info) {
+    if (!manualNotice) return null;
+    return (
+      <div
+        role="status"
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] px-4 py-3 rounded-lg border shadow-2xl text-sm flex items-center gap-2 bg-logic-bg-panel border-logic-lcd-green/40 text-logic-lcd-green animate-[fadeIn_200ms_ease-out]"
+      >
+        <CheckCircle2 size={15} />
+        {manualNotice}
+      </div>
+    );
+  }
 
   const install = async () => {
     setInstalling(true);

@@ -173,6 +173,12 @@ function buildMenu() {
       label: 'VS Stage Pro',
       submenu: [
         { role: 'about', label: 'Sobre o VS Stage Pro' },
+        {
+          label: 'Verificar Atualizações...',
+          // Verificação manual: pede pro renderer checar na hora (reaproveita o mesmo
+          // fluxo da barra automática) e mostrar o resultado, mesmo quando já está atualizado.
+          click: () => { if (win && !win.isDestroyed()) win.webContents.send('update:manualCheck'); },
+        },
         { type: 'separator' },
         { role: 'hide', label: 'Ocultar VS Stage Pro' },
         { role: 'hideOthers', label: 'Ocultar Outros' },

@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('vsDesktop', {
     ipcRenderer.on('update:progress', listener);
     return () => ipcRenderer.removeListener('update:progress', listener);
   },
+  onManualUpdateCheck: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('update:manualCheck', listener);
+    return () => ipcRenderer.removeListener('update:manualCheck', listener);
+  },
   onRemoteTransport: (cb) => {
     const listener = (_event, cmd) => cb(cmd);
     ipcRenderer.on('remote:transport', listener);
