@@ -1,4 +1,3 @@
-import { separateWithReplicateDemucs } from '@/lib/replicateDemucs';
 import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
@@ -60,7 +59,7 @@ export async function separateSongToVS(
   const bpm = detectRobustBpm(audioBuffer, null, rawBpmResult?.bpm);
   const downbeat = rawBpmResult?.downbeat || 0;
 
-  // 2. SEPARAÇÃO DAS STEMS COM DEMUCS v4 (HTDemucs 6 Stems / 4 Stems)
+  // 2. SEPARAÇÃO DAS STEMS COM O MOTOR DE IA INTERNO DO VS STAGE (HTDemucs 6 Stems)
   let drumsBuffer!: AudioBuffer;
   let bassBuffer!: AudioBuffer;
   let vocalsBuffer!: AudioBuffer;
@@ -68,81 +67,49 @@ export async function separateSongToVS(
   let guitarBuffer: AudioBuffer | null = null;
   let pianoBuffer: AudioBuffer | null = null;
 
-  let localCompleted = false;
-
-  // Confere se o Mac tem o motor nativo instalado (Demucs local via Python).
-  // Se for um Mac de cliente comum (sem Demucs/Xcode local), pula direto para a Nuvem GPU (Replicate)
-  // sem acionar erros de xcode-select nem travar o programa.
   if (typeof window !== 'undefined' && window.vsDesktop?.separateStemsLocal) {
-    try {
-      const hasLocal = await window.vsDesktop.hasLocalDemucs?.().catch(() => false);
-      if (hasLocal) {
-        onProgress?.({
-          step: 'drums',
-          message: 'Separando 6 faixas com o motor local acelerado do Mac...',
-          percent: 20,
-        });
-
-        const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
-          onProgress?.({
-            step: 'vocals',
-            message: data.message,
-            percent: 20 + Math.floor((data.percent || 0) * 0.65),
-          });
-        });
-
-        try {
-          const arrayBuf = await file.arrayBuffer();
-          const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
-          onProgress?.({
-            step: 'other',
-            message: 'Decodificando faixas de alta fidelidade para a timeline...',
-            percent: 88,
-          });
-
-          const [v, b, d, o, g, p] = await Promise.all([
-            decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
-            decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
-            decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
-            decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
-            rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
-            rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
-          ]);
-          vocalsBuffer = v;
-          bassBuffer = b;
-          drumsBuffer = d;
-          otherBuffer = o;
-          guitarBuffer = g;
-          pianoBuffer = p;
-          localCompleted = true;
-        } finally {
-          unbind?.();
-        }
-      }
-    } catch (localErr) {
-      console.warn('Motor local de IA não pôde processar, alternando automaticamente para a Nuvem GPU:', localErr);
-    }
-  }
-
-  // Fallback transparente: se o Mac não possui Demucs local OU se a execução local falhou,
-  // processa na nuvem de alta fidelidade (Replicate GPU NVIDIA), sem exibir erro para o cliente!
-  if (!localCompleted) {
     onProgress?.({
       step: 'drums',
-      message: 'Processando com a Inteligência Artificial do VS Stage na Nuvem (GPU)...',
+      message: 'Iniciando Inteligência Artificial interna do VS Stage...',
       percent: 20,
     });
-    const stems = await separateWithReplicateDemucs(file, (p) => {
+
+    const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
       onProgress?.({
         step: 'vocals',
-        message: p.message,
-        percent: p.percent,
+        message: data.message,
+        percent: 20 + Math.floor((data.percent || 0) * 0.65),
       });
     });
-    vocalsBuffer = stems.vocals;
-    bassBuffer = stems.bass;
-    drumsBuffer = stems.drums;
-    otherBuffer = stems.other;
+
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
+      onProgress?.({
+        step: 'other',
+        message: 'Decodificando faixas de alta fidelidade para a timeline...',
+        percent: 88,
+      });
+
+      const [v, b, d, o, g, p] = await Promise.all([
+        decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
+        rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
+        rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
+      ]);
+      vocalsBuffer = v;
+      bassBuffer = b;
+      drumsBuffer = d;
+      otherBuffer = o;
+      guitarBuffer = g;
+      pianoBuffer = p;
+    } finally {
+      unbind?.();
+    }
+  } else {
+    throw new Error('A separação por Inteligência Artificial é exclusiva do aplicativo oficial do VS Stage para Mac.');
   }
 
   // 2.4 Isolamento Inteligente de Gritos e Ambiência de Show ao Vivo

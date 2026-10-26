@@ -3,54 +3,145 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+// Candidatos a executável direto do Demucs (Intel e Apple Silicon)
+const DEMUCS_BIN_CANDIDATES = [
+  '/usr/local/bin/demucs', // Intel Homebrew / pip global
+  '/opt/homebrew/bin/demucs', // Apple Silicon Homebrew
+  '/Library/Frameworks/Python.framework/Versions/3.14/bin/demucs',
+  '/Library/Frameworks/Python.framework/Versions/3.13/bin/demucs',
+  '/Library/Frameworks/Python.framework/Versions/3.12/bin/demucs',
+  '/Library/Frameworks/Python.framework/Versions/3.11/bin/demucs',
+  '/Library/Frameworks/Python.framework/Versions/3.10/bin/demucs',
+  '/Library/Frameworks/Python.framework/Versions/Current/bin/demucs',
+  path.join(os.homedir(), 'Library/Python/3.14/bin/demucs'),
+  path.join(os.homedir(), 'Library/Python/3.13/bin/demucs'),
+  path.join(os.homedir(), 'Library/Python/3.12/bin/demucs'),
+  path.join(os.homedir(), 'Library/Python/3.11/bin/demucs'),
+  path.join(os.homedir(), 'Library/Python/3.10/bin/demucs'),
+  path.join(os.homedir(), '.local/bin/demucs'),
+  path.join(os.homedir(), '.pyenv/shims/demucs'),
+];
+
+// Candidatos a interpretador Python (Intel e Apple Silicon)
 const PYTHON_CANDIDATES = [
-  '/Library/Frameworks/Python.framework/Versions/Current/bin/python3',
   '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3',
   '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
   '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3',
   '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
-  '/opt/homebrew/bin/python3',
-  '/usr/local/bin/python3',
-  'python3'
+  '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3',
+  '/Library/Frameworks/Python.framework/Versions/3.9/bin/python3',
+  '/Library/Frameworks/Python.framework/Versions/Current/bin/python3',
+  '/usr/local/bin/python3', // Intel Homebrew / python.org padrão
+  '/opt/homebrew/bin/python3', // Apple Silicon Homebrew
+  path.join(os.homedir(), '.pyenv/shims/python3'),
+  path.join(os.homedir(), 'miniconda3/bin/python3'),
+  path.join(os.homedir(), '.miniconda3/bin/python3'),
+  path.join(os.homedir(), 'anaconda3/bin/python3'),
+  path.join(os.homedir(), '.local/bin/python3'),
 ];
 
-let cachedPythonPath = null;
+let cachedRunner = null;
 
-function findPythonWithDemucs() {
-  if (cachedPythonPath) return cachedPythonPath;
-  for (const p of PYTHON_CANDIDATES) {
-    try {
-      if (p.startsWith('/') && !fs.existsSync(p)) continue;
-      // Se for apenas 'python3', não chama se apontar para o stub do Xcode (/usr/bin/python3)
-      // para evitar abrir o diálogo de 'xcode-select: note: No developer tools were found' no Mac do cliente
-      if (p === 'python3') {
-        try {
-          const resolved = execSync('which python3', { encoding: 'utf8', timeout: 1000 }).trim();
-          if (resolved === '/usr/bin/python3') continue;
-        } catch {
-          continue;
-        }
-      }
-      execSync(`"${p}" -c "import demucs"`, { stdio: 'ignore', timeout: 2000 });
-      cachedPythonPath = p;
-      return p;
-    } catch {}
+function findDemucsRunner() {
+  if (cachedRunner) return cachedRunner;
+
+  // 1. Testa se o comando "demucs" está acessível no PATH do sistema
+  try {
+    const whichDemucs = execSync('which demucs', { encoding: 'utf8', timeout: 1000 }).trim();
+    if (whichDemucs && fs.existsSync(whichDemucs)) {
+      cachedRunner = { type: 'bin', path: whichDemucs };
+      return cachedRunner;
+    }
+  } catch {}
+
+  // 2. Testa os caminhos conhecidos do executável demucs (Intel + Apple Silicon)
+  for (const b of DEMUCS_BIN_CANDIDATES) {
+    if (fs.existsSync(b)) {
+      try {
+        execSync(`"${b}" --help`, { stdio: 'ignore', timeout: 2000 });
+        cachedRunner = { type: 'bin', path: b };
+        return cachedRunner;
+      } catch {}
+    }
   }
+
+  // 3. Testa os interpretadores Python com "import demucs" (Intel + Apple Silicon)
+  for (const p of PYTHON_CANDIDATES) {
+    if (fs.existsSync(p)) {
+      try {
+        execSync(`"${p}" -c "import demucs"`, { stdio: 'ignore', timeout: 2000 });
+        cachedRunner = { type: 'python', path: p };
+        return cachedRunner;
+      } catch {}
+    }
+  }
+
+  // 4. Testa se o comando python3 do terminal tem demucs (evitando o stub do Xcode /usr/bin/python3)
+  try {
+    const whichPy = execSync('which python3', { encoding: 'utf8', timeout: 1000 }).trim();
+    if (whichPy && whichPy !== '/usr/bin/python3' && fs.existsSync(whichPy)) {
+      execSync(`"${whichPy}" -c "import demucs"`, { stdio: 'ignore', timeout: 2000 });
+      cachedRunner = { type: 'python', path: whichPy };
+      return cachedRunner;
+    }
+  } catch {}
+
+  return null;
+}
+
+function findAnyWorkingPython() {
+  for (const p of PYTHON_CANDIDATES) {
+    if (fs.existsSync(p)) {
+      try {
+        execSync(`"${p}" --version`, { stdio: 'ignore', timeout: 1500 });
+        return p;
+      } catch {}
+    }
+  }
+  try {
+    const whichPy = execSync('which python3', { encoding: 'utf8', timeout: 1000 }).trim();
+    if (whichPy && whichPy !== '/usr/bin/python3' && fs.existsSync(whichPy)) {
+      return whichPy;
+    }
+  } catch {}
   return null;
 }
 
 function hasLocalDemucs() {
-  return Boolean(findPythonWithDemucs());
+  return Boolean(findDemucsRunner());
 }
 
 /**
  * Motor Local de Separação de Stems via Demucs v4 (Meta AI).
- * Roda 100% nativo no Mac com aceleração Apple Silicon / Metal quando Demucs estiver instalado.
+ * Roda 100% nativo no Mac (Universal: Intel e Apple Silicon).
  */
 async function separateStemsLocal(win, filename, audioData, onProgress) {
-  const pythonPath = findPythonWithDemucs();
-  if (!pythonPath) {
-    throw new Error('demucs_not_installed_locally');
+  let runner = findDemucsRunner();
+
+  // Se o Demucs não está instalado, mas há um Python no Mac, instala o Demucs automaticamente
+  if (!runner) {
+    const python = findAnyWorkingPython();
+    if (python) {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('separation:progress', {
+          percent: 5,
+          message: 'Ativando a Inteligência Artificial interna no seu Mac pela primeira vez...'
+        });
+      }
+      try {
+        execSync(`"${python}" -m pip install --quiet demucs`, { stdio: 'ignore', timeout: 180000 });
+        cachedRunner = null;
+        runner = findDemucsRunner();
+      } catch (installErr) {
+        console.warn('Tentativa de auto-instalação do Demucs falhou:', installErr);
+      }
+    }
+  }
+
+  if (!runner) {
+    throw new Error(
+      'O motor de Inteligência Artificial do VS Stage precisa do Demucs no seu Mac. Para ativar, instale o Python gratuito em https://www.python.org/downloads/macos/ e rode no Terminal: pip3 install -U demucs'
+    );
   }
 
   const tmpId = `vs_demucs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -71,8 +162,15 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
     '/Library/Frameworks/Python.framework/Versions/3.14/bin',
     '/Library/Frameworks/Python.framework/Versions/3.13/bin',
     '/Library/Frameworks/Python.framework/Versions/3.12/bin',
+    '/Library/Frameworks/Python.framework/Versions/3.11/bin',
+    '/Library/Frameworks/Python.framework/Versions/3.10/bin',
     '/opt/homebrew/bin',
     '/usr/local/bin',
+    path.join(os.homedir(), 'Library/Python/3.14/bin'),
+    path.join(os.homedir(), 'Library/Python/3.13/bin'),
+    path.join(os.homedir(), 'Library/Python/3.12/bin'),
+    path.join(os.homedir(), 'Library/Python/3.11/bin'),
+    path.join(os.homedir(), '.local/bin'),
     '/usr/bin',
     '/bin',
     '/usr/sbin',
@@ -81,12 +179,12 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
   ].join(':');
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(pythonPath, [
-      '-m', 'demucs.separate',
-      '-n', 'htdemucs_6s',
-      '-o', outDir,
-      inputPath
-    ], {
+    const spawnCmd = runner.type === 'bin' ? runner.path : runner.path;
+    const spawnArgs = runner.type === 'bin'
+      ? ['-n', 'htdemucs_6s', '-o', outDir, inputPath]
+      : ['-m', 'demucs.separate', '-n', 'htdemucs_6s', '-o', outDir, inputPath];
+
+    const proc = spawn(spawnCmd, spawnArgs, {
       env: {
         ...process.env,
         PATH: extendedPath
@@ -123,7 +221,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
 
     proc.on('error', (err) => {
       cleanup();
-      reject(new Error(`Falha ao iniciar Python (${pythonPath}): ${err.message}`));
+      reject(new Error(`Falha ao iniciar o motor de IA (${spawnCmd}): ${err.message}`));
     });
 
     proc.on('close', (code) => {
