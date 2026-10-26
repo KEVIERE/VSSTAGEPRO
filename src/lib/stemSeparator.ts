@@ -1,3 +1,4 @@
+import { separateWithHfDemucs } from '@/lib/hfDemucs';
 import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
@@ -121,8 +122,35 @@ export async function separateSongToVS(
     }
   }
 
-  // 2.2 Se o Demucs local não estiver presente no Mac, roda o MOTOR DE ESTÚDIO 100% EMBUTIDO!
-  // Embutido diretamente no binário do programa — zero dependências externas, zero terminal, funciona em qualquer Mac!
+  // 2.2 Se for a versão Intel ou se o Mac não tiver o Demucs instalado:
+  // Conecta ao motor de IA na nuvem (100% gratuito, sem Replicate, com isolamento neural real Demucs v4)
+  if (!localCompleted) {
+    try {
+      onProgress?.({
+        step: 'drums',
+        message: 'Conectando ao motor de Inteligência Artificial do VS Stage...',
+        percent: 15,
+      });
+
+      const hfStems = await separateWithHfDemucs(file, undefined, (p) => {
+        onProgress?.({
+          step: 'vocals',
+          message: p.message,
+          percent: p.percent,
+        });
+      });
+
+      vocalsBuffer = hfStems.vocals;
+      bassBuffer = hfStems.bass;
+      drumsBuffer = hfStems.drums;
+      otherBuffer = hfStems.other;
+      localCompleted = true;
+    } catch (cloudErr) {
+      console.warn('Motor de nuvem não pôde processar, acionando motor embutido de emergência:', cloudErr);
+    }
+  }
+
+  // 2.3 Fallback de segurança embutido (caso o Mac esteja offline e sem Demucs)
   if (!localCompleted) {
     onProgress?.({
       step: 'drums',

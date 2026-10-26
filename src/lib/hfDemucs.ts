@@ -23,7 +23,7 @@ export async function separateWithHfDemucs(
   }
 
   // 1. UPLOAD DO ARQUIVO PARA O ESPAÇO
-  onProgress?.({ message: 'Enviando áudio para o motor Demucs v4 no Hugging Face...', percent: 15 });
+  onProgress?.({ message: 'Enviando áudio para o servidor de Inteligência Artificial do VS Stage...', percent: 15 });
 
   const formData = new FormData();
   formData.append('files', file);
@@ -35,13 +35,13 @@ export async function separateWithHfDemucs(
   });
 
   if (!uploadRes.ok) {
-    throw new Error('Não foi possível enviar o áudio para o servidor do Hugging Face. Verifique sua conexão.');
+    throw new Error('Não foi possível conectar ao servidor de IA. Verifique sua conexão.');
   }
 
   const uploadData = await uploadRes.json();
   const remotePath = Array.isArray(uploadData) ? uploadData[0] : null;
   if (!remotePath) {
-    throw new Error('Falha no upload do arquivo para o servidor de IA.');
+    throw new Error('Falha no envio do áudio para o motor de IA.');
   }
 
   // 2. FILA E PROCESSAMENTO VIA WEBSOCKET (GRADIO QUEUE)
@@ -55,13 +55,13 @@ export async function separateWithHfDemucs(
     try {
       ws = new WebSocket(wsUrl);
     } catch (e) {
-      reject(new Error('Não foi possível conectar ao WebSocket do Hugging Face.'));
+      reject(new Error('Não foi possível conectar ao servidor de IA.'));
       return;
     }
 
     const timeout = setTimeout(() => {
       try { ws.close(); } catch {}
-      reject(new Error('Tempo limite excedido na fila do Hugging Face.'));
+      reject(new Error('Tempo limite excedido na fila de processamento da IA.'));
     }, 12 * 60 * 1000); // 12 minutos max na fila compartilhada
 
     ws.onopen = () => {
@@ -77,11 +77,11 @@ export async function separateWithHfDemucs(
           const rank = msg.rank !== undefined ? msg.rank + 1 : 1;
           const totalQueue = msg.queue_size ?? rank;
           onProgress?.({
-            message: `Na fila do Hugging Face (posição ${rank} de ${totalQueue}). Aguarde...`,
+            message: `Aguardando fila de processamento da IA (posição ${rank} de ${totalQueue})...`,
             percent: 30,
           });
         } else if (msg.msg === 'send_data') {
-          onProgress?.({ message: 'Enviando parâmetros para a IA...', percent: 40 });
+          onProgress?.({ message: 'Iniciando separação com a Inteligência Artificial...', percent: 40 });
           ws.send(JSON.stringify({
             data: [remotePath],
             session_hash: sessionHash,
@@ -89,12 +89,12 @@ export async function separateWithHfDemucs(
           }));
         } else if (msg.msg === 'process_starts') {
           onProgress?.({
-            message: 'A IA Demucs v4 está separando as 4 faixas (Bateria, Baixo, Voz e Playback)...',
+            message: 'Separando faixas (Bateria, Baixo, Voz e Playback) com qualidade de estúdio...',
             percent: 50,
           });
         } else if (msg.msg === 'process_generating' || msg.msg === 'process_progress') {
           onProgress?.({
-            message: 'Processando separação de stems com qualidade de estúdio...',
+            message: 'Separando faixas com qualidade de estúdio...',
             percent: 75,
           });
         } else if (msg.msg === 'process_completed') {
