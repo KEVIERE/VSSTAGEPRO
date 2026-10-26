@@ -6,7 +6,7 @@ const { LocalServer } = require('./localServer');
 const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const selfUpdate = require('./selfUpdate');
-const { separateStemsLocal } = require('./stemSeparatorLocal');
+const { separateStemsLocal, hasLocalDemucs } = require('./stemSeparatorLocal');
 const { initAntiTamper } = require('./antiTamper');
 
 const SCHEME = 'vsstage';
@@ -146,6 +146,7 @@ handle('exportPickFile', (name) => exportFiles.pickFile(win, name));
 handle('exportWrite', (id, rel, data) => exportFiles.writeFile(id, rel, data));
 handle('exportFreeSpace', (id) => exportFiles.freeSpace(id));
 handle('exportReveal', (id, rel) => exportFiles.reveal(id, rel));
+handle('hasLocalDemucs', () => hasLocalDemucs());
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 
 // Atualização silenciosa: confere, baixa, instala por cima do app atual e reabre —

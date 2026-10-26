@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   exportReveal: call('exportReveal'),
   checkUpdate: call('checkUpdate'),
   installUpdate: call('installUpdate'),
+  hasLocalDemucs: call('hasLocalDemucs'),
   separateStemsLocal: call('separateStemsLocal'),
   onSeparationProgress: (cb) => {
     const listener = (_event, data) => cb(data);

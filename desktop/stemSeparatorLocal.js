@@ -21,20 +21,37 @@ function findPythonWithDemucs() {
   for (const p of PYTHON_CANDIDATES) {
     try {
       if (p.startsWith('/') && !fs.existsSync(p)) continue;
-      execSync(`"${p}" -c "import demucs"`, { stdio: 'ignore' });
+      // Se for apenas 'python3', não chama se apontar para o stub do Xcode (/usr/bin/python3)
+      // para evitar abrir o diálogo de 'xcode-select: note: No developer tools were found' no Mac do cliente
+      if (p === 'python3') {
+        try {
+          const resolved = execSync('which python3', { encoding: 'utf8', timeout: 1000 }).trim();
+          if (resolved === '/usr/bin/python3') continue;
+        } catch {
+          continue;
+        }
+      }
+      execSync(`"${p}" -c "import demucs"`, { stdio: 'ignore', timeout: 2000 });
       cachedPythonPath = p;
       return p;
     } catch {}
   }
-  return 'python3';
+  return null;
+}
+
+function hasLocalDemucs() {
+  return Boolean(findPythonWithDemucs());
 }
 
 /**
  * Motor Local de Separação de Stems via Demucs v4 (Meta AI).
- * Roda 100% nativo no Mac com aceleração Apple Silicon / Metal.
+ * Roda 100% nativo no Mac com aceleração Apple Silicon / Metal quando Demucs estiver instalado.
  */
 async function separateStemsLocal(win, filename, audioData, onProgress) {
   const pythonPath = findPythonWithDemucs();
+  if (!pythonPath) {
+    throw new Error('demucs_not_installed_locally');
+  }
 
   const tmpId = `vs_demucs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const workDir = path.join(os.tmpdir(), tmpId);
@@ -162,4 +179,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
   });
 }
 
-module.exports = { separateStemsLocal };
+module.exports = {
+  separateStemsLocal,
+  hasLocalDemucs,
+};

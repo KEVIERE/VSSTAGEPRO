@@ -67,6 +67,7 @@ declare global {
       checkUpdate: (supabaseUrl: string) => Promise<UpdateInfo | null>;
       installUpdate: (info: UpdateInfo) => Promise<void>;
       onUpdateProgress: (cb: (pct: number) => void) => () => void;
+      hasLocalDemucs?: () => Promise<boolean>;
       separateStemsLocal?: (
         filename: string,
         audioData: ArrayBuffer
