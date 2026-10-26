@@ -38,6 +38,24 @@ async function sendTelegramAlert(text: string) {
   }
 }
 
+async function lookupGeo(ip: string | null): Promise<string> {
+  if (!ip || ip === "127.0.0.1" || ip === "::1") return "Local / Não identificado";
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    const res = await fetch(`https://ipwho.is/${ip}`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (!res.ok) return "Localização não disponível";
+    const d = await res.json();
+    if (!d.success) return "Localização não disponível";
+    const parts = [d.city, d.region_code || d.region, d.country].filter(Boolean);
+    const flag = d.flag?.emoji ? ` ${d.flag.emoji}` : "";
+    return `${parts.join(", ")}${flag}`;
+  } catch {
+    return "Localização não disponível";
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -124,12 +142,14 @@ Deno.serve(async (req) => {
 
   // Dispara alerta no Telegram com riqueza de detalhes
   if (shouldAlert) {
+    const geo = await lookupGeo(clientIp);
     const hwShort = hwId.length > 12 ? `${hwId.slice(0, 8)}...${hwId.slice(-4)}` : hwId;
     const nowBrt = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
     const msg = `🚨 *USO ILEGAL / CRACK DETECTADO*
 ━━━━━━━━━━━━━━━━━━━━
 ⚠️ *Motivo:* ${reason}
 
+📍 *Localização:* ${geo}
 💻 *Dispositivo:* Mac (\`${hwShort}\`)
 🌐 *IP:* \`${clientIp || "Desconhecido"}\`
 📦 *Versão:* \`${appVersion}\`
