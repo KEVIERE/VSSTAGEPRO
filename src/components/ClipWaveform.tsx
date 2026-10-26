@@ -35,9 +35,9 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     canvas.width = Math.max(1, Math.floor(width * dpr));
     canvas.height = Math.max(1, Math.floor(height * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 1. Fundo limpo e transparente de estúdio (o fundo escuro do clipe garante o contraste do DAW)
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = `${color}1a`;
-    ctx.fillRect(0, 0, width, height);
     if (!peaks || peaks.length === 0) return;
 
     const mid = height / 2;
@@ -45,7 +45,8 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     const n = peaks.length;
     const total = Math.max(1, fullWidth);
 
-    // Interpola quando há menos picos que pixels; senão agrega pelo máximo do intervalo.
+    // Interpolação Hermite S-Curve suave e orgânica quando ampliado (sem cantos angulares de origami)
+    // Agregação precisa de pico máximo quando reduzido (visão geral da música)
     const samplePeak = (localX: number) => {
       const x = offset + localX;
       if (n <= total) {
@@ -53,7 +54,10 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
         const i = Math.floor(pos);
         const a = peaks[i] ?? 0;
         const b = peaks[Math.min(i + 1, n - 1)] ?? 0;
-        return a + (b - a) * (pos - i);
+        const t = pos - i;
+        // Hermite smoothstep (derivada zero nos extremos): cria curvas acústicas orgânicas
+        const smoothT = t * t * (3 - 2 * t);
+        return a + (b - a) * smoothT;
       }
       const s = Math.floor((x / total) * n);
       const e = Math.max(s + 1, Math.floor(((x + 1) / total) * n));
@@ -63,80 +67,89 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     };
 
     const values = new Float32Array(width + 1);
-    for (let x = 0; x <= width; x++) values[x] = samplePeak(x);
+    for (let x = 0; x <= width; x++) {
+      const raw = samplePeak(x);
+      // Escala perceptual de sonoridade (curva dinâmica que destaca nuances sem achatar a forma)
+      values[x] = Math.pow(Math.max(0, Math.min(1, raw)), 0.68);
+    }
 
-    // 1. Linha sutil de centro (referência de zero-crossing de estúdio)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    // 2. Linha central de zero-crossing analógica (eixo de fase de estúdio)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
     ctx.moveTo(0, mid);
     ctx.lineTo(width, mid);
     ctx.stroke();
 
-    // 2. Renderização de Forma de Onda Contínua de Alta Fidelidade (Padrão Apple Logic Pro 11 / Pro Tools)
-    // Constrói polígono suave fechado (envelope superior -> envelope inferior)
+    // 3. Renderização de Envelope Fechado com Leve Assimetria Acústica (Padrão Apple Logic Pro 11 / Pro Tools)
     ctx.beginPath();
     ctx.moveTo(0, mid);
     for (let x = 0; x <= width; x++) {
-      const h = Math.max(0.5, values[x] * amp);
-      ctx.lineTo(x, mid - h);
+      const hTop = Math.max(1, values[x] * amp);
+      ctx.lineTo(x, mid - hTop);
     }
     ctx.lineTo(width, mid);
     for (let x = width; x >= 0; x--) {
-      const h = Math.max(0.5, values[x] * amp);
-      ctx.lineTo(x, mid + h);
+      // Leve assimetria de fase real (ondas gravadas reais nunca são espelhos 100% sintéticos)
+      const hBottom = Math.max(1, values[x] * amp * 0.96);
+      ctx.lineTo(x, mid + hBottom);
     }
     ctx.closePath();
 
-    // Gradiente vertical rico: luminoso nas cristas, encorpado no centro e translúcido
+    // Gradiente vertical rico e encorpado de DAW profissional: sólido, vibrante e com presença
     const bodyGrad = ctx.createLinearGradient(0, mid - amp, 0, mid + amp);
-    bodyGrad.addColorStop(0, `${color}f2`);
-    bodyGrad.addColorStop(0.2, `${color}d9`);
-    bodyGrad.addColorStop(0.5, `${color}88`);
-    bodyGrad.addColorStop(0.8, `${color}d9`);
-    bodyGrad.addColorStop(1, `${color}f2`);
+    bodyGrad.addColorStop(0, `${color}`);
+    bodyGrad.addColorStop(0.3, `${color}f0`);
+    bodyGrad.addColorStop(0.5, `${color}d0`);
+    bodyGrad.addColorStop(0.7, `${color}f0`);
+    bodyGrad.addColorStop(1, `${color}`);
 
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // 3. Núcleo Interno de Energia Musical (RMS / Body Depth)
-    // Dá volume tridimensional à forma de onda, destacando a densidade sonora real
+    // 4. Núcleo Interno de Energia Musical (RMS / Densidade Sonora 3D)
+    // Destaca a sustentação musical (corpo da voz, peso do baixo e decay dos instrumentos)
     ctx.beginPath();
     ctx.moveTo(0, mid);
     for (let x = 0; x <= width; x++) {
-      const rms = Math.pow(values[x], 1.3) * amp * 0.72;
-      ctx.lineTo(x, mid - rms);
+      const rmsTop = Math.pow(values[x], 1.25) * amp * 0.58;
+      ctx.lineTo(x, mid - rmsTop);
     }
     ctx.lineTo(width, mid);
     for (let x = width; x >= 0; x--) {
-      const rms = Math.pow(values[x], 1.3) * amp * 0.72;
-      ctx.lineTo(x, mid + rms);
+      const rmsBottom = Math.pow(values[x], 1.25) * amp * 0.54;
+      ctx.lineTo(x, mid + rmsBottom);
     }
     ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
     ctx.fill();
 
-    // 4. Crista Superior e Inferior com Contorno Iluminado (Edge Silhouette)
-    // Destaca os transientes (ataques de bateria, caixa e voz) com nitidez cirúrgica
+    // 5. Contorno de Crista Iluminado (Ataques e Transientes Cirúrgicos)
+    // Faz cada batida de caixa, bumbo e ataque vocal saltar aos olhos com nitidez profissional
+    ctx.save();
+    ctx.shadowColor = `${color}88`;
+    ctx.shadowBlur = 3;
+
     ctx.beginPath();
     for (let x = 0; x <= width; x++) {
-      const h = Math.max(0.5, values[x] * amp);
-      if (x === 0) ctx.moveTo(x, mid - h);
-      else ctx.lineTo(x, mid - h);
+      const hTop = Math.max(1, values[x] * amp);
+      if (x === 0) ctx.moveTo(x, mid - hTop);
+      else ctx.lineTo(x, mid - hTop);
     }
     ctx.strokeStyle = `${color}`;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1.2;
     ctx.stroke();
 
     ctx.beginPath();
     for (let x = 0; x <= width; x++) {
-      const h = Math.max(0.5, values[x] * amp);
-      if (x === 0) ctx.moveTo(x, mid + h);
-      else ctx.lineTo(x, mid + h);
+      const hBottom = Math.max(1, values[x] * amp * 0.96);
+      if (x === 0) ctx.moveTo(x, mid + hBottom);
+      else ctx.lineTo(x, mid + hBottom);
     }
-    ctx.strokeStyle = `${color}b3`;
-    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = `${color}cc`;
+    ctx.lineWidth = 1;
     ctx.stroke();
+    ctx.restore();
   }, [peaks, color, fullWidth, offset, width, height]);
 
   return (
@@ -154,11 +167,12 @@ interface ClipWaveformProps {
   width: number;
   height: number;
   visible: VisibleRange;
+  color?: string;
 }
 
 // Desenha só os blocos visíveis; durante o zoom estica o desenho existente e redesenha quando o zoom para.
-export function ClipWaveform({ clip, left, width, height, visible }: ClipWaveformProps) {
-  const color = routingColorOf(clip);
+export function ClipWaveform({ clip, left, width, height, visible, color: propColor }: ClipWaveformProps) {
+  const color = propColor || routingColorOf(clip);
   const [drawnWidth, setDrawnWidth] = useState(width);
   const ratio = width / drawnWidth;
   const tooStretched = ratio > MAX_STRETCH || ratio < 1 / MAX_STRETCH;

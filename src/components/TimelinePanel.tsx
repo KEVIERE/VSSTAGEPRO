@@ -817,7 +817,9 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
   const width = Math.max(8, playLength * zoomH);
   if (left > visible.end || left + fullWidth < visible.start) return null;
   const isMuted = !!clip.mute;
-  const routingColor = isMuted ? '#666670' : routingColorOf(clip);
+  const clipTrack = useStore.getState().tracks.find((t) => t.id === clip.trackId);
+  const trackColor = clipTrack?.color || routingColorOf(clip);
+  const routingColor = isMuted ? '#666670' : trackColor;
   const innerHeight = trackHeight - 4;
   const labelLeft = Math.max(0, visible.start - left);
   const labelWidth = Math.min(width, visible.end - left) - labelLeft;
@@ -915,7 +917,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
             height: `${innerHeight}px`,
           }}
         >
-          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} />
+          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} color={routingColor} />
         </div>
         <FadeHandle
           clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}

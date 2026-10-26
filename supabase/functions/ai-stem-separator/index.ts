@@ -15,6 +15,33 @@ function json(data: unknown, status = 200) {
   });
 }
 
+async function notifyTelegramLowBalance(): Promise<void> {
+  const botToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+  const chatId = Deno.env.get("TELEGRAM_CHAT_ID");
+  if (!botToken || !chatId) return;
+
+  try {
+    const text =
+      `🚨 *[ALERTA: REPLICATE SEM SALDO]*\n\n` +
+      `Um cliente tentou criar um VS via Inteligência Artificial agora, mas o provedor de GPU (Replicate) retornou erro 402 de saldo esgotado.\n\n` +
+      `👉 *Ação urgente*: Recarregue os créditos da Replicate imediatamente para liberar o uso das GPUs:\n` +
+      `https://replicate.com/account/billing`;
+
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "Markdown",
+        disable_web_page_preview: true,
+      }),
+    });
+  } catch (err) {
+    console.error("[ai-stem-separator] failed to send Telegram alert:", err);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -86,9 +113,10 @@ Deno.serve(async (req) => {
       const predErr = await predRes.json().catch(() => ({}));
       console.error("[ai-stem-separator] pred error:", predErr);
       if (predRes.status === 402) {
+        notifyTelegramLowBalance().catch(() => {});
         return json({
-          error: "insufficient_credit",
-          message: "Saldo insuficiente na Replicate. Adicione créditos em https://replicate.com/account/billing",
+          error: "service_busy",
+          message: "Os servidores de Inteligência Artificial estão com alta demanda no momento. Nossa equipe técnica já foi notificada. Por favor, tente novamente em alguns instantes.",
         }, 402);
       }
       return json({ error: "prediction_failed", message: predErr?.detail || "Erro ao iniciar separação na IA." }, 502);

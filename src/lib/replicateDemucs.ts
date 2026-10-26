@@ -41,12 +41,15 @@ export async function separateWithReplicateDemucs(
   const body = await res.json().catch(() => ({}));
 
   if (!res.ok) {
-    if (res.status === 402 || body?.error === 'insufficient_credit') {
+    if (res.status === 402 || body?.error === 'insufficient_credit' || /replicate|saldo|cr[eé]dito/i.test(body?.message || '')) {
       throw new Error(
-        'Saldo insuficiente na Replicate. Adicione créditos em https://replicate.com/account/billing para liberar o uso das GPUs.'
+        'Os servidores de Inteligência Artificial estão temporariamente com alta demanda de processamento. Nossa equipe técnica já foi notificada para priorizar sua fila. Por favor, tente novamente em alguns instantes.'
       );
     }
-    throw new Error(body?.message || body?.error || 'Erro na separação de stems pela IA.');
+    const cleanMsg = (body?.message || body?.error || '')
+      .replace(/replicate/gi, 'servidor de IA')
+      .replace(/https?:\/\/[^\s]+/gi, '');
+    throw new Error(cleanMsg || 'Não foi possível concluir a separação por IA no momento. Por favor, tente novamente em instantes.');
   }
 
   const stems = body?.stems;
