@@ -5,6 +5,7 @@ name: Publicar staging (teste interno)
 # na raiz). É o ambiente que a aba "Teste interno" do admin abre no iframe.
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches: [main]
     paths:

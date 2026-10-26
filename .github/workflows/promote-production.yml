@@ -15,7 +15,11 @@ jobs:
     uses: ./.github/workflows/deploy-site.yml
     secrets: inherit
 
+  staging:
+    uses: ./.github/workflows/deploy-staging.yml
+    secrets: inherit
+
   mac:
-    needs: site
+    needs: [site, staging]
     uses: ./.github/workflows/mac-installer.yml
     secrets: inherit
