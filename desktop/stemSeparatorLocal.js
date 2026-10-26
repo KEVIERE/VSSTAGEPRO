@@ -139,9 +139,7 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
   }
 
   if (!runner) {
-    throw new Error(
-      'O motor de Inteligência Artificial do VS Stage precisa do Demucs no seu Mac. Para ativar, instale o Python gratuito em https://www.python.org/downloads/macos/ e rode no Terminal: pip3 install -U demucs'
-    );
+    throw new Error('demucs_not_available');
   }
 
   const tmpId = `vs_demucs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;

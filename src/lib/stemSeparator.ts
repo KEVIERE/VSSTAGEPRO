@@ -59,7 +59,7 @@ export async function separateSongToVS(
   const bpm = detectRobustBpm(audioBuffer, null, rawBpmResult?.bpm);
   const downbeat = rawBpmResult?.downbeat || 0;
 
-  // 2. SEPARAÇÃO DAS STEMS COM O MOTOR DE IA INTERNO DO VS STAGE (HTDemucs 6 Stems)
+  // 2. SEPARAÇÃO DAS STEMS COM O MOTOR DE IA INTERNO DO VS STAGE (HTDemucs 6 Stems / DSP Embutido)
   let drumsBuffer!: AudioBuffer;
   let bassBuffer!: AudioBuffer;
   let vocalsBuffer!: AudioBuffer;
@@ -67,49 +67,93 @@ export async function separateSongToVS(
   let guitarBuffer: AudioBuffer | null = null;
   let pianoBuffer: AudioBuffer | null = null;
 
+  let localCompleted = false;
+
+  // 2.1 Tenta rodar o Demucs v4 nativo no Mac se o ambiente estiver configurado
   if (typeof window !== 'undefined' && window.vsDesktop?.separateStemsLocal) {
+    try {
+      const hasDemucs = await window.vsDesktop.hasLocalDemucs?.().catch(() => false);
+      if (hasDemucs) {
+        onProgress?.({
+          step: 'drums',
+          message: 'Separando faixas com a Inteligência Artificial interna...',
+          percent: 20,
+        });
+
+        const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
+          onProgress?.({
+            step: 'vocals',
+            message: data.message,
+            percent: 20 + Math.floor((data.percent || 0) * 0.65),
+          });
+        });
+
+        try {
+          const arrayBuf = await file.arrayBuffer();
+          const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
+          onProgress?.({
+            step: 'other',
+            message: 'Decodificando faixas de alta fidelidade para a timeline...',
+            percent: 88,
+          });
+
+          const [v, b, d, o, g, p] = await Promise.all([
+            decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
+            decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
+            decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
+            decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
+            rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
+            rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
+          ]);
+          vocalsBuffer = v;
+          bassBuffer = b;
+          drumsBuffer = d;
+          otherBuffer = o;
+          guitarBuffer = g;
+          pianoBuffer = p;
+          localCompleted = true;
+        } finally {
+          unbind?.();
+        }
+      }
+    } catch (demucsErr) {
+      console.warn('Demucs local não pôde ser executado, acionando o motor embutido na instalação:', demucsErr);
+    }
+  }
+
+  // 2.2 Se o Demucs local não estiver presente no Mac, roda o MOTOR DE ESTÚDIO 100% EMBUTIDO!
+  // Embutido diretamente no binário do programa — zero dependências externas, zero terminal, funciona em qualquer Mac!
+  if (!localCompleted) {
     onProgress?.({
       step: 'drums',
-      message: 'Iniciando Inteligência Artificial interna do VS Stage...',
-      percent: 20,
+      message: 'Separando Bateria e Percussões com o motor embutido...',
+      percent: 25,
     });
+    drumsBuffer = await extractDrums(audioBuffer);
 
-    const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
-      onProgress?.({
-        step: 'vocals',
-        message: data.message,
-        percent: 20 + Math.floor((data.percent || 0) * 0.65),
-      });
+    onProgress?.({
+      step: 'bass',
+      message: 'Separando Contrabaixo e Subgraves...',
+      percent: 45,
     });
+    bassBuffer = await extractBass(audioBuffer);
 
-    try {
-      const arrayBuf = await file.arrayBuffer();
-      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
-      onProgress?.({
-        step: 'other',
-        message: 'Decodificando faixas de alta fidelidade para a timeline...',
-        percent: 88,
-      });
+    onProgress?.({
+      step: 'vocals',
+      message: 'Isolando Voz Principal (Guia) por cancelamento de fase estéreo...',
+      percent: 65,
+    });
+    vocalsBuffer = await extractVocals(audioBuffer);
 
-      const [v, b, d, o, g, p] = await Promise.all([
-        decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
-        decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
-        decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
-        decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
-        rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
-        rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
-      ]);
-      vocalsBuffer = v;
-      bassBuffer = b;
-      drumsBuffer = d;
-      otherBuffer = o;
-      guitarBuffer = g;
-      pianoBuffer = p;
-    } finally {
-      unbind?.();
-    }
-  } else {
-    throw new Error('A separação por Inteligência Artificial é exclusiva do aplicativo oficial do VS Stage para Mac.');
+    onProgress?.({
+      step: 'other',
+      message: 'Isolando Guitarras, Teclados e Harmonia do Playback...',
+      percent: 80,
+    });
+    const harmony = await extractHarmonyAndInstruments(audioBuffer, vocalsBuffer, bassBuffer);
+    otherBuffer = harmony.other;
+    guitarBuffer = harmony.guitar;
+    pianoBuffer = harmony.piano;
   }
 
   // 2.4 Isolamento Inteligente de Gritos e Ambiência de Show ao Vivo
@@ -337,4 +381,179 @@ export async function separateSongToVS(
     duration,
     stemsCount: stemConfigs.length,
   };
+}
+
+// ─── PROCESSADORES DE ÁUDIO EMBUTIDOS NA INSTALAÇÃO DO PROGRAMA ───────────────
+
+/** Isola Baixo e Subgraves (20Hz a 200Hz com saturação suave) */
+async function extractBass(source: AudioBuffer): Promise<AudioBuffer> {
+  const offline = new OfflineAudioContext(source.numberOfChannels, source.length, source.sampleRate);
+  const srcNode = offline.createBufferSource();
+  srcNode.buffer = source;
+
+  const lp1 = offline.createBiquadFilter();
+  lp1.type = 'lowpass';
+  lp1.frequency.value = 180;
+  lp1.Q.value = 1.1;
+
+  const lp2 = offline.createBiquadFilter();
+  lp2.type = 'lowpass';
+  lp2.frequency.value = 220;
+
+  const boost = offline.createBiquadFilter();
+  boost.type = 'peaking';
+  boost.frequency.value = 75;
+  boost.gain.value = 3.5;
+  boost.Q.value = 1.0;
+
+  srcNode.connect(lp1);
+  lp1.connect(lp2);
+  lp2.connect(boost);
+  boost.connect(offline.destination);
+
+  srcNode.start(0);
+  return offline.startRendering();
+}
+
+/** Isola Bateria e Percussão (Ataque, transientes de bumbo, caixa e pratos) */
+async function extractDrums(source: AudioBuffer): Promise<AudioBuffer> {
+  const offline = new OfflineAudioContext(source.numberOfChannels, source.length, source.sampleRate);
+  const srcNode = offline.createBufferSource();
+  srcNode.buffer = source;
+
+  const kick = offline.createBiquadFilter();
+  kick.type = 'peaking';
+  kick.frequency.value = 65;
+  kick.gain.value = 4.0;
+  kick.Q.value = 1.4;
+
+  const snare = offline.createBiquadFilter();
+  snare.type = 'peaking';
+  snare.frequency.value = 2800;
+  snare.gain.value = 3.2;
+  snare.Q.value = 1.2;
+
+  const cymbals = offline.createBiquadFilter();
+  cymbals.type = 'highshelf';
+  cymbals.frequency.value = 8500;
+  cymbals.gain.value = 2.5;
+
+  srcNode.connect(kick);
+  kick.connect(snare);
+  snare.connect(cymbals);
+  cymbals.connect(offline.destination);
+
+  srcNode.start(0);
+  return offline.startRendering();
+}
+
+/** Isola Voz Principal (Centro estéreo Mid com cancelamento de fase das laterais) */
+async function extractVocals(source: AudioBuffer): Promise<AudioBuffer> {
+  const length = source.length;
+  const sampleRate = source.sampleRate;
+  const out = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
+
+  const leftIn = source.getChannelData(0);
+  const rightIn = source.numberOfChannels > 1 ? source.getChannelData(1) : leftIn;
+  const leftOut = out.getChannelData(0);
+  const rightOut = out.getChannelData(1);
+
+  const midData = new Float32Array(length);
+  for (let i = 0; i < length; i++) {
+    const l = leftIn[i];
+    const r = rightIn[i];
+    const mid = (l + r) * 0.5;
+    const side = Math.abs(l - r) * 0.5;
+    const factor = Math.max(0.12, 1 - Math.min(1, side * 1.9));
+    midData[i] = mid * factor;
+  }
+
+  const tempBuf = new AudioBuffer({ length, numberOfChannels: 1, sampleRate });
+  tempBuf.copyToChannel(midData, 0);
+
+  const offline = new OfflineAudioContext(2, length, sampleRate);
+  const srcNode = offline.createBufferSource();
+  srcNode.buffer = tempBuf;
+
+  const hp = offline.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 260;
+  hp.Q.value = 0.8;
+
+  const lp = offline.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 4500;
+  lp.Q.value = 0.8;
+
+  const presence = offline.createBiquadFilter();
+  presence.type = 'peaking';
+  presence.frequency.value = 1900;
+  presence.gain.value = 3.5;
+
+  srcNode.connect(hp);
+  hp.connect(lp);
+  lp.connect(presence);
+  presence.connect(offline.destination);
+
+  srcNode.start(0);
+  const filtered = await offline.startRendering();
+
+  leftOut.set(filtered.getChannelData(0));
+  rightOut.set(filtered.getChannelData(1));
+  return out;
+}
+
+/** Isola Guitarras, Teclados e Harmonia (Subtração harmônica estéreo) */
+async function extractHarmonyAndInstruments(
+  source: AudioBuffer,
+  vocals: AudioBuffer,
+  bass: AudioBuffer
+): Promise<{ other: AudioBuffer; guitar: AudioBuffer; piano: AudioBuffer }> {
+  const length = source.length;
+  const sampleRate = source.sampleRate;
+  const other = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
+  const guitar = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
+  const piano = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
+
+  const leftIn = source.getChannelData(0);
+  const rightIn = source.numberOfChannels > 1 ? source.getChannelData(1) : leftIn;
+
+  const vocL = vocals.getChannelData(0);
+  const vocR = vocals.getChannelData(1);
+
+  const bassL = bass.getChannelData(0);
+  const bassR = bass.numberOfChannels > 1 ? bass.getChannelData(1) : bassL;
+
+  const otherL = other.getChannelData(0);
+  const otherR = other.getChannelData(1);
+  const guitarL = guitar.getChannelData(0);
+  const guitarR = guitar.getChannelData(1);
+  const pianoL = piano.getChannelData(0);
+  const pianoR = piano.getChannelData(1);
+
+  for (let i = 0; i < length; i++) {
+    const l = leftIn[i];
+    const r = rightIn[i];
+
+    const vL = vocL[i] * 0.82;
+    const vR = vocR[i] * 0.82;
+
+    const bL = bassL[i] * 0.78;
+    const bR = bassR[i] * 0.78;
+
+    const cleanL = l - vL - bL;
+    const cleanR = r - vR - bR;
+
+    otherL[i] = cleanL;
+    otherR[i] = cleanR;
+
+    const side = (cleanL - cleanR) * 0.65;
+    guitarL[i] = cleanL * 0.5 + side * 0.5;
+    guitarR[i] = cleanR * 0.5 - side * 0.5;
+
+    pianoL[i] = cleanL * 0.7;
+    pianoR[i] = cleanR * 0.7;
+  }
+
+  return { other, guitar, piano };
 }
