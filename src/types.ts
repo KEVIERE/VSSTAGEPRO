@@ -117,6 +117,13 @@ export function evaluateFadeCurve(curve: FadeCurve = 'linear', fraction: number,
   return isFadeIn ? val : 1 - val;
 }
 
+export interface SongTempoSegment {
+  startTime: number;
+  endTime: number;
+  bpm: number;
+  downbeat?: number;
+}
+
 export interface Song {
   id: string;
   name: string;
@@ -139,6 +146,8 @@ export interface Song {
   regions?: SongRegion[];
   markers?: LegacySongMarker[];
   medley?: MedleyPart[];
+  /** Segmentos de andamento dinâmico (múltiplos BPMs / aceleração) */
+  tempoSegments?: SongTempoSegment[];
 }
 
 export interface Block {

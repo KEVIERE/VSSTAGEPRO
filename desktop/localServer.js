@@ -15,11 +15,9 @@ const MAX_BODY = 4 * 1024 * 1024;
 const FAIL_LIMIT = 8;
 const FAIL_WINDOW_MS = 5 * 60_000;
 const SCREEN_CODE = 'TELA';
-const ROLES = new Set(['musician', 'producer', 'screen']);
-// Caminho da área (músico, produtor, tela) no link. Vai no endereço, não depois de '#',
-// porque os aplicativos de mensagem cortam o que vem depois do '#' e a pessoa não chegava
-// na área certa — só o QR code, que guarda o endereço inteiro, funcionava.
-const PATH = { musician: 'musico', producer: 'produtor', screen: 'tela' };
+const ROLES = new Set(['musician', 'producer', 'screen', 'remote']);
+// Caminho da área (músico, produtor, tela, controle remoto celular) no link.
+const PATH = { musician: 'musico', producer: 'produtor', screen: 'tela', remote: 'show' };
 
 function newPin(other) {
   let pin;
@@ -44,10 +42,11 @@ function safeEqual(a, b) {
 }
 
 class LocalServer {
-  constructor({ webRoot, storePath, version }) {
+  constructor({ webRoot, storePath, version, onTransportCommand }) {
     this.webRoot = webRoot;
     this.version = String(version || '');
     this.storePath = storePath;
+    this.onTransportCommand = onTransportCommand;
     this.server = null;
     this.port = DEFAULT_PORT;
     this.error = null;
@@ -75,11 +74,17 @@ class LocalServer {
       const data = JSON.parse(fs.readFileSync(this.storePath, 'utf8'));
       const ok = (p) => typeof p === 'string' && /^\d{6}$/.test(p);
       if (ok(data?.pins?.musician) && ok(data?.pins?.producer) && data.pins.musician !== data.pins.producer) {
-        return { pins: data.pins, prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null };
+        const pins = {
+          ...data.pins,
+          remote: ok(data?.pins?.remote) ? data.pins.remote : data.pins.producer,
+        };
+        return { pins, prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null };
       }
     } catch { /* primeira vez: cria PINs novos */ }
     const musician = newPin();
-    const pins = { musician, producer: newPin(musician) };
+    const producer = newPin(musician);
+    const remote = newPin(producer);
+    const pins = { musician, producer, remote };
     this.persist({ pins, prompter: null });
     return { pins, prompter: null };
   }
@@ -340,6 +345,15 @@ class LocalServer {
     }
 
     if (s.role === 'musician' && s.sheetKey) return this.musicianApi(req, res, route, s);
+
+    if (route === 'transport' && req.method === 'POST') {
+      const body = await this.readBody(req).catch(() => null);
+      if (!body || typeof body.action !== 'string') return this.json(res, 400, { error: 'bad_request' });
+      if (this.onTransportCommand) {
+        this.onTransportCommand(body);
+      }
+      return this.json(res, 200, { ok: true });
+    }
 
     if (req.method !== 'POST') return this.json(res, 404, { error: 'not_found' });
     if (s.role !== 'producer') return this.json(res, 403, { error: 'forbidden' });

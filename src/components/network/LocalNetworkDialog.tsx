@@ -6,11 +6,12 @@ import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { ROLE_LABEL, type LocalRole, type PinRole } from '@/lib/localNetwork';
 import NetworkAssistant from '@/components/network/NetworkAssistant';
 
-const ROLE_ICON: Record<LocalRole, typeof Music> = { musician: Music, producer: Clapperboard, screen: MonitorPlay };
+const ROLE_ICON: Record<LocalRole, typeof Music> = { musician: Music, producer: Clapperboard, screen: MonitorPlay, remote: Smartphone };
 const ROLE_TONE: Record<LocalRole, string> = {
   musician: 'text-logic-lcd-green bg-logic-lcd-green/15',
   producer: 'text-logic-accent-hover bg-logic-accent/15',
   screen: 'text-logic-lcd-amber bg-logic-lcd-amber/15',
+  remote: 'text-[#00ff87] bg-[#00ff87]/15',
 };
 
 export default function LocalNetworkDialog({ local, onClose }: { local: LocalBroadcast; onClose: () => void }) {
@@ -126,8 +127,8 @@ function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: 
         </button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(['musician', 'producer', 'screen'] as LocalRole[]).map((role) => (
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {(['musician', 'producer', 'screen', 'remote'] as LocalRole[]).map((role) => (
           <AccessCard key={role} role={role} url={info.urls[role]} qr={info.qr[role]} pin={role === 'screen' ? null : info.pins[role]} onRegenerate={role === 'screen' ? null : () => local.regeneratePin(role as PinRole)} />
         ))}
       </div>

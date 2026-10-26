@@ -1,5 +1,5 @@
 import { encodeWavFloat32 } from '@/lib/wavEncoder';
-import { clipGainFor, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
+import { clipGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, withSongAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
@@ -47,7 +47,8 @@ async function renderOffline(
   tracks: Track[],
   clips: AudioClip[],
   lrMasterActive: boolean,
-  trackFilter?: (t: Track) => boolean
+  trackFilter?: (t: Track) => boolean,
+  applyMasterLimiter = false
 ): Promise<AudioBuffer> {
   const bpmAdjust = song.bpmAdjust || 0;
   const alpha = bpmAdjustToAlpha(bpmAdjust);
@@ -56,6 +57,19 @@ async function renderOffline(
   const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
   const cents = (song.tuner || 0) * 100;
   const respectMuteSolo = !trackFilter;
+
+  // No mixdown "LR Master" (não na multipista, que precisa sair crua), um pequeno make-up gain seguido do
+  // mesmo limiter de segurança do bus ao vivo deixa o arquivo exportado mais cheio/competitivo em volume
+  // sem nunca estourar — mastering real, não só headroom cru.
+  let masterOut: AudioNode = ctx.destination;
+  if (applyMasterLimiter) {
+    const makeup = ctx.createGain();
+    makeup.gain.value = Math.pow(10, 1.5 / 20); // +1.5 dB, conservador
+    const limiter = createSafetyLimiter(ctx);
+    makeup.connect(limiter);
+    limiter.connect(ctx.destination);
+    masterOut = makeup;
+  }
 
   const trackChannels = new Map<string, { gain: GainNode; panner: StereoPannerNode }>();
   const ensureChannel = (track: Track) => {
@@ -66,7 +80,7 @@ async function renderOffline(
     gain.gain.value = channelGain(track, tracks, respectMuteSolo);
     panner.pan.value = effectivePan(track, lrMasterActive);
     gain.connect(panner);
-    panner.connect(ctx.destination);
+    panner.connect(masterOut);
     const node = { gain, panner };
     trackChannels.set(track.id, node);
     return node;
@@ -143,7 +157,7 @@ function timecodeBuffer(clip: AudioClip): AudioBuffer | null {
 }
 
 export async function renderLrMasterForSong(song: Song, state: ProjectState): Promise<AudioBuffer> {
-  return withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive));
+  return withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true));
 }
 
 export interface ExportProgress {
@@ -291,7 +305,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
             label: 'mix LR Master',
-            render: async () => encodeWavFloat32(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive)),
+            render: async () => encodeWavFloat32(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true)),
           }]
         : multitrackJobs(song, state);
       total += jobs.length - estimates[si];

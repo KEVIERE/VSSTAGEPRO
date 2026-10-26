@@ -406,22 +406,6 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
             {isMaestro && isRecording && <InputVuMeter trackHeight={trackHeight} />}
           </div>
         )}
-        {isMaestro && hasMaestroClip && !isRecording && (
-          <button
-            type="button"
-            className="w-5 h-5 rounded flex items-center justify-center text-amber-400 bg-amber-500/15 hover:bg-amber-500 hover:text-black border border-amber-500/40 transition-all shadow-sm shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              const st = useStore.getState();
-              const activeId = st.selectedSongId ?? st.playlist[0]?.songId;
-              const clip = st.clips.find((c) => c.songId === activeId && c.trackId === 'track-maestro');
-              if (clip) masterMaestroClip(clip.id);
-            }}
-            title="Masterizar voz do Maestro com IA (De-Noise, EQ de Presença e Nivelamento Dinâmico)"
-          >
-            <Sparkles size={11} />
-          </button>
-        )}
         <button
           className={`w-6 h-5 text-2xs font-bold rounded transition-colors duration-75 ${track.mute ? 'bg-logic-lcd-amber text-black' : 'bg-logic-bg-deep text-logic-text-muted hover:text-logic-text'}`}
           onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
@@ -457,6 +441,17 @@ function FolderGroup({ track, onContextMenu }: {
 // - Lado esquerdo (até -135°): silêncio total (-inf dB / 0 volume)
 function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
   const setClipGain = useStore((s) => s.setClipGain);
+  const selectedClipIds = useStore((s) => s.selectedClipIds);
+
+  const targets = useMemo(() => {
+    return selectedClipIds.includes(clipId) && selectedClipIds.length > 1
+      ? selectedClipIds
+      : [clipId];
+  }, [selectedClipIds, clipId]);
+
+  const applyGain = (g: number) => {
+    targets.forEach((id) => setClipGain(id, g));
+  };
 
   const angle = useMemo(() => {
     if (gain <= 0.0001) return -135;
@@ -475,8 +470,8 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
 
   return (
     <div
-      className="w-4 h-4 relative cursor-ns-resize select-none shrink-0"
-      onDoubleClick={(e) => { e.stopPropagation(); setClipGain(clipId, 1); }}
+      className="w-4 h-4 p-0.5 relative cursor-ns-resize select-none shrink-0 hover:scale-125 hover:brightness-125 transition-transform z-40"
+      onDoubleClick={(e) => { e.stopPropagation(); applyGain(1); }}
       onPointerDown={(e) => {
         e.stopPropagation();
         e.preventDefault();
@@ -489,10 +484,10 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
           const startDb = startGain <= 0.0001 ? -48 : 20 * Math.log10(startGain);
           const nextDb = Math.min(12, startDb + deltaY * 0.3);
           if (nextDb <= -42) {
-            setClipGain(clipId, 0);
+            applyGain(0);
           } else {
             const nextGain = Math.round(Math.pow(10, nextDb / 20) * 100) / 100;
-            setClipGain(clipId, nextGain);
+            applyGain(nextGain);
           }
         };
         const up = () => {
@@ -506,7 +501,7 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
         target.addEventListener('pointercancel', up);
       }}
       onClick={(e) => e.stopPropagation()}
-      title={`Ganho do clipe: ${dbLabel} (arraste = ajustar, duplo clique = 0dB)`}
+      title={targets.length > 1 ? `Ganho em lote (${targets.length} áudios): ${dbLabel}` : `Ganho do clipe: ${dbLabel} (arraste = ajustar, duplo clique = 0dB)`}
     >
       <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none">
         <circle cx="14" cy="14" r="12.5" fill="#1a1a1c" stroke="#3a3a3e" strokeWidth="1" />
@@ -570,6 +565,18 @@ function FadeHandle({
   editable: boolean;
 }) {
   const setClipFade = useStore((s) => s.setClipFade);
+  const selectedClipIds = useStore((s) => s.selectedClipIds);
+
+  const targets = useMemo(() => {
+    return selectedClipIds.includes(clipId) && selectedClipIds.length > 1
+      ? selectedClipIds
+      : [clipId];
+  }, [selectedClipIds, clipId]);
+
+  const applyFade = (patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }) => {
+    targets.forEach((id) => setClipFade(id, patch));
+  };
+
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const widthPx = Math.max(0, Math.min(playLength, seconds)) * zoomH;
@@ -596,7 +603,7 @@ function FadeHandle({
     const move = (ev: PointerEvent) => {
       const deltaPx = side === 'in' ? ev.clientX - startX : startX - ev.clientX;
       const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / zoomH));
-      setClipFade(clipId, side === 'in' ? { fadeIn: next } : { fadeOut: next });
+      applyFade(side === 'in' ? { fadeIn: next } : { fadeOut: next });
     };
     const up = () => {
       target.removeEventListener('pointermove', move);
@@ -690,7 +697,7 @@ function FadeHandle({
             onPointerDown={handlePointerDown}
             onContextMenu={handleContextMenu}
             onClick={(e) => e.stopPropagation()}
-            onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
+            onDoubleClick={(e) => { e.stopPropagation(); applyFade(side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
             title={`Fade ${side === 'in' ? 'In (Entrada)' : 'Out (Saída)'}: ${seconds.toFixed(2)}s (${curve}) — Arraste para criar/ajustar, botão direito para mudar a curva`}
           >
             <div
@@ -722,7 +729,7 @@ function FadeHandle({
               onPointerDown={handlePointerDown}
               onContextMenu={handleContextMenu}
               onClick={(e) => e.stopPropagation()}
-              onDoubleClick={(e) => { e.stopPropagation(); setClipFade(clipId, side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
+              onDoubleClick={(e) => { e.stopPropagation(); applyFade(side === 'in' ? { fadeIn: 0 } : { fadeOut: 0 }); }}
               title={`Final do Fade (${seconds.toFixed(2)}s, curva: ${curve}) — Arraste para alterar, botão direito para mudar a curva`}
             >
               {/* Linha vertical visível */}
@@ -754,7 +761,7 @@ function FadeHandle({
                   onClick={(e) => {
                     e.stopPropagation();
                     e.preventDefault();
-                    setClipFade(clipId, side === 'in' ? { fadeCurveIn: opt.id } : { fadeCurveOut: opt.id });
+                    applyFade(side === 'in' ? { fadeCurveIn: opt.id } : { fadeCurveOut: opt.id });
                     setMenuPos(null);
                   }}
                   className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between hover:bg-white/10 transition ${
@@ -782,8 +789,8 @@ function FadeHandle({
   );
 }
 
-function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove, timelineLocked }: {
-  clip: AudioClip; isSelected: boolean; onSelect: (additive: boolean) => void;
+function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove, timelineLocked }: {
+  clip: AudioClip; isSelected: boolean;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: 'start' | 'end') => void;
   onMoveStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
   trim: TrimDrag; move: MoveDrag; trackHeight: number; zoomH: number; visible: VisibleRange; allowMove: boolean; timelineLocked: boolean;
@@ -870,8 +877,6 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
         }}
         onClick={(e) => {
           e.stopPropagation();
-          // Clicar no clipe mantem selecionado ou expande com ctrl/cmd
-          onSelect(e.ctrlKey || e.metaKey);
         }}
         onPointerDown={(e) => {
           if (allowMove && e.button === 0) {
@@ -957,7 +962,7 @@ function ClipBlock({ clip, isSelected, onSelect, onTrimStart, onMoveStart, trim,
           </div>
         )}
         {showControls && (
-          <div className="absolute bottom-0.5 left-1 flex items-center gap-1 z-10">
+          <div className="absolute bottom-1 left-5 flex items-center gap-1.5 z-40 pointer-events-auto">
             <ClipGainKnob clipId={clip.id} gain={clip.gain ?? 1} />
             <ClipMuteSolo clip={clip} />
           </div>
@@ -1184,16 +1189,40 @@ export default function TimelinePanel() {
   const groupClips = useStore((s) => s.groupClips);
   const ungroupClips = useStore((s) => s.ungroupClips);
   const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
+  const lastSelectedClipIdRef = useRef<string | null>(null);
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
-  const grid = useMemo(() => songGrid(song), [song]);
   const isSongLoading = !!song && loadingSongIds.includes(song.id);
   const songClips = useMemo(() =>
     song ? clips.filter((c) => c.songId === song.id) : [],
     [clips, song]
   );
+  const clickClip = useMemo(() => {
+    return songClips.find(
+      (c) => c.trackId === 'track-click' || /cli[cqk]|klick|metr[oô]|\bclk/i.test(c.fileName) || /cli[cqk]|klick|metr[oô]|\bclk/i.test(c.name)
+    );
+  }, [songClips]);
+  const grid = useMemo(() => songGrid(song, clickClip), [song, clickClip]);
   const selectedSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
+
+  const allVisibleTracks = useMemo(() => {
+    const result: Track[] = [];
+    const tc = tracks.find((t) => t.id === TIMECODE_TRACK_ID);
+    if (tc) result.push(tc);
+    for (const id of ROUTABLE_TRACKS) {
+      const track = tracks.find((t) => t.id === id);
+      if (!track) continue;
+      result.push(track);
+      if (track.isSubgroup) {
+        for (const childId of track.children) {
+          const child = tracks.find((t) => t.id === childId);
+          if (child) result.push(child);
+        }
+      }
+    }
+    return result;
+  }, [tracks]);
 
   const selectAllSongClips = useCallback(() => {
     selectClips(songClips.map((c) => c.id));
@@ -1285,12 +1314,17 @@ export default function TimelinePanel() {
     e.preventDefault();
     e.stopPropagation();
 
-    // Trimming opera exclusivamente no clipe clicado (ou nos membros do seu grupo se estiver agrupado com Cmd+G)
-    const targets = clip.groupId
-      ? songClips.filter((c) => c.groupId === clip.groupId)
-      : [clip];
+    // Se o clipe já fizer parte de uma seleção múltipla, corta todos os selecionados em lote
+    const isMultiSelected = selectedSet.has(clip.id) && selectedClipIds.length > 1;
+    const targets = isMultiSelected
+      ? songClips.filter((c) => selectedSet.has(c.id))
+      : clip.groupId
+        ? songClips.filter((c) => c.groupId === clip.groupId)
+        : [clip];
     const idSet = new Set(targets.map((c) => c.id));
-    selectClips(targets.map((c) => c.id));
+    if (!isMultiSelected) {
+      selectClips(targets.map((c) => c.id));
+    }
 
     const isStart = side === "start";
     const el = e.currentTarget;
@@ -1367,6 +1401,67 @@ export default function TimelinePanel() {
     el.addEventListener('pointercancel', up);
   };
 
+  const handleSelectClip = (clip: AudioClip, additive: boolean, isShift: boolean) => {
+    let currentSelection = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
+    const groupMembers = clip.groupId
+      ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
+      : [clip.id];
+
+    if (isShift && lastSelectedClipIdRef.current) {
+      // Seleção em intervalo vertical por faixas (Shift + Clique):
+      const prevClip = songClips.find((c) => c.id === lastSelectedClipIdRef.current);
+      if (prevClip) {
+        const trackIds = allVisibleTracks.map((t) => t.id);
+        const idxA = trackIds.indexOf(prevClip.trackId);
+        const idxB = trackIds.indexOf(clip.trackId);
+        if (idxA !== -1 && idxB !== -1) {
+          const minIdx = Math.min(idxA, idxB);
+          const maxIdx = Math.max(idxA, idxB);
+          const inRangeTrackIds = new Set(trackIds.slice(minIdx, maxIdx + 1));
+
+          // Delimita a fatia temporal (mesmo trecho cortado / coluna temporal):
+          const refStart = Math.min(prevClip.startTime, clip.startTime);
+          const refEnd = Math.max(
+            prevClip.startTime + clipPlayLength(prevClip),
+            clip.startTime + clipPlayLength(clip)
+          );
+
+          // Seleciona APENAS os clipes das faixas intermediárias que pertencem à mesma fatia de corte (overlap temporal),
+          // sem selecionar clipes do outro lado do corte.
+          const rangeClips = songClips.filter((c) => {
+            if (!inRangeTrackIds.has(c.trackId)) return false;
+            const cStart = c.startTime;
+            const cEnd = c.startTime + clipPlayLength(c);
+            const overlap = Math.min(cEnd, refEnd) - Math.max(cStart, refStart);
+            return overlap > 0.05;
+          });
+
+          const newIds = additive
+            ? Array.from(new Set([...currentSelection, ...rangeClips.map((c) => c.id)]))
+            : rangeClips.map((c) => c.id);
+
+          selectClips(newIds);
+          return;
+        }
+      }
+    }
+
+    if (additive) {
+      // Toggle aditivo individual com Command / Ctrl (adiciona ou remove do conjunto)
+      if (selectedSet.has(clip.id)) {
+        currentSelection = currentSelection.filter((id) => !groupMembers.includes(id));
+      } else {
+        currentSelection = Array.from(new Set([...currentSelection, ...groupMembers]));
+      }
+      selectClips(currentSelection);
+      lastSelectedClipIdRef.current = clip.id;
+    } else {
+      // Clique normal: seleciona este clipe (ou grupo)
+      selectClips(groupMembers);
+      lastSelectedClipIdRef.current = clip.id;
+    }
+  };
+
   const handleMoveStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => {
     if (timelineLocked) return;
     const targetEl = e.target as HTMLElement;
@@ -1376,30 +1471,15 @@ export default function TimelinePanel() {
     e.stopPropagation();
 
     const additive = e.ctrlKey || e.metaKey;
+    const isShift = e.shiftKey;
     const isAlreadySelected = selectedSet.has(clip.id);
-    let currentSelection = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
 
-    const groupMembers = clip.groupId
-      ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
-      : [clip.id];
-
-    if (additive) {
-      // Toggle de seleção com Command / Ctrl (adiciona ou remove do conjunto)
-      if (isAlreadySelected) {
-        currentSelection = currentSelection.filter((id) => !groupMembers.includes(id));
-      } else {
-        currentSelection = Array.from(new Set([...currentSelection, ...groupMembers]));
-      }
-      selectClips(currentSelection);
-    } else {
-      // Clique normal sem Command: se ainda não estiver selecionado, seleciona exclusivamente este
-      if (!isAlreadySelected) {
-        currentSelection = groupMembers;
-        selectClips(currentSelection);
-      }
+    if (isShift || additive || !isAlreadySelected) {
+      handleSelectClip(clip, additive, isShift);
     }
 
-    const idSet = new Set(currentSelection);
+    const activeSelection = useStore.getState().selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
+    const idSet = new Set(activeSelection.length > 0 ? activeSelection : [clip.id]);
     const targets = songClips.filter((c) => idSet.has(c.id));
     if (targets.length === 0) return;
 
@@ -1437,8 +1517,9 @@ export default function TimelinePanel() {
       setMoveDrag(null);
 
       // Se não moveu e foi clique simples sem Command em um item de uma seleção múltipla anterior, foca só nele
-      if (!hasMoved && !additive && isAlreadySelected && currentSelection.length > 1) {
+      if (!hasMoved && !additive && !isShift && isAlreadySelected && currentSelection.length > 1) {
         selectClips(groupMembers);
+        lastSelectedClipIdRef.current = clip.id;
         return;
       }
 
@@ -1489,24 +1570,6 @@ export default function TimelinePanel() {
       setNoSpaceHint(true);
     }
   };
-
-  const allVisibleTracks = useMemo(() => {
-    const result: Track[] = [];
-    const tc = tracks.find((t) => t.id === TIMECODE_TRACK_ID);
-    if (tc) result.push(tc);
-    for (const id of ROUTABLE_TRACKS) {
-      const track = tracks.find((t) => t.id === id);
-      if (!track) continue;
-      result.push(track);
-      if (track.isSubgroup) {
-        for (const childId of track.children) {
-          const child = tracks.find((t) => t.id === childId);
-          if (child) result.push(child);
-        }
-      }
-    }
-    return result;
-  }, [tracks]);
 
   const trackHeight = Math.round(40 * zoomV);
   const contentEnd = useMemo(() => {
@@ -1747,6 +1810,17 @@ export default function TimelinePanel() {
               className="relative h-10 cursor-pointer select-none"
               style={{ width: `${timelineWidth}px` }}
               onPointerDown={handleRulerPointerDown}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                if (!song || !grid) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const clickX = e.clientX - rect.left;
+                const clickTime = Math.max(0, clickX / zoomH);
+                const barDuration = grid.beatsPerBar * grid.beat;
+                const newDownbeat = clickTime % barDuration;
+                updateSong(song.id, { downbeat: Math.round(newDownbeat * 1000) / 1000 });
+              }}
+              title="Clique para posicionar cursor. Botão direito: Cravar início de compasso neste ponto."
             >
               {grid && song && <BarRulerLayer song={song} grid={grid} zoomH={zoomH} visible={visible} />}
               {visibleTicks.map((tick) => (
@@ -1798,13 +1872,13 @@ export default function TimelinePanel() {
               onPointerDown={(e) => {
                 const target = e.target as HTMLElement;
                 if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
-                  if (!e.ctrlKey && !e.metaKey && e.button === 0) {
+                  if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
                     selectClip(null);
+                    lastSelectedClipIdRef.current = null;
                   }
                 }
               }}
             >
-              {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
               {allVisibleTracks.map((track) => {
                 const isFolder = track.isSubgroup;
                 const isTc = track.id === TIMECODE_TRACK_ID;
@@ -1821,7 +1895,6 @@ export default function TimelinePanel() {
                         key={clip.id}
                         clip={clip}
                         isSelected={selectedSet.has(clip.id)}
-                        onSelect={(additive) => selectClip(clip.id, additive)}
                         onTrimStart={handleTrimStart}
                         onMoveStart={handleMoveStart}
                         trim={trimDrag}
@@ -1839,6 +1912,8 @@ export default function TimelinePanel() {
                   </div>
                 );
               })}
+
+              {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
 
               <RegionGuides song={song} zoomH={zoomH} drag={regionDrag} />
 

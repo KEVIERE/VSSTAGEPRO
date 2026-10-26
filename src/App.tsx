@@ -37,6 +37,7 @@ import PricingPage from '@/components/sales/PricingPage';
 import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
 import SubscriptionReturn from '@/components/SubscriptionReturn';
 import AdminPage from '@/components/admin/AdminPage';
+import MobileShowRemote from '@/components/MobileShowRemote';
 import { trackFeature, useFeatureTracking } from '@/lib/featureUsage';
 import type { License } from '@/components/DirectorAccess';
 import LocalNetworkDialog from '@/components/network/LocalNetworkDialog';
@@ -47,11 +48,12 @@ import { useLiveBroadcast } from '@/lib/useLiveBroadcast';
 import { usePendingRequests } from '@/lib/usePendingRequests';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 
-function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' {
+function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' {
   const { pathname, hash, search } = window.location;
   // No build de staging (servido em /staging/, mesmo domínio), o próprio prefixo
   // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
   const seg = pathname.replace(/^\/+|\/+$/g, '').toLowerCase().replace(/^staging\/?/, '');
+  if (seg === 'show' || seg === 'controle' || seg === 'remoto' || hash.startsWith('#show') || hash.startsWith('#controle') || hash.startsWith('#remoto')) return 'remote';
   if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
   if (
     seg === 'recuperar' ||
@@ -74,13 +76,14 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   if (hash.startsWith('#m=') || hash.startsWith('#join=') || hash.startsWith('#musico')
     || new URLSearchParams(search).has('musico')) return 'musician';
   // No celular/smartphone ou tablet na web pública, NUNCA abre o editor DAW (que fica tela preta no mobile).
-  // Sempre direciona para a página de vendas oficial (ou áreas específicas: músico, tela, produtor, download, planos).
+  // Sempre direciona para a página de vendas oficial (ou áreas específicas: músico, tela, produtor, controle remoto, download, planos).
   const isMobileDevice = typeof window !== 'undefined' && (
     window.innerWidth < 768 ||
     /Android|iPhone|iPad|iPod|Opera Mini|IEMobile|WPDesktop/i.test(navigator.userAgent)
   );
 
   if (isMobileDevice && !window.vsDesktop) {
+    if (hash.startsWith('#show') || hash.startsWith('#controle') || hash.startsWith('#remoto') || seg === 'show' || seg === 'controle' || seg === 'remoto') return 'remote';
     if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado') return 'subscribed';
     if (hash.startsWith('#baixar') || seg === 'baixar') return 'download';
     if (hash.startsWith('#planos') || seg === 'planos' || hash.startsWith('#assinar')) return 'pricing';
@@ -195,6 +198,13 @@ function App() {
       </ErrorBoundary>
     );
   }
+  if (route === 'remote') {
+    return (
+      <ErrorBoundary>
+        <MobileShowRemote />
+      </ErrorBoundary>
+    );
+  }
   if (route === 'producer') {
     return (
       <ErrorBoundary>
@@ -274,14 +284,31 @@ function DirectorApp({ license }: { license: License }) {
       const key = e.key.toLowerCase();
       const temporal = useStore.temporal.getState();
       const el = e.target as HTMLElement | null;
-      const typing = !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
+      const isTextInput = !!el && (
+        el.tagName === 'TEXTAREA' ||
+        (el.tagName === 'INPUT' && !['button', 'checkbox', 'radio', 'range', 'submit'].includes((el as HTMLInputElement).type?.toLowerCase())) ||
+        el.isContentEditable
+      );
+
+      // Barra de espaço para Play/Pause tem prioridade absoluta:
+      // se o foco estiver em um botão ou select, desmarca o foco e toca a música,
+      // nunca reabrindo menus ou clicando no botão.
+      if (e.code === 'Space') {
+        if (isTextInput) return;
+        e.preventDefault();
+        el?.blur?.();
+        if (e.repeat) return;
+        if (useStore.getState().playlistMaximized) startPlayback();
+        else togglePlayPause();
+        return;
+      }
 
       if (ctrl && key === 's') {
         e.preventDefault();
         if (!e.repeat) saveCurrentProject();
         return;
       }
-      if (typing) return;
+      if (isTextInput || el?.tagName === 'SELECT') return;
 
       if (ctrl && key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -289,11 +316,6 @@ function DirectorApp({ license }: { license: License }) {
       } else if ((ctrl && key === 'z' && e.shiftKey) || (ctrl && key === 'y')) {
         e.preventDefault();
         temporal.redo();
-      } else if (e.code === 'Space') {
-        e.preventDefault();
-        if (e.repeat) return;
-        if (useStore.getState().playlistMaximized) startPlayback();
-        else togglePlayPause();
       } else if (e.key === 'Escape') {
         e.preventDefault();
         const st = useStore.getState();
@@ -337,6 +359,37 @@ function DirectorApp({ license }: { license: License }) {
   useEffect(() => {
     const id = requestAnimationFrame(() => window.vsDesktop?.appReady());
     return () => cancelAnimationFrame(id);
+  }, []);
+
+  useEffect(() => {
+    if (!window.vsDesktop?.onRemoteTransport) return;
+    return window.vsDesktop.onRemoteTransport((cmd: { action: string; songId?: string }) => {
+      const st = useStore.getState();
+      if (cmd.action === 'play') {
+        startPlayback();
+      } else if (cmd.action === 'pause') {
+        st.pause();
+      } else if (cmd.action === 'stop') {
+        stopPlayback();
+      } else if (cmd.action === 'next') {
+        const nextId = st.transport.nextSongId;
+        if (nextId) {
+          st.selectSong(nextId);
+          startPlayback();
+        }
+      } else if (cmd.action === 'prev') {
+        const pList = st.playlist;
+        const curId = st.transport.currentSongId ?? st.selectedSongId;
+        const idx = pList.findIndex((p) => p.songId === curId);
+        if (idx > 0) {
+          st.selectSong(pList[idx - 1].songId);
+          startPlayback();
+        }
+      } else if (cmd.action === 'selectSong' && cmd.songId) {
+        st.selectSong(cmd.songId);
+        startPlayback();
+      }
+    });
   }, []);
 
   useEffect(() => startInstantStartBuilder({ isBusy: () => audioEngine.isStarting(), pitchFor: headPitchFor }), []);
@@ -603,7 +656,7 @@ function DirectorApp({ license }: { license: License }) {
             <>
               <div className="flex flex-col flex-1 min-w-0 min-h-0">
                 <div className="flex-1 min-h-0 overflow-hidden">
-                  <PlaylistPanel />
+                  <PlaylistPanel onOpenAiSeparator={() => setAiSeparatorOpen(true)} />
                 </div>
                 <MixerPanel />
               </div>
@@ -611,7 +664,7 @@ function DirectorApp({ license }: { license: License }) {
             </>
           ) : (
             <>
-              {playlistVisible && <PlaylistPanel />}
+              {playlistVisible && <PlaylistPanel onOpenAiSeparator={() => setAiSeparatorOpen(true)} />}
               <TimelinePanel />
             </>
           )}

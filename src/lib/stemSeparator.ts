@@ -1,6 +1,8 @@
 import { separateWithReplicateDemucs } from '@/lib/replicateDemucs';
 import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
+import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
+import { isolateLiveCrowdAmbience } from '@/lib/crowdIsolation';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { audioEngine } from '@/lib/audioEngine';
 import {
@@ -54,9 +56,9 @@ export async function separateSongToVS(
     percent: 10,
   });
 
-  const bpmResult = await detectBpm(audioBuffer).catch(() => null);
-  const bpm = bpmResult?.bpm || 120;
-  const downbeat = bpmResult?.downbeat || 0;
+  const rawBpmResult = await detectBpm(audioBuffer).catch(() => null);
+  const bpm = detectRobustBpm(audioBuffer, null, rawBpmResult?.bpm);
+  const downbeat = rawBpmResult?.downbeat || 0;
 
   // 2. SEPARAÇÃO DAS STEMS COM DEMUCS v4 (HTDemucs 6 Stems)
   let drumsBuffer: AudioBuffer;
@@ -126,63 +128,37 @@ export async function separateSongToVS(
     otherBuffer = stems.other;
   }
 
-  // 2.5 Refinamento do BPM, Downbeat e detecção de múltiplos andamentos
-  let finalBpm = bpm;
-  let finalDownbeat = downbeat;
-  let multiTempoResult: MultiTempoResult | null = null;
-  try {
-    multiTempoResult = await detectMultiTempo(drumsBuffer || audioBuffer);
-    if (multiTempoResult && multiTempoResult.bpm >= 45 && multiTempoResult.bpm <= 240) {
-      finalBpm = multiTempoResult.bpm;
-      finalDownbeat = Math.max(0, multiTempoResult.downbeat);
-    }
-  } catch {
-    try {
-      const drumBpm = await detectBpm(drumsBuffer);
-      if (drumBpm && drumBpm.bpm >= 45 && drumBpm.bpm <= 240) {
-        finalBpm = drumBpm.bpm;
-        finalDownbeat = Math.max(0, drumBpm.downbeat);
-      }
-    } catch { /* usa estimativa inicial */ }
-  }
+  // 2.4 Isolamento Inteligente de Gritos e Ambiência de Show ao Vivo
+  // Limpa a voz do cantor (Guia) e separa os gritos/assobios da plateia em uma trilha exclusiva (mutada por padrão)
+  const crowdResult = isolateLiveCrowdAmbience(vocalsBuffer);
+  vocalsBuffer = crowdResult.cleanedVocals;
+  const crowdAmbienceBuffer = crowdResult.crowdAmbience;
 
+  // 2.5 Refinamento do BPM e Alinhamento Musical Cirúrgico
+  const initialBpm = detectRobustBpm(audioBuffer, drumsBuffer, bpm);
   const beatsPerBar = options.beatsPerBar || 4;
-  const secondsPerBeat = 60 / finalBpm;
-  const barDuration = beatsPerBar * secondsPerBeat;
 
-  // Sincronização de Fase: O 1º compasso (0 a barDuration) é o count-in do click.
-  // A música começa deslocada de modo que o seu primeiro tempo forte (downbeat) caia
-  // EXATAMENTE no tempo 1 do compasso seguinte (t = barDuration).
-  const safeDownbeat = finalDownbeat % barDuration;
-  const leadIn = barDuration - safeDownbeat;
+  // 2.5.1 Alinhamento Musical Cirúrgico (Trava o Tempo 1 na grade e elimina música cruzada)
+  const alignment = calculateMusicalAlignment(audioBuffer, drumsBuffer, initialBpm, beatsPerBar);
+  const finalBpm = alignment.bpm;
+  const leadIn = alignment.leadIn;
   const totalSongDuration = leadIn + duration;
 
-  // 2.6 Gera a trilha de Click (Metrônomo) cravada na grade métrica (com suporte a múltiplos andamentos)
+  // 2.6 Gera a trilha de Click (Metrônomo) cravada na grade métrica (andamento contínuo uniforme e firme)
   let clickBuffer: AudioBuffer | null = null;
   if (options.includeClick) {
     onProgress?.({
       step: 'click',
-      message: multiTempoResult?.isMultiTempo
-        ? 'Sincronizando metrônomo adaptativo com múltiplos andamentos...'
-        : 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
+      message: 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
       percent: 92,
     });
-
-    const segments = multiTempoResult?.isMultiTempo
-      ? multiTempoResult.segments.map((seg, idx) => ({
-          ...seg,
-          startTime: idx === 0 ? 0 : seg.startTime + leadIn,
-          endTime: seg.endTime + leadIn,
-        }))
-      : undefined;
 
     clickBuffer = await generateClickTrack(
       totalSongDuration,
       finalBpm,
       sampleRate,
       0,
-      beatsPerBar,
-      segments
+      beatsPerBar
     );
   }
 
@@ -223,6 +199,7 @@ export async function separateSongToVS(
     parentTrackId: string;
     startTime: number;
     duration: number;
+    mute?: boolean;
   }
 
   const stemConfigs: StemEntry[] = [
@@ -284,6 +261,18 @@ export async function separateSongToVS(
     duration,
   });
 
+  if (crowdAmbienceBuffer) {
+    stemConfigs.push({
+      name: songName + ' - Ambiência e Gritos do Show',
+      childName: 'Ambiência Plateia',
+      buffer: crowdAmbienceBuffer,
+      parentTrackId: 'track-outros',
+      startTime: leadIn,
+      duration,
+      mute: true, // Silenciado por padrão para não atrapalhar no show ao vivo!
+    });
+  }
+
   if (clickBuffer) {
     stemConfigs.push({
       name: songName + ' - Click Metrônomo',
@@ -320,7 +309,8 @@ export async function separateSongToVS(
     const clipAudio = await toClipAudioAsync(config.buffer);
     const wavAb = encodeWavInt16(clipAudio);
     const wavBlob = new Blob([wavAb], { type: 'audio/wav' });
-    const peaks = audioEngine.generateWaveformPeaks(config.buffer, 2000);
+    const peakResolution = Math.min(24000, Math.max(8000, Math.round(config.buffer.duration * 100)));
+    const peaks = audioEngine.generateWaveformPeaks(config.buffer, peakResolution);
 
     const clip: AudioClip = {
       id: clipId,
@@ -339,7 +329,7 @@ export async function separateSongToVS(
       routingConfidence: 1,
       waveformPeaks: peaks,
       gain: 1,
-      mute: false,
+      mute: config.mute ?? false,
       solo: false,
     };
 

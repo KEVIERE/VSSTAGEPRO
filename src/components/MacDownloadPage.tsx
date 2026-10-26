@@ -22,7 +22,6 @@ import type { Session } from '@supabase/supabase-js';
 import { downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
-import { supabase } from '@/lib/supabaseClient';
 
 const TRUST_BADGES = [
   { icon: ShieldCheck, text: 'Download verificado com hash SHA-256' },
@@ -73,10 +72,10 @@ const STEPS = [
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(0)} MB`;
 
 export default function MacDownloadPage() {
-  return <DownloadAccess>{(session) => <MacDownloadPageContent session={session} />}</DownloadAccess>;
+  return <DownloadAccess>{(session, signOut) => <MacDownloadPageContent session={session} onSignOut={signOut} />}</DownloadAccess>;
 }
 
-function MacDownloadPageContent({ session }: { session: Session }) {
+function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [manifest, setManifest] = useState<MacManifest | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
@@ -123,7 +122,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
   const busy = status.kind === 'downloading';
 
   return (
-    <div className="min-h-screen bg-[#000000] text-[#f5f5f7] font-sans flex flex-col relative overflow-x-hidden selection:bg-[#0071e3] selection:text-white antialiased">
+    <div className="min-h-screen bg-[#000000] text-[#f5f5f7] font-apple flex flex-col relative overflow-x-hidden selection:bg-[#0071e3] selection:text-white antialiased">
       {/* Glow atmosférico suave estilo Apple */}
       <div className="hidden sm:block fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[450px] bg-gradient-to-b from-[#0071e3]/10 via-emerald-500/5 to-transparent blur-[140px]" />
@@ -152,7 +151,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
               </div>
 
               <button
-                onClick={() => supabase.auth.signOut()}
+                onClick={onSignOut}
                 title="Sair da conta"
                 className="p-2 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-[#86868b] hover:text-white border border-white/10 transition flex items-center gap-1.5 text-xs"
               >
@@ -438,7 +437,7 @@ function MacDownloadPageContent({ session }: { session: Session }) {
           <div className="flex items-center gap-6">
             <a href="/" className="hover:text-white transition">Página Inicial</a>
             <a href="#planos" className="hover:text-white transition">Planos & Preços</a>
-            <button onClick={() => supabase.auth.signOut()} className="hover:text-white transition">Sair da Conta</button>
+            <button onClick={onSignOut} className="hover:text-white transition">Sair da Conta</button>
           </div>
         </div>
       </footer>

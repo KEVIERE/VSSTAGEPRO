@@ -34,4 +34,10 @@ contextBridge.exposeInMainWorld('vsDesktop', {
     ipcRenderer.on('update:progress', listener);
     return () => ipcRenderer.removeListener('update:progress', listener);
   },
+  onRemoteTransport: (cb) => {
+    const listener = (_event, cmd) => cb(cmd);
+    ipcRenderer.on('remote:transport', listener);
+    return () => ipcRenderer.removeListener('remote:transport', listener);
+  },
+  notifySessionState: (active) => ipcRenderer.send('auth:sessionState', Boolean(active)),
 });

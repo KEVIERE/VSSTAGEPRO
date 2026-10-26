@@ -313,10 +313,6 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   style={{ width: `${progress.percent}%` }}
                 />
               </div>
-
-              <p className="text-[11px] text-logic-text-muted text-center pt-1">
-                Processando 100% localmente no Mac com áudio de estúdio...
-              </p>
             </div>
           )}
         </div>

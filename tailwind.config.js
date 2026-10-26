@@ -47,11 +47,34 @@ export default {
             red: '#ff453a',
           },
         },
+        // Paleta extraída do CSS real de apple.com/logic-pro (overview.built.css):
+        // mesmo azul de link/CTA, cinzas de texto secundário e botões neutros que a Apple usa.
+        apple: {
+          bg: '#000000',
+          surface: '#1d1d1f',
+          'surface-light': '#272729',
+          'surface-lighter': '#37373a',
+          text: '#f5f5f7',
+          'text-secondary': '#86868b',
+          'text-tertiary': '#6e6e73',
+          border: 'rgba(255,255,255,0.14)',
+          blue: '#0071e3',
+          'blue-hover': '#0076df',
+          'blue-active': '#006edb',
+          link: '#2997ff',
+        },
       },
       fontFamily: {
         sans: ['Inter', 'SF Pro', '-apple-system', 'system-ui', 'sans-serif'],
         mono: ['SF Mono', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
         stage: ['"Barlow Semi Condensed"', 'Inter', 'system-ui', 'sans-serif'],
+        // Stack oficial da Apple: em macOS/iOS, -apple-system e BlinkMacSystemFont
+        // resolvem para a fonte do sistema (SF Pro) automaticamente — mesma fonte
+        // usada em apple.com, sem precisar hospedar o arquivo proprietário.
+        apple: [
+          '-apple-system', 'BlinkMacSystemFont', '"SF Pro Display"', '"SF Pro Text"',
+          '"SF Pro Icons"', '"Helvetica Neue"', 'Helvetica', 'Arial', 'sans-serif',
+        ],
       },
       fontSize: {
         '2xs': ['0.625rem', { lineHeight: '0.875rem' }],
@@ -62,6 +85,9 @@ export default {
       },
       transitionTimingFunction: {
         'logic': 'cubic-bezier(0.4, 0, 0.2, 1)',
+        // Easing real usado nas transições de opacidade/fade do apple.com
+        'apple': 'cubic-bezier(0.33, 1, 0.68, 1)',
+        'apple-spring': 'cubic-bezier(0, 0, 0.5, 1)',
       },
     },
   },

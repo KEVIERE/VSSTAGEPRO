@@ -73,7 +73,7 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
                 {onOpenAiSeparator && (
                   <Option
                     icon={<Sparkles size={18} className="text-logic-lcd-green" />}
-                    title="Criar VS a partir de Música (IA Local)"
+                    title="Criar VS a partir de Música (IA)"
                     text="Escolha uma música completa (MP3, WAV, M4A). A IA separa as faixas (bateria, baixo, voz, harmonia) e cria o VS pronto com click."
                     onClick={() => {
                       onClose();

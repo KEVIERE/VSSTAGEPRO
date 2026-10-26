@@ -1,10 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
 const url =
-  (import.meta.env.VITE_SUPABASE_URL as string) || 'https://xfpkftewsxaxycdwwnnv.supabase.co';
+  (import.meta.env.VITE_SUPABASE_URL as string) || 'https://eknjqqiamuztomdygalv.supabase.co';
 const anonKey =
   (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhmcGtmdGV3c3hheHljZHd3bm52Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0MTc3ODAsImV4cCI6MjEwNjk5Mzc4MH0.JXKzNyF_gKzKF3zw8m8Kk6FFNHyOR5b-6s-r7gleEkM';
+  'sb_publishable_9yDFOv1hd7w8MITGsE1ZgQ_mY5eJJI2';
 
 // 1. Se a URL chegou com duplo hash (ex: #recuperar#access_token=...),
 // normaliza o hash para que o SDK do Supabase leia o access_token sem erros.
@@ -54,3 +54,25 @@ export const emailLinkType = readEmailLinkType();
 export const supabase = createClient(url, anonKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 });
+
+// Chave que o supabase-js usa no localStorage para guardar a sessão (mesma fórmula
+// que a lib usa internamente: `sb-${primeiro-segmento-do-host}-auth-token`).
+const AUTH_STORAGE_KEY = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
+
+// supabase.auth.signOut() só limpa a sessão (e só dispara o evento SIGNED_OUT que
+// a tela escuta) DEPOIS que o servidor responde ao pedido de invalidar a sessão —
+// mesmo com scope:'local' ainda sai uma chamada de rede antes. Se essa chamada
+// falhar por qualquer motivo que não seja "sessão já inválida" (rede lenta,
+// instabilidade do serviço, timeout), a Promise nunca resolve do jeito esperado e
+// quem clicou em "Sair"/"Entrar com outra conta" fica preso na mesma tela sem
+// nenhum aviso, porque a tela só reage ao evento, não ao clique em si.
+// Esta função limpa o armazenamento local de forma síncrona (nunca depende de
+// rede) e dispara o aviso ao servidor em paralelo, best-effort — use-a em conjunto
+// com um reset direto do estado do componente (não espere pelo evento).
+export function clearLocalSession(): void {
+  try {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    localStorage.removeItem(`${AUTH_STORAGE_KEY}-code-verifier`);
+  } catch { /* sem storage */ }
+  supabase.auth.signOut().catch(() => { /* best effort — já saímos localmente */ });
+}

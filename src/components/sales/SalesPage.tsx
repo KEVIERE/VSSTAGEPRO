@@ -13,6 +13,7 @@ import {
   Smartphone,
   Sparkles,
   Tablet,
+  Wand2,
   Zap,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
@@ -38,8 +39,8 @@ function MacBookFrame({ img, alt }: { img: string; alt: string }) {
         </div>
 
         {/* Display Retina com Vidro e Imagem Real */}
-        <div className="relative aspect-[16/10] w-full overflow-hidden rounded-t-[13px] sm:rounded-t-[16px] bg-[#000000] border border-black shadow-inner">
-          <img src={img} alt={alt} className="w-full h-full object-cover select-none" loading="eager" />
+        <div className="relative aspect-[16/10] w-full overflow-hidden rounded-t-[13px] sm:rounded-t-[16px] bg-[#0e0e0e] border border-black shadow-inner">
+          <img src={img} alt={alt} className="w-full h-full object-contain select-none" loading="eager" />
           {/* Reflexo Especular de Vidro Apple */}
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent pointer-events-none" />
         </div>
@@ -66,8 +67,8 @@ function IMacFrame({ img, alt }: { img: string; alt: string }) {
         <div className="absolute top-2 sm:top-2.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#0d0e12] border border-white/20" />
 
         {/* Tela Retina do iMac */}
-        <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[13px] bg-black border border-black shadow-inner">
-          <img src={img} alt={alt} className="w-full h-full object-cover select-none" loading="lazy" />
+        <div className="relative aspect-[16/9] w-full overflow-hidden rounded-[13px] bg-[#0e0e0e] border border-black shadow-inner">
+          <img src={img} alt={alt} className="w-full h-full object-contain select-none" loading="lazy" />
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.03] to-transparent pointer-events-none" />
         </div>
 
@@ -119,8 +120,8 @@ function IPadFrame({ img, alt }: { img: string; alt: string }) {
         <div className="absolute top-2.5 sm:top-3.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-black border border-white/20" />
 
         {/* Display Liquid Retina */}
-        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-[18px] sm:rounded-[22px] bg-black border border-black">
-          <img src={img} alt={alt} className="w-full h-full object-cover select-none" loading="lazy" />
+        <div className="relative aspect-[4/3] w-full overflow-hidden rounded-[18px] sm:rounded-[22px] bg-[#0e0e0e] border border-black">
+          <img src={img} alt={alt} className="w-full h-full object-contain select-none" loading="lazy" />
           <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/[0.04] to-transparent pointer-events-none" />
         </div>
       </div>
@@ -140,10 +141,10 @@ function HeroAppleEcosystemStage() {
       <div className="flex items-center justify-center gap-1.5 sm:gap-2 mb-8 sm:mb-12 overflow-x-auto p-1.5 rounded-full bg-white/[0.06] border border-white/10 backdrop-blur-xl max-w-fit mx-auto">
         {[
           { key: 'all', label: 'Todos os Dispositivos' },
-          { key: 'macbook', label: 'MacBook Pro • Modo Show' },
-          { key: 'imac', label: 'iMac • Timeline' },
-          { key: 'iphone', label: 'iPhone • Cifras' },
-          { key: 'ipad', label: 'iPad Pro • Teleprompter' },
+          { key: 'macbook', label: 'Computador • Modo Show' },
+          { key: 'imac', label: 'Estúdio • Timeline' },
+          { key: 'iphone', label: 'Celular • Cifras' },
+          { key: 'ipad', label: 'TV do Palco • Teleprompter' },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -171,22 +172,22 @@ function HeroAppleEcosystemStage() {
 
           {/* 1. IMAC (Em segundo plano, centralizado, mostrando a Timeline) */}
           <div className="relative z-10 w-[84%] sm:w-[72%] lg:w-[65%] -mb-4 sm:-mb-6 opacity-90 transition-transform duration-500 hover:scale-[1.01]">
-            <IMacFrame img="/shots/timeline.jpg" alt="Timeline completa do VS Stage Pro no iMac" />
+            <IMacFrame img="/shots/device-imac.png" alt="Timeline completa do VS Stage Pro no estúdio" />
           </div>
 
           {/* 2. MACBOOK PRO 16" (Em primeiro plano central, aberto no Modo Show) */}
           <div className="absolute z-20 bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 w-[74%] sm:w-[60%] lg:w-[52%] transition-transform duration-500 hover:scale-[1.02]">
-            <MacBookFrame img="/shots/modo_show.jpg" alt="Modo Show no MacBook Pro" />
+            <MacBookFrame img="/shots/device-macbook.png" alt="Modo Show no computador" />
           </div>
 
-          {/* 3. IPAD PRO (Flanqueando o lado esquerdo com o Teleprompter) */}
-          <div className="absolute z-25 bottom-4 sm:bottom-8 left-1 sm:left-4 lg:left-10 w-[30%] sm:w-[24%] lg:w-[21%] hidden xs:block transition-transform duration-500 hover:scale-105">
-            <IPadFrame img="/shots/teleprompt.jpg" alt="Teleprompter no iPad Pro" />
+          {/* 3. IPAD PRO (Flanqueando o lado esquerdo com o Teleprompter, em destaque acima da base) */}
+          <div className="absolute z-25 bottom-14 sm:bottom-20 lg:bottom-24 left-[-4%] sm:left-0 lg:left-0 w-[40%] sm:w-[32%] lg:w-[28%] block transition-transform duration-500 hover:scale-105 hover:-translate-y-1">
+            <IPadFrame img="/shots/device-ipad.png" alt="Teleprompter na TV do palco" />
           </div>
 
           {/* 4. IPHONE 16 PRO (Flanqueando o lado direito com a Área do Músico) */}
           <div className="absolute z-30 bottom-2 sm:bottom-6 right-2 sm:right-6 lg:right-14 w-[18%] sm:w-[15%] lg:w-[13%] transition-transform duration-500 hover:scale-105">
-            <IPhoneFrame img="/shots/area_do_musico.jpg" alt="Área do Músico no iPhone" />
+            <IPhoneFrame img="/shots/device-iphone.png" alt="Área do Músico no celular" />
           </div>
         </div>
       )}
@@ -194,36 +195,36 @@ function HeroAppleEcosystemStage() {
       {/* Visualização focada por dispositivo */}
       {activeTab === 'macbook' && (
         <div className="animate-[fadeIn_400ms_ease-out]">
-          <MacBookFrame img="/shots/modo_show.jpg" alt="Modo Show no MacBook Pro" />
+          <MacBookFrame img="/shots/device-macbook.png" alt="Modo Show no computador" />
           <div className="text-center mt-6 text-sm text-[#86868b]">
-            <strong className="text-white">MacBook Pro 16"</strong> rodando o <span className="text-[#ff9f0a]">Modo Show</span> em tela cheia com trava de segurança e contagem regressiva.
+            <strong className="text-white">Seu computador</strong> rodando o <span className="text-[#ff9f0a]">Modo Show</span> em tela cheia com trava de segurança e contagem regressiva.
           </div>
         </div>
       )}
 
       {activeTab === 'imac' && (
         <div className="animate-[fadeIn_400ms_ease-out]">
-          <IMacFrame img="/shots/timeline.jpg" alt="Timeline no iMac" />
+          <IMacFrame img="/shots/device-imac.png" alt="Timeline no estúdio" />
           <div className="text-center mt-6 text-sm text-[#86868b]">
-            <strong className="text-white">iMac 24"</strong> exibindo a <span className="text-[#0a84ff]">Timeline Pro</span> com arranjo de medleys, detecção de BPM e formas de onda em alta resolução.
+            <strong className="text-white">A tela do seu estúdio</strong> exibindo a <span className="text-[#0a84ff]">Timeline Pro</span> com arranjo de medleys, detecção de BPM e formas de onda em alta resolução.
           </div>
         </div>
       )}
 
       {activeTab === 'iphone' && (
         <div className="animate-[fadeIn_400ms_ease-out]">
-          <IPhoneFrame img="/shots/area_do_musico.jpg" alt="Área do Músico no iPhone" />
+          <IPhoneFrame img="/shots/device-iphone.png" alt="Área do Músico no celular" />
           <div className="text-center mt-6 text-sm text-[#86868b]">
-            <strong className="text-white">iPhone 16 Pro</strong> com a <span className="text-emerald-400">Área do Músico</span> transmitindo cifras sincronizadas via rede Wi-Fi local sem internet.
+            <strong className="text-white">O celular de cada músico</strong> com a <span className="text-emerald-400">Área do Músico</span> transmitindo cifras sincronizadas via rede Wi-Fi local sem internet.
           </div>
         </div>
       )}
 
       {activeTab === 'ipad' && (
         <div className="animate-[fadeIn_400ms_ease-out]">
-          <IPadFrame img="/shots/teleprompt.jpg" alt="Teleprompter no iPad Pro" />
+          <IPadFrame img="/shots/device-ipad.png" alt="Teleprompter na TV do palco" />
           <div className="text-center mt-6 text-sm text-[#86868b]">
-            <strong className="text-white">iPad Pro</strong> exibindo o <span className="text-[#a855f7]">Teleprompter de Palco</span> com letras em tempo real e avisos ao vivo para os cantores.
+            <strong className="text-white">A TV do palco</strong> exibindo o <span className="text-[#a855f7]">Teleprompter de Palco</span> com letras em tempo real e avisos ao vivo para os cantores.
           </div>
         </div>
       )}
@@ -293,6 +294,14 @@ const FAQS = [
     q: 'Como funciona a detecção de BPM e a masterização vocal com IA?',
     a: 'Ao importar seus arquivos de áudio, a Inteligência Artificial analisa instantaneamente as pistas percussivas e detecta o andamento exato (BPM) da música. Na faixa Maestro, o processador de voz inteligente aplica equalização cirúrgica de presença, compressor óptico e limiter para que os comandos do maestro sejam ouvidos com clareza cristalina no meio da banda.',
   },
+  {
+    q: 'Como funciona a criação de VS com Inteligência Artificial?',
+    a: 'Você sobe um único arquivo de áudio (a música mixada, em MP3 ou WAV) e a IA faz o resto: separa as stems de Bateria, Contrabaixo, Guitarras, Teclados, Voz/Guia e Outros, detecta o BPM exato, gera a faixa de Click e organiza tudo numa timeline própria, já roteada nos faders certos. Em cerca de 2 minutos o VS sai pronto pra entrar na playlist do show — sem precisar caçar multitracks ou editar faixa por faixa.',
+  },
+  {
+    q: 'A separação por IA tem qualidade boa o bastante pra tocar no show?',
+    a: 'Sim. A separação roda sobre o mesmo motor usado por ferramentas profissionais de estúdio (Demucs v4 / HTDemucs da Meta AI), com um padrão fixo de processamento aplicado igual em toda música que você sobe — não é uma IA genérica improvisando: é o mesmo pipeline testado, sempre entregando as mesmas 6 stems organizadas do mesmo jeito. Para a esmagadora maioria das músicas o resultado já sai pronto pra tocar ao vivo; em trechos pontuais mais complexos (muitos instrumentos tocando juntos na mesma frequência, por exemplo), pode valer a pena um ajuste fino antes do show — e qualquer faixa pode ser re-roteada manualmente a qualquer momento, puxando na hora que quiser.',
+  },
 ];
 
 function RevealBlock({
@@ -304,13 +313,15 @@ function RevealBlock({
   className?: string;
   delay?: number;
 }) {
-  const { ref, revealed } = useScrollReveal();
+  // once: false => o bloco também anima ao sair/voltar à tela quando o usuário
+  // rola para cima, não só na primeira vez que aparece descendo a página.
+  const { ref, revealed } = useScrollReveal({ once: false });
 
   return (
     <div
       ref={ref}
       style={{ transitionDelay: `${delay}ms` }}
-      className={`transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+      className={`transition-all duration-[1100ms] ease-[cubic-bezier(0.16,1,0.3,1)] ${
         revealed
           ? 'opacity-100 translate-y-0 scale-100'
           : 'opacity-100 sm:opacity-0 sm:translate-y-8 sm:scale-[0.99]'
@@ -331,43 +342,48 @@ export default function SalesPage() {
   const subscribe = () => { window.location.hash = '#planos'; };
 
   return (
-    <div className="min-h-screen bg-[#000000] text-[#f5f5f7] font-sans selection:bg-[#0071e3] selection:text-white overflow-x-hidden antialiased">
+    <div className="min-h-screen bg-[#000000] text-[#f5f5f7] font-apple selection:bg-[#0071e3] selection:text-white overflow-x-hidden antialiased">
 
       {/* =====================================================================
           1. APPLE STICKY LOCAL SUB-NAVIGATION
           ===================================================================== */}
       <header className="sticky top-0 z-50 bg-[#000000]/80 backdrop-blur-xl border-b border-white/[0.12] transition-colors">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
-          <a href="#" className="flex items-center gap-2.5 text-white font-bold text-sm tracking-tight hover:opacity-85 transition-opacity">
-            <VsLogo size={24} />
-            <span className="text-white font-semibold">VS Stage Pro</span>
-          </a>
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center">
+          {/* Zona esquerda: logo. flex-1 espelha a zona direita para que a nav
+              central fique exatamente no meio da barra, não "colada" nos botões. */}
+          <div className="flex-1 flex items-center">
+            <a href="#" className="flex items-center gap-2.5 text-white font-bold text-sm tracking-tight hover:opacity-85 transition-opacity">
+              <VsLogo size={24} />
+              <span className="text-white font-semibold">VS Stage Pro</span>
+            </a>
+          </div>
 
-          <div className="flex items-center gap-6">
-            <nav className="hidden md:flex items-center gap-5 text-xs text-[#86868b] font-medium">
-              <a href="#visao-geral" className="hover:text-white transition-colors">Visão Geral</a>
-              <a href="#dispositivos-show" className="hover:text-white transition-colors">Dispositivos de Palco</a>
-              <a href="#fluxos" className="hover:text-white transition-colors">Fluxos</a>
-              <a href="#inteligencia" className="hover:text-white transition-colors">Inteligência</a>
-              <a href="#diferenciais" className="hover:text-white transition-colors">Por Que o VS Stage?</a>
-              <a href="#faq" className="hover:text-white transition-colors">Dúvidas</a>
-            </nav>
+          {/* Zona central: links de seção, verdadeiramente centralizados na barra
+              (padrão apple.com/logic-pro), e não agrupados junto ao CTA. */}
+          <nav className="hidden md:flex items-center gap-5 text-xs text-[#86868b] font-medium shrink-0">
+            <a href="#visao-geral" className="hover:text-white transition-colors">Visão Geral</a>
+            <a href="#dispositivos-show" className="hover:text-white transition-colors">Dispositivos de Palco</a>
+            <a href="#fluxos" className="hover:text-white transition-colors">Fluxos</a>
+            <a href="#inteligencia" className="hover:text-white transition-colors">Inteligência</a>
+            <a href="#diferenciais" className="hover:text-white transition-colors">Por Que o VS Stage?</a>
+            <a href="#faq" className="hover:text-white transition-colors">Dúvidas</a>
+          </nav>
 
-            <div className="flex items-center gap-2.5">
-              <a
-                href="#baixar"
-                className="hidden sm:inline-block text-xs font-medium text-[#86868b] hover:text-white transition-colors"
-              >
-                Teste gratuito
-              </a>
-              <button
-                type="button"
-                onClick={subscribe}
-                className="h-7 px-3.5 rounded-full bg-[#0071e3] hover:bg-[#0077ed] text-white text-xs font-semibold tracking-tight transition-all active:scale-95 shadow-sm"
-              >
-                Assinar
-              </button>
-            </div>
+          {/* Zona direita: CTA, sempre encostado na borda direita. */}
+          <div className="flex-1 flex items-center justify-end gap-2.5">
+            <a
+              href="#baixar"
+              className="hidden sm:inline-block text-xs font-medium text-[#86868b] hover:text-white transition-colors"
+            >
+              Teste gratuito
+            </a>
+            <button
+              type="button"
+              onClick={subscribe}
+              className="h-7 px-3.5 rounded-full bg-[#0071e3] hover:bg-[#0077ed] text-white text-xs font-semibold tracking-tight transition-all active:scale-95 shadow-sm"
+            >
+              Assinar
+            </button>
           </div>
         </div>
       </header>
@@ -381,24 +397,43 @@ export default function SalesPage() {
 
         <div className="max-w-6xl mx-auto px-4 sm:px-6 relative z-10">
           {/* Logo Oficial Centralizado */}
-          <div className="mx-auto w-24 h-24 mb-6 transition-transform hover:scale-105 duration-300 drop-shadow-[0_16px_32px_rgba(255,159,10,0.3)]">
+          <div
+            className="sales-rise mx-auto w-24 h-24 mb-6 transition-transform hover:scale-105 duration-300 drop-shadow-[0_16px_32px_rgba(255,159,10,0.3)]"
+            style={{ animationDelay: '0ms' }}
+          >
             <VsLogo size={96} />
           </div>
 
-          <h2 className="text-xs sm:text-sm font-bold text-[#ff9f0a] tracking-widest uppercase mb-3">
-            VS Stage Pro
-          </h2>
+          <div
+            className="sales-rise inline-flex max-w-full items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.06] border border-white/10 mb-6"
+            style={{ animationDelay: '80ms' }}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#ff9f0a] animate-pulse shrink-0" />
+            <span className="text-[10px] sm:text-xs font-semibold tracking-wide text-[#ff9f0a] uppercase text-center leading-normal">
+              O Primeiro Motor de Áudio Construído Exclusivamente para Palco
+            </span>
+          </div>
 
-          <h1 className="text-4xl sm:text-6xl md:text-7xl font-extrabold text-white tracking-tight leading-[1.05] max-w-4xl mx-auto">
-            Suas ideias soam bem no palco.
+          <h1
+            className="sales-rise text-4xl sm:text-6xl md:text-7xl font-extrabold text-white tracking-tight leading-[1.05] max-w-4xl mx-auto"
+            style={{ animationDelay: '160ms' }}
+          >
+            Uma timeline por música. <br className="hidden sm:inline" />
+            Todo o show na sua mão.
           </h1>
 
-          <p className="mt-6 text-lg sm:text-xl text-[#86868b] max-w-3xl mx-auto font-normal leading-relaxed">
-            A estação de trabalho de áudio digital completa projetada para a pressão do show ao vivo. Multitracks com timeline exclusiva por música, roteamento inteligente, BPM e afinação por IA, Timecode LTC na saída de fone e teleprompter com cifras ao vivo em qualquer tela.
+          <p
+            className="sales-rise mt-6 text-lg sm:text-xl text-[#86868b] max-w-3xl mx-auto font-normal leading-relaxed"
+            style={{ animationDelay: '240ms' }}
+          >
+            Esqueça DAWs de estúdio que travam. Suba uma faixa pronta: a <strong className="text-white">Inteligência Artificial</strong> separa os stems, acerta o BPM e devolve um <strong className="text-white">VS Stage Pro</strong> completo — com timeline por música, controle de tom, mixer com Timecode LTC, cifras no celular da banda e teleprompter na TV do palco.
           </p>
 
           {/* Links e Botões de Chamada Estilo Apple */}
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mt-9">
+          <div
+            className="sales-rise flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mt-9"
+            style={{ animationDelay: '320ms' }}
+          >
             <button
               type="button"
               onClick={subscribe}
@@ -418,7 +453,10 @@ export default function SalesPage() {
           </div>
 
           {/* Banner de Compatibilidade Apple macOS */}
-          <div className="flex items-center justify-center gap-2 mt-8 text-xs text-[#86868b]">
+          <div
+            className="sales-rise flex items-center justify-center gap-2 mt-8 text-xs text-[#86868b]"
+            style={{ animationDelay: '400ms' }}
+          >
             <Apple size={14} className="text-white/80" />
             <span>Otimizado para macOS Sonoma, Sequoia e Apple Silicon (M1/M2/M3/M4)</span>
           </div>
@@ -426,7 +464,7 @@ export default function SalesPage() {
           {/* ===================================================================
               FRONT HERO: OS 4 DISPOSITIVOS JUNTOS NO PALCO (IMAC, MACBOOK, IPHONE, IPAD)
               =================================================================== */}
-          <div id="dispositivos-show">
+          <div id="dispositivos-show" className="sales-rise" style={{ animationDelay: '480ms' }}>
             <HeroAppleEcosystemStage />
           </div>
         </div>
@@ -437,35 +475,39 @@ export default function SalesPage() {
           ===================================================================== */}
       <section className="border-y border-white/[0.1] bg-[#0c0d12]/90 backdrop-blur-xl py-12">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-8">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Conheça o VS Stage Pro.
-            </h2>
-            <p className="text-sm text-[#86868b] mt-1.5">
-              Explore os quatro dispositivos sincronizados e as ferramentas de palco.
-            </p>
-          </div>
+          <RevealBlock>
+            <div className="text-center mb-8">
+              <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+                Conheça o VS Stage Pro.
+              </h2>
+              <p className="text-sm text-[#86868b] mt-1.5">
+                Explore os quatro dispositivos sincronizados e as ferramentas de palco.
+              </p>
+            </div>
+          </RevealBlock>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            {[
-              { id: '#macbook-detalhe', icon: LaptopIcon, title: 'MacBook Pro', subtitle: 'Modo Show no Palco' },
-              { id: '#imac-detalhe', icon: Monitor, title: 'iMac', subtitle: 'Timeline & Arranjo' },
-              { id: '#dispositivos-show', icon: Smartphone, title: 'iPhone', subtitle: 'Área do Músico (Cifras)' },
-              { id: '#dispositivos-show', icon: Tablet, title: 'iPad Pro', subtitle: 'Teleprompter na TV' },
-            ].map(({ id, icon: Icon, title, subtitle }) => (
-              <a
-                key={title}
-                href={id}
-                className="p-4 rounded-2xl bg-[#161618] border border-white/10 hover:border-white/25 hover:bg-[#1d1d20] transition-all flex flex-col items-center text-center group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-white/[0.06] text-white flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:text-[#ff9f0a] transition-all">
-                  <Icon size={18} />
-                </div>
-                <span className="text-xs font-bold text-white group-hover:text-[#ff9f0a] transition-colors">{title}</span>
-                <span className="text-[10px] text-[#86868b] mt-0.5 leading-tight">{subtitle}</span>
-              </a>
-            ))}
-          </div>
+          <RevealBlock delay={100}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+              {[
+                { id: '#macbook-detalhe', icon: LaptopIcon, title: 'Computador', subtitle: 'Modo Show no Palco' },
+                { id: '#imac-detalhe', icon: Monitor, title: 'Estúdio', subtitle: 'Timeline & Arranjo' },
+                { id: '#dispositivos-show', icon: Smartphone, title: 'Celular', subtitle: 'Área do Músico (Cifras)' },
+                { id: '#dispositivos-show', icon: Tablet, title: 'TV do Palco', subtitle: 'Teleprompter na TV' },
+              ].map(({ id, icon: Icon, title, subtitle }) => (
+                <a
+                  key={title}
+                  href={id}
+                  className="p-4 rounded-2xl bg-[#161618] border border-white/10 hover:border-white/25 hover:bg-[#1d1d20] transition-all flex flex-col items-center text-center group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-white/[0.06] text-white flex items-center justify-center mb-2.5 group-hover:scale-110 group-hover:text-[#ff9f0a] transition-all">
+                    <Icon size={18} />
+                  </div>
+                  <span className="text-xs font-bold text-white group-hover:text-[#ff9f0a] transition-colors">{title}</span>
+                  <span className="text-[10px] text-[#86868b] mt-0.5 leading-tight">{subtitle}</span>
+                </a>
+              ))}
+            </div>
+          </RevealBlock>
         </div>
       </section>
 
@@ -476,47 +518,53 @@ export default function SalesPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <RevealBlock>
             <div className="text-center max-w-3xl mx-auto mb-16">
-              <span className="text-xs font-bold text-[#ff9f0a] uppercase tracking-widest">
-                No MacBook Pro • Modo Show
+              <span className="text-xs font-semibold text-[#ff9f0a] uppercase tracking-tight">
+                No Computador • Modo Show
               </span>
               <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mt-2.5">
                 O comando absoluto na frente dos seus olhos.
               </h2>
               <p className="text-base sm:text-lg text-[#86868b] mt-4 leading-relaxed">
-                Ao ativar o Modo Show no seu MacBook, a interface se transforma: o relógio gigante assume o controle, os faders são travados com cadeado contra acidentes e você transita de música sem engasgos.
+                Ao ativar o Modo Show no seu computador, a interface se transforma: o relógio gigante assume o controle, os faders são travados com cadeado contra acidentes e você transita de música sem engasgos.
               </p>
             </div>
           </RevealBlock>
 
           <RevealBlock delay={100}>
-            <MacBookFrame img="/shots/modo_show.jpg" alt="Modo Show do VS Stage Pro em tela cheia no MacBook Pro" />
+            <MacBookFrame img="/shots/device-macbook.png" alt="Modo Show do VS Stage Pro em tela cheia no computador" />
           </RevealBlock>
 
           <div className="grid sm:grid-cols-3 gap-6 mt-16">
-            <div className="p-6 rounded-2xl bg-[#161618] border border-white/10">
-              <div className="text-[#ff9f0a] font-bold text-lg mb-2 flex items-center gap-2">
-                <Lock size={18} /> Trava de Segurança
+            <RevealBlock delay={160}>
+              <div className="p-6 rounded-2xl bg-[#161618] border border-white/10">
+                <div className="text-[#ff9f0a] font-bold text-lg mb-2 flex items-center gap-2">
+                  <Lock size={18} /> Trava de Segurança
+                </div>
+                <p className="text-xs sm:text-sm text-[#86868b] leading-relaxed">
+                  A barra de espaço é protegida contra toques involuntários e cada fader tem cadeado individual.
+                </p>
               </div>
-              <p className="text-xs sm:text-sm text-[#86868b] leading-relaxed">
-                A barra de espaço é protegida contra toques involuntários e cada fader tem cadeado individual.
-              </p>
-            </div>
-            <div className="p-6 rounded-2xl bg-[#161618] border border-white/10">
-              <div className="text-emerald-400 font-bold text-lg mb-2 flex items-center gap-2">
-                <Clock size={18} /> Relógio & Restante
+            </RevealBlock>
+            <RevealBlock delay={220}>
+              <div className="p-6 rounded-2xl bg-[#161618] border border-white/10">
+                <div className="text-emerald-400 font-bold text-lg mb-2 flex items-center gap-2">
+                  <Clock size={18} /> Relógio & Restante
+                </div>
+                <p className="text-xs sm:text-sm text-[#86868b] leading-relaxed">
+                  Display LCD de alta visibilidade mostrando o tempo decorrido e a contagem regressiva da música.
+                </p>
               </div>
-              <p className="text-xs sm:text-sm text-[#86868b] leading-relaxed">
-                Display LCD de alta visibilidade mostrando o tempo decorrido e a contagem regressiva da música.
-              </p>
-            </div>
-            <div className="p-6 rounded-2xl bg-[#161618] border border-white/10">
-              <div className="text-[#0a84ff] font-bold text-lg mb-2 flex items-center gap-2">
-                <Zap size={18} /> Transição 0 Segundos
+            </RevealBlock>
+            <RevealBlock delay={280}>
+              <div className="p-6 rounded-2xl bg-[#161618] border border-white/10">
+                <div className="text-[#0a84ff] font-bold text-lg mb-2 flex items-center gap-2">
+                  <Zap size={18} /> Transição 0 Segundos
+                </div>
+                <p className="text-xs sm:text-sm text-[#86868b] leading-relaxed">
+                  Pule para qualquer música do show com dois cliques, sem esperar arquivos carregarem.
+                </p>
               </div>
-              <p className="text-xs sm:text-sm text-[#86868b] leading-relaxed">
-                Pule para qualquer música do show com dois cliques, sem esperar arquivos carregarem.
-              </p>
-            </div>
+            </RevealBlock>
           </div>
         </div>
       </section>
@@ -528,35 +576,39 @@ export default function SalesPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <RevealBlock>
             <div className="text-center max-w-3xl mx-auto mb-16">
-              <span className="text-xs font-bold text-[#0a84ff] uppercase tracking-widest">
-                No iMac • A Timeline Pro
+              <span className="text-xs font-semibold text-[#0a84ff] uppercase tracking-tight">
+                No Estúdio • A Timeline Pro
               </span>
               <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mt-2.5">
                 Uma timeline exclusiva por música.
               </h2>
               <p className="text-base sm:text-lg text-[#86868b] mt-4 leading-relaxed">
-                A tela ampla do iMac dá visibilidade cirúrgica para cada compasso, fatiamento de medleys e ondas de áudio de alta definição.
+                A tela ampla do seu estúdio dá visibilidade cirúrgica para cada compasso, fatiamento de medleys e ondas de áudio de alta definição.
               </p>
             </div>
           </RevealBlock>
 
           <RevealBlock delay={100}>
-            <IMacFrame img="/shots/timeline.jpg" alt="Timeline do VS Stage Pro em tela de iMac" />
+            <IMacFrame img="/shots/device-imac.png" alt="Timeline do VS Stage Pro na tela do estúdio" />
           </RevealBlock>
 
           <div className="grid md:grid-cols-2 gap-6 mt-16">
-            <div className="p-8 rounded-3xl bg-[#161618] border border-white/10">
-              <h3 className="text-xl font-bold text-white mb-3">Arranjo de Medleys Não-Destrutivo</h3>
-              <p className="text-sm text-[#86868b] leading-relaxed">
-                Fatie pot-pourris e medleys diretamente no cursor com atalhos de estúdio (S / Split). Una duas músicas com transição perfeita e controle o andamento compasso a compasso.
-              </p>
-            </div>
-            <div className="p-8 rounded-3xl bg-[#161618] border border-white/10">
-              <h3 className="text-xl font-bold text-white mb-3">Detecção de BPM com IA & Tuner Integrado</h3>
-              <p className="text-sm text-[#86868b] leading-relaxed">
-                A Inteligência Artificial analisa as multitracks e calcula o BPM instantaneamente. Altere o tom da música (+/- semitons) para o vocalista sem perder o alinhamento da velocidade.
-              </p>
-            </div>
+            <RevealBlock delay={160}>
+              <div className="p-8 rounded-3xl bg-[#161618] border border-white/10">
+                <h3 className="text-xl font-bold text-white mb-3">Arranjo de Medleys Não-Destrutivo</h3>
+                <p className="text-sm text-[#86868b] leading-relaxed">
+                  Fatie pot-pourris e medleys diretamente no cursor com atalhos de estúdio (S / Split). Una duas músicas com transição perfeita e controle o andamento compasso a compasso.
+                </p>
+              </div>
+            </RevealBlock>
+            <RevealBlock delay={220}>
+              <div className="p-8 rounded-3xl bg-[#161618] border border-white/10">
+                <h3 className="text-xl font-bold text-white mb-3">Detecção de BPM com IA & Tuner Integrado</h3>
+                <p className="text-sm text-[#86868b] leading-relaxed">
+                  A Inteligência Artificial analisa as multitracks e calcula o BPM instantaneamente. Altere o tom da música (+/- semitons) para o vocalista sem perder o alinhamento da velocidade.
+                </p>
+              </div>
+            </RevealBlock>
           </div>
         </div>
       </section>
@@ -568,7 +620,7 @@ export default function SalesPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <RevealBlock>
             <div className="max-w-3xl mb-16">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
+              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-tight">
                 Inteligência Artificial
               </span>
               <h2 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mt-2.5">
@@ -580,36 +632,121 @@ export default function SalesPage() {
             </div>
           </RevealBlock>
 
-          <div className="grid md:grid-cols-3 gap-6">
-            <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-6">
-                <Sparkles size={22} />
-              </div>
-              <h3 className="text-xl font-bold text-white">Roteamento por Nome & Stems</h3>
-              <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
-                Basta arrastar a pasta das multitracks: o motor reconhece as palavras nos nomes dos arquivos (Bateria, Baixo, Teclados, Guitarras, Metais, Vozes, Guia e Click) e encaminha cada pista para seu fader correto automaticamente.
-              </p>
-            </div>
+          {/* Destaque: Separação de Stems por IA — de uma música pronta a um VS completo */}
+          <RevealBlock delay={60}>
+            <div className="relative mb-10 overflow-hidden rounded-3xl border border-emerald-400/20 bg-gradient-to-br from-emerald-500/[0.08] via-[#161618] to-[#161618] p-8 sm:p-10">
+              <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-emerald-500/20 blur-[100px] pointer-events-none" />
+              <div className="relative grid md:grid-cols-[1.1fr_0.9fr] gap-8 items-center">
+                <div>
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-400/20 mb-4">
+                    <Clock size={13} className="text-emerald-400" />
+                    <span className="text-[11px] font-semibold text-emerald-400 uppercase tracking-wide">
+                      Da música pronta ao show em ~2 minutos
+                    </span>
+                  </div>
+                  <h3 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight">
+                    Suba só a música. A IA separa as stems e já monta o VS pra você.
+                  </h3>
+                  <p className="text-sm sm:text-base text-[#86868b] mt-4 leading-relaxed">
+                    Nada de caçar multitracks ou editar faixa por faixa: envie o áudio mixado de uma música e a Inteligência Artificial separa automaticamente <strong className="text-white">Bateria, Contrabaixo, Guitarras, Violões, Teclados, Voz/Guia e Outros</strong>, detecta o BPM, gera o Click e organiza tudo numa timeline própria — pronta para entrar na playlist do show.
+                  </p>
+                  <ul className="mt-6 space-y-2.5">
+                    {[
+                      'Envie um único arquivo de áudio (MP3 ou WAV) da música',
+                      'A IA separa os instrumentos e detecta BPM automaticamente',
+                      'Seu VS sai pronto, já roteado e com Click — em cerca de 2 minutos',
+                    ].map((step, i) => (
+                      <li key={step} className="flex items-start gap-3 text-sm text-[#d1d1d6]">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-emerald-500/15 text-emerald-400 text-[11px] font-bold flex items-center justify-center mt-0.5">
+                          {i + 1}
+                        </span>
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
 
-            <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
-              <div className="w-12 h-12 rounded-2xl bg-[#ff9f0a]/10 text-[#ff9f0a] flex items-center justify-center mb-6">
-                <Zap size={22} />
+                <div className="rounded-2xl bg-black/40 border border-white/10 p-5 sm:p-6">
+                  <div className="flex items-center justify-between mb-5">
+                    <span className="text-[11px] font-semibold text-[#86868b] uppercase tracking-wide">Separação em andamento</span>
+                    <span className="text-[11px] font-semibold text-emerald-400">~2 min</span>
+                  </div>
+                  <div className="space-y-3.5">
+                    {[
+                      { label: 'Voz / Guia', color: 'bg-emerald-400' },
+                      { label: 'Click', color: 'bg-[#64d2ff]' },
+                      { label: 'Bateria', color: 'bg-rose-400' },
+                      { label: 'Contrabaixo', color: 'bg-amber-400' },
+                      { label: 'Guitarras / Violões', color: 'bg-[#0a84ff]' },
+                      { label: 'Teclados', color: 'bg-[#a855f7]' },
+                      { label: 'Outros', color: 'bg-[#8e8e93]' },
+                    ].map((stem) => (
+                      <div key={stem.label} className="flex items-center gap-3">
+                        <span className="w-28 shrink-0 text-xs text-[#d1d1d6]">{stem.label}</span>
+                        <span className="flex-1 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                          <span className={`block h-full ${stem.color} rounded-full sales-glow`} style={{ width: '100%' }} />
+                        </span>
+                        <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-5 pt-5 border-t border-white/10 flex items-center gap-2 text-xs text-[#86868b]">
+                    <Sparkles size={13} className="text-emerald-400" />
+                    <span>VS criado automaticamente, pronto para o show</span>
+                  </div>
+                </div>
               </div>
-              <h3 className="text-xl font-bold text-white">Detecção de BPM & Afinador (Tuner)</h3>
-              <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
-                A IA calcula o BPM exato analisando o click ou as faixas rítmicas. Com a Torre de BPM e o Afinador nativo, você ajusta o andamento e transpõe o tom (+/- semitons) para o cantor na hora do show, sem mudar a velocidade.
-              </p>
             </div>
+          </RevealBlock>
 
-            <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
-              <div className="w-12 h-12 rounded-2xl bg-[#a855f7]/10 text-[#a855f7] flex items-center justify-center mb-6">
-                <Mic2 size={22} />
+          <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-6">
+            <RevealBlock delay={80}>
+              <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+                <div className="w-12 h-12 rounded-2xl bg-[#0a84ff]/10 text-[#0a84ff] flex items-center justify-center mb-6">
+                  <Wand2 size={22} />
+                </div>
+                <h3 className="text-xl font-bold text-white">Criação de VS com IA</h3>
+                <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                  Suba só o áudio mixado de uma música e a IA devolve o VS pronto: stems separados, BPM detectado, Click gerado e tudo já roteado nos faders certos — em cerca de 2 minutos.
+                </p>
               </div>
-              <h3 className="text-xl font-bold text-white">Masterização Vocal do Maestro</h3>
-              <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
-                Grave contagens e guias diretamente no microfone: o motor de masterização aplica corte de subgraves a 85Hz, realce de presença em 3.5kHz e compressor óptico com limiter broadcast para a voz cortar com força no fone da banda.
-              </p>
-            </div>
+            </RevealBlock>
+
+            <RevealBlock delay={100}>
+              <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mb-6">
+                  <Sparkles size={22} />
+                </div>
+                <h3 className="text-xl font-bold text-white">Roteamento por Nome & Stems</h3>
+                <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                  Basta arrastar a pasta das multitracks: o motor reconhece as palavras nos nomes dos arquivos (Bateria, Baixo, Teclados, Guitarras, Metais, Vozes, Guia e Click) e encaminha cada pista para seu fader correto automaticamente.
+                </p>
+              </div>
+            </RevealBlock>
+
+            <RevealBlock delay={160}>
+              <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+                <div className="w-12 h-12 rounded-2xl bg-[#ff9f0a]/10 text-[#ff9f0a] flex items-center justify-center mb-6">
+                  <Zap size={22} />
+                </div>
+                <h3 className="text-xl font-bold text-white">Detecção de BPM & Afinador (Tuner)</h3>
+                <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                  A IA calcula o BPM exato analisando o click ou as faixas rítmicas. Com a Torre de BPM e o Afinador nativo, você ajusta o andamento e transpõe o tom (+/- semitons) para o cantor na hora do show, sem mudar a velocidade.
+                </p>
+              </div>
+            </RevealBlock>
+
+            <RevealBlock delay={220}>
+              <div className="p-7 rounded-3xl bg-[#161618] border border-white/10 hover:border-white/20 transition-all h-full">
+                <div className="w-12 h-12 rounded-2xl bg-[#a855f7]/10 text-[#a855f7] flex items-center justify-center mb-6">
+                  <Mic2 size={22} />
+                </div>
+                <h3 className="text-xl font-bold text-white">Masterização Vocal do Maestro</h3>
+                <p className="text-sm text-[#86868b] mt-3 leading-relaxed">
+                  Grave contagens e guias diretamente no microfone: o motor de masterização aplica corte de subgraves a 85Hz, realce de presença em 3.5kHz e compressor óptico com limiter broadcast para a voz cortar com força no fone da banda.
+                </p>
+              </div>
+            </RevealBlock>
           </div>
         </div>
       </section>
@@ -759,7 +896,7 @@ export default function SalesPage() {
               <a href="#visao-geral" className="hover:text-white transition-colors">Visão Geral</a>
               <a href="#macbook-detalhe" className="hover:text-white transition-colors">Modo Show</a>
               <a href="#imac-detalhe" className="hover:text-white transition-colors">Timeline</a>
-              <a href="#dispositivos-show" className="hover:text-white transition-colors">iPhone & iPad</a>
+              <a href="#dispositivos-show" className="hover:text-white transition-colors">Celular & TV</a>
               <a href="#faq" className="hover:text-white transition-colors">Dúvidas</a>
               <button type="button" onClick={subscribe} className="hover:text-white transition-colors">Planos</button>
             </div>

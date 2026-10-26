@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { RoutingTarget } from '@/types';
-import { masterMaestroClip } from '@/lib/voiceMastering';
+import { masterAudioClip } from '@/lib/voiceMastering';
+import { reclassifyClipWithAi } from '@/lib/aiRouter';
 
 interface ContextMenuState {
   visible: boolean;
@@ -125,6 +126,17 @@ export default function ContextMenu() {
         Voltar ao Roteamento Automático
       </button>
 
+      <button
+        className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        onClick={() => {
+          if (state.clipId) reclassifyClipWithAi(state.clipId);
+          closeMenu();
+        }}
+      >
+        <span>Reclassificar com IA</span>
+        <span className="text-[10px] opacity-75 font-normal">Ouvir o áudio</span>
+      </button>
+
       {dawMode && (
         <>
           <div className="h-px bg-logic-border-dark my-1" />
@@ -192,17 +204,17 @@ export default function ContextMenu() {
         Ver Info
       </button>
 
-      {clip && (clip.trackId === 'track-maestro' || clip.trackId === 'track-guia') && (
+      {clip && (
         <>
           <div className="h-px bg-logic-border-dark my-1" />
           <button
             className="w-full flex items-center justify-between px-3 py-1.5 text-left text-amber-400 hover:bg-amber-500 hover:text-black font-semibold transition-colors duration-75"
             onClick={() => {
-              if (clip) masterMaestroClip(clip.id);
+              if (clip) masterAudioClip(clip.id);
               closeMenu();
             }}
           >
-            <span>✨ Masterizar Voz com IA</span>
+            <span>✨ Masterizar com IA</span>
             <span className="text-[10px] opacity-75 font-normal">Estúdio</span>
           </button>
         </>

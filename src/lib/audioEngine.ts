@@ -27,6 +27,19 @@ export function volumeToDb(volume: number): number {
   return 20 * Math.log10(faderToGain(volume));
 }
 
+// Limiter de segurança de masterização (brickwall transparente, estilo broadcast/live-sound):
+// protege o master de qualquer estouro/distorção sem "maximizar" ou alterar o volume percebido.
+// Ratio 20:1 é o máximo da Web Audio API — na prática funciona como um limiter, não um compressor normal.
+export function createSafetyLimiter(ctx: BaseAudioContext): DynamicsCompressorNode {
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = -1;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.003;
+  limiter.release.value = 0.15;
+  return limiter;
+}
+
 // Trilhas não-melódicas: apenas bateria, percussões, click e maestro não sofrem transposição de tom (tuner).
 // A faixa "Guia" (voz guia) É melódica e deve transpor junto com a música quando o tuner for alterado.
 const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-click', 'track-maestro']);
@@ -256,6 +269,7 @@ interface SongNode {
 class AudioEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  private masterLimiter: DynamicsCompressorNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
   private meterSmoothed = new Map<string, number>();
   private meterScratch = new Float32Array(256);
@@ -301,9 +315,12 @@ class AudioEngine {
       this.ctx = new AudioContext({ latencyHint: this.stableMode ? 'playback' : 'interactive' });
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = faderToGain(useStore.getState().masterVolume);
+      // Limiter de segurança no bus master: protege o show de estourar/distorcer, sem alterar o volume percebido.
+      this.masterLimiter = createSafetyLimiter(this.ctx);
       this.masterAnalyser = this.ctx.createAnalyser();
       this.masterAnalyser.fftSize = 256;
-      this.masterGain.connect(this.masterAnalyser);
+      this.masterGain.connect(this.masterLimiter);
+      this.masterLimiter.connect(this.masterAnalyser);
       this.configureOutputs();
       if (this.sinkId) {
         this.applySink(this.ctx, this.sinkId)
@@ -342,6 +359,7 @@ class AudioEngine {
     this.workletReady = null;
     this.ctx = null;
     this.masterGain = null;
+    this.masterLimiter = null;
     this.masterAnalyser = null;
     await old.close().catch(() => { /* já fechado */ });
     await this.prewarm().catch(() => { /* reabre no próximo play */ });
@@ -1664,6 +1682,11 @@ class AudioEngine {
     return smoothed;
   }
 
+  // Quanto o limiter de segurança do master está segurando agora, em dB (0 = sem atuação, negativo = reduzindo).
+  getMasterLimiterReduction(): number {
+    return this.masterLimiter?.reduction ?? 0;
+  }
+
   applyLRMaster(active: boolean) {
     const store = useStore.getState();
     store.tracks.forEach((t) => {
@@ -1720,6 +1743,8 @@ class AudioEngine {
         const masterLevel = this.getMasterMeterLevel();
         levels.set('master', masterLevel);
         if (masterLevel >= 1 && store.masterClipPeak < masterLevel) store.updateMasterMeter(masterLevel);
+        // Redução do limiter de segurança (dB, 0 ou negativo) — mesmo canal do meterBus, lido como valor cru (não é amplitude linear).
+        levels.set('master-gr', this.getMasterLimiterReduction());
         publishMeters(levels);
       }
 
@@ -2015,25 +2040,24 @@ class AudioEngine {
     }
   }
 
-  generateWaveformPeaks(buffer: AudioBuffer, numPeaks = 800): number[] {
+  generateWaveformPeaks(buffer: AudioBuffer, numPeaks = 4000): number[] {
     const channels: Float32Array[] = [];
     for (let c = 0; c < Math.min(buffer.numberOfChannels, 2); c++) {
       channels.push(buffer.getChannelData(c));
     }
-    const data = channels[0];
-    const samplesPerPeak = Math.max(1, Math.floor(data.length / numPeaks));
-    const peaks: number[] = [];
+    const dataLen = channels[0].length;
+    const peaks: number[] = new Array(numPeaks);
     for (let i = 0; i < numPeaks; i++) {
       let max = 0;
-      const start = i * samplesPerPeak;
-      const end = Math.min(start + samplesPerPeak, data.length);
+      const start = Math.floor((i / numPeaks) * dataLen);
+      const end = Math.min(Math.ceil(((i + 1) / numPeaks) * dataLen), dataLen);
       for (let j = start; j < end; j++) {
         for (const ch of channels) {
           const abs = Math.abs(ch[j]);
           if (abs > max) max = abs;
         }
       }
-      peaks.push(max);
+      peaks[i] = max;
     }
     return peaks;
   }

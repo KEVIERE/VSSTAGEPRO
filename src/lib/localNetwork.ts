@@ -3,8 +3,8 @@ import type { Setlist, ShowLive } from '@/lib/musicianTypes';
 import type { LyricPage } from '@/lib/prompterTypes';
 
 export type NetworkMode = 'online' | 'local';
-export type LocalRole = 'musician' | 'producer' | 'screen';
-export type PinRole = 'musician' | 'producer';
+export type LocalRole = 'musician' | 'producer' | 'screen' | 'remote';
+export type PinRole = 'musician' | 'producer' | 'remote';
 
 export interface LocalClient {
   id: string;
@@ -79,6 +79,8 @@ declare global {
         piano?: ArrayBuffer | null;
       }>;
       onSeparationProgress?: (cb: (data: { percent: number; message: string }) => void) => () => void;
+      onRemoteTransport?: (cb: (cmd: { action: string; songId?: string }) => void) => () => void;
+      notifySessionState?: (active: boolean) => void;
     };
     __VS_LOCAL__?: number;
     __VS_HOST__?: string;
@@ -141,4 +143,5 @@ export const ROLE_LABEL: Record<LocalRole, string> = {
   musician: 'Músicos',
   producer: 'Produtor',
   screen: 'Tela do palco',
+  remote: 'Controle Celular',
 };

@@ -24,3 +24,5 @@ desktop/build-info.json
 .env
 .env.newproject.local
 .env.replicate
+.env.resend.local
+.env.telegram.local

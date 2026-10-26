@@ -56,36 +56,56 @@ export async function generateClickTrack(
   const sR = sampleBuf.numberOfChannels > 1 ? sampleBuf.getChannelData(1) : sL;
   const sampleLen = sampleBuf.length;
 
+  // Compensação acústica do transiente de ataque (~7.5ms / 328 samples a 44.1kHz).
+  // Centraliza o ápice visual do click diretamente sobre a linha vertical da grade.
+  const peakOffsetSamples = Math.round(0.0075 * sampleRate);
+
   if (tempoSegments && tempoSegments.length > 1) {
-    // Modo múltiplos andamentos: cada trecho da música segue seu BPM exato
-    for (const seg of tempoSegments) {
-      const segSpb = 60 / Math.max(30, Math.min(300, seg.bpm));
-      const segStart = Math.max(0, seg.startTime);
-      const segEnd = Math.min(safeDuration, seg.endTime);
-      for (let t = segStart; t < segEnd; t += segSpb) {
-        const startSample = Math.round(t * sampleRate);
-        if (startSample < 0 || startSample >= length) continue;
-        for (let i = 0; i < sampleLen && startSample + i < length; i++) {
-          outL[startSample + i] += sL[i];
-          outR[startSample + i] += sR[i];
+    // Modo múltiplos andamentos com continuidade métrica perfeita de fase:
+    let t = downbeatOffset;
+    const firstSpb = 60 / Math.max(30, Math.min(300, tempoSegments[0].bpm));
+    while (t > 0) t -= firstSpb;
+    while (t < 0) t += firstSpb;
+
+    while (t < safeDuration) {
+      const activeSeg = tempoSegments.find((s) => t >= s.startTime && t < s.endTime) || tempoSegments[tempoSegments.length - 1];
+      const curBpm = activeSeg ? activeSeg.bpm : bpm;
+      const spb = 60 / Math.max(30, Math.min(300, curBpm));
+
+      const targetSample = Math.round(t * sampleRate);
+      // No primeiro click (t <= 0), inicia no sample 0 para preservar 100% do som sem corte.
+      // Nos demais, compensa o ataque para cravar o pico no centro da linha da grade.
+      const startSample = targetSample <= 0 ? 0 : Math.max(0, targetSample - peakOffsetSamples);
+
+      for (let i = 0; i < sampleLen; i++) {
+        const dest = startSample + i;
+        if (dest >= 0 && dest < length) {
+          outL[dest] += sL[i];
+          outR[dest] += sR[i];
         }
       }
+      t += spb;
     }
   } else {
-    // Modo padrão métrico contínuo com precisão de grade
+    // Modo padrão métrico contínuo cravado na grade da timeline
     const secondsPerBeat = 60 / Math.max(30, Math.min(300, bpm));
     const kMin = Math.ceil(-downbeatOffset / secondsPerBeat);
     const kMax = Math.floor((safeDuration - downbeatOffset) / secondsPerBeat);
 
     for (let k = kMin; k <= kMax; k++) {
       const beatTime = downbeatOffset + k * secondsPerBeat;
-      const startSample = Math.round(beatTime * sampleRate);
-      if (startSample < 0 || startSample >= length) continue;
+      const targetSample = Math.round(beatTime * sampleRate);
+      // No primeiro click (t <= 0), inicia no sample 0 para preservar 100% do som sem corte.
+      // Nos demais, compensa o ataque para cravar o pico no centro da linha da grade.
+      const startSample = targetSample <= 0 ? 0 : Math.max(0, targetSample - peakOffsetSamples);
 
       // Apenas UM som idêntico em todas as batidas, no volume oficial de estúdio
-      for (let i = 0; i < sampleLen && startSample + i < length; i++) {
-        outL[startSample + i] += sL[i];
-        outR[startSample + i] += sR[i];
+      for (let i = 0; i < sampleLen; i++) {
+        const dest = startSample + i;
+        if (dest >= 0 && dest < length) {
+          outL[dest] += sL[i];
+          outR[dest] += sR[i];
+        }
       }
     }
   }

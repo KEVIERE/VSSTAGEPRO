@@ -65,26 +65,29 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     const values = new Float32Array(width + 1);
     for (let x = 0; x <= width; x++) values[x] = samplePeak(x);
 
-    const drawEnvelope = (scale: number, fill: string, alpha: number) => {
-      ctx.beginPath();
-      ctx.moveTo(0, mid);
-      for (let x = 0; x <= width; x++) ctx.lineTo(x, mid - values[x] * amp * scale);
-      for (let x = width; x >= 0; x--) ctx.lineTo(x, mid + values[x] * amp * scale);
-      ctx.closePath();
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = fill;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-    };
-    drawEnvelope(1, color, 0.9);
-    drawEnvelope(0.62, 'rgba(255, 255, 255, 0.28)', 1);
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    // 1. Linha de centro de referência de fase
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, mid + 0.5);
     ctx.lineTo(width, mid + 0.5);
     ctx.stroke();
+
+    // 2. Renderização de colunas de pico verticais de alta definição (Padrão DAW Real / Logic Pro)
+    const grad = ctx.createLinearGradient(0, mid - amp, 0, mid + amp);
+    grad.addColorStop(0, `${color}`);
+    grad.addColorStop(0.25, `${color}ee`);
+    grad.addColorStop(0.5, `${color}bb`);
+    grad.addColorStop(0.75, `${color}ee`);
+    grad.addColorStop(1, `${color}`);
+
+    ctx.fillStyle = grad;
+    for (let x = 0; x < width; x++) {
+      const p = values[x];
+      if (p < 0.005) continue;
+      const h = Math.max(1, p * amp);
+      ctx.fillRect(x, mid - h, 1, h * 2);
+    }
   }, [peaks, color, fullWidth, offset, width, height]);
 
   return (

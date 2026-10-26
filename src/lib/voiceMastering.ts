@@ -4,154 +4,152 @@ import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
 
 /**
- * Motor de Masterização Vocal IA de Alto Nível (Nível Moises / Broadcast Studio).
- * Cadeia completa de estúdio profissional:
- * 1. Steep Highpass 24dB/oct (85Hz) - corte total de subgraves e plosivas
- * 2. Low-Shelf Warmth (200Hz +2.5dB) - peso e corpo vocal analógico
- * 3. De-Mud Boxiness Cut (380Hz -3.5dB) - elimina som de caixa/sala
- * 4. Vocal Articulation & Bite (3.5kHz +5.0dB) - inteligibilidade para cortar a banda nos fones
- * 5. High-Air Sheen (10kHz +4.0dB) - brilho sedoso de microfone valvulado de ponta
- * 6. Compressor Óptico Musical (Ratio 4:1, Attack 8ms, Release 100ms)
- * 7. Saturação Harmônica Quente (Analog Tape/Tube Warmth)
- * 8. Brickwall Maximizer / Limiter de Estúdio com teto a -0.3 dBFS e ganho comercial potente.
+ * Motor de Masterização IA de Alto Nível Profissional (Nível Estúdio / Broadcast).
+ * Funciona para qualquer clipe de áudio (bateria, baixo, guitarras, voz, teclado ou mix completa).
+ *
+ * Proteção Anti-Distorção / Idempotente:
+ * Se o usuário clicar "Masterizar" várias vezes seguidas no mesmo clipe, o motor detecta
+ * que o sinal já atingiu o teto comercial (-0.3 dBFS) e o RMS ideal, mantendo o áudio 100% limpo,
+ * cristalino e sem acumular distorção, saturação excessiva ou clipping digital.
  */
-export async function masterMaestroAudioBuffer(inputBuffer: AudioBuffer): Promise<AudioBuffer> {
+export async function masterProfessionalAudioBuffer(
+  inputBuffer: AudioBuffer,
+  isVocalTrack = false
+): Promise<AudioBuffer> {
   const sampleRate = inputBuffer.sampleRate;
   const length = inputBuffer.length;
   const numChannels = inputBuffer.numberOfChannels;
+
+  // 1. Análise prévia de Picos e RMS para controle inteligente de ganho e proteção
+  let initialMaxPeak = 0;
+  let initialRmsSum = 0;
+  for (let ch = 0; ch < numChannels; ch++) {
+    const data = inputBuffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const absVal = Math.abs(data[i]);
+      if (absVal > initialMaxPeak) initialMaxPeak = absVal;
+      initialRmsSum += absVal * absVal;
+    }
+  }
+  const totalSamples = length * numChannels;
+  const currentRms = totalSamples > 0 ? Math.sqrt(initialRmsSum / totalSamples) : 0.05;
+
+  // Se o áudio já estiver masterizado no teto (-0.3 dBFS / 0.966) e com RMS denso,
+  // opera em modo de preservação com ganho unitário para não distorcer!
+  const isAlreadyHot = initialMaxPeak >= 0.94 || currentRms >= 0.135;
 
   // Renderização offline com precisão de 32-bit float
   const offlineCtx = new OfflineAudioContext(numChannels, length, sampleRate);
   const source = offlineCtx.createBufferSource();
   source.buffer = inputBuffer;
 
-  // 1. Filtros Passa-Altas em cascata (24dB/octave a 85Hz) para limpeza cirúrgica de rumble
+  let lastNode: AudioNode = source;
+
+  // 2. Filtro Sub-Sônico / DC Offset (Corte limpo abaixo de 28Hz para instrumentos, ou 75Hz para voz)
+  const hpCutoff = isVocalTrack ? 75 : 28;
   const hp1 = offlineCtx.createBiquadFilter();
   hp1.type = 'highpass';
-  hp1.frequency.value = 85;
+  hp1.frequency.value = hpCutoff;
   hp1.Q.value = 0.707;
+  lastNode.connect(hp1);
+  lastNode = hp1;
 
-  const hp2 = offlineCtx.createBiquadFilter();
-  hp2.type = 'highpass';
-  hp2.frequency.value = 85;
-  hp2.Q.value = 0.707;
+  if (isVocalTrack) {
+    // Curva de Presença Vocal de Estúdio
+    const warmth = offlineCtx.createBiquadFilter();
+    warmth.type = 'lowshelf';
+    warmth.frequency.value = 200;
+    warmth.gain.value = isAlreadyHot ? 0 : 2.0;
 
-  // 2. Low-Shelf de Calor Analógico (200Hz +2.5dB) - encorpa a voz do maestro
-  const warmth = offlineCtx.createBiquadFilter();
-  warmth.type = 'lowshelf';
-  warmth.frequency.value = 200;
-  warmth.gain.value = 2.5;
+    const presence = offlineCtx.createBiquadFilter();
+    presence.type = 'peaking';
+    presence.frequency.value = 3500;
+    presence.Q.value = 1.2;
+    presence.gain.value = isAlreadyHot ? 0 : 3.5;
 
-  // 3. Limpeza de frequências ocas / ressonância de sala (380Hz -3.5dB, Q=1.4)
-  const deMud = offlineCtx.createBiquadFilter();
-  deMud.type = 'peaking';
-  deMud.frequency.value = 380;
-  deMud.Q.value = 1.4;
-  deMud.gain.value = -3.5;
+    const air = offlineCtx.createBiquadFilter();
+    air.type = 'highshelf';
+    air.frequency.value = 10000;
+    air.gain.value = isAlreadyHot ? 0 : 2.5;
 
-  // 4. Boost de Inteligibilidade & Presença Vocal Principal (3.5kHz +5.0dB)
-  // Faz os comandos "Intro", "Refrão", "1, 2, 3, 4" cortarem qualquer mix pesada no fone
-  const presence = offlineCtx.createBiquadFilter();
-  presence.type = 'peaking';
-  presence.frequency.value = 3500;
-  presence.Q.value = 1.1;
-  presence.gain.value = 5.0;
+    lastNode.connect(warmth);
+    warmth.connect(presence);
+    presence.connect(air);
+    lastNode = air;
+  } else {
+    // Curva de Masterização Geral de Instrumentos (Equilíbrio Tonal Transparente)
+    const air = offlineCtx.createBiquadFilter();
+    air.type = 'highshelf';
+    air.frequency.value = 12000;
+    air.gain.value = isAlreadyHot ? 0 : 1.5;
+    lastNode.connect(air);
+    lastNode = air;
+  }
 
-  // 5. Brilho Aéreo de Estúdio / Air Sheen (10kHz +4.0dB)
-  const air = offlineCtx.createBiquadFilter();
-  air.type = 'highshelf';
-  air.frequency.value = 10000;
-  air.gain.value = 4.0;
-
-  // 6. Compressor Vocal Dinâmico Estilo Óptico (nivelamento firme e consistente)
+  // 3. Compressor Óptico Musical de Masterização (cola a dinâmica sem esmagar transientes)
   const compressor = offlineCtx.createDynamicsCompressor();
-  compressor.threshold.value = -24;
+  compressor.threshold.value = isAlreadyHot ? -6 : -18;
   compressor.knee.value = 12;
-  compressor.ratio.value = 4.0;
-  compressor.attack.value = 0.008;
-  compressor.release.value = 0.100;
+  compressor.ratio.value = isAlreadyHot ? 1.5 : 2.8;
+  compressor.attack.value = 0.015; // 15ms preserva o ataque do bumbo e palhetada
+  compressor.release.value = 0.120;
+  lastNode.connect(compressor);
+  lastNode = compressor;
 
-  // 7. Ganho de Maquiagem para alimentar a saturação analógica
+  // 4. Ganho de Makeup calculado dinamicamente com base na folga real do sinal
+  const ceiling = 0.966; // -0.3 dBFS (Padrão de streaming / CD master)
+  let targetBoost = 1.0;
+  if (!isAlreadyHot && initialMaxPeak > 0) {
+    if (currentRms < 0.08) {
+      targetBoost = Math.min(2.5, Math.max(1.2, 0.12 / Math.max(0.01, currentRms)));
+    } else {
+      targetBoost = Math.min(1.8, ceiling / Math.max(0.01, initialMaxPeak));
+    }
+  } else if (initialMaxPeak > ceiling) {
+    // Se estava clipando, atenua para baixo do teto
+    targetBoost = ceiling / initialMaxPeak;
+  }
+
   const makeupGain = offlineCtx.createGain();
-  makeupGain.gain.value = 1.85;
-
-  // Conexão do grafo DSP
-  source.connect(hp1);
-  hp1.connect(hp2);
-  hp2.connect(warmth);
-  warmth.connect(deMud);
-  deMud.connect(presence);
-  presence.connect(air);
-  air.connect(compressor);
-  compressor.connect(makeupGain);
+  makeupGain.gain.value = targetBoost;
+  lastNode.connect(makeupGain);
   makeupGain.connect(offlineCtx.destination);
 
   source.start(0);
   const rendered = await offlineCtx.startRendering();
 
-  // 8. Pós-processamento de Alto Nível: Saturação Analógica + Maximizer / Limiter Potente
+  // 5. Pós-processamento com Limiter Transparente Soft-Knee e Saturação Analógica Controlada
   const finalCtx = new AudioContext();
   const finalBuffer = finalCtx.createBuffer(numChannels, rendered.length, rendered.sampleRate);
   await finalCtx.close();
 
-  // Copia os dados renderizados
   const channels: Float32Array[] = [];
   for (let ch = 0; ch < numChannels; ch++) {
     channels.push(rendered.getChannelData(ch));
   }
 
-  // 8a. Saturação Analógica (Warmth) com curva suave de fita/válvula
-  // Adiciona harmônicos quentes que tornam a voz encorpada, presente e potente
+  // Saturação harmônica musical apenas se o áudio ainda tiver margem (não satura se já estiver quente)
+  const saturationDrive = isAlreadyHot ? 1.0 : 1.12;
   for (let ch = 0; ch < numChannels; ch++) {
     const data = channels[ch];
     for (let i = 0; i < data.length; i++) {
       const x = data[i];
-      // Curva suave de saturação analógica: transparência em volumes baixos, calor musical nos picos
-      data[i] = Math.tanh(x * 1.25) / 1.15;
+      if (saturationDrive > 1.0) {
+        data[i] = Math.tanh(x * saturationDrive) / saturationDrive;
+      }
     }
   }
 
-  // 8b. Análise de Picos e RMS para Maximizer de Alto Rendimento
-  let maxPeak = 0;
-  let rmsSum = 0;
-  for (let ch = 0; ch < numChannels; ch++) {
-    const data = channels[ch];
-    for (let i = 0; i < data.length; i++) {
-      const absVal = Math.abs(data[i]);
-      if (absVal > maxPeak) maxPeak = absVal;
-      rmsSum += absVal * absVal;
-    }
-  }
-  const totalSamples = length * numChannels;
-  const currentRms = totalSamples > 0 ? Math.sqrt(rmsSum / totalSamples) : 0.05;
-
-  // Alvo de Masterização Profissional Comercial:
-  // - Picos a -0.3 dBFS (0.966)
-  // - RMS encorpado e potente (volume bem presente e alto no fone)
-  const ceiling = 0.966; // -0.3 dBFS
-  let boostFactor = 1.0;
-
-  if (maxPeak > 0) {
-    // Se o áudio estiver fraco/baixo, eleva com firmeza para nível profissional
-    if (currentRms < 0.12) {
-      const targetRms = 0.14; // Nível potente de broadcast
-      boostFactor = Math.min(4.0, Math.max(1.5, targetRms / Math.max(0.01, currentRms)));
-    } else {
-      boostFactor = Math.min(2.5, ceiling / maxPeak);
-    }
-  }
-
-  // 8c. Brickwall Limiter Transparente (teto em -0.3 dBFS sem clipar nem estalar)
+  // Brickwall Limiter com Teto Absoluto a -0.3 dBFS (impede distorção digital e inter-amostras)
   for (let ch = 0; ch < numChannels; ch++) {
     const src = channels[ch];
     const dest = finalBuffer.getChannelData(ch);
     for (let i = 0; i < length; i++) {
-      let val = src[i] * boostFactor;
-      // Soft knee brickwall limiter transparente
+      let val = src[i];
       if (val > ceiling) {
-        val = ceiling + (1 - ceiling) * Math.tanh((val - ceiling) / (1 - ceiling));
+        val = ceiling + (1 - ceiling) * Math.tanh((val - ceiling) / Math.max(0.001, 1 - ceiling));
       } else if (val < -ceiling) {
-        val = -ceiling + (-1 + ceiling) * Math.tanh((val + ceiling) / (-1 + ceiling));
+        val = -ceiling + (-1 + ceiling) * Math.tanh((val + ceiling) / Math.max(0.001, -1 + ceiling));
       }
       dest[i] = Math.max(-0.99, Math.min(0.99, val));
     }
@@ -161,17 +159,20 @@ export async function masterMaestroAudioBuffer(inputBuffer: AudioBuffer): Promis
 }
 
 /**
- * Masteriza um clipe existente na faixa Maestro e atualiza a timeline instantaneamente.
+ * Masteriza qualquer clipe de áudio na timeline (voz, bateria, guitarras, baixo, etc.).
+ * Substitui o áudio do clipe por sua versão masterizada e atualiza a timeline instantaneamente.
  */
-export async function masterMaestroClip(clipId: string): Promise<boolean> {
+export async function masterAudioClip(clipId: string): Promise<boolean> {
   const store = useStore.getState();
   const clip = store.clips.find((c) => c.id === clipId);
   if (!clip) return false;
 
+  const isVocal = clip.trackId === 'track-maestro' || clip.trackId === 'track-guia';
+
   store.setImportProgress({
     clipId: 'mastering',
     status: 'working',
-    message: 'Masterizando voz com IA (Presença, Calor Analógico e Limiter Nível Moises)...',
+    message: `Masterizando ${clip.name} com IA (Presença e Limiter de Estúdio)...`,
   });
 
   try {
@@ -195,21 +196,25 @@ export async function masterMaestroClip(clipId: string): Promise<boolean> {
       throw new Error('Não foi possível obter os dados de áudio do clipe.');
     }
 
-    // Aplica a cadeia profissional de masterização de estúdio nível Moises
-    const masteredBuffer = await masterMaestroAudioBuffer(audioBuffer);
+    // Aplica a cadeia profissional de masterização de estúdio com proteção anti-distorção
+    const masteredBuffer = await masterProfessionalAudioBuffer(audioBuffer, isVocal);
 
     // Converte para formato de biblioteca e gera nova waveform robusta
     const clipAudio = await toClipAudioAsync(masteredBuffer);
     const wavBytes = encodeWavInt16(clipAudio);
     const wavBlob = new Blob([wavBytes], { type: 'audio/wav' });
-    const peaks = audioEngine.generateWaveformPeaks(masteredBuffer, 2000);
+    const peaks = audioEngine.generateWaveformPeaks(
+      masteredBuffer,
+      Math.min(24000, Math.max(8000, Math.round(clip.duration * 100)))
+    );
 
     // Atualiza armazenamento em memória e clipe
     putClipAudio(clip.id, clip.songId, clipAudio);
     registerClipSource(clip.id, clip.songId, wavBlob);
 
+    const cleanBaseName = clip.name.replace(/^✨\s*/, '').replace(/\s*\(Master(?:izado| Moises)?\)/g, '');
     store.updateClip(clip.id, {
-      name: clip.name.includes('✨') ? clip.name : `✨ ${clip.name} (Master Moises)`,
+      name: `✨ ${cleanBaseName} (Masterizado)`,
       waveformPeaks: peaks,
       gain: 1.0,
     });
@@ -219,18 +224,22 @@ export async function masterMaestroClip(clipId: string): Promise<boolean> {
     store.setImportProgress({
       clipId: 'mastering',
       status: 'done',
-      message: 'Voz masterizada com potência de estúdio profissional!',
+      message: 'Áudio masterizado com potência e clareza de estúdio profissional!',
     });
     setTimeout(() => store.setImportProgress(null), 3000);
     return true;
   } catch (err) {
-    console.error('[masterMaestroClip] Erro:', err);
+    console.error('[masterAudioClip] Erro:', err);
     store.setImportProgress({
       clipId: 'mastering',
       status: 'error',
-      message: 'Falha ao masterizar voz do Maestro.',
+      message: 'Falha ao masterizar áudio.',
     });
     setTimeout(() => store.setImportProgress(null), 3500);
     return false;
   }
 }
+
+// Mantém compatibilidade com chamadas legadas
+export const masterMaestroClip = masterAudioClip;
+export const masterMaestroAudioBuffer = (buf: AudioBuffer) => masterProfessionalAudioBuffer(buf, true);

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Activity, BarChart3, FlaskConical, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 import VsLogo from '@/components/VsLogo';
 import { adminApi } from '@/components/admin/adminApi';
@@ -12,10 +12,12 @@ import UsageTab from '@/components/admin/UsageTab';
 import AuditTab from '@/components/admin/AuditTab';
 import VersionsTab from '@/components/admin/VersionsTab';
 import StagingTab from '@/components/admin/StagingTab';
+import MonitoringTab from '@/components/admin/MonitoringTab';
 import { input } from '@/components/admin/ui';
 
 const TABS = [
   { id: 'overview', label: 'Visão geral', icon: BarChart3 },
+  { id: 'monitoring', label: 'Monitoramento & Crack', icon: ShieldAlert },
   { id: 'users', label: 'Usuários', icon: Users },
   { id: 'promo', label: 'Códigos promocionais', icon: Tag },
   { id: 'usage', label: 'Funções mais usadas', icon: Activity },
@@ -66,6 +68,16 @@ export default function AdminPage() {
     adminApi.isAdmin().then(setAllowed, () => setAllowed(false));
   }, [session]);
 
+  // supabase.auth.signOut() só atualiza a tela quando o servidor responde ao pedido
+  // de invalidar a sessão — se a rede falhar ou demorar, o botão de sair fica parado
+  // sem nenhum aviso. Aqui a saída é sempre instantânea: o estado é zerado na hora
+  // do clique, sem esperar nenhuma resposta de rede.
+  const doSignOut = () => {
+    clearLocalSession();
+    setSession(null);
+    setAllowed(null);
+  };
+
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -115,7 +127,7 @@ export default function AdminPage() {
             A conta <span className="text-logic-text">{session.user.email}</span> não é administradora.
           </p>
         </div>
-        <button onClick={() => supabase.auth.signOut()} className="w-full h-10 border-t border-logic-border text-xs text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5">
+        <button onClick={doSignOut} className="w-full h-10 border-t border-logic-border text-xs text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5">
           <LogOut size={13} /> Sair e entrar com outra conta
         </button>
       </Shell>
@@ -148,7 +160,7 @@ export default function AdminPage() {
         </ul>
         <div className="p-3 border-t border-logic-border">
           <p className="text-2xs text-logic-text-muted truncate mb-2">{session.user.email}</p>
-          <button onClick={() => supabase.auth.signOut()} className="w-full h-8 rounded-md bg-logic-bg-elevated text-xs text-logic-text-dim hover:text-logic-text transition flex items-center justify-center gap-1.5">
+          <button onClick={doSignOut} className="w-full h-8 rounded-md bg-logic-bg-elevated text-xs text-logic-text-dim hover:text-logic-text transition flex items-center justify-center gap-1.5">
             <LogOut size={13} /> Sair
           </button>
         </div>
@@ -156,6 +168,7 @@ export default function AdminPage() {
       <main className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-6">
           {tab === 'overview' && <OverviewTab />}
+          {tab === 'monitoring' && <MonitoringTab />}
           {tab === 'users' && <UsersTab />}
           {tab === 'promo' && <PromoTab />}
           {tab === 'usage' && <UsageTab />}

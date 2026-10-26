@@ -4,7 +4,7 @@ import {
   Music, Mail, Lock, User, Guitar, KeyRound, LogOut, Loader2, CheckCircle2,
   Clock, Ban, ChevronLeft, Ticket, ArrowRight, Settings, ClipboardPaste,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { memberMemberships, memberJoin, memberClaimCode, memberUpdateProfile } from '@/lib/musicianApi';
 import type { Membership } from '@/lib/musicianTypes';
 
@@ -78,6 +78,16 @@ export default function MusicianAccess({
     return h === '#musico' || h.startsWith('#m=') ? 'code' : initialView;
   });
 
+  // supabase.auth.signOut() só atualiza a tela quando o servidor responde ao
+  // pedido de invalidar a sessão — se a rede falhar ou demorar, quem clica em
+  // "Sair" fica parado na mesma tela sem nenhum aviso. Aqui a saída é sempre
+  // instantânea: o estado é zerado na hora do clique, sem esperar rede.
+  const doSignOut = () => {
+    localStorage.removeItem(MEMBER_LS);
+    clearLocalSession();
+    setSession(null);
+  };
+
   useEffect(() => {
     let alive = true;
     supabase.auth.getSession().then(({ data }) => {
@@ -106,7 +116,7 @@ export default function MusicianAccess({
         ) : session && authView !== 'recovery' ? (
           <AccountHome
             session={session} invite={invite} claimCode={claimCode} autoEnter={autoEnter}
-            onEnter={onEnterAccount}
+            onEnter={onEnterAccount} onSignOut={doSignOut}
           />
         ) : (
           <AuthForms view={authView} setView={setAuthView} hasInvite={!!invite} claimCode={claimCode} onEnterCode={onEnterCode} />
@@ -285,9 +295,9 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
   );
 }
 
-function AccountHome({ session, invite, claimCode, autoEnter, onEnter }: {
+function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut }: {
   session: Session; invite: string | null; claimCode: string | null; autoEnter: boolean;
-  onEnter: (memberId: string) => void;
+  onEnter: (memberId: string) => void; onSignOut: () => void;
 }) {
   const meta = (session.user.user_metadata ?? {}) as { name?: string; instrument?: string };
   const [view, setView] = useState<AccountView>('home');
@@ -372,11 +382,6 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter }: {
     finally { setBusy(false); }
   };
 
-  const signOut = async () => {
-    localStorage.removeItem(MEMBER_LS);
-    await supabase.auth.signOut();
-  };
-
   if (view === 'profile') {
     return <ProfileEditor session={session} onBack={() => { setView('home'); refresh(); }} />;
   }
@@ -394,7 +399,7 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter }: {
           <button onClick={() => setView('profile')} title="Editar perfil" className="p-2 rounded text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated transition-colors">
             <Settings size={15} />
           </button>
-          <button onClick={signOut} title="Sair da conta" className="p-2 rounded text-logic-text-muted hover:text-logic-lcd-red hover:bg-logic-bg-elevated transition-colors">
+          <button onClick={onSignOut} title="Sair da conta" className="p-2 rounded text-logic-text-muted hover:text-logic-lcd-red hover:bg-logic-bg-elevated transition-colors">
             <LogOut size={15} />
           </button>
         </div>

@@ -13,7 +13,7 @@ function savedLogin(): { email: string; remember: boolean } {
   }
 }
 import type { Session } from '@supabase/supabase-js';
-import { emailLinkType, supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 import VsLogo from '@/components/VsLogo';
 import Field from '@/components/auth/Field';
@@ -30,7 +30,7 @@ const TITLES: Record<View, string> = {
 
 // Gate da página de downloads: só libera os botões de baixar depois de
 // entrar ou criar conta — a mesma conta usada para abrir o VS Stage.
-export default function DownloadAccess({ children }: { children: (session: Session) => React.ReactNode }) {
+export default function DownloadAccess({ children }: { children: (session: Session, signOut: () => void) => React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>('signin');
@@ -65,6 +65,16 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
   }, []);
 
   const go = (v: View) => { setError(null); setErrorIsAlreadyRegistered(false); setErrorHasNoAccount(false); setInfo(null); setView(v); };
+
+  // supabase.auth.signOut() só atualiza a tela quando o servidor responde ao pedido
+  // de invalidar a sessão — se a rede falhar ou demorar, quem clica em "Sair" fica
+  // parado na mesma tela sem nenhum aviso. Aqui a saída é sempre instantânea: o
+  // estado é zerado na hora do clique, sem esperar nenhuma resposta de rede.
+  const doSignOut = () => {
+    clearLocalSession();
+    setSession(null);
+    setView('signin');
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,32 +146,29 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
 
   if (!ready) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-logic-bg-deep">
-        <Loader2 className="animate-spin text-logic-text-muted" />
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <Loader2 className="animate-spin text-apple-text-secondary" />
       </div>
     );
   }
 
-  if (session) return <>{children(session)}</>;
+  if (session) return <>{children(session, doSignOut)}</>;
 
   const signup = view === 'signup';
 
   return (
-    <div
-      className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center p-4 sm:p-6 relative overflow-y-auto overflow-x-hidden py-8 sm:py-12"
-      style={{ background: 'radial-gradient(ellipse at top, #14161f 0%, #08090c 70%)' }}
-    >
+    <div className="min-h-screen bg-black text-apple-text font-apple flex items-center justify-center p-4 sm:p-6 relative overflow-y-auto overflow-x-hidden py-8 sm:py-12">
       <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-logic-lcd-green/8 blur-[140px]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[480px] bg-gradient-to-b from-[#0071e3]/14 via-purple-600/8 to-transparent blur-[140px]" />
       </div>
 
-      <div className="relative w-[420px] max-w-full bg-[#111218]/95 border border-white/10 rounded-3xl shadow-2xl backdrop-blur-xl overflow-hidden animate-[fadeIn_250ms_ease-out]">
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.08] bg-white/[0.02]">
+      <div className="relative w-[420px] max-w-full bg-[#1d1d1f]/95 border border-white/[0.14] rounded-2xl shadow-2xl backdrop-blur-xl overflow-hidden apple-fade-in">
+        <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.1] bg-white/[0.02]">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
-            <span className="text-2xs font-extrabold tracking-wider text-white">VS STAGE PRO</span>
+            <span className="text-xs font-semibold tracking-tight text-white">VS Stage Pro</span>
           </div>
-          <span className="text-2xs font-extrabold tracking-widest text-logic-lcd-amber uppercase px-2 py-0.5 rounded bg-logic-lcd-amber/10 border border-logic-lcd-amber/20">
+          <span className="text-2xs font-semibold tracking-tight text-apple-text-secondary uppercase px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10">
             {TITLES[view]}
           </span>
         </div>
@@ -169,17 +176,17 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
         <form onSubmit={submit} className="p-6 sm:p-8 space-y-4">
           <div className="text-center mb-6">
             {justConfirmed && (
-              <div className="mb-4 px-3 py-2 rounded-xl border bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green text-xs flex items-center justify-center gap-1.5">
+              <div className="mb-4 px-3 py-2 rounded-xl border bg-emerald-500/15 border-emerald-500/40 text-emerald-400 text-xs flex items-center justify-center gap-1.5">
                 <CheckCircle2 size={14} /> Conta criada e ativada com sucesso!
               </div>
             )}
-            <h1 className="text-2xl font-black text-white tracking-tight">
+            <h1 className="text-2xl font-semibold text-white tracking-tight">
               {view === 'signin' && 'Acessar Downloads'}
               {view === 'signup' && 'Criar Conta de Acesso'}
               {view === 'forgot' && 'Recuperar Senha'}
               {view === 'recovery' && 'Criar Nova Senha'}
             </h1>
-            <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
+            <p className="text-sm text-apple-text-secondary mt-1.5 leading-relaxed">
               {view === 'signin' && 'Entre com seu e-mail para liberar o download e o teste de 48 horas.'}
               {view === 'signup' && 'Cadastre-se para baixar o instalador oficial e começar seu teste grátis.'}
               {view === 'forgot' && 'Digite seu e-mail para receber as instruções de recuperação.'}
@@ -188,16 +195,16 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           </div>
 
           {(view === 'signin' || view === 'signup') && (
-            <div className="grid grid-cols-2 p-1.5 rounded-2xl bg-black/40 border border-white/[0.08] mb-2">
+            <div className="grid grid-cols-2 p-1.5 rounded-xl bg-black/40 border border-white/[0.08] mb-2">
               {(['signin', 'signup'] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
                   onClick={() => go(v)}
-                  className={`py-2 rounded-xl text-xs font-bold transition-all ${
+                  className={`py-2 rounded-lg text-xs font-semibold transition-all ${
                     view === v
                       ? 'bg-white/[0.12] text-white shadow-sm border border-white/10'
-                      : 'text-logic-text-dim hover:text-white'
+                      : 'text-apple-text-secondary hover:text-white'
                   }`}
                 >
                   {v === 'signin' ? 'Entrar' : 'Criar conta'}
@@ -207,13 +214,13 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           )}
 
           {error && (
-            <div className="px-3 py-2 rounded-lg border bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red text-xs text-center space-y-1.5">
+            <div className="px-3 py-2 rounded-lg border bg-rose-500/15 border-rose-500/40 text-rose-400 text-xs text-center space-y-1.5">
               <p>{error}</p>
               {errorIsAlreadyRegistered && (
                 <button
                   type="button"
                   onClick={() => go('signin')}
-                  className="text-logic-lcd-green font-semibold hover:underline"
+                  className="text-apple-link font-semibold hover:underline"
                 >
                   Ir para "Entrar"
                 </button>
@@ -222,7 +229,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
                 <button
                   type="button"
                   onClick={() => go('signup')}
-                  className="text-logic-lcd-green font-semibold hover:underline"
+                  className="text-apple-link font-semibold hover:underline"
                 >
                   Ir para "Criar conta"
                 </button>
@@ -230,7 +237,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
             </div>
           )}
           {info && (
-            <div className="px-3 py-2 rounded-lg border bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green text-xs text-center">
+            <div className="px-3 py-2 rounded-lg border bg-emerald-500/15 border-emerald-500/40 text-emerald-400 text-xs text-center">
               {info}
             </div>
           )}
@@ -260,7 +267,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
                 type="button"
                 onClick={() => setShowPassword((v) => !v)}
                 aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-logic-text transition"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-apple-text-secondary hover:text-white transition-colors"
               >
                 {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
               </button>
@@ -270,10 +277,10 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           {view === 'signin' && (
             <button
               type="button" onClick={() => setRemember((v) => !v)}
-              className="w-full flex items-center gap-2 text-xs text-logic-text-dim hover:text-logic-text transition"
+              className="w-full flex items-center gap-2 text-xs text-apple-text-secondary hover:text-white transition-colors"
             >
-              <span className={`w-4 h-4 shrink-0 rounded flex items-center justify-center border transition-colors ${remember ? 'bg-logic-lcd-green border-logic-lcd-green' : 'border-logic-border-light'}`}>
-                {remember && <Check size={11} className="text-black" strokeWidth={3} />}
+              <span className={`w-4 h-4 shrink-0 rounded flex items-center justify-center border transition-colors ${remember ? 'bg-[#0071e3] border-[#0071e3]' : 'border-white/20'}`}>
+                {remember && <Check size={11} className="text-white" strokeWidth={3} />}
               </span>
               Salvar para a próxima vez
             </button>
@@ -282,9 +289,9 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           <button
             type="submit"
             disabled={busy}
-            className="w-full h-12 rounded-2xl btn-neon-green text-black text-sm font-black transition-all hover:scale-[1.01] active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-logic-lcd-green/20"
+            className="w-full h-12 rounded-full btn-apple-blue text-white text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-[#0071e3]/25"
           >
-            {busy && <Loader2 size={16} className="animate-spin text-black" />}
+            {busy && <Loader2 size={16} className="animate-spin text-white" />}
             {view === 'signin' && 'Entrar e Acessar Downloads'}
             {view === 'signup' && 'Criar Conta e Liberar Download'}
             {view === 'forgot' && 'Enviar link de recuperação'}
@@ -292,12 +299,12 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           </button>
 
           {view === 'signin' && (
-            <button type="button" onClick={() => go('forgot')} className="w-full text-center text-2xs text-logic-text-dim hover:text-logic-text transition flex items-center justify-center gap-1.5">
+            <button type="button" onClick={() => go('forgot')} className="w-full text-center text-xs text-apple-text-secondary hover:text-white transition-colors flex items-center justify-center gap-1.5">
               <KeyRound size={12} /> Esqueci minha senha
             </button>
           )}
           {view === 'forgot' && (
-            <button type="button" onClick={() => go('signin')} className="w-full text-center text-2xs text-logic-text-dim hover:text-logic-text transition flex items-center justify-center gap-1.5">
+            <button type="button" onClick={() => go('signin')} className="w-full text-center text-xs text-apple-text-secondary hover:text-white transition-colors flex items-center justify-center gap-1.5">
               <ChevronLeft size={12} /> Voltar para entrar
             </button>
           )}

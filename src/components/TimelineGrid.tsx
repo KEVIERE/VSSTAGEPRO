@@ -7,19 +7,19 @@ import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
 import type { VisibleRange } from '@/components/ClipWaveform';
 
 const LINE_COLORS = {
-  bar: 'rgba(255,255,255,0.11)',
-  beat: 'rgba(255,255,255,0.05)',
-  sub: 'rgba(255,255,255,0.025)',
+  bar: 'rgba(255,255,255,0.22)',
+  beat: 'rgba(255,255,255,0.11)',
+  sub: 'rgba(255,255,255,0.05)',
 };
 
 export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoomH: number; visible: VisibleRange }) {
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
   return (
-    <div className="absolute inset-0 pointer-events-none">
+    <div className="absolute inset-0 pointer-events-none z-20">
       {lines.map((l) => (
         <div
           key={l.time}
-          className="absolute top-0 bottom-0 w-px"
+          className="absolute top-0 bottom-0 w-px pointer-events-none"
           style={{ left: `${l.time * zoomH}px`, backgroundColor: LINE_COLORS[l.kind] }}
         />
       ))}
@@ -30,11 +30,19 @@ export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoo
 export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid: SongGrid; zoomH: number; visible: VisibleRange }) {
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
   const beatPx = grid.beat * zoomH;
+  // Espaço médio em pixels entre cabeças de compasso: com grade cravada na waveform do click
+  // (beatTimes) a duração real varia levemente por compasso, então usa o valor nominal como estimativa.
+  const barPx = grid.beat * grid.beatsPerBar * zoomH;
+  // Com pouco espaço por compasso, mostra o número só a cada N compassos (potência de 2) para
+  // nunca sobrepor os algarismos — a linha vertical continua sendo desenhada em todo compasso.
+  const barLabelStride = Math.max(1, 2 ** Math.ceil(Math.log2(32 / Math.max(barPx, 1e-3))));
 
   return (
     <>
       {lines.map((l) => {
-        const showLabel = l.kind === 'bar' || (l.kind === 'beat' && beatPx >= 40);
+        const showLabel = l.kind === 'bar'
+          ? (barLabelStride <= 1 || (l.bar - 1) % barLabelStride === 0)
+          : beatPx >= 40;
         return (
           <div
             key={l.time}
@@ -45,6 +53,14 @@ export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid
               <span className={`absolute top-0 left-1 text-2xs font-mono whitespace-nowrap leading-none pt-0.5 ${l.kind === 'bar' ? 'text-logic-text-dim' : 'text-logic-text-muted/70'}`}>
                 {barBeatLabel(l.time, grid)}
               </span>
+            )}
+            {l.bpmChange && (
+              <div
+                className="absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/25 border border-amber-500/70 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm pointer-events-none whitespace-nowrap"
+                title={`Mudança de andamento: ${l.bpmChange} BPM`}
+              >
+                <span>⚡ {l.bpmChange} BPM</span>
+              </div>
             )}
           </div>
         );
@@ -124,7 +140,10 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         className={selectCls}
         value={song?.beatsPerBar ?? 4}
         disabled={!song}
-        onChange={(e) => song && updateSong(song.id, { beatsPerBar: Number(e.target.value) as 3 | 4 | 6 })}
+        onChange={(e) => {
+          if (song) updateSong(song.id, { beatsPerBar: Number(e.target.value) as 3 | 4 | 6 });
+          e.currentTarget.blur();
+        }}
         title="Fórmula de compasso desta música"
       >
         {METERS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -139,8 +158,14 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
           onChange={(e) => setBpmDraft(e.target.value.replace(/[^\d.,]/g, '').slice(0, 6))}
           onBlur={commitBpm}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') commitBpm();
-            if (e.key === 'Escape') setBpmDraft(null);
+            if (e.key === 'Enter') {
+              commitBpm();
+              e.currentTarget.blur();
+            }
+            if (e.key === 'Escape') {
+              setBpmDraft(null);
+              e.currentTarget.blur();
+            }
             e.stopPropagation();
           }}
         />
@@ -148,7 +173,10 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         <button
           className={`hidden md:flex items-center gap-1 px-1.5 h-[18px] rounded bg-logic-bg-deep border font-mono transition-colors hover:border-logic-accent disabled:pointer-events-none
             ${song?.bpmMissing && !song.bpmDetected ? 'border-logic-lcd-amber/60 text-logic-lcd-amber' : 'border-logic-border-dark text-logic-text-dim'}`}
-          onClick={() => song && setBpmDraft(song.bpmDetected && song.bpm ? String(Math.round(song.bpm * 100) / 100) : '')}
+          onClick={(e) => {
+            if (song) setBpmDraft(song.bpmDetected && song.bpm ? String(Math.round(song.bpm * 100) / 100) : '');
+            e.currentTarget.blur();
+          }}
           disabled={!song}
           title="Clique para digitar o BPM desta música"
         >
@@ -175,6 +203,7 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         <CheckCheck size={10} />
         <span className="hidden lg:inline">Selecionar todos</span>
       </button>
+
       {note && <span className="text-logic-lcd-amber animate-[fadeIn_120ms_ease-out]">{note}</span>}
     </div>
   );

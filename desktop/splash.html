@@ -19,32 +19,35 @@
   .logo-pop { transform-box: fill-box; transform-origin: center; animation: logoPop 850ms cubic-bezier(0.16, 1, 0.3, 1) both; }
   .stage-aura { transform-box: fill-box; transform-origin: center; animation: auraPulse 3s ease-in-out infinite alternate; }
   .wave-draw {
-    stroke-dasharray: 1; stroke-dashoffset: 1;
-    animation: waveDraw 950ms cubic-bezier(0.25, 1, 0.5, 1) 300ms forwards, waveGlow 2.8s ease-in-out 1250ms infinite alternate;
+    stroke-dasharray: 1205;
+    stroke-dashoffset: 1205;
+    animation: waveDraw 1200ms cubic-bezier(0.22, 1, 0.36, 1) 350ms both;
   }
-  .wave-core-draw {
-    stroke-dasharray: 1; stroke-dashoffset: 1;
-    animation: waveDraw 900ms cubic-bezier(0.25, 1, 0.5, 1) 350ms forwards;
+  .wave-spec-draw {
+    stroke-dasharray: 1205;
+    stroke-dashoffset: 1205;
+    animation: waveDraw 1200ms cubic-bezier(0.22, 1, 0.36, 1) 370ms both;
+  }
+  .tip-left {
+    animation: tipFade 400ms ease-out 350ms both;
+  }
+  .tip-right {
+    animation: tipFade 400ms ease-out 1550ms both;
   }
   .play-pop {
     transform-box: fill-box; transform-origin: 48% 50%;
-    animation: playSpring 850ms cubic-bezier(0.34, 1.5, 0.64, 1) 750ms both, playGleam 3s ease-in-out 1600ms infinite alternate;
+    animation: playSpring 850ms cubic-bezier(0.34, 1.5, 0.64, 1) 1400ms both, playGleam 3s ease-in-out 2250ms infinite alternate;
   }
-  .timeline-grid { animation: timelineFade 1s ease-out 150ms both; }
-  .playhead-sweep { animation: playheadPulse 2s ease-in-out infinite alternate; }
-  .title-cinematic { animation: titleCinematic 950ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both; }
+  .title-cinematic { animation: titleCinematic 950ms cubic-bezier(0.16, 1, 0.3, 1) 1000ms both; }
   .rise { animation: rise 600ms ease-out both; }
+  .fade { animation: fade 600ms ease-out both; }
   .status { animation: fade 300ms ease-out both; }
   #bar { transform-box: fill-box; transform-origin: left center; transform: scaleX(0.04); transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1); }
   @keyframes cardIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
   @keyframes logoPop { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
   @keyframes auraPulse { 0% { opacity: 0.3; transform: scale(0.92); } 50% { opacity: 0.8; transform: scale(1.08); filter: drop-shadow(0 0 25px rgba(255, 159, 10, 0.4)); } 100% { opacity: 0.4; transform: scale(1); } }
-  @keyframes waveDraw { from { stroke-dashoffset: 1; opacity: 0.2; } to { stroke-dashoffset: 0; opacity: 1; } }
-  @keyframes waveGlow {
-    0% { opacity: 0.88; filter: drop-shadow(0 0 14px rgba(74, 222, 128, 0.6)); }
-    50% { opacity: 1; filter: drop-shadow(0 0 28px rgba(59, 130, 246, 0.9)) drop-shadow(0 0 40px rgba(245, 158, 11, 0.8)); }
-    100% { opacity: 0.92; filter: drop-shadow(0 0 18px rgba(245, 158, 11, 0.7)); }
-  }
+  @keyframes waveDraw { from { stroke-dashoffset: 1205; } to { stroke-dashoffset: 0; } }
+  @keyframes tipFade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes playSpring {
     0% { opacity: 0; transform: scale(0.25); }
     70% { opacity: 1; transform: scale(1.08); }
@@ -54,8 +57,6 @@
     0% { filter: drop-shadow(0 20px 24px rgba(0, 0, 0, 0.85)); }
     100% { filter: drop-shadow(0 20px 24px rgba(0, 0, 0, 0.85)) drop-shadow(0 0 16px rgba(255, 255, 255, 0.45)); }
   }
-  @keyframes timelineFade { from { opacity: 0; transform: scaleY(0.7); } to { opacity: 0.35; transform: scaleY(1); } }
-  @keyframes playheadPulse { 0% { opacity: 0.2; stroke-width: 2.5; } 50% { opacity: 0.9; stroke-width: 4.5; filter: drop-shadow(0 0 8px #ff9f0a); } 100% { opacity: 0.35; stroke-width: 3; } }
   @keyframes titleCinematic { from { opacity: 0; letter-spacing: 12px; transform: translateY(6px); } to { opacity: 1; letter-spacing: 4px; transform: translateY(0); } }
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -66,48 +67,221 @@
 <div class="card">
   <svg viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet">
     <defs>
-      <linearGradient id="stageBg" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="#1C1D22" />
-        <stop offset="100%" stop-color="#0E0F12" />
-      </linearGradient>
-
-      <linearGradient id="stageBorder" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="#363942" />
-        <stop offset="100%" stop-color="#16171B" />
-      </linearGradient>
-
-      <linearGradient id="waveGrad" x1="0%" y1="50%" x2="100%" y2="50%">
-        <stop offset="0%" stop-color="#4ADE80" />
-        <stop offset="28%" stop-color="#10B981" />
-        <stop offset="55%" stop-color="#3B82F6" />
-        <stop offset="78%" stop-color="#F59E0B" />
-        <stop offset="100%" stop-color="#EA580C" />
-      </linearGradient>
-
-      <linearGradient id="playFill" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.22" />
-        <stop offset="50%" stop-color="#272932" stop-opacity="0.78" />
-        <stop offset="100%" stop-color="#121318" stop-opacity="0.92" />
-      </linearGradient>
-
-      <linearGradient id="playStroke" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95" />
-        <stop offset="60%" stop-color="#A1A1AA" stop-opacity="0.6" />
-        <stop offset="100%" stop-color="#F59E0B" stop-opacity="0.85" />
-      </linearGradient>
-
-      <filter id="waveGlow" x="-25%" y="-25%" width="150%" height="150%">
-        <feGaussianBlur stdDeviation="20" result="blur" />
-        <feMerge>
-          <feMergeNode in="blur" />
-          <feMergeNode in="SourceGraphic" />
-        </feMerge>
+      <!-- ===================================================== -->
+      <!-- FILTROS DE SOMBRA, BRILHO E REFRAÇÃO (LOGO OFICIAL)  -->
+      <!-- ===================================================== -->
+      <filter id="squircle-shadow" x="-12%" y="-10%" width="124%" height="124%">
+        <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.58" />
+        <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000000" flood-opacity="0.35" />
       </filter>
 
-      <filter id="playDropShadow" x="-25%" y="-25%" width="150%" height="150%">
-        <feDropShadow dx="0" dy="24" stdDeviation="20" flood-color="#000000" flood-opacity="0.8" />
+      <filter id="neon-glow-wide" x="-35%" y="-35%" width="170%" height="170%">
+        <feGaussianBlur stdDeviation="38" />
       </filter>
-      <filter id="barGlow" x="-20%" y="-200%" width="140%" height="500%"><feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#4ade80" flood-opacity="0.6" /></filter>
+
+      <filter id="neon-glow-mid" x="-25%" y="-25%" width="150%" height="150%">
+        <feGaussianBlur stdDeviation="14" />
+      </filter>
+
+      <filter id="tube-drop-shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="11" />
+      </filter>
+
+      <filter id="core-soft" x="-15%" y="-15%" width="130%" height="130%">
+        <feGaussianBlur stdDeviation="4.2" />
+      </filter>
+
+      <filter id="spec-soft" x="-15%" y="-15%" width="130%" height="130%">
+        <feGaussianBlur stdDeviation="2" />
+      </filter>
+
+      <filter id="frost-refraction" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="6.5" />
+      </filter>
+
+      <filter id="glass-drop-shadow" x="-25%" y="-25%" width="155%" height="155%">
+        <feDropShadow dx="4" dy="24" stdDeviation="19" flood-color="#000000" flood-opacity="0.68" />
+        <feDropShadow dx="2" dy="8" stdDeviation="7" flood-color="#000000" flood-opacity="0.45" />
+      </filter>
+
+      <!-- ===================================================== -->
+      <!-- GRADIENTES DA BASE SQUIRCLE 3D                        -->
+      <!-- ===================================================== -->
+      <linearGradient id="squircle-rim-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#4e515c" />
+        <stop offset="8%" stop-color="#383a43" />
+        <stop offset="90%" stop-color="#1b1c21" />
+        <stop offset="100%" stop-color="#131418" />
+      </linearGradient>
+
+      <linearGradient id="squircle-face-grad" x1="20%" y1="5%" x2="80%" y2="95%">
+        <stop offset="0%" stop-color="#2d2f37" />
+        <stop offset="50%" stop-color="#24252c" />
+        <stop offset="100%" stop-color="#1b1c21" />
+      </linearGradient>
+
+      <radialGradient id="ambient-cyan" cx="27%" cy="43%" r="34%">
+        <stop offset="0%" stop-color="#00d9ff" stop-opacity="0.28" />
+        <stop offset="55%" stop-color="#008cff" stop-opacity="0.09" />
+        <stop offset="100%" stop-color="#008cff" stop-opacity="0" />
+      </radialGradient>
+
+      <radialGradient id="ambient-blue" cx="56%" cy="63%" r="30%">
+        <stop offset="0%" stop-color="#1c56ff" stop-opacity="0.22" />
+        <stop offset="65%" stop-color="#1c56ff" stop-opacity="0.05" />
+        <stop offset="100%" stop-color="#1c56ff" stop-opacity="0" />
+      </radialGradient>
+
+      <radialGradient id="ambient-orange" cx="78%" cy="55%" r="28%">
+        <stop offset="0%" stop-color="#ff7816" stop-opacity="0.27" />
+        <stop offset="55%" stop-color="#ff5100" stop-opacity="0.08" />
+        <stop offset="100%" stop-color="#ff5100" stop-opacity="0" />
+      </radialGradient>
+
+      <!-- ===================================================== -->
+      <!-- GRADIENTES DO TUBO NEON 3D (OFICIAL: CIANO->AZUL->ÂMBAR)-->
+      <!-- ===================================================== -->
+      <linearGradient id="tube-wall-grad" x1="140" y1="450" x2="860" y2="550" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#76f7ff" />
+        <stop offset="12%" stop-color="#1ae0ff" />
+        <stop offset="26%" stop-color="#22a6ff" />
+        <stop offset="40%" stop-color="#2578ed" />
+        <stop offset="54%" stop-color="#1d56d4" />
+        <stop offset="66%" stop-color="#2d60db" />
+        <stop offset="75%" stop-color="#6b56aa" />
+        <stop offset="84%" stop-color="#cf5e4c" />
+        <stop offset="92%" stop-color="#ff7e24" />
+        <stop offset="100%" stop-color="#ffa02c" />
+      </linearGradient>
+
+      <linearGradient id="tube-core-grad" x1="140" y1="450" x2="860" y2="550" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#b8fcff" />
+        <stop offset="9%" stop-color="#22cbf0" />
+        <stop offset="22%" stop-color="#0d7ec4" />
+        <stop offset="36%" stop-color="#10448a" />
+        <stop offset="50%" stop-color="#0c2663" />
+        <stop offset="64%" stop-color="#112b6e" />
+        <stop offset="74%" stop-color="#352659" />
+        <stop offset="84%" stop-color="#873323" />
+        <stop offset="94%" stop-color="#cc4e10" />
+        <stop offset="100%" stop-color="#b83c08" />
+      </linearGradient>
+
+      <radialGradient id="tip-cyan-glow" cx="158" cy="496" r="46" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+        <stop offset="40%" stop-color="#8cfaff" stop-opacity="0.75" />
+        <stop offset="100%" stop-color="#00d5ff" stop-opacity="0" />
+      </radialGradient>
+
+      <radialGradient id="tip-orange-glow" cx="836" cy="490" r="42" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#fff0bd" stop-opacity="0.9" />
+        <stop offset="45%" stop-color="#ff9e2c" stop-opacity="0.65" />
+        <stop offset="100%" stop-color="#eb5a0f" stop-opacity="0" />
+      </radialGradient>
+
+      <!-- ===================================================== -->
+      <!-- GRADIENTES DO BOTÃO PLAY EM VIDRO FOSCO               -->
+      <!-- ===================================================== -->
+      <linearGradient id="glass-base-grad" x1="347" y1="300" x2="690" y2="630" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#edf4fc" stop-opacity="0.58" />
+        <stop offset="40%" stop-color="#cad5e2" stop-opacity="0.44" />
+        <stop offset="75%" stop-color="#949eab" stop-opacity="0.36" />
+        <stop offset="100%" stop-color="#bd968d" stop-opacity="0.44" />
+      </linearGradient>
+
+      <linearGradient id="glass-upper-sheen" x1="347" y1="295" x2="565" y2="490" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.56" />
+        <stop offset="55%" stop-color="#e4ecf7" stop-opacity="0.40" />
+        <stop offset="100%" stop-color="#c8d4e3" stop-opacity="0.26" />
+      </linearGradient>
+
+      <linearGradient id="glass-lower-smoky" x1="347" y1="510" x2="695" y2="660" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#525a66" stop-opacity="0.38" />
+        <stop offset="55%" stop-color="#696f7a" stop-opacity="0.28" />
+        <stop offset="100%" stop-color="#c48a78" stop-opacity="0.36" />
+      </linearGradient>
+
+      <radialGradient id="glass-right-warmth" cx="695" cy="498" r="170" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ff944d" stop-opacity="0.40" />
+        <stop offset="50%" stop-color="#d97a64" stop-opacity="0.16" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </radialGradient>
+
+      <linearGradient id="inner-bevel-grad" x1="389" y1="360" x2="625" y2="610" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55" />
+        <stop offset="35%" stop-color="#6e7b8f" stop-opacity="0.42" />
+        <stop offset="70%" stop-color="#9ab4d6" stop-opacity="0.48" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.65" />
+      </linearGradient>
+
+      <linearGradient id="inner-rim-stroke" x1="396" y1="365" x2="624" y2="590" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.82" />
+        <stop offset="45%" stop-color="#96a5ba" stop-opacity="0.45" />
+        <stop offset="80%" stop-color="#b8d8ff" stop-opacity="0.75" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.88" />
+      </linearGradient>
+
+      <linearGradient id="outer-rim-stroke" x1="347" y1="295" x2="706" y2="700" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+        <stop offset="35%" stop-color="#ffffff" stop-opacity="0.75" />
+        <stop offset="70%" stop-color="#e0c5bc" stop-opacity="0.58" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.85" />
+      </linearGradient>
+
+      <!-- ===================================================== -->
+      <!-- GEOMETRIAS OFICIAIS EXATAS (VIEWBOX 0 0 1000 1000)    -->
+      <!-- ===================================================== -->
+      <path
+        id="wave-path"
+        fill="none"
+        d="M 154, 496 C 176, 502, 206, 464, 248, 390 C 290, 316, 326, 268, 366, 268 C 408, 268, 435, 336, 468, 444 C 501, 552, 528, 636, 560, 688 C 576, 714, 590, 726, 606, 726 C 638, 726, 676, 672, 724, 598 C 766, 534, 804, 484, 842, 498"
+      />
+
+      <mask id="tube-mask" maskUnits="userSpaceOnUse" x="100" y="200" width="800" height="600">
+        <use href="#wave-path" stroke="#ffffff" stroke-width="44" stroke-linecap="round" />
+      </mask>
+
+      <path
+        id="outer-triangle"
+        d="M 347, 318.44 A 24, 24 0 0, 1 383, 297.66 L 694, 477.22 A 24, 24 0 0, 1 694, 518.78 L 383, 698.34 A 24, 24 0 0, 1 347, 677.56 Z"
+      />
+
+      <path
+        id="inner-bevel-ridge"
+        d="M 389, 368.67 A 11, 11 0 0, 1 405.5, 359.14 L 629.5, 488.47 A 11, 11 0 0, 1 629.5, 507.53 L 405.5, 636.86 A 11, 11 0 0, 1 389, 627.33 Z"
+      />
+
+      <path
+        id="inner-hole"
+        d="M 396, 375.60 A 8, 8 0 0, 1 408, 368.67 L 620, 491.07 A 8, 8 0 0, 1 620, 504.93 L 408, 627.33 A 8, 8 0 0, 1 396, 620.40 Z"
+      />
+
+      <path
+        id="glass-ring-shape"
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        d="M 347, 318.44 A 24, 24 0 0, 1 383, 297.66 L 694, 477.22 A 24, 24 0 0, 1 694, 518.78 L 383, 698.34 A 24, 24 0 0, 1 347, 677.56 Z M 396, 375.60 L 396, 620.40 A 8, 8 0 0, 0 408, 627.33 L 620, 504.93 A 8, 8 0 0, 0 620, 491.07 L 408, 368.67 A 8, 8 0 0, 0 396, 375.60 Z"
+      />
+
+      <path
+        id="inner-bevel-band"
+        fill-rule="evenodd"
+        d="M 389, 368.67 A 11, 11 0 0, 1 405.5, 359.14 L 629.5, 488.47 A 11, 11 0 0, 1 629.5, 507.53 L 405.5, 636.86 A 11, 11 0 0, 1 389, 627.33 Z M 396, 375.60 L 396, 620.40 A 8, 8 0 0, 0 408, 627.33 L 620, 504.93 A 8, 8 0 0, 0 620, 491.07 L 408, 368.67 A 8, 8 0 0, 0 396, 375.60 Z"
+      />
+
+      <clipPath id="squircle-face-clip">
+        <rect x="62" y="73" width="876" height="855" rx="214" ry="214" />
+      </clipPath>
+
+      <clipPath id="glass-clip">
+        <use href="#glass-ring-shape" />
+      </clipPath>
+
+      <!-- Barra de progresso e aura de palco -->
+      <filter id="barGlow" x="-20%" y="-200%" width="140%" height="500%">
+        <feDropShadow dx="0" dy="0" stdDeviation="2" flood-color="#4ade80" flood-opacity="0.6" />
+      </filter>
+
       <radialGradient id="stageAura" cx="50%" cy="50%" r="50%">
         <stop offset="0%" stop-color="#ff9f0a" stop-opacity="0.4" />
         <stop offset="40%" stop-color="#10b981" stop-opacity="0.2" />
@@ -116,65 +290,81 @@
       </radialGradient>
     </defs>
 
-    <!-- Aura de Holofote Atrás do Logo -->
-    <circle cx="280" cy="98" r="110" fill="url(#stageAura)" class="stage-aura" />
+    <!-- Aura de Holofote Pulsante Atrás do Logo -->
+    <circle cx="280" cy="104" r="120" fill="url(#stageAura)" class="stage-aura" />
 
-    <!-- Logo Oficial Centralizado em 560x380 (x=210, y=28, 140x140) -->
-    <svg x="210" y="28" width="140" height="140" viewBox="0 0 1024 1024" class="logo-pop" overflow="visible">
-      <rect x="32" y="32" width="960" height="960" rx="216" ry="216" fill="url(#stageBg)" stroke="url(#stageBorder)" stroke-width="10" />
-
-      <g class="timeline-grid" stroke="#FFFFFF" stroke-opacity="0.035" stroke-width="2">
-        <line x1="212" y1="80" x2="212" y2="944" />
-        <line x1="362" y1="80" x2="362" y2="944" />
-        <line x1="512" y1="80" x2="512" y2="944" />
-        <line x1="662" y1="80" x2="662" y2="944" />
-        <line x1="812" y1="80" x2="812" y2="944" />
+    <!-- Logo Oficial Centralizado em 560x380 (x=200, y=24, 160x160, viewBox 0 0 1000 1000) -->
+    <svg x="200" y="24" width="160" height="160" viewBox="0 0 1000 1000" class="logo-pop" overflow="visible">
+      <!-- Base Squircle Grafite 3D -->
+      <g>
+        <rect x="60" y="60" width="880" height="880" rx="218" ry="218" fill="url(#squircle-rim-grad)" filter="url(#squircle-shadow)" />
+        <rect x="61" y="61" width="878" height="878" rx="217" ry="217" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1.2" />
+        <g clip-path="url(#squircle-face-clip)">
+          <rect x="62" y="73" width="876" height="855" fill="url(#squircle-face-grad)" />
+          <rect x="62" y="73" width="876" height="855" fill="url(#ambient-cyan)" />
+          <rect x="62" y="73" width="876" height="855" fill="url(#ambient-blue)" />
+          <rect x="62" y="73" width="876" height="855" fill="url(#ambient-orange)" />
+        </g>
       </g>
 
-      <line class="playhead-sweep" x1="382" y1="140" x2="382" y2="884" stroke="#F59E0B" stroke-width="3.5" stroke-opacity="0.45" stroke-dasharray="8 8" />
+      <!-- Onda Sonora Neon 3D Completa Desenhada Dinamicamente da Esquerda para a Direita -->
+      <!-- Ponta inicial (ciano) acende no início do traçado -->
+      <circle class="tip-left" cx="158" cy="496" r="46" fill="url(#tip-cyan-glow)" />
 
-      <path
-        class="wave-draw"
-        pathLength="1"
-        d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
-        fill="none"
-        stroke="url(#waveGrad)"
-        stroke-width="54"
-        stroke-linecap="round"
-        filter="url(#waveGlow)"
-      />
+      <!-- Brilho atmosférico amplo: desenha dinamicamente com a onda -->
+      <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="72" stroke-linecap="round" opacity="0.42" filter="url(#neon-glow-wide)" />
 
-      <path
-        class="wave-core-draw"
-        pathLength="1"
-        d="M 164 512 C 230 512, 285 268, 368 268 C 455 268, 555 756, 648 756 C 732 756, 785 512, 860 512"
-        fill="none"
-        stroke="#FFFFFF"
-        stroke-width="10"
-        stroke-linecap="round"
-        opacity="0.55"
-      />
+      <!-- Brilho médio volumétrico: desenha dinamicamente com a onda -->
+      <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="48" stroke-linecap="round" opacity="0.65" filter="url(#neon-glow-mid)" />
 
-      <g class="play-pop" filter="url(#playDropShadow)">
-        <path
-          d="M 382 324 C 382 298, 410 282, 432 295 L 704 459 C 726 472, 726 504, 704 517 L 432 681 C 410 694, 382 678, 382 652 Z"
-          fill="url(#playFill)"
-          stroke="url(#playStroke)"
-          stroke-width="28"
-          stroke-linejoin="round"
-        />
+      <!-- Sombra do tubo: desenha dinamicamente com a onda -->
+      <use class="wave-draw" href="#wave-path" transform="translate(8, 18)" stroke="#000000" stroke-width="42" stroke-linecap="round" opacity="0.55" filter="url(#tube-drop-shadow)" />
+
+      <!-- Tubo neon principal: desenha dinamicamente com o gradiente oficial -->
+      <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="44" stroke-linecap="round" />
+
+      <!-- Núcleo 3D cilíndrico interno translúcido: desenha dinamicamente -->
+      <use class="wave-draw" href="#wave-path" transform="translate(0, 1.5)" stroke="url(#tube-core-grad)" stroke-width="25" stroke-linecap="round" filter="url(#core-soft)" />
+
+      <!-- Destaque especular branco superior fino -->
+      <use class="wave-spec-draw" href="#wave-path" transform="translate(-1.5, -12)" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.75" filter="url(#spec-soft)" />
+
+      <!-- Ponta final (âmbar): surge quando a onda completa o desenho -->
+      <circle class="tip-right" cx="836" cy="490" r="44" fill="url(#tip-orange-glow)" />
+
+      <!-- Botão Play em Vidro Fosco (Glassmorphism) com salto elástico -->
+      <g class="play-pop" filter="url(#glass-drop-shadow)">
+        <g clip-path="url(#glass-clip)">
+          <rect x="335" y="285" width="380" height="430" fill="url(#glass-base-grad)" />
+          <g filter="url(#frost-refraction)" opacity="0.84">
+            <use href="#wave-path" stroke="#09235c" stroke-width="50" stroke-linecap="round" />
+            <use href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="34" stroke-linecap="round" />
+          </g>
+          <rect x="335" y="285" width="380" height="430" fill="url(#glass-right-warmth)" />
+          <polygon points="340,549.7 396,512 546,444 584,412 720,412 720,715 340,715" fill="url(#glass-lower-smoky)" />
+          <polygon points="340,285 720,285 584,412 546,444 396,512 340,549.7" fill="url(#glass-upper-sheen)" />
+          <use href="#inner-bevel-band" fill="url(#inner-bevel-grad)" />
+          <use href="#outer-triangle" fill="none" stroke="#ffffff" stroke-width="10" stroke-opacity="0.18" filter="url(#spec-soft)" />
+        </g>
+        <use href="#inner-bevel-ridge" fill="none" stroke="#ffffff" stroke-opacity="0.34" stroke-width="1.2" />
+        <use href="#inner-hole" fill="none" stroke="url(#inner-rim-stroke)" stroke-width="2.2" />
+        <use href="#outer-triangle" fill="none" stroke="url(#outer-rim-stroke)" stroke-width="2.4" />
       </g>
     </svg>
 
-    <text id="title" class="title-cinematic" x="280" y="212" text-anchor="middle" font-size="26" font-weight="800" fill="#fff" letter-spacing="4"></text>
-    <text class="rise" style="animation-delay: 1400ms" x="280" y="234" text-anchor="middle" font-size="10" font-weight="600" fill="#9ca3af" letter-spacing="4">LIVE PERFORMANCE ENGINE</text>
+    <!-- Tipografia Cinematográfica -->
+    <text id="title" class="title-cinematic" x="280" y="214" text-anchor="middle" font-size="26" font-weight="800" fill="#fff" letter-spacing="4"></text>
+    <text class="rise" style="animation-delay: 1400ms" x="280" y="236" text-anchor="middle" font-size="10" font-weight="600" fill="#9ca3af" letter-spacing="4">LIVE PERFORMANCE ENGINE</text>
+
+    <!-- Barra de Progresso e Status -->
     <g class="fade" style="animation-delay: 500ms">
-      <text id="status" class="status" x="280" y="270" text-anchor="middle" font-size="11" fill="#a1a8b3">Carregando motor de áudio...</text>
-      <g transform="translate(150, 285)">
+      <text id="status" class="status" x="280" y="272" text-anchor="middle" font-size="11" fill="#a1a8b3">Carregando motor de áudio...</text>
+      <g transform="translate(150, 287)">
         <rect width="260" height="6" rx="3" fill="rgba(0,0,0,0.45)" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
         <rect id="bar" x="1" y="1" width="258" height="4" rx="2" fill="#4ade80" filter="url(#barGlow)" />
       </g>
     </g>
+
     <g class="fade" style="animation-delay: 800ms">
       <text x="24" y="356" font-size="10" font-weight="500" fill="#71717a">© 2026 VS Stage Pro</text>
       <text x="536" y="356" text-anchor="end" font-size="10" font-weight="600" fill="#f59e0b" id="version"></text>
@@ -195,28 +385,20 @@
   if (version) document.getElementById('version').textContent = 'v' + version + ' PRO';
   const status = document.getElementById('status');
   const bar = document.getElementById('bar');
-  const steps = [
-    [0, 0.18, 'Carregando motor de áudio...'],
-    [750, 0.52, 'Preparando timecode e periféricos...'],
-    [1500, 0.84, 'Abrindo o show...'],
+  const STEPS = [
+    { at: 0, progress: 0.18, text: 'Carregando motor de áudio...' },
+    { at: 900, progress: 0.52, text: 'Preparando timecode e periféricos...' },
+    { at: 1800, progress: 0.84, text: 'Abrindo o show...' },
+    { at: 2600, progress: 1, text: 'Pronto' },
   ];
-  const setStep = (progress, text) => {
-    bar.style.transform = 'scaleX(' + progress + ')';
-    if (status.textContent !== text) {
-      status.textContent = text;
-      status.classList.remove('status');
-      void status.getBBox();
-      status.classList.add('status');
-    }
-  };
-  steps.forEach(([at, p, text]) => setTimeout(() => setStep(p, text), at + 60));
-  const skip = () => { location.href = 'about:blank#skip'; };
-  window.addEventListener('mousedown', skip);
-  window.addEventListener('keydown', skip);
+  STEPS.forEach((s) => {
+    setTimeout(() => {
+      if (status) status.textContent = s.text;
+      if (bar) bar.style.transform = 'scaleX(' + s.progress + ')';
+    }, s.at);
+  });
   window.addEventListener('message', (e) => {
-    if (e.data !== 'vs:leave') return;
-    setStep(1, 'Pronto');
-    setTimeout(() => document.body.classList.add('leaving'), 180);
+    if (e.data === 'vs:leave') document.body.classList.add('leaving');
   });
 </script>
 </body>

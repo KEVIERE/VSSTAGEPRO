@@ -29,7 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
-import { supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 
 export type Plan = 'monthly' | 'yearly';
@@ -296,12 +296,10 @@ export default function PricingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#08090b] text-[#e8e8e8] font-sans antialiased selection:bg-logic-lcd-green selection:text-black relative overflow-x-hidden">
-      {/* Luzes neon de fundo estilo DAW */}
+    <div className="min-h-screen bg-black text-apple-text font-apple antialiased selection:bg-[#0071e3] selection:text-white relative overflow-x-hidden">
+      {/* Glow atmosférico suave estilo Apple (igual ao hero da SalesPage) */}
       <div className="hidden sm:block fixed inset-0 pointer-events-none overflow-hidden" aria-hidden="true">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[900px] h-[550px] bg-gradient-to-b from-logic-lcd-green/12 via-emerald-500/5 to-transparent blur-[140px]" />
-        <div className="absolute top-1/3 right-[-10%] w-[550px] h-[550px] bg-logic-lcd-amber/7 blur-[150px]" />
-        <div className="absolute bottom-1/4 left-[-10%] w-[500px] h-[500px] bg-logic-lcd-green/6 blur-[130px]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[950px] h-[480px] bg-gradient-to-b from-[#ff9f0a]/10 via-purple-600/8 to-transparent blur-[140px]" />
       </div>
 
       {/* Topo / Barra de Navegação estilo Apple */}
@@ -319,8 +317,8 @@ export default function PricingPage() {
                 <span className="text-white font-medium max-w-[170px] truncate">{currentUserEmail}</span>
                 <button
                   type="button"
-                  onClick={async () => {
-                    await supabase.auth.signOut();
+                  onClick={() => {
+                    clearLocalSession();
                     setCurrentUserEmail(null);
                   }}
                   className="text-[#2997ff] hover:underline font-semibold ml-1"
@@ -337,7 +335,7 @@ export default function PricingPage() {
             </a>
             <a
               href="#baixar"
-              className="h-7 px-3.5 rounded-full bg-[#0071e3] hover:bg-[#0077ed] text-white text-xs font-semibold tracking-tight transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5"
+              className="h-7 px-3.5 rounded-full btn-apple-blue text-white text-xs font-semibold tracking-tight transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5"
             >
               <Apple size={13} />
               <span>Baixar para Mac</span>
@@ -349,27 +347,27 @@ export default function PricingPage() {
       {/* Hero dos Planos */}
       <section className="relative z-10 pt-14 sm:pt-20 pb-16">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 backdrop-blur-md mb-6 animate-[fadeIn_400ms_ease-out]">
-            <Sparkles size={14} className="text-logic-lcd-amber" />
-            <span className="text-2xs sm:text-xs font-bold tracking-wider text-logic-text-dim uppercase">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 backdrop-blur-md mb-6 apple-fade-in">
+            <Sparkles size={14} className="text-[#ff9f0a]" />
+            <span className="text-xs font-semibold tracking-tight text-apple-text-secondary uppercase">
               Planos e Assinatura Oficial
             </span>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.12] max-w-3xl mx-auto">
+          <h1 className="text-3xl sm:text-5xl lg:text-6xl font-semibold text-white tracking-tight leading-[1.12] max-w-3xl mx-auto">
             A potência máxima do palco <br />
-            <span className="bg-gradient-to-r from-logic-lcd-green via-emerald-300 to-logic-lcd-amber bg-clip-text text-transparent">
+            <span className="text-[#2997ff]">
               ao alcance da sua banda.
             </span>
           </h1>
 
-          <p className="text-logic-text-dim text-base sm:text-lg max-w-2xl mx-auto mt-5 leading-relaxed">
+          <p className="text-apple-text-secondary text-base sm:text-lg max-w-2xl mx-auto mt-5 leading-relaxed">
             Sem pegadinhas, sem taxas escondidas e 100% livre de travamentos. Escolha a flexibilidade mês a mês ou economize com o plano anual definitivo.
           </p>
 
           {currentUserEmail && (
-            <div className="mt-6 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-logic-lcd-green/10 border border-logic-lcd-green/30 text-xs text-logic-lcd-green font-medium">
-              <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-pulse" />
+            <div className="mt-6 inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-400 font-medium">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               Conectado como <strong className="text-white">{currentUserEmail}</strong>
             </div>
           )}
@@ -380,38 +378,38 @@ export default function PricingPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
             
             {/* CARD 1: PLANO MENSAL */}
-            <div className="relative rounded-3xl p-7 sm:p-9 bg-[#111218]/90 border border-white/10 backdrop-blur-xl flex flex-col justify-between transition-all duration-300 hover:border-white/20 shadow-xl">
+            <div className="relative rounded-3xl p-7 sm:p-9 bg-[#1d1d1f] border border-white/[0.14] flex flex-col justify-between transition-all duration-300 hover:border-white/25 shadow-xl">
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-black tracking-widest text-logic-text-muted uppercase">
+                  <span className="text-xs font-semibold tracking-tight text-apple-text-secondary uppercase">
                     FLEXIBILIDADE TOTAL
                   </span>
-                  <span className="px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-2xs font-bold text-logic-text-dim">
+                  <span className="px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 text-2xs font-semibold text-apple-text-secondary">
                     Mês a Mês
                   </span>
                 </div>
 
-                <h3 className="text-2xl font-black text-white mt-3">Plano Mensal</h3>
-                <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
+                <h3 className="text-2xl font-semibold text-white mt-3">Plano Mensal</h3>
+                <p className="text-sm text-apple-text-secondary mt-1.5 leading-relaxed">
                   Ideal para bandas e músicos que preferem assinar sem fidelidade de longo prazo.
                 </p>
 
                 {/* Bloco de Preço */}
                 <div className="mt-6 pb-6 border-b border-white/[0.08]">
                   <div className="flex items-baseline gap-1.5">
-                    <span className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+                    <span className="text-4xl sm:text-5xl font-semibold text-white tracking-tight">
                       {MONTHLY_PRICE}
                     </span>
-                    <span className="text-sm font-semibold text-logic-text-muted">/mês</span>
+                    <span className="text-sm font-medium text-apple-text-secondary">/mês</span>
                   </div>
-                  <p className="text-2xs text-logic-text-muted mt-2">
+                  <p className="text-xs text-apple-text-tertiary mt-2">
                     Cobrança recorrente mensal no cartão. Cancele quando quiser com 1 clique.
                   </p>
                 </div>
 
                 {/* Lista de Recursos Inclusos */}
                 <div className="mt-6 space-y-3">
-                  <div className="text-2xs font-extrabold uppercase tracking-wider text-logic-text-muted">
+                  <div className="text-2xs font-semibold uppercase tracking-wide text-apple-text-tertiary">
                     Recursos inclusos no mensal:
                   </div>
                   {[
@@ -425,7 +423,7 @@ export default function PricingPage() {
                     'Suporte a Apple Silicon (M1 a M4) e Intel',
                     'Cancelamento a qualquer momento sem multa',
                   ].map((feat) => (
-                    <div key={feat} className="flex items-start gap-2.5 text-xs text-logic-text">
+                    <div key={feat} className="flex items-start gap-2.5 text-sm text-[#d2d2d7]">
                       <div className="w-4 h-4 rounded-full bg-white/10 text-white flex items-center justify-center shrink-0 mt-0.5">
                         <Check size={11} />
                       </div>
@@ -441,7 +439,7 @@ export default function PricingPage() {
                   type="button"
                   disabled={checkoutBusy}
                   onClick={() => handleStartCheckout('monthly')}
-                  className="w-full h-14 rounded-2xl bg-white/[0.08] hover:bg-white/[0.15] text-white font-extrabold text-sm border border-white/15 backdrop-blur-md transition-all duration-200 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+                  className="w-full h-13 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white font-semibold text-sm border border-white/15 transition-all duration-150 flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
                 >
                   {checkoutBusy && selectedPlan === 'monthly' ? (
                     <Loader2 size={18} className="animate-spin text-white" />
@@ -454,57 +452,57 @@ export default function PricingPage() {
             </div>
 
             {/* CARD 2: PLANO ANUAL (DESTAQUE MÁXIMO) */}
-            <div className="relative rounded-3xl p-7 sm:p-9 bg-gradient-to-b from-[#131b15] via-[#101318] to-[#0c0e12] border-2 border-logic-lcd-green/60 shadow-[0_0_50px_rgba(48,209,88,0.18)] flex flex-col justify-between transition-all duration-300 hover:border-logic-lcd-green hover:shadow-[0_0_70px_rgba(48,209,88,0.28)]">
+            <div className="relative rounded-3xl p-7 sm:p-9 bg-[#1d1d1f] border-2 border-[#0071e3] shadow-[0_0_50px_rgba(0,113,227,0.18)] flex flex-col justify-between transition-all duration-300 hover:shadow-[0_0_70px_rgba(0,113,227,0.28)]">
               {/* Badge de Destaque Flutuante */}
-              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-gradient-to-r from-logic-lcd-green to-emerald-400 text-black text-2xs font-black tracking-wider uppercase shadow-lg shadow-logic-lcd-green/30 flex items-center gap-1.5">
+              <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-[#0071e3] text-white text-2xs font-semibold tracking-tight uppercase shadow-lg shadow-[#0071e3]/30 flex items-center gap-1.5">
                 <Sparkles size={12} />
                 <span>MAIS POPULAR • ECONOMIZE R$ 311/ANO</span>
               </div>
 
               <div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-black tracking-widest text-logic-lcd-green uppercase">
+                  <span className="text-xs font-semibold tracking-tight text-[#2997ff] uppercase">
                     MELHOR CUSTO-BENEFÍCIO
                   </span>
-                  <span className="px-3 py-1 rounded-full bg-logic-lcd-green/15 border border-logic-lcd-green/40 text-2xs font-extrabold text-logic-lcd-green">
+                  <span className="px-3 py-1 rounded-full bg-[#0071e3]/15 border border-[#0071e3]/40 text-2xs font-semibold text-[#2997ff]">
                     12 Meses de Acesso
                   </span>
                 </div>
 
-                <h3 className="text-2xl font-black text-white mt-3 flex items-center gap-2">
+                <h3 className="text-2xl font-semibold text-white mt-3 flex items-center gap-2">
                   <span>Plano Anual</span>
-                  <span className="text-xs font-bold text-logic-lcd-amber bg-logic-lcd-amber/10 border border-logic-lcd-amber/30 px-2 py-0.5 rounded-full">
+                  <span className="text-xs font-semibold text-[#ff9f0a] bg-[#ff9f0a]/10 border border-[#ff9f0a]/30 px-2 py-0.5 rounded-full">
                     Recomendado
                   </span>
                 </h3>
-                <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
+                <p className="text-sm text-apple-text-secondary mt-1.5 leading-relaxed">
                   A escolha definitiva para diretores musicais, produtores e bandas com agenda de shows ativa.
                 </p>
 
                 {/* Bloco de Preço */}
-                <div className="mt-6 pb-6 border-b border-logic-lcd-green/20">
+                <div className="mt-6 pb-6 border-b border-[#0071e3]/20">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-4xl sm:text-5xl font-black text-white tracking-tight">
+                    <span className="text-4xl sm:text-5xl font-semibold text-white tracking-tight">
                       {YEARLY_PRICE}
                     </span>
-                    <span className="text-sm font-semibold text-logic-text-muted">/ano</span>
+                    <span className="text-sm font-medium text-apple-text-secondary">/ano</span>
                   </div>
                   <div className="mt-2 flex items-center gap-2">
-                    <span className="text-xs font-extrabold text-logic-lcd-green bg-logic-lcd-green/15 px-2 py-0.5 rounded">
+                    <span className="text-xs font-semibold text-[#2997ff] bg-[#0071e3]/15 px-2 py-0.5 rounded">
                       Equivalente a apenas {YEARLY_MONTH_EQUIV}/mês
                     </span>
-                    <span className="text-2xs text-logic-text-dim line-through">
+                    <span className="text-2xs text-apple-text-secondary line-through">
                       (R$ 660,00)
                     </span>
                   </div>
-                  <p className="text-2xs text-logic-text-muted mt-2">
+                  <p className="text-xs text-apple-text-tertiary mt-2">
                     Pagamento único por 1 ano completo. Estabilidade ininterrupta para seus shows.
                   </p>
                 </div>
 
                 {/* Lista de Recursos Inclusos */}
                 <div className="mt-6 space-y-3">
-                  <div className="text-2xs font-extrabold uppercase tracking-wider text-logic-lcd-green flex items-center gap-1.5">
+                  <div className="text-2xs font-semibold uppercase tracking-wide text-[#2997ff] flex items-center gap-1.5">
                     <Sparkles size={12} />
                     <span>Tudo do Plano Mensal, com benefícios exclusivos:</span>
                   </div>
@@ -517,11 +515,11 @@ export default function PricingPage() {
                     'Canal de suporte técnico humanizado e prioritário',
                     'Garantia de estabilidade ininterrupta para suas turnês',
                   ].map((feat, idx) => (
-                    <div key={feat} className="flex items-start gap-2.5 text-xs text-white">
-                      <div className="w-4 h-4 rounded-full bg-logic-lcd-green/20 border border-logic-lcd-green/50 text-logic-lcd-green flex items-center justify-center shrink-0 mt-0.5">
+                    <div key={feat} className="flex items-start gap-2.5 text-sm text-white">
+                      <div className="w-4 h-4 rounded-full bg-[#0071e3]/20 border border-[#0071e3]/50 text-[#2997ff] flex items-center justify-center shrink-0 mt-0.5">
                         <Check size={11} />
                       </div>
-                      <span className={`leading-snug ${idx <= 2 ? 'font-bold text-logic-lcd-green' : 'text-white'}`}>
+                      <span className={`leading-snug ${idx <= 2 ? 'font-semibold text-[#2997ff]' : 'text-white'}`}>
                         {feat}
                       </span>
                     </div>
@@ -529,27 +527,22 @@ export default function PricingPage() {
                 </div>
               </div>
 
-              {/* Botão de Ação Anual com Neon Glow */}
-              <div className="mt-8 pt-6 border-t border-logic-lcd-green/20">
-                <div className="relative group">
-                  <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-logic-lcd-green via-emerald-400 to-teal-300 opacity-70 blur-lg group-hover:opacity-100 group-hover:blur-xl transition duration-500 animate-pulse pointer-events-none" />
-
-                  <button
-                    type="button"
-                    disabled={checkoutBusy}
-                    onClick={() => handleStartCheckout('yearly')}
-                    className="relative overflow-hidden w-full h-14 rounded-2xl btn-neon-green text-black font-black text-sm flex items-center justify-center gap-2.5 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
-                  >
-                    <span className="absolute inset-0 w-1/2 h-full bg-gradient-to-r from-transparent via-white/55 to-transparent -skew-x-12 animate-btn-sheen pointer-events-none" />
-                    {checkoutBusy && selectedPlan === 'yearly' ? (
-                      <Loader2 size={18} className="animate-spin text-black" />
-                    ) : (
-                      <Zap size={18} />
-                    )}
-                    <span>ASSINAR PLANO ANUAL ({YEARLY_MONTH_EQUIV}/MÊS)</span>
-                    <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-                  </button>
-                </div>
+              {/* Botão de Ação Anual */}
+              <div className="mt-8 pt-6 border-t border-[#0071e3]/20">
+                <button
+                  type="button"
+                  disabled={checkoutBusy}
+                  onClick={() => handleStartCheckout('yearly')}
+                  className="relative overflow-hidden w-full h-13 rounded-full btn-apple-blue text-white font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-[#0071e3]/30"
+                >
+                  {checkoutBusy && selectedPlan === 'yearly' ? (
+                    <Loader2 size={18} className="animate-spin text-white" />
+                  ) : (
+                    <Zap size={18} />
+                  )}
+                  <span>Assinar Plano Anual ({YEARLY_MONTH_EQUIV}/mês)</span>
+                  <ArrowRight size={16} />
+                </button>
               </div>
             </div>
 
@@ -562,24 +555,24 @@ export default function PricingPage() {
         <div className="max-w-5xl mx-auto px-4 sm:px-6">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 text-center">
             <div className="flex flex-col items-center">
-              <ShieldCheck size={26} className="text-logic-lcd-green mb-2" />
-              <div className="text-xs font-bold text-white">Pagamento Seguro</div>
-              <div className="text-2xs text-logic-text-dim mt-0.5">Criptografia bancária Stripe</div>
+              <ShieldCheck size={26} className="text-emerald-400 mb-2" />
+              <div className="text-xs font-semibold text-white">Pagamento Seguro</div>
+              <div className="text-2xs text-apple-text-secondary mt-0.5">Criptografia bancária Stripe</div>
             </div>
             <div className="flex flex-col items-center">
-              <Timer size={26} className="text-logic-lcd-amber mb-2" />
-              <div className="text-xs font-bold text-white">Liberação Imediata</div>
-              <div className="text-2xs text-logic-text-dim mt-0.5">Acesso desbloqueado na hora</div>
+              <Timer size={26} className="text-[#ff9f0a] mb-2" />
+              <div className="text-xs font-semibold text-white">Liberação Imediata</div>
+              <div className="text-2xs text-apple-text-secondary mt-0.5">Acesso desbloqueado na hora</div>
             </div>
             <div className="flex flex-col items-center">
-              <Laptop size={26} className="text-logic-lcd-green mb-2" />
-              <div className="text-xs font-bold text-white">Apple Silicon & Intel</div>
-              <div className="text-2xs text-logic-text-dim mt-0.5">M1, M2, M3, M4 nativo</div>
+              <Laptop size={26} className="text-emerald-400 mb-2" />
+              <div className="text-xs font-semibold text-white">Apple Silicon & Intel</div>
+              <div className="text-2xs text-apple-text-secondary mt-0.5">M1, M2, M3, M4 nativo</div>
             </div>
             <div className="flex flex-col items-center">
-              <MessageCircle size={26} className="text-logic-lcd-amber mb-2" />
-              <div className="text-xs font-bold text-white">Suporte ao Vivo</div>
-              <div className="text-2xs text-logic-text-dim mt-0.5">Canal direto via WhatsApp</div>
+              <MessageCircle size={26} className="text-[#ff9f0a] mb-2" />
+              <div className="text-xs font-semibold text-white">Suporte ao Vivo</div>
+              <div className="text-2xs text-apple-text-secondary mt-0.5">Canal direto via WhatsApp</div>
             </div>
           </div>
         </div>
@@ -589,56 +582,56 @@ export default function PricingPage() {
       <section className="relative z-10 py-16 sm:py-24">
         <div className="max-w-4xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-12">
-            <span className="text-2xs font-bold uppercase tracking-widest text-logic-lcd-green">
+            <span className="text-xs font-semibold uppercase tracking-tight text-[#2997ff]">
               DETALHAMENTO TÉCNICO
             </span>
-            <h2 className="text-2xl sm:text-4xl font-extrabold text-white mt-2">
+            <h2 className="text-2xl sm:text-4xl font-semibold text-white mt-2 tracking-tight">
               Comparativo completo dos planos
             </h2>
-            <p className="text-xs sm:text-sm text-logic-text-dim mt-2">
+            <p className="text-sm text-apple-text-secondary mt-2">
               Veja exatamente o que você recebe em cada opção de assinatura.
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#101117] overflow-hidden shadow-2xl">
+          <div className="rounded-2xl border border-white/10 bg-[#1d1d1f] overflow-hidden shadow-2xl">
             {/* Header da Tabela */}
-            <div className="grid grid-cols-12 bg-white/[0.04] p-4 text-xs font-black uppercase tracking-wider text-logic-text-muted border-b border-white/10">
+            <div className="grid grid-cols-12 bg-white/[0.04] p-4 text-xs font-semibold uppercase tracking-tight text-apple-text-secondary border-b border-white/10">
               <div className="col-span-6 sm:col-span-8 text-white">Recursos e Ferramentas</div>
               <div className="col-span-3 sm:col-span-2 text-center text-white/90">Mensal</div>
-              <div className="col-span-3 sm:col-span-2 text-center text-logic-lcd-green">Anual</div>
+              <div className="col-span-3 sm:col-span-2 text-center text-[#2997ff]">Anual</div>
             </div>
 
             {/* Conteúdo por Categoria */}
             {COMPARISON_FEATURES.map((cat) => (
               <div key={cat.category} className="border-b border-white/[0.06] last:border-b-0">
-                <div className="px-4 py-2.5 bg-white/[0.02] text-2xs font-extrabold text-logic-text-dim tracking-wider uppercase border-b border-white/[0.04]">
+                <div className="px-4 py-2.5 bg-white/[0.02] text-2xs font-semibold text-apple-text-secondary tracking-tight uppercase border-b border-white/[0.04]">
                   {cat.category}
                 </div>
                 {cat.items.map((item) => (
                   <div
                     key={item.name}
-                    className="grid grid-cols-12 px-4 py-3.5 text-xs text-logic-text border-b border-white/[0.03] last:border-b-0 hover:bg-white/[0.02] transition-colors items-center"
+                    className="grid grid-cols-12 px-4 py-3.5 text-sm text-[#d2d2d7] border-b border-white/[0.03] last:border-b-0 hover:bg-white/[0.02] transition-colors items-center"
                   >
                     <div className="col-span-6 sm:col-span-8 font-medium">
                       {item.name}
                       {item.note && (
-                        <span className="block text-2xs text-logic-lcd-amber font-semibold mt-0.5">
+                        <span className="block text-2xs text-[#ff9f0a] font-semibold mt-0.5">
                           {item.note}
                         </span>
                       )}
                     </div>
                     <div className="col-span-3 sm:col-span-2 flex justify-center">
                       {item.monthly ? (
-                        <Check size={16} className="text-logic-lcd-green" />
+                        <Check size={16} className="text-emerald-400" />
                       ) : (
-                        <span className="text-logic-text-muted text-xs">—</span>
+                        <span className="text-apple-text-tertiary text-xs">—</span>
                       )}
                     </div>
                     <div className="col-span-3 sm:col-span-2 flex justify-center">
                       {item.yearly ? (
-                        <Check size={16} className="text-logic-lcd-green" />
+                        <Check size={16} className="text-emerald-400" />
                       ) : (
-                        <span className="text-logic-text-muted text-xs">—</span>
+                        <span className="text-apple-text-tertiary text-xs">—</span>
                       )}
                     </div>
                   </div>
@@ -653,10 +646,10 @@ export default function PricingPage() {
       <section className="relative z-10 py-16 bg-[#0c0d12] border-t border-white/[0.08]">
         <div className="max-w-3xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-10">
-            <span className="text-2xs font-bold uppercase tracking-widest text-logic-lcd-amber">
+            <span className="text-xs font-semibold uppercase tracking-tight text-[#ff9f0a]">
               DÚVIDAS FREQUENTES
             </span>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-2">
+            <h2 className="text-2xl sm:text-3xl font-semibold text-white mt-2 tracking-tight">
               Perguntas sobre a Assinatura
             </h2>
           </div>
@@ -665,20 +658,20 @@ export default function PricingPage() {
             {PRICING_FAQS.map((faq, idx) => (
               <div
                 key={faq.q}
-                className="rounded-xl border border-white/10 bg-[#121319] overflow-hidden transition"
+                className="rounded-xl border border-white/10 bg-[#1d1d1f] overflow-hidden transition"
               >
                 <button
                   type="button"
                   onClick={() => setOpenFaq(openFaq === idx ? null : idx)}
-                  className="w-full p-4.5 text-left font-bold text-sm text-white flex items-center justify-between gap-4 hover:text-logic-lcd-green transition"
+                  className="w-full p-4.5 text-left font-semibold text-sm text-white flex items-center justify-between gap-4 hover:text-[#2997ff] transition-colors"
                 >
                   <span>{faq.q}</span>
-                  <span className={`text-logic-text-muted transition-transform duration-300 ${openFaq === idx ? 'rotate-180 text-logic-lcd-green' : ''}`}>
+                  <span className={`text-apple-text-secondary transition-transform duration-300 ${openFaq === idx ? 'rotate-180 text-[#2997ff]' : ''}`}>
                     ▼
                   </span>
                 </button>
                 {openFaq === idx && (
-                  <div className="px-4.5 pb-4.5 pt-1 text-xs text-logic-text-dim leading-relaxed border-t border-white/[0.06] animate-[fadeIn_200ms_ease-out]">
+                  <div className="px-4.5 pb-4.5 pt-1 text-sm text-apple-text-secondary leading-relaxed border-t border-white/[0.06] apple-fade-in">
                     {faq.a}
                   </div>
                 )}
@@ -687,18 +680,18 @@ export default function PricingPage() {
           </div>
 
           {/* CTA Final */}
-          <div className="mt-14 text-center p-8 rounded-2xl bg-gradient-to-b from-[#151a1e] to-[#0e1014] border border-white/10">
-            <h3 className="text-xl font-bold text-white">Ainda tem dúvidas sobre os planos?</h3>
-            <p className="text-xs text-logic-text-dim mt-1.5 max-w-md mx-auto">
+          <div className="mt-14 text-center p-8 rounded-2xl bg-[#1d1d1f] border border-white/10">
+            <h3 className="text-xl font-semibold text-white">Ainda tem dúvidas sobre os planos?</h3>
+            <p className="text-sm text-apple-text-secondary mt-1.5 max-w-md mx-auto">
               Fale diretamente com nossa equipe técnica pelo WhatsApp e tire suas dúvidas sobre seu setup.
             </p>
             <a
               href="https://wa.me/5579998144026?text=Ol%C3%A1!%20Tenho%20d%C3%BAvidas%20sobre%20os%20planos%20do%20VS%20Stage%20Pro."
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 mt-4 px-5 h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-bold border border-white/15 transition"
+              className="inline-flex items-center gap-2 mt-4 px-5 h-10 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-semibold border border-white/15 transition-colors"
             >
-              <MessageCircle size={15} className="text-logic-lcd-green" />
+              <MessageCircle size={15} className="text-emerald-400" />
               <span>Chamar Suporte no WhatsApp</span>
             </a>
           </div>
@@ -706,7 +699,7 @@ export default function PricingPage() {
       </section>
 
       {/* Rodapé */}
-      <footer className="relative z-10 border-t border-white/[0.08] bg-[#08090b] py-8 text-xs text-logic-text-muted">
+      <footer className="relative z-10 border-t border-white/[0.08] bg-black py-8 text-xs text-apple-text-secondary">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
@@ -732,17 +725,17 @@ export default function PricingPage() {
         <div
           role="dialog"
           aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-[fadeIn_200ms_ease-out]"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md apple-fade-in"
           onClick={() => setAuthModalOpen(false)}
         >
           <div
-            className="relative w-full max-w-md bg-[#13141a] border border-white/15 rounded-2xl shadow-2xl overflow-hidden p-6 sm:p-7"
+            className="relative w-full max-w-md bg-[#1d1d1f] border border-white/[0.14] rounded-2xl shadow-2xl overflow-hidden p-6 sm:p-7"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Fechar */}
             <button
               onClick={() => setAuthModalOpen(false)}
-              className="absolute top-4 right-4 p-1.5 rounded-lg text-logic-text-muted hover:text-white hover:bg-white/10 transition"
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-apple-text-secondary hover:text-white hover:bg-white/10 transition-colors"
               aria-label="Fechar"
             >
               <X size={18} />
@@ -750,17 +743,17 @@ export default function PricingPage() {
 
             {/* Topo do Modal */}
             <div className="text-center mb-6">
-              <div className="mx-auto w-12 h-12 mb-3 rounded-2xl bg-logic-lcd-green/15 border border-logic-lcd-green/30 flex items-center justify-center text-logic-lcd-green">
+              <div className="mx-auto w-12 h-12 mb-3 rounded-2xl bg-[#0071e3]/15 border border-[#0071e3]/30 flex items-center justify-center text-[#2997ff]">
                 {authMode === 'forgot' ? <KeyRound size={24} /> : <CreditCard size={24} />}
               </div>
-              <h2 className="text-xl font-black text-white">
+              <h2 className="text-xl font-semibold text-white">
                 {authMode === 'forgot'
                   ? 'Recuperar Senha'
                   : authMode === 'signup'
                   ? 'Criar conta para assinar'
                   : 'Entre na sua conta para assinar'}
               </h2>
-              <p className="text-xs text-logic-text-dim mt-1.5">
+              <p className="text-sm text-apple-text-secondary mt-1.5">
                 {authMode === 'forgot'
                   ? 'Digite seu e-mail para receber as instruções de recuperação.'
                   : selectedPlan === 'yearly'
@@ -775,14 +768,14 @@ export default function PricingPage() {
                 <button
                   type="button"
                   onClick={() => { setAuthMode('login'); setAuthError(null); setAuthSuccessMsg(null); }}
-                  className={`py-2 text-xs font-bold rounded-lg transition ${authMode === 'login' ? 'bg-logic-lcd-green text-black shadow' : 'text-logic-text-dim hover:text-white'}`}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-colors ${authMode === 'login' ? 'bg-[#0071e3] text-white shadow' : 'text-apple-text-secondary hover:text-white'}`}
                 >
                   Já Tenho Conta
                 </button>
                 <button
                   type="button"
                   onClick={() => { setAuthMode('signup'); setAuthError(null); setAuthSuccessMsg(null); }}
-                  className={`py-2 text-xs font-bold rounded-lg transition ${authMode === 'signup' ? 'bg-logic-lcd-green text-black shadow' : 'text-logic-text-dim hover:text-white'}`}
+                  className={`py-2 text-xs font-semibold rounded-lg transition-colors ${authMode === 'signup' ? 'bg-[#0071e3] text-white shadow' : 'text-apple-text-secondary hover:text-white'}`}
                 >
                   Criar Nova Conta
                 </button>
@@ -790,24 +783,24 @@ export default function PricingPage() {
             )}
 
             {authError && (
-              <div className="mb-4 p-3 rounded-xl bg-logic-lcd-red/15 border border-logic-lcd-red/30 text-logic-lcd-red text-xs text-center leading-relaxed">
+              <div className="mb-4 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs text-center leading-relaxed">
                 {authError}
               </div>
             )}
 
             {authSuccessMsg ? (
-              <div className="p-4 rounded-xl bg-logic-lcd-green/15 border border-logic-lcd-green/40 text-center space-y-3">
-                <p className="text-xs text-logic-lcd-green font-bold leading-relaxed">✓ {authSuccessMsg}</p>
+              <div className="p-4 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-center space-y-3">
+                <p className="text-xs text-emerald-400 font-semibold leading-relaxed">✓ {authSuccessMsg}</p>
                 {authMode === 'forgot' ? (
                   <button
                     type="button"
                     onClick={() => { setAuthMode('login'); setAuthSuccessMsg(null); setAuthError(null); }}
-                    className="text-xs text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg font-bold transition"
+                    className="text-xs text-white bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg font-semibold transition-colors"
                   >
                     Voltar para Entrar
                   </button>
                 ) : (
-                  <p className="text-2xs text-logic-text-dim">
+                  <p className="text-2xs text-apple-text-secondary">
                     Após confirmar seu e-mail, volte a esta página para concluir o pagamento.
                   </p>
                 )}
@@ -816,7 +809,7 @@ export default function PricingPage() {
               <form onSubmit={handleAuthSubmit} className="space-y-4">
                 {authMode === 'signup' && (
                   <div>
-                    <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted mb-1.5">
+                    <label className="block text-2xs font-semibold uppercase tracking-wide text-apple-text-secondary mb-1.5">
                       Seu Nome
                     </label>
                     <input
@@ -825,13 +818,13 @@ export default function PricingPage() {
                       onChange={(e) => setAuthName(e.target.value)}
                       placeholder="Seu nome completo"
                       autoFocus
-                      className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
+                      className="w-full bg-black/40 text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-[#0071e3] transition-colors placeholder:text-apple-text-secondary"
                     />
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted mb-1.5">
+                  <label className="block text-2xs font-semibold uppercase tracking-wide text-apple-text-secondary mb-1.5">
                     Seu E-mail
                   </label>
                   <input
@@ -841,21 +834,21 @@ export default function PricingPage() {
                     placeholder="seuemail@exemplo.com"
                     required
                     autoFocus={authMode !== 'signup'}
-                    className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
+                    className="w-full bg-black/40 text-sm text-white px-3.5 py-2.5 rounded-xl border border-white/15 outline-none focus:border-[#0071e3] transition-colors placeholder:text-apple-text-secondary"
                   />
                 </div>
 
                 {authMode !== 'forgot' && (
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-2xs font-bold uppercase tracking-wider text-logic-text-muted">
+                      <label className="block text-2xs font-semibold uppercase tracking-wide text-apple-text-secondary">
                         Sua Senha
                       </label>
                       {authMode === 'login' && (
                         <button
                           type="button"
                           onClick={() => { setAuthMode('forgot'); setAuthError(null); }}
-                          className="text-2xs text-logic-text-dim hover:text-logic-lcd-green transition"
+                          className="text-2xs text-apple-text-secondary hover:text-[#2997ff] transition-colors"
                         >
                           Esqueci minha senha
                         </button>
@@ -869,13 +862,13 @@ export default function PricingPage() {
                         placeholder="Mínimo de 6 caracteres"
                         required
                         minLength={6}
-                        className="w-full bg-[#0a0b0f] text-sm text-white px-3.5 py-2.5 pr-10 rounded-xl border border-white/15 outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted"
+                        className="w-full bg-black/40 text-sm text-white px-3.5 py-2.5 pr-10 rounded-xl border border-white/15 outline-none focus:border-[#0071e3] transition-colors placeholder:text-apple-text-secondary"
                       />
                       <button
                         type="button"
                         onClick={() => setShowPassword((v) => !v)}
                         aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-white transition"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-apple-text-secondary hover:text-white transition-colors"
                       >
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
@@ -886,10 +879,10 @@ export default function PricingPage() {
                 <button
                   type="submit"
                   disabled={authBusy || !authEmail.trim() || (authMode !== 'forgot' && authPassword.length < 6)}
-                  className="w-full h-12 rounded-xl btn-neon-green text-black font-black text-sm flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 mt-2"
+                  className="w-full h-12 rounded-xl btn-apple-blue text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 mt-2"
                 >
                   {authBusy ? (
-                    <Loader2 size={18} className="animate-spin text-black" />
+                    <Loader2 size={18} className="animate-spin text-white" />
                   ) : authMode === 'forgot' ? (
                     <KeyRound size={18} />
                   ) : (
@@ -908,7 +901,7 @@ export default function PricingPage() {
                   <button
                     type="button"
                     onClick={() => { setAuthMode('login'); setAuthError(null); setAuthSuccessMsg(null); }}
-                    className="w-full text-center text-xs text-logic-text-dim hover:text-white transition flex items-center justify-center gap-1.5 pt-1"
+                    className="w-full text-center text-xs text-apple-text-secondary hover:text-white transition-colors flex items-center justify-center gap-1.5 pt-1"
                   >
                     <ChevronLeft size={14} /> Voltar para entrar
                   </button>
@@ -916,7 +909,7 @@ export default function PricingPage() {
               </form>
             )}
 
-            <div className="mt-5 text-center text-2xs text-logic-text-muted">
+            <div className="mt-5 text-center text-2xs text-apple-text-secondary">
               Pagamento 100% criptografado e seguro processado pela Stripe.
             </div>
           </div>

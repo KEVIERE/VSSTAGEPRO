@@ -48,15 +48,11 @@ export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(options?
       );
       observer.observe(el);
     } else {
+      // Sem suporte a IntersectionObserver: revela direto (navegador muito antigo).
       setRevealed(true);
     }
 
-    const safetyTimer = window.setTimeout(() => {
-      setRevealed(true);
-    }, 500);
-
     return () => {
-      window.clearTimeout(safetyTimer);
       observer?.disconnect();
     };
   }, [threshold, rootMargin, once, isMobile]);

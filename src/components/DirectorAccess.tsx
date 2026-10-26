@@ -2,7 +2,7 @@ import { adminApi } from '@/components/admin/adminApi';
 import { useEffect, useState } from 'react';
 import { Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { emailLinkType, supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
 import { friendlyError } from '@/lib/friendlyError';
 import SubscribeDialog from '@/components/SubscribeDialog';
@@ -141,6 +141,17 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     try { return sessionStorage.getItem(GATE_SS) === '1'; } catch { return false; }
   });
   const passGate = () => { gatePassedNow(); setGatePassed(true); };
+  // supabase.auth.signOut() só atualiza a tela quando o servidor responde ao pedido
+  // de invalidar a sessão — se a rede falhar ou demorar, a tela de "Sair"/"Entrar
+  // com outra conta" fica parada sem nenhum aviso. Aqui a saída é sempre instantânea:
+  // o estado da tela é zerado na hora do clique, sem esperar nenhuma resposta de rede.
+  const doSignOut = () => {
+    clearLocalSession();
+    setSession(null);
+    setLicense(null);
+    setView('signin');
+    setPassword('');
+  };
   const [promoNotice, setPromoNotice] = useState<{ ok: boolean; text: string } | null>(null);
   // "Confirmado" é mostrado quando a pessoa volta pelo link de confirmação do e-mail
   // e ainda não passou pela tela de entrada nesta aba.
@@ -199,6 +210,10 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- checkAdmin/isWebEnvironment são estáveis entre renders
+
+  useEffect(() => {
+    window.vsDesktop?.notifySessionState?.(Boolean(session));
+  }, [session]);
 
   // Confere a licença quando o pagamento pede (SubscribeDialog) e ao voltar para o programa.
   useEffect(() => {
@@ -552,7 +567,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </p>
           </div>
           <button
-            onClick={() => supabase.auth.signOut()}
+            onClick={doSignOut}
             className="w-full h-10 border-t border-logic-border text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
           >
             <LogOut size={13} /> Sair da conta
@@ -591,7 +606,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                 <RefreshCw size={13} /> Já assinei
               </button>
               <button
-                onClick={() => supabase.auth.signOut()}
+                onClick={doSignOut}
                 className="flex-1 h-10 text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition border-l border-logic-border flex items-center justify-center gap-1.5"
               >
                 <LogOut size={13} /> Sair da conta
@@ -635,7 +650,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </a>
           </div>
           <button
-            onClick={() => supabase.auth.signOut()}
+            onClick={doSignOut}
             className="w-full h-10 border-t border-logic-border text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
           >
             <LogOut size={13} /> Sair da conta
@@ -708,7 +723,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             )}
             <button
               type="button"
-              onClick={() => { setView('signin'); supabase.auth.signOut(); }}
+              onClick={doSignOut}
               className="h-12 text-xs font-semibold text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition border-l border-logic-border flex items-center justify-center gap-1.5"
             >
               <LogOut size={14} /> Entrar com outra conta

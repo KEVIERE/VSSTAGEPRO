@@ -17,7 +17,7 @@ import { groupDroppedEntries, importSongGroups, takeDroppedEntries } from '@/lib
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
 
-export default function PlaylistPanel() {
+export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator?: () => void } = {}) {
   const playlist = useStore((s) => s.playlist);
   const playlistOrder = useStore((s) => s.playlistOrder);
   const blocks = useStore((s) => s.blocks);
@@ -288,7 +288,7 @@ export default function PlaylistPanel() {
           >
             {playlistMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
           </button>
-          <ImportVSDialog open={importOpen} onClose={() => setImportOpen(false)} />
+          <ImportVSDialog open={importOpen} onClose={() => setImportOpen(false)} onOpenAiSeparator={onOpenAiSeparator} />
         </div>
       </div>
 

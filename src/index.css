@@ -200,19 +200,29 @@
 
 /* A Onda Sonora se desenha viva da esquerda para a direita */
 .splash-wave-draw {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: splashWaveDraw 950ms cubic-bezier(0.25, 1, 0.5, 1) 300ms forwards, splashWaveGlow 2.8s ease-in-out 1250ms infinite alternate;
+  stroke-dasharray: 1205;
+  stroke-dashoffset: 1205;
+  animation: splashWaveDraw 1200ms cubic-bezier(0.22, 1, 0.36, 1) 350ms both;
 }
-.splash-wave-core-draw {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: splashWaveDraw 900ms cubic-bezier(0.25, 1, 0.5, 1) 350ms forwards;
+.splash-wave-spec-draw {
+  stroke-dasharray: 1205;
+  stroke-dashoffset: 1205;
+  animation: splashWaveDraw 1200ms cubic-bezier(0.22, 1, 0.36, 1) 370ms both;
+}
+.splash-tip-left {
+  animation: splashTipFade 400ms ease-out 350ms both;
+}
+.splash-tip-right {
+  animation: splashTipFade 400ms ease-out 1550ms both;
 }
 
 @keyframes splashWaveDraw {
-  from { stroke-dashoffset: 1; opacity: 0.2; }
-  to { stroke-dashoffset: 0; opacity: 1; }
+  from { stroke-dashoffset: 1205; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes splashTipFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 @keyframes splashWaveGlow {
   0% { opacity: 0.88; filter: drop-shadow(0 0 16px rgba(74, 222, 128, 0.7)); }
@@ -224,7 +234,7 @@
 .splash-play-pop {
   transform-box: fill-box;
   transform-origin: 48% 50%;
-  animation: splashPlaySpring 850ms cubic-bezier(0.34, 1.5, 0.64, 1) 750ms both, splashPlayGleam 3s ease-in-out 1600ms infinite alternate;
+  animation: splashPlaySpring 850ms cubic-bezier(0.34, 1.5, 0.64, 1) 1400ms both, splashPlayGleam 3s ease-in-out 2250ms infinite alternate;
 }
 @keyframes splashPlaySpring {
   0% { opacity: 0; transform: scale(0.25); }
@@ -379,4 +389,47 @@
   background: linear-gradient(180deg, rgba(34, 35, 45, 0.95) 0%, rgba(20, 21, 28, 0.98) 100%);
   border-color: rgba(245, 158, 11, 0.55);
   box-shadow: 0 0 30px rgba(245, 158, 11, 0.25), 0 10px 28px rgba(0, 0, 0, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+}
+
+/* Botão primário estilo apple.com: mesmas cores de background/hover/active
+   do componente .button real do site (rgb(0,113,227) / #0076DF / #006EDB). */
+.btn-apple-blue {
+  background: rgb(0, 113, 227);
+  transition: background-color 150ms linear;
+}
+.btn-apple-blue:hover {
+  background: #0076df;
+}
+.btn-apple-blue:active {
+  background: #006edb;
+}
+
+/* =========================================================================
+   APPLE.COM — tokens de movimento extraídos do CSS real de apple.com/logic-pro
+   (overview.built.css): mesmo fade de entrada e o mesmo easing de opacidade
+   que a Apple usa nas seções da página.
+   ========================================================================= */
+@keyframes appleFadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.apple-fade-in {
+  animation: appleFadeIn 0.9s both;
+}
+
+/* Reveal de seção ao rolar a página: só opacidade + leve translateY,
+   igual ao padrão discreto da Apple (nada de scale/bounce). */
+.apple-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s cubic-bezier(0.33, 1, 0.68, 1), transform 0.6s cubic-bezier(0.33, 1, 0.68, 1);
+}
+.apple-reveal.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-fade-in, .apple-reveal { animation: none !important; transition: none !important; opacity: 1 !important; transform: none !important; }
 }

@@ -7,6 +7,7 @@ const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const selfUpdate = require('./selfUpdate');
 const { separateStemsLocal } = require('./stemSeparatorLocal');
+const { initAntiTamper } = require('./antiTamper');
 
 const SCHEME = 'vsstage';
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '..', 'dist');
@@ -20,7 +21,7 @@ let win = null;
 let server = null;
 let splash = null;
 
-const SPLASH_MIN_MS = 2400;
+const SPLASH_MIN_MS = 3800;
 const SPLASH_EXIT_MS = 600;
 const SPLASH_MAX_MS = 15000;
 
@@ -220,7 +221,14 @@ function buildMenu() {
 
 app.whenReady().then(() => {
   buildMenu();
-  server = new LocalServer({ webRoot, storePath: path.join(app.getPath('userData'), 'rede-local.json'), version: app.getVersion() });
+  server = new LocalServer({
+    webRoot,
+    storePath: path.join(app.getPath('userData'), 'rede-local.json'),
+    version: app.getVersion(),
+    onTransportCommand: (cmd) => {
+      if (win && !win.isDestroyed()) win.webContents.send('remote:transport', cmd);
+    },
+  });
 
   protocol.handle(SCHEME, (request) => {
     const { file } = resolveStatic(webRoot, new URL(request.url).pathname);
@@ -231,6 +239,8 @@ app.whenReady().then(() => {
   const fromApp = (url) => typeof url === 'string' && url.startsWith(`${SCHEME}://app`);
   session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => permission !== 'fileSystem' || fromApp(origin));
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(permission !== 'fileSystem' || fromApp(wc.getURL())));
+
+  initAntiTamper();
 
   createSplash();
   createWindow();

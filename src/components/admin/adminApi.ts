@@ -149,6 +149,45 @@ export type AppRelease = {
   published_by_email: string | null;
 };
 
+export type ServiceHealthEntry = {
+  service: string;
+  status: 'up' | 'down' | 'degraded';
+  latency_ms: number;
+  detail: string;
+  checked_at: string;
+};
+
+export type TamperAlert = {
+  id: string;
+  hw_id: string;
+  ip: string | null;
+  app_version: string;
+  asar_sha: string | null;
+  has_session: boolean;
+  tampered: boolean;
+  reason: string;
+  is_blacklisted: boolean;
+  created_at: string;
+};
+
+export type FunnelData = {
+  days: number;
+  signups: number;
+  confirmed: number;
+  app_opened: number;
+  stage_used: number;
+  subscribed: number;
+};
+
+export type TimelineEvent = {
+  event_type: 'admin_action' | 'sale' | 'cancel' | 'tamper' | 'service_down';
+  title: string;
+  subtitle: string;
+  detail: string | null;
+  severity: 'positive' | 'negative' | 'warning' | 'critical' | 'neutral';
+  created_at: string;
+};
+
 async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.rpc(fn, args);
   if (error) throw new Error(error.message);
@@ -216,6 +255,14 @@ export const adminApi = {
     _lastPingTime = now;
     return callEdgeFn<{ ok: true; ip?: string }>('admin-insights', { action: 'ping', version });
   },
+  // Monitoramento de Serviços, Antifraude & Crack, Funil e Linha do Tempo
+  serviceHealth: () => call<ServiceHealthEntry[]>('admin_service_health'),
+  runHealthCheck: () => callEdgeFn<{ ok: true; results: Array<{ service: string; status: string; latencyMs: number; detail: string }> }>('health-check', {}),
+  tamperAlerts: (limit = 50) => call<TamperAlert[]>('admin_tamper_alerts', { p_limit: limit }),
+  blockHardware: (hwId: string, reason: string) => call<void>('admin_block_hardware', { p_hw_id: hwId, p_reason: reason }),
+  unblockHardware: (hwId: string) => call<void>('admin_unblock_hardware', { p_hw_id: hwId }),
+  funnel: (days = 30) => call<FunnelData>('admin_funnel', { p_days: days }),
+  timeline: (limit = 100) => call<TimelineEvent[]>('admin_timeline', { p_limit: limit }),
 };
 
 async function callReleasesFn<T = { ok: true }>(payload: Record<string, unknown>): Promise<T> {
