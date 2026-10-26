@@ -65,29 +65,78 @@ const WaveTile = memo(function WaveTile({ peaks, color, fullWidth, offset, width
     const values = new Float32Array(width + 1);
     for (let x = 0; x <= width; x++) values[x] = samplePeak(x);
 
-    // 1. Linha de centro de referência de fase
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-    ctx.lineWidth = 1;
+    // 1. Linha sutil de centro (referência de zero-crossing de estúdio)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.lineWidth = 0.5;
     ctx.beginPath();
-    ctx.moveTo(0, mid + 0.5);
-    ctx.lineTo(width, mid + 0.5);
+    ctx.moveTo(0, mid);
+    ctx.lineTo(width, mid);
     ctx.stroke();
 
-    // 2. Renderização de colunas de pico verticais de alta definição (Padrão DAW Real / Logic Pro)
-    const grad = ctx.createLinearGradient(0, mid - amp, 0, mid + amp);
-    grad.addColorStop(0, `${color}`);
-    grad.addColorStop(0.25, `${color}ee`);
-    grad.addColorStop(0.5, `${color}bb`);
-    grad.addColorStop(0.75, `${color}ee`);
-    grad.addColorStop(1, `${color}`);
-
-    ctx.fillStyle = grad;
-    for (let x = 0; x < width; x++) {
-      const p = values[x];
-      if (p < 0.005) continue;
-      const h = Math.max(1, p * amp);
-      ctx.fillRect(x, mid - h, 1, h * 2);
+    // 2. Renderização de Forma de Onda Contínua de Alta Fidelidade (Padrão Apple Logic Pro 11 / Pro Tools)
+    // Constrói polígono suave fechado (envelope superior -> envelope inferior)
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    for (let x = 0; x <= width; x++) {
+      const h = Math.max(0.5, values[x] * amp);
+      ctx.lineTo(x, mid - h);
     }
+    ctx.lineTo(width, mid);
+    for (let x = width; x >= 0; x--) {
+      const h = Math.max(0.5, values[x] * amp);
+      ctx.lineTo(x, mid + h);
+    }
+    ctx.closePath();
+
+    // Gradiente vertical rico: luminoso nas cristas, encorpado no centro e translúcido
+    const bodyGrad = ctx.createLinearGradient(0, mid - amp, 0, mid + amp);
+    bodyGrad.addColorStop(0, `${color}f2`);
+    bodyGrad.addColorStop(0.2, `${color}d9`);
+    bodyGrad.addColorStop(0.5, `${color}88`);
+    bodyGrad.addColorStop(0.8, `${color}d9`);
+    bodyGrad.addColorStop(1, `${color}f2`);
+
+    ctx.fillStyle = bodyGrad;
+    ctx.fill();
+
+    // 3. Núcleo Interno de Energia Musical (RMS / Body Depth)
+    // Dá volume tridimensional à forma de onda, destacando a densidade sonora real
+    ctx.beginPath();
+    ctx.moveTo(0, mid);
+    for (let x = 0; x <= width; x++) {
+      const rms = Math.pow(values[x], 1.3) * amp * 0.72;
+      ctx.lineTo(x, mid - rms);
+    }
+    ctx.lineTo(width, mid);
+    for (let x = width; x >= 0; x--) {
+      const rms = Math.pow(values[x], 1.3) * amp * 0.72;
+      ctx.lineTo(x, mid + rms);
+    }
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+    ctx.fill();
+
+    // 4. Crista Superior e Inferior com Contorno Iluminado (Edge Silhouette)
+    // Destaca os transientes (ataques de bateria, caixa e voz) com nitidez cirúrgica
+    ctx.beginPath();
+    for (let x = 0; x <= width; x++) {
+      const h = Math.max(0.5, values[x] * amp);
+      if (x === 0) ctx.moveTo(x, mid - h);
+      else ctx.lineTo(x, mid - h);
+    }
+    ctx.strokeStyle = `${color}`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.beginPath();
+    for (let x = 0; x <= width; x++) {
+      const h = Math.max(0.5, values[x] * amp);
+      if (x === 0) ctx.moveTo(x, mid + h);
+      else ctx.lineTo(x, mid + h);
+    }
+    ctx.strokeStyle = `${color}b3`;
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
   }, [peaks, color, fullWidth, offset, width, height]);
 
   return (

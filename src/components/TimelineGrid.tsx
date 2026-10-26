@@ -30,12 +30,14 @@ export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoo
 export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid: SongGrid; zoomH: number; visible: VisibleRange }) {
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
   const beatPx = grid.beat * zoomH;
-  // Espaço médio em pixels entre cabeças de compasso: com grade cravada na waveform do click
-  // (beatTimes) a duração real varia levemente por compasso, então usa o valor nominal como estimativa.
   const barPx = grid.beat * grid.beatsPerBar * zoomH;
   // Com pouco espaço por compasso, mostra o número só a cada N compassos (potência de 2) para
   // nunca sobrepor os algarismos — a linha vertical continua sendo desenhada em todo compasso.
   const barLabelStride = Math.max(1, 2 ** Math.ceil(Math.log2(32 / Math.max(barPx, 1e-3))));
+
+  // Anti-colisão: garante que duas placas de BPM nunca se sobreponham visualmente na régua
+  let lastBadgePx = -9999;
+  const MIN_BADGE_DIST_PX = 130;
 
   return (
     <>
@@ -43,20 +45,28 @@ export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid
         const showLabel = l.kind === 'bar'
           ? (barLabelStride <= 1 || (l.bar - 1) % barLabelStride === 0)
           : beatPx >= 40;
+
+        const linePx = l.time * zoomH;
+        let showBpmBadge = false;
+        if (l.bpmChange && (linePx - lastBadgePx >= MIN_BADGE_DIST_PX)) {
+          showBpmBadge = true;
+          lastBadgePx = linePx;
+        }
+
         return (
           <div
             key={l.time}
-            className={`absolute top-0 border-l pointer-events-none ${l.kind === 'bar' ? 'h-5 border-logic-text-muted/50' : 'h-2.5 border-logic-border-light/70'}`}
-            style={{ left: `${l.time * zoomH}px` }}
+            className={`absolute top-0 border-l pointer-events-none ${l.kind === 'bar' ? 'h-5 border-logic-text-muted/60' : 'h-2.5 border-logic-border-light/60'}`}
+            style={{ left: `${linePx}px` }}
           >
             {showLabel && (
-              <span className={`absolute top-0 left-1 text-2xs font-mono whitespace-nowrap leading-none pt-0.5 ${l.kind === 'bar' ? 'text-logic-text-dim' : 'text-logic-text-muted/70'}`}>
+              <span className={`absolute top-0 left-1 text-2xs font-mono whitespace-nowrap leading-none pt-0.5 select-none ${l.kind === 'bar' ? 'text-logic-text-dim font-medium' : 'text-logic-text-muted/70'}`}>
                 {barBeatLabel(l.time, grid)}
               </span>
             )}
-            {l.bpmChange && (
+            {showBpmBadge && (
               <div
-                className="absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/25 border border-amber-500/70 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm pointer-events-none whitespace-nowrap"
+                className="absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm pointer-events-none whitespace-nowrap select-none"
                 title={`Mudança de andamento: ${l.bpmChange} BPM`}
               >
                 <span>⚡ {l.bpmChange} BPM</span>
