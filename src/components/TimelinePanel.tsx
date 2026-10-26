@@ -286,8 +286,8 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
   return (
     <div
       data-selectable="track"
-      className={`group relative flex items-center border-b border-logic-border-dark cursor-pointer transition-colors duration-75
-        ${isSelected ? 'bg-logic-accent-dim' : isFolder ? 'bg-logic-bg-deep/60 hover:bg-logic-bg-panel-light' : 'hover:bg-logic-bg-panel-light'}`}
+      className={`group relative flex items-center border-b border-logic-border-dark cursor-pointer transition-colors duration-75 bg-[#1e1e24]
+        ${isSelected ? '!bg-logic-accent-dim' : isFolder ? '!bg-[#141418] hover:!bg-[#222228]' : 'hover:!bg-[#282830]'}`}
       style={{ paddingLeft: `${8 + depth * 16}px`, height: `${trackHeight}px` }}
       onClick={() => selectTrack(track.id)}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
@@ -470,7 +470,7 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
 
   return (
     <div
-      className="w-4 h-4 p-0.5 relative cursor-ns-resize select-none shrink-0 hover:scale-125 hover:brightness-125 transition-transform z-40"
+      className="w-4 h-4 p-0.5 relative cursor-ns-resize select-none shrink-0 hover:scale-125 hover:brightness-125 transition-transform z-10"
       onDoubleClick={(e) => { e.stopPropagation(); applyGain(1); }}
       onPointerDown={(e) => {
         e.stopPropagation();
@@ -962,7 +962,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
           </div>
         )}
         {showControls && (
-          <div className="absolute bottom-1 left-5 flex items-center gap-1.5 z-40 pointer-events-auto">
+          <div className="absolute bottom-1 left-5 flex items-center gap-1.5 z-10 pointer-events-auto">
             <ClipGainKnob clipId={clip.id} gain={clip.gain ?? 1} />
             <ClipMuteSolo clip={clip} />
           </div>
@@ -1848,7 +1848,7 @@ export default function TimelinePanel() {
           </div>
         ) : (
           <div className="flex" style={{ minHeight: '100%', width: `${timelineWidth + HEADER_W}px` }}>
-            <div className="bg-logic-bg-panel border-r border-logic-border-dark sticky left-0 z-40 shrink-0" style={{ width: `${HEADER_W}px` }}>
+            <div className="bg-[#1e1e24] border-r border-logic-border-dark sticky left-0 z-50 shrink-0 shadow-[4px_0_16px_rgba(0,0,0,0.6)]" style={{ width: `${HEADER_W}px` }}>
               <TimecodeTrackRow songId={song.id} />
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
@@ -1867,7 +1867,7 @@ export default function TimelinePanel() {
             </div>
 
             <div
-              className="relative flex-shrink-0"
+              className="relative flex-shrink-0 z-10"
               style={{ width: `${timelineWidth}px`, ...gridStyle }}
               onPointerDown={(e) => {
                 const target = e.target as HTMLElement;
