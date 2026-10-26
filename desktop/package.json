@@ -42,6 +42,10 @@
       {
         "from": "build-info.json",
         "to": "build-info.json"
+      },
+      {
+        "from": "ai-engine",
+        "to": "ai-engine"
       }
     ],
     "afterPack": "./scripts/adhocSign.js",

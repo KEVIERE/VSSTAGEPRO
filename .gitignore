@@ -26,3 +26,8 @@ desktop/build-info.json
 .env.replicate
 .env.resend.local
 .env.telegram.local
+
+# Motor de IA gerado em build time
+desktop/ai-engine/*
+!desktop/ai-engine/.gitkeep
+

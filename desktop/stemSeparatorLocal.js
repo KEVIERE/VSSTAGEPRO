@@ -1,10 +1,15 @@
-const { spawn, execSync } = require('child_process');
+const { spawn, execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+const APP_AI_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'VS Stage', 'ai-engine');
+const APP_AI_PYTHON = path.join(APP_AI_DIR, 'python', 'bin', 'python3');
+const APP_AI_DEMUCS = path.join(APP_AI_DIR, 'python', 'bin', 'demucs');
+
 // Candidatos a executável direto do Demucs (Intel e Apple Silicon)
 const DEMUCS_BIN_CANDIDATES = [
+  APP_AI_DEMUCS,
   '/usr/local/bin/demucs', // Intel Homebrew / pip global
   '/opt/homebrew/bin/demucs', // Apple Silicon Homebrew
   '/Library/Frameworks/Python.framework/Versions/3.14/bin/demucs',
@@ -24,6 +29,7 @@ const DEMUCS_BIN_CANDIDATES = [
 
 // Candidatos a interpretador Python (Intel e Apple Silicon)
 const PYTHON_CANDIDATES = [
+  APP_AI_PYTHON,
   '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3',
   '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
   '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3',
@@ -125,36 +131,14 @@ function findAnyWorkingPython() {
   return null;
 }
 
-const https = require('https');
-
-function downloadFileWithRedirects(url, destPath) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return downloadFileWithRedirects(res.headers.location, destPath).then(resolve, reject);
-      }
-      if (res.statusCode !== 200) {
-        return reject(new Error(`Falha no download (HTTP ${res.statusCode})`));
-      }
-      const out = fs.createWriteStream(destPath);
-      res.pipe(out);
-      out.on('finish', () => out.close(resolve));
-      out.on('error', reject);
-    }).on('error', reject);
-  });
-}
-
 async function ensureAiEngine(win) {
   let runner = findDemucsRunner();
   if (runner) return runner;
 
-  const appSupportDir = path.join(os.homedir(), 'Library', 'Application Support', 'VS Stage', 'ai-engine');
-  const pyBin = path.join(appSupportDir, 'python', 'bin', 'python3');
-
-  if (fs.existsSync(pyBin)) {
+  if (fs.existsSync(APP_AI_PYTHON)) {
     try {
-      execSync(`"${pyBin}" -c "import demucs"`, { stdio: 'ignore', timeout: 3000 });
-      cachedRunner = { type: 'python', path: pyBin };
+      execSync(`"${APP_AI_PYTHON}" -c "import demucs"`, { stdio: 'ignore', timeout: 3000 });
+      cachedRunner = { type: 'python', path: APP_AI_PYTHON };
       return cachedRunner;
     } catch {}
   }
@@ -173,21 +157,35 @@ async function ensureAiEngine(win) {
   const tarFile = path.join(os.tmpdir(), `vs-stage-python-${Date.now()}.tar.gz`);
 
   try {
-    await downloadFileWithRedirects(url, tarFile);
-    fs.mkdirSync(appSupportDir, { recursive: true });
-    execSync(`tar -xzf "${tarFile}" -C "${appSupportDir}"`);
+    fs.mkdirSync(APP_AI_DIR, { recursive: true });
+    execFileSync('/usr/bin/curl', [
+      '-fL',
+      '-sS',
+      '--retry', '3',
+      '--connect-timeout', '15',
+      '-A', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
+      '-o', tarFile,
+      url
+    ], { timeout: 120000 });
+
+    execFileSync('/usr/bin/tar', ['-xzf', tarFile, '-C', APP_AI_DIR]);
     try { fs.unlinkSync(tarFile); } catch {}
   } catch (err) {
-    console.error('Erro ao baixar/extrair Python portátil:', err);
+    console.error('Erro ao baixar/extrair Python portátil via curl:', err);
   }
 
-  if (fs.existsSync(pyBin)) {
+  if (fs.existsSync(APP_AI_PYTHON)) {
     notify(12, 'Instalando motor neural de áudio de estúdio...');
     try {
-      execSync(`"${pyBin}" -m pip install --no-cache-dir --quiet torch torchaudio demucs`, {
-        timeout: 360000
+      const execPrefix = process.arch === 'x64' && process.platform === 'darwin' ? 'arch -x86_64 ' : '';
+      execSync(`${execPrefix}"${APP_AI_PYTHON}" -m pip install --no-cache-dir --quiet torch torchaudio demucs`, {
+        timeout: 420000,
+        env: {
+          ...process.env,
+          PATH: `${path.dirname(APP_AI_PYTHON)}:/usr/bin:/bin:/usr/sbin:/sbin`
+        }
       });
-      cachedRunner = { type: 'python', path: pyBin };
+      cachedRunner = { type: 'python', path: APP_AI_PYTHON };
       return cachedRunner;
     } catch (err) {
       console.error('Erro no pip install do Demucs:', err);
@@ -206,7 +204,7 @@ async function ensureAiEngine(win) {
     } catch {}
   }
 
-  throw new Error('demucs_not_available');
+  throw new Error('Não foi possível iniciar o motor de Inteligência Artificial. Verifique sua conexão com a internet para a ativação inicial.');
 }
 
 function hasLocalDemucs() {

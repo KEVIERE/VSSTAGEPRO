@@ -41,7 +41,18 @@ jobs:
           # instalado sabe se uma republicação da mesma versão (ex.: só mudou a
           # obrigatoriedade) é mais nova que a dele.
           printf '{"build":%s}' "$BUILD_NUMBER" > build-info.json
-          npm run dist
+          npm run web
+          node scripts/bumpVersion.cjs
+          npm run background
+          node scripts/patchDmgBuilder.cjs
+
+          # 1. Empacota versão Apple Silicon (arm64) com motor de IA embutido
+          ./scripts/prepareAiEngine.sh arm64
+          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --arm64 --publish never
+
+          # 2. Empacota versão Intel (x64) com motor de IA embutido
+          ./scripts/prepareAiEngine.sh x64
+          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --x64 --publish never
 
       - uses: actions/upload-artifact@v4
         with:
