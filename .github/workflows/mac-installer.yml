@@ -188,8 +188,8 @@ jobs:
                     for (const item of list) {
                       if (item.name && item.name.includes("-") && item.name !== current) {
                         for (const arch of ["arm64", "x64"]) {
-                          for (const p of ["partaa.bin", "partab.bin", "partac.bin", "partad.bin"]) {
-                            toDelete.push(`mac/${item.name}/${arch}/${p}`);
+                          for (let c = "a".charCodeAt(0); c <= "z".charCodeAt(0); c++) {
+                            toDelete.push(`mac/${item.name}/${arch}/parta${String.fromCharCode(c)}.bin`);
                           }
                         }
                       }

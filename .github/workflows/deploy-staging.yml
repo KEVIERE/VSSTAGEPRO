@@ -41,6 +41,33 @@ jobs:
           printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
 
       - run: npm ci
+
+      - name: Sincronizar versão mais recente do app
+        run: |
+          node -e '
+            const fs = require("fs");
+            const https = require("https");
+            https.get("https://download.vsstagepro.com.br/mac/manifest.json?t=" + Date.now(), (res) => {
+              let d = "";
+              res.on("data", c => d += c);
+              res.on("end", () => {
+                try {
+                  const j = JSON.parse(d);
+                  if (j.version) {
+                    const p = JSON.parse(fs.readFileSync("desktop/package.json", "utf8"));
+                    // Se o manifesto tiver versão igual ou superior, mantém sincronizado
+                    const cmp = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+                    if (cmp(j.version, p.version) >= 0) {
+                      p.version = j.version;
+                      fs.writeFileSync("desktop/package.json", JSON.stringify(p, null, 2) + "\n");
+                      console.log("Versão do staging sincronizada com o manifesto:", j.version);
+                    }
+                  }
+                } catch(e) {}
+              });
+            }).on("error", () => {});
+          ' || true
+
       - name: Build (base /staging/)
         env:
           VITE_BASE_PATH: /staging/
