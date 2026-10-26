@@ -45,7 +45,7 @@ export async function separateWithHfDemucs(
   }
 
   // 2. FILA E PROCESSAMENTO VIA WEBSOCKET (GRADIO QUEUE)
-  onProgress?.({ message: 'Conectando ao motor de IA Demucs v4...', percent: 25 });
+  onProgress?.({ message: 'Conectando ao motor de Inteligência Artificial...', percent: 25 });
 
   const sessionHash = Math.random().toString(36).substring(2, 13);
   const wsUrl = host.replace(/^http/, 'ws') + '/queue/join';
@@ -83,7 +83,7 @@ export async function separateWithHfDemucs(
         } else if (msg.msg === 'send_data') {
           onProgress?.({ message: 'Iniciando separação com a Inteligência Artificial...', percent: 40 });
           ws.send(JSON.stringify({
-            data: [remotePath],
+            data: [{ name: remotePath, data: null, is_file: true }],
             session_hash: sessionHash,
             fn_index: 0,
           }));
@@ -100,11 +100,15 @@ export async function separateWithHfDemucs(
         } else if (msg.msg === 'process_completed') {
           clearTimeout(timeout);
           ws.close();
+          if (msg.success === false) {
+            reject(new Error(msg.output?.error || 'A IA não pôde processar este áudio no momento. Tente novamente em instantes.'));
+            return;
+          }
           const data = msg.output?.data;
           if (Array.isArray(data) && data.length >= 4) {
             resolve(data.map((item) => (typeof item === 'string' ? item : item?.name || item?.data || '')));
           } else {
-            reject(new Error('A IA não retornou as 4 faixas esperadas.'));
+            reject(new Error('A IA não retornou as faixas esperadas.'));
           }
         }
       } catch (err) {

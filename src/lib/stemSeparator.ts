@@ -125,63 +125,25 @@ export async function separateSongToVS(
   // 2.2 Se for a versão Intel ou se o Mac não tiver o Demucs instalado:
   // Conecta ao motor de IA na nuvem (100% gratuito, sem Replicate, com isolamento neural real Demucs v4)
   if (!localCompleted) {
-    try {
-      onProgress?.({
-        step: 'drums',
-        message: 'Conectando ao motor de Inteligência Artificial do VS Stage...',
-        percent: 15,
-      });
-
-      const hfStems = await separateWithHfDemucs(file, undefined, (p) => {
-        onProgress?.({
-          step: 'vocals',
-          message: p.message,
-          percent: p.percent,
-        });
-      });
-
-      vocalsBuffer = hfStems.vocals;
-      bassBuffer = hfStems.bass;
-      drumsBuffer = hfStems.drums;
-      otherBuffer = hfStems.other;
-      localCompleted = true;
-    } catch (cloudErr) {
-      console.warn('Motor de nuvem não pôde processar, acionando motor embutido de emergência:', cloudErr);
-    }
-  }
-
-  // 2.3 Fallback de segurança embutido (caso o Mac esteja offline e sem Demucs)
-  if (!localCompleted) {
     onProgress?.({
       step: 'drums',
-      message: 'Separando Bateria e Percussões com o motor embutido...',
-      percent: 25,
+      message: 'Conectando ao motor de Inteligência Artificial do VS Stage...',
+      percent: 15,
     });
-    drumsBuffer = await extractDrums(audioBuffer);
 
-    onProgress?.({
-      step: 'bass',
-      message: 'Separando Contrabaixo e Subgraves...',
-      percent: 45,
+    const hfStems = await separateWithHfDemucs(file, undefined, (p) => {
+      onProgress?.({
+        step: 'vocals',
+        message: p.message,
+        percent: p.percent,
+      });
     });
-    bassBuffer = await extractBass(audioBuffer);
 
-    onProgress?.({
-      step: 'vocals',
-      message: 'Isolando Voz Principal (Guia) por cancelamento de fase estéreo...',
-      percent: 65,
-    });
-    vocalsBuffer = await extractVocals(audioBuffer);
-
-    onProgress?.({
-      step: 'other',
-      message: 'Isolando Guitarras, Teclados e Harmonia do Playback...',
-      percent: 80,
-    });
-    const harmony = await extractHarmonyAndInstruments(audioBuffer, vocalsBuffer, bassBuffer);
-    otherBuffer = harmony.other;
-    guitarBuffer = harmony.guitar;
-    pianoBuffer = harmony.piano;
+    vocalsBuffer = hfStems.vocals;
+    bassBuffer = hfStems.bass;
+    drumsBuffer = hfStems.drums;
+    otherBuffer = hfStems.other;
+    localCompleted = true;
   }
 
   // 2.4 Isolamento Inteligente de Gritos e Ambiência de Show ao Vivo
@@ -409,179 +371,4 @@ export async function separateSongToVS(
     duration,
     stemsCount: stemConfigs.length,
   };
-}
-
-// ─── PROCESSADORES DE ÁUDIO EMBUTIDOS NA INSTALAÇÃO DO PROGRAMA ───────────────
-
-/** Isola Baixo e Subgraves (20Hz a 200Hz com saturação suave) */
-async function extractBass(source: AudioBuffer): Promise<AudioBuffer> {
-  const offline = new OfflineAudioContext(source.numberOfChannels, source.length, source.sampleRate);
-  const srcNode = offline.createBufferSource();
-  srcNode.buffer = source;
-
-  const lp1 = offline.createBiquadFilter();
-  lp1.type = 'lowpass';
-  lp1.frequency.value = 180;
-  lp1.Q.value = 1.1;
-
-  const lp2 = offline.createBiquadFilter();
-  lp2.type = 'lowpass';
-  lp2.frequency.value = 220;
-
-  const boost = offline.createBiquadFilter();
-  boost.type = 'peaking';
-  boost.frequency.value = 75;
-  boost.gain.value = 3.5;
-  boost.Q.value = 1.0;
-
-  srcNode.connect(lp1);
-  lp1.connect(lp2);
-  lp2.connect(boost);
-  boost.connect(offline.destination);
-
-  srcNode.start(0);
-  return offline.startRendering();
-}
-
-/** Isola Bateria e Percussão (Ataque, transientes de bumbo, caixa e pratos) */
-async function extractDrums(source: AudioBuffer): Promise<AudioBuffer> {
-  const offline = new OfflineAudioContext(source.numberOfChannels, source.length, source.sampleRate);
-  const srcNode = offline.createBufferSource();
-  srcNode.buffer = source;
-
-  const kick = offline.createBiquadFilter();
-  kick.type = 'peaking';
-  kick.frequency.value = 65;
-  kick.gain.value = 4.0;
-  kick.Q.value = 1.4;
-
-  const snare = offline.createBiquadFilter();
-  snare.type = 'peaking';
-  snare.frequency.value = 2800;
-  snare.gain.value = 3.2;
-  snare.Q.value = 1.2;
-
-  const cymbals = offline.createBiquadFilter();
-  cymbals.type = 'highshelf';
-  cymbals.frequency.value = 8500;
-  cymbals.gain.value = 2.5;
-
-  srcNode.connect(kick);
-  kick.connect(snare);
-  snare.connect(cymbals);
-  cymbals.connect(offline.destination);
-
-  srcNode.start(0);
-  return offline.startRendering();
-}
-
-/** Isola Voz Principal (Centro estéreo Mid com cancelamento de fase das laterais) */
-async function extractVocals(source: AudioBuffer): Promise<AudioBuffer> {
-  const length = source.length;
-  const sampleRate = source.sampleRate;
-  const out = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
-
-  const leftIn = source.getChannelData(0);
-  const rightIn = source.numberOfChannels > 1 ? source.getChannelData(1) : leftIn;
-  const leftOut = out.getChannelData(0);
-  const rightOut = out.getChannelData(1);
-
-  const midData = new Float32Array(length);
-  for (let i = 0; i < length; i++) {
-    const l = leftIn[i];
-    const r = rightIn[i];
-    const mid = (l + r) * 0.5;
-    const side = Math.abs(l - r) * 0.5;
-    const factor = Math.max(0.12, 1 - Math.min(1, side * 1.9));
-    midData[i] = mid * factor;
-  }
-
-  const tempBuf = new AudioBuffer({ length, numberOfChannels: 1, sampleRate });
-  tempBuf.copyToChannel(midData, 0);
-
-  const offline = new OfflineAudioContext(2, length, sampleRate);
-  const srcNode = offline.createBufferSource();
-  srcNode.buffer = tempBuf;
-
-  const hp = offline.createBiquadFilter();
-  hp.type = 'highpass';
-  hp.frequency.value = 260;
-  hp.Q.value = 0.8;
-
-  const lp = offline.createBiquadFilter();
-  lp.type = 'lowpass';
-  lp.frequency.value = 4500;
-  lp.Q.value = 0.8;
-
-  const presence = offline.createBiquadFilter();
-  presence.type = 'peaking';
-  presence.frequency.value = 1900;
-  presence.gain.value = 3.5;
-
-  srcNode.connect(hp);
-  hp.connect(lp);
-  lp.connect(presence);
-  presence.connect(offline.destination);
-
-  srcNode.start(0);
-  const filtered = await offline.startRendering();
-
-  leftOut.set(filtered.getChannelData(0));
-  rightOut.set(filtered.getChannelData(1));
-  return out;
-}
-
-/** Isola Guitarras, Teclados e Harmonia (Subtração harmônica estéreo) */
-async function extractHarmonyAndInstruments(
-  source: AudioBuffer,
-  vocals: AudioBuffer,
-  bass: AudioBuffer
-): Promise<{ other: AudioBuffer; guitar: AudioBuffer; piano: AudioBuffer }> {
-  const length = source.length;
-  const sampleRate = source.sampleRate;
-  const other = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
-  const guitar = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
-  const piano = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
-
-  const leftIn = source.getChannelData(0);
-  const rightIn = source.numberOfChannels > 1 ? source.getChannelData(1) : leftIn;
-
-  const vocL = vocals.getChannelData(0);
-  const vocR = vocals.getChannelData(1);
-
-  const bassL = bass.getChannelData(0);
-  const bassR = bass.numberOfChannels > 1 ? bass.getChannelData(1) : bassL;
-
-  const otherL = other.getChannelData(0);
-  const otherR = other.getChannelData(1);
-  const guitarL = guitar.getChannelData(0);
-  const guitarR = guitar.getChannelData(1);
-  const pianoL = piano.getChannelData(0);
-  const pianoR = piano.getChannelData(1);
-
-  for (let i = 0; i < length; i++) {
-    const l = leftIn[i];
-    const r = rightIn[i];
-
-    const vL = vocL[i] * 0.82;
-    const vR = vocR[i] * 0.82;
-
-    const bL = bassL[i] * 0.78;
-    const bR = bassR[i] * 0.78;
-
-    const cleanL = l - vL - bL;
-    const cleanR = r - vR - bR;
-
-    otherL[i] = cleanL;
-    otherR[i] = cleanR;
-
-    const side = (cleanL - cleanR) * 0.65;
-    guitarL[i] = cleanL * 0.5 + side * 0.5;
-    guitarR[i] = cleanR * 0.5 - side * 0.5;
-
-    pianoL[i] = cleanL * 0.7;
-    pianoR[i] = cleanR * 0.7;
-  }
-
-  return { other, guitar, piano };
 }
