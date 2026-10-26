@@ -45,6 +45,24 @@ let cachedRunner = null;
 function findDemucsRunner() {
   if (cachedRunner) return cachedRunner;
 
+  // 0. Prioridade máxima: Motor de IA 100% EMBUTIDO na instalação do VS Stage (Contents/Resources/ai-engine)
+  if (process.resourcesPath) {
+    const embeddedPy = path.join(process.resourcesPath, 'ai-engine', 'python', 'bin', 'python3');
+    const embeddedTorchHome = path.join(process.resourcesPath, 'ai-engine', 'torch-cache');
+    if (fs.existsSync(embeddedPy)) {
+      cachedRunner = { type: 'python', path: embeddedPy, torchHome: embeddedTorchHome, isEmbedded: true };
+      return cachedRunner;
+    }
+  }
+
+  // 0.1 Pasta local em desenvolvimento (desktop/ai-engine/python/bin/python3)
+  const localDevPy = path.join(__dirname, 'ai-engine', 'python', 'bin', 'python3');
+  const localDevTorch = path.join(__dirname, 'ai-engine', 'torch-cache');
+  if (fs.existsSync(localDevPy)) {
+    cachedRunner = { type: 'python', path: localDevPy, torchHome: localDevTorch, isEmbedded: true };
+    return cachedRunner;
+  }
+
   // 1. Testa se o comando "demucs" está acessível no PATH do sistema
   try {
     const whichDemucs = execSync('which demucs', { encoding: 'utf8', timeout: 1000 }).trim();
@@ -107,8 +125,92 @@ function findAnyWorkingPython() {
   return null;
 }
 
+const https = require('https');
+
+function downloadFileWithRedirects(url, destPath) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadFileWithRedirects(res.headers.location, destPath).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`Falha no download (HTTP ${res.statusCode})`));
+      }
+      const out = fs.createWriteStream(destPath);
+      res.pipe(out);
+      out.on('finish', () => out.close(resolve));
+      out.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+async function ensureAiEngine(win) {
+  let runner = findDemucsRunner();
+  if (runner) return runner;
+
+  const appSupportDir = path.join(os.homedir(), 'Library', 'Application Support', 'VS Stage', 'ai-engine');
+  const pyBin = path.join(appSupportDir, 'python', 'bin', 'python3');
+
+  if (fs.existsSync(pyBin)) {
+    try {
+      execSync(`"${pyBin}" -c "import demucs"`, { stdio: 'ignore', timeout: 3000 });
+      cachedRunner = { type: 'python', path: pyBin };
+      return cachedRunner;
+    } catch {}
+  }
+
+  // Notifica o progresso na janela do programa
+  const notify = (percent, message) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('separation:progress', { percent, message });
+    }
+  };
+
+  notify(5, 'Configurando a Inteligência Artificial interna no seu Mac pela primeira vez...');
+
+  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+  const url = `https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.11.10+20241016-${arch}-apple-darwin-install_only.tar.gz`;
+  const tarFile = path.join(os.tmpdir(), `vs-stage-python-${Date.now()}.tar.gz`);
+
+  try {
+    await downloadFileWithRedirects(url, tarFile);
+    fs.mkdirSync(appSupportDir, { recursive: true });
+    execSync(`tar -xzf "${tarFile}" -C "${appSupportDir}"`);
+    try { fs.unlinkSync(tarFile); } catch {}
+  } catch (err) {
+    console.error('Erro ao baixar/extrair Python portátil:', err);
+  }
+
+  if (fs.existsSync(pyBin)) {
+    notify(12, 'Instalando motor neural de áudio de estúdio...');
+    try {
+      execSync(`"${pyBin}" -m pip install --no-cache-dir --quiet torch torchaudio demucs`, {
+        timeout: 360000
+      });
+      cachedRunner = { type: 'python', path: pyBin };
+      return cachedRunner;
+    } catch (err) {
+      console.error('Erro no pip install do Demucs:', err);
+    }
+  }
+
+  // Tenta auto-instalação em qualquer Python existente na máquina
+  const python = findAnyWorkingPython();
+  if (python) {
+    notify(15, 'Ativando motor de IA no sistema...');
+    try {
+      execSync(`"${python}" -m pip install --quiet demucs`, { stdio: 'ignore', timeout: 180000 });
+      cachedRunner = null;
+      runner = findDemucsRunner();
+      if (runner) return runner;
+    } catch {}
+  }
+
+  throw new Error('demucs_not_available');
+}
+
 function hasLocalDemucs() {
-  return Boolean(findDemucsRunner());
+  return true; // Sempre suportado localmente (se não estiver pré-instalado, o ensureAiEngine configura no primeiro uso)
 }
 
 /**
@@ -118,28 +220,8 @@ function hasLocalDemucs() {
 async function separateStemsLocal(win, filename, audioData, onProgress) {
   let runner = findDemucsRunner();
 
-  // Se o Demucs não está instalado, mas há um Python no Mac, instala o Demucs automaticamente
   if (!runner) {
-    const python = findAnyWorkingPython();
-    if (python) {
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('separation:progress', {
-          percent: 5,
-          message: 'Ativando a Inteligência Artificial interna no seu Mac pela primeira vez...'
-        });
-      }
-      try {
-        execSync(`"${python}" -m pip install --quiet demucs`, { stdio: 'ignore', timeout: 180000 });
-        cachedRunner = null;
-        runner = findDemucsRunner();
-      } catch (installErr) {
-        console.warn('Tentativa de auto-instalação do Demucs falhou:', installErr);
-      }
-    }
-  }
-
-  if (!runner) {
-    throw new Error('demucs_not_available');
+    runner = await ensureAiEngine(win);
   }
 
   const tmpId = `vs_demucs_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -185,7 +267,8 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
     const proc = spawn(spawnCmd, spawnArgs, {
       env: {
         ...process.env,
-        PATH: extendedPath
+        PATH: `${path.dirname(runner.path)}:${extendedPath}`,
+        ...(runner.torchHome ? { TORCH_HOME: runner.torchHome } : {})
       }
     });
 

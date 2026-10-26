@@ -1,4 +1,3 @@
-import { separateWithHfDemucs } from '@/lib/hfDemucs';
 import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
@@ -60,7 +59,7 @@ export async function separateSongToVS(
   const bpm = detectRobustBpm(audioBuffer, null, rawBpmResult?.bpm);
   const downbeat = rawBpmResult?.downbeat || 0;
 
-  // 2. SEPARAÇÃO DAS STEMS COM O MOTOR DE IA INTERNO DO VS STAGE (HTDemucs 6 Stems / DSP Embutido)
+  // 2. SEPARAÇÃO DAS STEMS COM O MOTOR DE IA INTERNO DO VS STAGE (HTDemucs 6 Stems)
   let drumsBuffer!: AudioBuffer;
   let bassBuffer!: AudioBuffer;
   let vocalsBuffer!: AudioBuffer;
@@ -68,82 +67,49 @@ export async function separateSongToVS(
   let guitarBuffer: AudioBuffer | null = null;
   let pianoBuffer: AudioBuffer | null = null;
 
-  let localCompleted = false;
-
-  // 2.1 Tenta rodar o Demucs v4 nativo no Mac se o ambiente estiver configurado
   if (typeof window !== 'undefined' && window.vsDesktop?.separateStemsLocal) {
-    try {
-      const hasDemucs = await window.vsDesktop.hasLocalDemucs?.().catch(() => false);
-      if (hasDemucs) {
-        onProgress?.({
-          step: 'drums',
-          message: 'Separando faixas com a Inteligência Artificial interna...',
-          percent: 20,
-        });
-
-        const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
-          onProgress?.({
-            step: 'vocals',
-            message: data.message,
-            percent: 20 + Math.floor((data.percent || 0) * 0.65),
-          });
-        });
-
-        try {
-          const arrayBuf = await file.arrayBuffer();
-          const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
-          onProgress?.({
-            step: 'other',
-            message: 'Decodificando faixas de alta fidelidade para a timeline...',
-            percent: 88,
-          });
-
-          const [v, b, d, o, g, p] = await Promise.all([
-            decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
-            decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
-            decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
-            decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
-            rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
-            rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
-          ]);
-          vocalsBuffer = v;
-          bassBuffer = b;
-          drumsBuffer = d;
-          otherBuffer = o;
-          guitarBuffer = g;
-          pianoBuffer = p;
-          localCompleted = true;
-        } finally {
-          unbind?.();
-        }
-      }
-    } catch (demucsErr) {
-      console.warn('Demucs local não pôde ser executado, acionando o motor embutido na instalação:', demucsErr);
-    }
-  }
-
-  // 2.2 Se for a versão Intel ou se o Mac não tiver o Demucs instalado:
-  // Conecta ao motor de IA na nuvem (100% gratuito, sem Replicate, com isolamento neural real Demucs v4)
-  if (!localCompleted) {
     onProgress?.({
       step: 'drums',
-      message: 'Conectando ao motor de Inteligência Artificial do VS Stage...',
+      message: 'Iniciando Inteligência Artificial interna do VS Stage...',
       percent: 15,
     });
 
-    const hfStems = await separateWithHfDemucs(file, undefined, (p) => {
+    const unbind = window.vsDesktop.onSeparationProgress?.((data) => {
       onProgress?.({
         step: 'vocals',
-        message: p.message,
-        percent: p.percent,
+        message: data.message,
+        percent: Math.min(95, Math.max(15, data.percent || 0)),
       });
     });
 
-    vocalsBuffer = hfStems.vocals;
-    bassBuffer = hfStems.bass;
-    drumsBuffer = hfStems.drums;
-    otherBuffer = hfStems.other;
-    localCompleted = true;
+    try {
+      const arrayBuf = await file.arrayBuffer();
+      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
+      onProgress?.({
+        step: 'other',
+        message: 'Decodificando faixas de alta fidelidade para a timeline...',
+        percent: 96,
+      });
+
+      const [v, b, d, o, g, p] = await Promise.all([
+        decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
+        decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
+        rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
+        rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
+      ]);
+      vocalsBuffer = v;
+      bassBuffer = b;
+      drumsBuffer = d;
+      otherBuffer = o;
+      guitarBuffer = g;
+      pianoBuffer = p;
+    } finally {
+      unbind?.();
+    }
+  } else {
+    throw new Error('A separação por Inteligência Artificial é exclusiva do aplicativo oficial do VS Stage para Mac.');
   }
 
   // 2.4 Isolamento Inteligente de Gritos e Ambiência de Show ao Vivo
