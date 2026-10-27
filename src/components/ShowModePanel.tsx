@@ -25,6 +25,24 @@ function useClock() {
   return now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+function ShowTotalsSummary({ playlist, songs }: { playlist: Array<any>; songs: Song[] }) {
+  const { total, remaining } = useShowTotals(playlist, songs);
+  return (
+    <div className="grid grid-cols-3 shrink-0 rounded-lg border border-logic-border-dark bg-logic-bg-deep divide-x divide-logic-border-dark">
+      {[
+        ['Músicas', String(playlist.length), 'text-logic-text'],
+        ['Duração do show', formatTime(total), 'text-logic-text'],
+        ['Falta no show', formatTime(remaining), 'text-logic-lcd-amber'],
+      ].map(([label, value, tone]) => (
+        <div key={label} className="flex flex-col items-center py-2">
+          <span className="text-2xs uppercase tracking-[0.12em] text-logic-text-muted">{label}</span>
+          <span className={`mt-0.5 text-lg font-semibold tabular-nums ${tone}`}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Relógio grande "Restante da música": atualiza direto do relógio de hardware a 60fps via rAF,
 // sem disparar re-render do React nem depender dos ticks do Zustand.
 function RemainingDisplay({ title }: { title: string }) {
@@ -36,14 +54,17 @@ function RemainingDisplay({ title }: { title: string }) {
       const el = textRef.current;
       if (el) {
         const st = useStore.getState();
-        const curSong = st.songs.find((s) => s.id === st.transport.currentSongId);
-        if (!curSong || curSong.duration <= 0) {
+        const curId = st.transport.currentSongId ?? st.selectedSongId ?? st.playlist[0]?.songId;
+        const curSong = st.songs.find((s) => s.id === curId);
+        const duration = curSong?.duration ?? 0;
+
+        if (duration <= 0) {
           el.textContent = '--:--';
           el.className = 'mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums text-logic-text-muted/50';
         } else {
           const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
           const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-          const left = Math.max(0, curSong.duration - t);
+          const left = Math.max(0, duration - t);
           el.textContent = `-${formatTime(left)}`;
           el.className = `mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums ${left <= 15 ? 'text-logic-lcd-red' : 'text-logic-lcd-green'}`;
         }
@@ -85,8 +106,11 @@ function LiveProgressBar({
       const el = barRef.current;
       if (el) {
         const st = useStore.getState();
-        const curSong = st.songs.find((s) => s.id === st.transport.currentSongId);
-        if (!curSong || curSong.duration <= 0) {
+        const curId = st.transport.currentSongId ?? st.selectedSongId ?? st.playlist[0]?.songId;
+        const curSong = st.songs.find((s) => s.id === curId);
+        const duration = curSong?.duration ?? 0;
+
+        if (duration <= 0) {
           el.style.width = '0%';
           raf = requestAnimationFrame(tick);
           return;
@@ -94,31 +118,28 @@ function LiveProgressBar({
 
         const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
         const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-        const slices = currentAndNextSlice(curSong, t);
+        const slices = curSong ? currentAndNextSlice(curSong, t) : { current: null, next: null };
 
         if (mode === 'current') {
           // Barra de progresso (Tocando): corre da esquerda para a direita
           let pct = 0;
           if (slices.current) {
-            const sDur = Math.max(0.01, sliceDuration(curSong, slices.current));
+            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
             pct = Math.min(100, Math.max(0, ((t - slices.current.start) / sDur) * 100));
           } else {
-            pct = Math.min(100, Math.max(0, (t / curSong.duration) * 100));
+            pct = Math.min(100, Math.max(0, (t / duration) * 100));
           }
           el.style.width = `${pct}%`;
         } else {
           // Barra de regresso (Próxima): enche da direita para a esquerda (reverse = true com justify-end)
           let pct = 0;
           if (slices.next && slices.current) {
-            const sDur = Math.max(0.01, sliceDuration(curSong, slices.current));
+            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
             const left = Math.max(0, slices.current.end - t);
             pct = Math.min(100, Math.max(0, (1 - left / sDur) * 100));
           } else {
-            const hasNext = st.transport.nextSongId !== null && st.transport.playFlow !== 'uma-uma';
-            if (hasNext && curSong.duration > 0) {
-              const left = Math.max(0, curSong.duration - t);
-              pct = Math.min(100, Math.max(0, (1 - left / curSong.duration) * 100));
-            }
+            const left = Math.max(0, duration - t);
+            pct = Math.min(100, Math.max(0, (1 - left / duration) * 100));
           }
           el.style.width = `${pct}%`;
         }
@@ -185,7 +206,6 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   });
   const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
   const { toggleBpmTower, toggleTunerTower, setPlayFlow, togglePlaylistMaximized, setPlaybackError } = useStore.getState();
-  const { total, remaining } = useShowTotals(playlist, songs);
   const clock = useClock();
 
   const active = !isStopped || isPlaying;
@@ -206,7 +226,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   return (
     <aside className="relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full bg-logic-bg-panel border-l border-logic-border-dark overflow-hidden animate-[fadeIn_200ms_ease-out]">
       <div className="flex items-center gap-2 px-5 h-12 border-b border-logic-border-dark bg-logic-bg-deep shrink-0">
-        <Radio size={14} className={transport.isPlaying ? 'text-logic-lcd-green animate-pulse' : 'text-logic-text-muted'} />
+        <Radio size={14} className={isPlaying ? 'text-logic-lcd-green animate-pulse' : 'text-logic-text-muted'} />
         <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-logic-text-dim">Modo show</span>
         <span className="ml-auto text-sm font-semibold tabular-nums text-logic-text-dim">{clock}</span>
         <button
@@ -233,13 +253,13 @@ export default function ShowModePanel({ showName }: { showName: string }) {
         )}
         <div className="grid grid-cols-2 gap-2">
           <button
-            className={`${bigBtn} disabled:pointer-events-none ${transport.isPlaying ? 'bg-logic-lcd-green/25 border-logic-lcd-green text-logic-lcd-green opacity-60' : 'bg-logic-lcd-green/15 border-logic-lcd-green/70 text-logic-lcd-green hover:bg-logic-lcd-green/25'}`}
+            className={`${bigBtn} disabled:pointer-events-none ${isPlaying ? 'bg-logic-lcd-green/25 border-logic-lcd-green text-logic-lcd-green opacity-60' : 'bg-logic-lcd-green/15 border-logic-lcd-green/70 text-logic-lcd-green hover:bg-logic-lcd-green/25'}`}
             onClick={startPlayback}
-            disabled={transport.isPlaying}
-            title={transport.isPlaying ? 'Já está tocando. Para trocar de música, dê Stop, escolha outra e toque' : 'Tocar (Espaço)'}
+            disabled={isPlaying}
+            title={isPlaying ? 'Já está tocando. Para trocar de música, dê Stop, escolha outra e toque' : 'Tocar (Espaço)'}
             aria-label="Tocar"
           >
-            {isLoading && transport.isPlaying
+            {isLoading && isPlaying
               ? <Loader2 size={20} className="animate-spin" aria-label="Carregando" />
               : <Play size={22} fill="currentColor" />}
           </button>
@@ -252,7 +272,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
           <div className="mb-1.5 text-2xs font-semibold uppercase tracking-[0.16em] text-logic-text-muted">Fluxo do show</div>
           <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-logic-bg-deep border border-logic-border-dark">
             {FLOWS.map((f) => {
-              const on = transport.playFlow === f.id;
+              const on = playFlow === f.id;
               return (
                 <button
                   key={f.id}
@@ -300,18 +320,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 shrink-0 rounded-lg border border-logic-border-dark bg-logic-bg-deep divide-x divide-logic-border-dark">
-          {[
-            ['Músicas', String(playlist.length), 'text-logic-text'],
-            ['Duração do show', formatTime(total), 'text-logic-text'],
-            ['Falta no show', formatTime(remaining), 'text-logic-lcd-amber'],
-          ].map(([label, value, tone]) => (
-            <div key={label} className="flex flex-col items-center py-2">
-              <span className="text-2xs uppercase tracking-[0.12em] text-logic-text-muted">{label}</span>
-              <span className={`mt-0.5 text-lg font-semibold tabular-nums ${tone}`}>{value}</span>
-            </div>
-          ))}
-        </div>
+        <ShowTotalsSummary playlist={playlist} songs={songs} />
 
       </div>
     </aside>

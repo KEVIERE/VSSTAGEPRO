@@ -686,13 +686,17 @@ function CurrentProgressBar() {
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const st = useStore.getState();
-      const song = st.songs.find((sg) => sg.id === st.transport.currentSongId);
-      const duration = song?.duration ?? 0;
-      const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-      const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-      const pct = duration > 0 ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0;
-      if (barRef.current) barRef.current.style.width = `${pct}%`;
+      const el = barRef.current;
+      if (el) {
+        const st = useStore.getState();
+        const curId = st.transport.currentSongId ?? st.selectedSongId;
+        const song = st.songs.find((sg) => sg.id === curId);
+        const duration = song?.duration ?? 0;
+        const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+        const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+        const pct = duration > 0 ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0;
+        el.style.width = `${pct}%`;
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -708,22 +712,21 @@ function CurrentProgressBar() {
 
 function NextCountdownBar({ currentDuration }: { currentDuration: number }) {
   const barRef = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(true);
 
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const st = useStore.getState();
-      const song = st.songs.find((sg) => sg.id === st.transport.currentSongId);
-      const duration = song?.duration ?? currentDuration;
-      const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-      const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-      const countdown = Math.max(0, duration - t);
-      const show = countdown > 0 && st.transport.nextSongId !== null;
-      setVisible((prev) => (prev === show ? prev : show));
-      if (barRef.current && duration > 0) {
-        const pct = Math.min(100, Math.max(0, (1 - countdown / duration) * 100));
-        barRef.current.style.width = `${pct}%`;
+      const el = barRef.current;
+      if (el) {
+        const st = useStore.getState();
+        const curId = st.transport.currentSongId ?? st.selectedSongId;
+        const song = st.songs.find((sg) => sg.id === curId);
+        const duration = song?.duration ?? currentDuration;
+        const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+        const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+        const left = Math.max(0, duration - t);
+        const pct = duration > 0 ? Math.min(100, Math.max(0, (1 - left / duration) * 100)) : 0;
+        el.style.width = `${pct}%`;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -731,9 +734,8 @@ function NextCountdownBar({ currentDuration }: { currentDuration: number }) {
     return () => cancelAnimationFrame(raf);
   }, [currentDuration]);
 
-  if (!visible) return null;
   return (
-    <div className="h-1 bg-[#1a1000]">
+    <div className="h-1 bg-[#1a1000] flex justify-end">
       <div ref={barRef} className="h-full bg-logic-lcd-amber ml-auto will-change-[width]" style={{ width: '0%' }} />
     </div>
   );
