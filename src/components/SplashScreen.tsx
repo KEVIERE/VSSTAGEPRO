@@ -336,7 +336,7 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
         </g>
 
         <g className="splash-fade" style={{ animationDelay: '800ms' }}>
-          <text x="40" y="425" fontFamily={FONT} fontSize="11" fontWeight="500" fill="#71717a">© 2026 VS Stage</text>
+          <text x="40" y="425" fontFamily={FONT} fontSize="11" fontWeight="500" fill="#71717a">© 2026 VS Stage Pro</text>
           <text x="760" y="425" textAnchor="end" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#f59e0b">v{__APP_VERSION__} PRO</text>
         </g>
       </svg>
