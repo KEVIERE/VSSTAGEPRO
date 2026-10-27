@@ -64,6 +64,7 @@ interface ProjectStateExt {
   openDialogOpen: boolean;
   audioDeviceDialogOpen: boolean;
   bounceDialogOpen: boolean;
+  missingAudioProject: import('@/lib/projectSaver').LoadedProject | null;
   loadingSongIds: string[];
   incompleteSongIds: string[];
   instantPrep: InstantPrep | null;
@@ -101,6 +102,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   openDialogOpen: false,
   audioDeviceDialogOpen: false,
   bounceDialogOpen: false,
+  missingAudioProject: null,
   loadingSongIds: [],
   incompleteSongIds: [],
   instantPrep: null,
@@ -287,6 +289,7 @@ interface StoreActions {
   setOpenDialogOpen: (v: boolean) => void;
   setAudioDeviceDialogOpen: (v: boolean) => void;
   setBounceDialogOpen: (v: boolean) => void;
+  setMissingAudioProject: (project: import('@/lib/projectSaver').LoadedProject | null) => void;
   applyLoadedProject: (manifest: Partial<ProjectState>, sources: Map<string, Blob>, target?: SaveTarget) => void;
   setSaveTarget: (target: SaveTarget | null) => void;
   setSaveStatus: (status: ProjectStateExt['saveStatus']) => void;
@@ -597,6 +600,7 @@ export const useStore = create<Store>()(
       setOpenDialogOpen: (v) => set({ openDialogOpen: v }),
       setAudioDeviceDialogOpen: (v) => set({ audioDeviceDialogOpen: v }),
       setBounceDialogOpen: (v) => set({ bounceDialogOpen: v }),
+      setMissingAudioProject: (project) => set({ missingAudioProject: project }),
 
       setSaveTarget: (target) => set({ saveTarget: target }),
       setSaveStatus: (status) => set({ saveStatus: status }),

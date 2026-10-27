@@ -1,7 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Loader2, Headphones,
-  X, Radio, Repeat, Layers, ListOrdered,
+  X, Radio, Repeat, Layers, ListOrdered, Search, Music2,
 } from 'lucide-react';
 import { useStore } from '@/store';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
@@ -205,17 +205,31 @@ export default function ShowModePanel({ showName }: { showName: string }) {
     return !!id && s.loadingSongIds.includes(id);
   });
   const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
-  const { toggleBpmTower, toggleTunerTower, setPlayFlow, togglePlaylistMaximized, setPlaybackError } = useStore.getState();
+  const { toggleBpmTower, toggleTunerTower, setPlayFlow, togglePlaylistMaximized, setPlaybackError, selectSong, setNextSong } = useStore.getState();
   const clock = useClock();
+  const [searchQuery, setSearchQuery] = useState('');
 
   const active = !isStopped || isPlaying;
   const current = active ? songs.find((s) => s.id === currentSongId) : undefined;
   const next = playFlow !== 'uma-uma' ? songs.find((s) => s.id === nextSongId) : undefined;
   const slices = currentAndNextSlice(current, isPlaying && audioEngine.isRunning() ? audioEngine.getCurrentTime() : 0);
-  const currentName = current ? slices.current?.name ?? current.name : null;
+  const currentName = current ? slices.current?.name ?? current.name ?? null : null;
   const nextName = current && slices.next ? slices.next.name : next?.name ?? null;
-  const nextTime = current && slices.next ? formatTime(sliceDuration(current, slices.next)) : next ? formatTime(next.duration) : undefined;
+  const nextTime = current && slices.next
+    ? formatTime(sliceDuration(current, slices.next))
+    : next
+      ? formatTime(next.duration ?? 0)
+      : undefined;
   const title = showName;
+
+  // Busca instantânea: acha rápido qualquer música do show sem precisar sair do Modo Show
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return (playlist ?? [])
+      .map((entry, index) => ({ entry, song: songs.find((s) => s.id === entry.songId), index }))
+      .filter(({ entry, song }) => entry?.name?.toLowerCase().includes(q) || song?.name?.toLowerCase().includes(q));
+  }, [playlist, songs, searchQuery]);
 
   const bigBtn = 'flex items-center justify-center h-12 shrink-0 rounded-lg border transition-all duration-150 active:scale-[0.96]';
   const neutral = 'bg-logic-bg-elevated border-logic-border-light text-logic-text hover:bg-logic-bg-panel-light';
@@ -236,6 +250,50 @@ export default function ShowModePanel({ showName }: { showName: string }) {
         >
           <X size={14} /> Sair
         </button>
+      </div>
+
+      <div className="relative mx-4 mt-3 shrink-0">
+        <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-logic-bg-deep border border-logic-border-dark focus-within:border-logic-accent transition-colors">
+          <Search size={14} className="text-logic-text-muted shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Pesquisar música do show..."
+            className="flex-1 min-w-0 bg-transparent text-xs text-logic-text placeholder:text-logic-text-muted outline-none"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-logic-text-muted hover:text-white p-0.5 rounded flex-shrink-0" aria-label="Limpar busca">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+        {searchQuery.trim() && (
+          <div className="absolute left-0 right-0 top-full mt-1 z-40 max-h-64 overflow-y-auto logic-scroll rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-logic-raised">
+            {searchResults.length === 0 ? (
+              <div className="flex items-center gap-2 px-3 py-3 text-xs text-logic-text-muted">
+                <Music2 size={14} className="opacity-40" /> Nenhuma música encontrada
+              </div>
+            ) : (
+              searchResults.map(({ entry, song, index }) => (
+                <button
+                  key={entry.songId}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-logic-bg-panel-light transition-colors border-b border-logic-border-dark/60 last:border-b-0"
+                  onClick={() => {
+                    selectSong(entry.songId);
+                    if (playFlow !== 'uma-uma' && !isPlaying) setNextSong(entry.songId);
+                    setSearchQuery('');
+                  }}
+                  title={isPlaying ? 'Selecionar esta música (defina como Próxima na playlist para entrar na sequência)' : 'Selecionar esta música'}
+                >
+                  <span className="text-2xs font-mono text-logic-text-muted w-5 flex-shrink-0">{index + 1}</span>
+                  <span className="flex-1 min-w-0 truncate text-sm text-logic-text">{entry.name}</span>
+                  {song && <span className="text-2xs font-mono text-logic-text-muted flex-shrink-0">{formatTime(song.duration ?? 0)}</span>}
+                </button>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {playbackError && (

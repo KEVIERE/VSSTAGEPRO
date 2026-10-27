@@ -8,13 +8,21 @@ let clearTimer: number | null = null;
 
 export function loadOpenedProject(loaded: LoadedProject): string {
   stopPlayback();
-  useStore.getState().applyLoadedProject(loaded.manifest, loaded.sources, loaded.target);
   const name = loaded.manifest.projectName || 'Sem Nome';
+  const absent = (loaded.manifest.clips ?? []).filter((c) => {
+    const src = loaded.sources.get(c.id);
+    return !src || src.size === 0;
+  });
+
+  // Se faltar algum áudio, abre a janela interativa para o usuário localizar ou ignorar
+  if (absent.length > 0) {
+    useStore.getState().setMissingAudioProject(loaded);
+    return `Projeto "${name}": ${absent.length} ${absent.length === 1 ? 'áudio ausente' : 'áudios ausentes'}. Localize ou continue sem eles.`;
+  }
+
+  useStore.getState().applyLoadedProject(loaded.manifest, loaded.sources, loaded.target);
   void rememberProject(name, loaded.target);
-  const absent = loaded.manifest.clips.filter((c) => c.filePath && !loaded.sources.has(c.id));
-  if (absent.length === 0) return `Projeto "${name}" aberto (${loaded.sources.size} áudios).`;
-  const list = absent.slice(0, 5).map((c) => c.name).join(', ') + (absent.length > 5 ? ` e mais ${absent.length - 5}` : '');
-  return `Projeto "${name}" aberto, mas ${absent.length === 1 ? 'falta 1 arquivo de áudio' : `faltam ${absent.length} arquivos de áudio`}: ${list}. Confira a pasta do projeto antes do show.`;
+  return `Projeto "${name}" aberto (${loaded.sources.size} áudios).`;
 }
 
 export async function openRecentProject(entry: RecentProject): Promise<void> {
@@ -54,10 +62,14 @@ export async function saveCurrentProject() {
   const target = st.saveTarget;
   st.setSaveStatus({ kind: 'saving', message: 'Salvando...' });
   try {
-    await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }));
+    const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }));
     useStore.getState().setExportProgress(null);
     void rememberProject(useStore.getState().projectName, target);
-    flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}"` }, 3500);
+    if (missingCount > 0) {
+      flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}" (Aviso: ${missingCount} áudio(s) ausente(s))` }, 6000);
+    } else {
+      flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}"` }, 3500);
+    }
   } catch (err) {
     useStore.getState().setExportProgress(null);
     if ((err as DOMException)?.name === 'AbortError' || (err as DOMException)?.name === 'NotAllowedError') {

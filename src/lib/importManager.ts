@@ -160,6 +160,22 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
   try {
     for (let k = 0; k < groups.length; k++) {
       if (cancelRequested) break;
+      const groupName = groups[k].name;
+
+      // 9. Quando tentar importar uma música que já está no projeto, o programa avisa o usuário
+      const existing = useStore.getState().songs.find(
+        (s) => s.name.trim().toLowerCase() === groupName.trim().toLowerCase()
+      );
+      if (existing) {
+        const proceed = window.confirm(
+          `A música "${groupName}" já existe no projeto.\n\nDeseja importá-la novamente?`
+        );
+        if (!proceed) {
+          useStore.getState().setPlaybackError(`Importação ignorada: "${groupName}" já existe no repertório.`);
+          continue;
+        }
+      }
+
       const label = groups.length > 1 ? `Música ${k + 1} de ${groups.length}: ` : '';
       try {
         const res = await importSong(groups[k].name, groups[k].files, label);
@@ -220,16 +236,14 @@ async function applyBpm(songId: string): Promise<boolean> {
     if (src) {
       const wavMeta = await parseWavMetadata(src);
       if (wavMeta?.bpm) {
-        const audio = getClipAudio(id);
-        const clickResult = audio ? detectClickTempo(audio, beatsPerBar) : null;
-        const downbeat = clickResult?.downbeat ?? 0;
-        setSongBpm(songId, wavMeta.bpm, 'click', downbeat);
+        // A timeline inicia cravada no 1 e não quebrada
+        setSongBpm(songId, wavMeta.bpm, 'click', 0);
         return true;
       }
     }
   }
 
-  // 2. Análise exata dos pulsos sonoros do Click para cravar o BPM e o downbeat na primeira música
+  // 2. Análise exata dos pulsos sonoros do Click para cravar o BPM na primeira música
   for (const id of clickFirst) {
     const audio = getClipAudio(id);
     if (!audio) continue;
@@ -249,8 +263,8 @@ async function applyBpm(songId: string): Promise<boolean> {
     useStore.getState().updateSong(songId, { bpmMissing: true });
     return false;
   }
-  const clipStart = useStore.getState().clips.find((c) => c.id === sourceId)?.startTime ?? 0;
-  setSongBpm(songId, result.bpm, result.fromClick ? 'click' : 'audio', result.downbeat + clipStart);
+  // A timeline inicia cravada no 1 e não quebrada
+  setSongBpm(songId, result.bpm, result.fromClick ? 'click' : 'audio', 0);
   return true;
 }
 

@@ -38,6 +38,7 @@ import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
 import SubscriptionReturn from '@/components/SubscriptionReturn';
 import AdminPage from '@/components/admin/AdminPage';
 import MobileShowRemote from '@/components/MobileShowRemote';
+import MissingAudioDialog from '@/components/MissingAudioDialog';
 import { trackFeature, useFeatureTracking } from '@/lib/featureUsage';
 import type { License } from '@/components/DirectorAccess';
 import LocalNetworkDialog from '@/components/network/LocalNetworkDialog';
@@ -425,9 +426,8 @@ function DirectorApp({ license }: { license: License }) {
     const el = e.target as HTMLElement;
     if (el.closest('[data-selectable], button, input, textarea, select, [contenteditable], [role="menu"], [role="menuitem"]')) return;
     const st = useStore.getState();
-    if (st.selectedSongId) st.selectSong(null);
+    // A música atual NUNCA é desmarcada ao clicar no fundo: só muda se selecionar outra na playlist
     if (st.selectedTrackId) st.selectTrack(null);
-    // Preserva a seleção de clipes ao interagir com ferramentas e painéis
     if (st.selectedBlockId) st.selectBlock(null);
   };
 
@@ -688,6 +688,7 @@ function DirectorApp({ license }: { license: License }) {
           open={aiSeparatorOpen}
           onClose={() => setAiSeparatorOpen(false)}
         />
+        <MissingAudioDialog />
       </div>
     </ErrorBoundary>
   );

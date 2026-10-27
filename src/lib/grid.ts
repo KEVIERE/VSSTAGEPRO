@@ -25,7 +25,8 @@ export function songGrid(
   if (!song?.bpm || song.bpm <= 0) return null;
   const beat = 60 / song.bpm;
   const beatsPerBar = song.beatsPerBar ?? 4;
-  const downbeat = Math.max(0, song.downbeat ?? 0);
+  // A timeline de cada música inicia cravada no compasso 1 e não quebrada, sincada na grade de acordo com o click
+  const downbeat = 0;
 
   return {
     beat,

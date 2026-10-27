@@ -10,7 +10,7 @@ import {
   openProjectFolder,
   saveProjectAsFolder,
   saveProjectAsPackage,
-  vscFileName,
+  vssFileName,
 } from '@/lib/projectSaver';
 import { friendlyError } from '@/lib/friendlyError';
 
@@ -148,13 +148,16 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             disabled={busy}
             onClick={() => run(async () => {
               if (mode === 'save') {
-                const target = await saveProjectAsPackage(useStore.getState(), projectName, progress);
+                const { target, missingCount } = await saveProjectAsPackage(useStore.getState(), projectName, progress);
                 setProjectName(projectName);
                 setSaveTarget(target);
                 void rememberProject(projectName, target);
+                if (missingCount > 0) {
+                  return `Projeto "${projectName}" salvo! Aviso: ${missingCount} ${missingCount === 1 ? 'áudio estava indisponível' : 'áudios estavam indisponíveis'} e foi(ram) salvo(s) sem o arquivo.`;
+                }
                 return target
                   ? `Projeto "${projectName}" salvo.`
-                  : `"${vscFileName(projectName)}" salvo na pasta Downloads.`;
+                  : `"${vssFileName(projectName)}" salvo na pasta Downloads.`;
               }
               return load(await openProjectFile(progress));
             })}
@@ -162,13 +165,13 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             <div className="flex items-center gap-2 text-logic-accent">
               {mode === 'save' ? <FileCog size={18} /> : <Package size={18} />}
               <span className="text-sm font-medium text-logic-text">
-                {mode === 'save' ? 'Arquivo único .vsc' : 'Abrir arquivo .vsc'}
+                {mode === 'save' ? 'Arquivo único .vss' : 'Abrir arquivo .vss'}
               </span>
             </div>
             <p className="text-[11px] leading-relaxed text-logic-text-dim">
               {mode === 'save'
-                ? `Guarda o projeto e todos os áudios juntos em um só arquivo ${vscFileName(projectName)}. Prático para levar ou enviar.`
-                : 'Abra um projeto .vsc com todos os áudios dentro.'}
+                ? `Guarda o projeto e todos os áudios originais sem perda de qualidade em um só arquivo ${vssFileName(projectName)}. Prático para levar ou enviar.`
+                : 'Abra um projeto compacto .vss com todos os áudios dentro.'}
             </p>
             {mode === 'save' && !chooseLocation && (
               <p className="text-[10px] text-logic-text-muted">

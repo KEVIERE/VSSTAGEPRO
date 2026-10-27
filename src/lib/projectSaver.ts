@@ -42,9 +42,11 @@ export interface LoadedProject {
   target?: SaveTarget;
 }
 
-// .vsc: [magic][áudios...][manifest][f64 manifestOffset][u32 manifestLen][magic]
+// .vss (antigo .vsc): [magic][áudios...][manifest][f64 manifestOffset][u32 manifestLen][magic]
 // O índice fica no final para que o arquivo possa ser gravado só acrescentando dados.
+// Áudio 100% de estúdio original sem nenhuma perda de qualidade (lossless).
 const VSC_MAGIC = 'VSSTAGE1';
+const VSS_EXT = '.vss';
 const VSC_EXT = '.vsc';
 const TRAILER_SIZE = 20;
 
@@ -190,7 +192,7 @@ function isSecurityError(err: unknown): boolean {
 }
 
 const FOLDER_SAVE_UNAVAILABLE =
-  'Salvar em pasta precisa do VS Stage aberto em uma janela própria do Chrome, Edge, Arc ou Brave. Enquanto isso, use "Arquivo único .vsc".';
+  'Salvar em pasta precisa do VS Stage aberto em uma janela própria do Chrome, Edge, Arc ou Brave. Enquanto isso, use "Arquivo único .vss".';
 const PICKER_BLOCKED = 'O navegador bloqueou a janela de escolha. Abra o VS Stage em uma janela própria e tente de novo.';
 
 export function isFolderSaveSupported(): boolean {
@@ -201,13 +203,14 @@ export function canChooseSaveLocation(): boolean {
   return typeof fsWin().showSaveFilePicker === 'function' && !inSubFrame();
 }
 
-function stripVsc(name: string): string {
-  return name.replace(/\.vsc$/i, '');
+function stripProjectExt(name: string): string {
+  return name.replace(/\.(vss|vsc)$/i, '');
 }
 
-export function vscFileName(name: string): string {
-  return `${sanitize(stripVsc(name))}${VSC_EXT}`;
+export function vssFileName(name: string): string {
+  return `${sanitize(stripProjectExt(name))}${VSS_EXT}`;
 }
+export const vscFileName = vssFileName; // compatibilidade com código existente
 
 function parseManifest(text: string): SavedManifest {
   let data: unknown;
@@ -323,15 +326,19 @@ async function writePackage(
   projectName: string,
   onProgress: ProgressFn,
   write: (chunk: Chunk) => Promise<void>,
-): Promise<void> {
+): Promise<{ missingCount: number }> {
   const enc = new TextEncoder();
   const magic = enc.encode(VSC_MAGIC);
   await write(magic.buffer as ArrayBuffer);
 
   const index: NonNullable<SavedManifest['assets']> = [];
   let offset = 0;
+  let missingCount = 0;
   const assets = await forEachAsset(state, onProgress, async (a, data) => {
     const size = data?.size ?? 0;
+    if (!data || size === 0) {
+      missingCount++;
+    }
     index.push({ clipId: a.clip.id, path: a.relPath, offset, size });
     if (data) await write(data);
     offset += size;
@@ -352,13 +359,16 @@ async function writePackage(
   dv.setUint32(8, manifestBytes.byteLength, true);
   for (let i = 0; i < 8; i++) dv.setUint8(12 + i, VSC_MAGIC.charCodeAt(i));
   await write(trailer);
+
+  return { missingCount };
 }
 
-async function writePackageToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn) {
+async function writePackageToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn): Promise<{ missingCount: number }> {
   const ws = await handle.createWritable();
   try {
-    await writePackage(state, stripVsc(handle.name), onProgress, (chunk) => ws.write(chunk));
+    const res = await writePackage(state, stripProjectExt(handle.name), onProgress, (chunk) => ws.write(chunk));
     await ws.close();
+    return res;
   } catch (err) {
     await ws.abort().catch(() => undefined);
     throw err;
@@ -382,30 +392,30 @@ async function rebindPackageSources(state: ProjectState, handle: FileSystemFileH
 }
 
 /** Devolve onde o projeto ficou salvo, ou null quando o navegador só permitiu baixar o arquivo. */
-export async function saveProjectAsPackage(state: ProjectState, fileName: string, onProgress: ProgressFn): Promise<SaveTarget | null> {
-  const name = vscFileName(fileName);
+export async function saveProjectAsPackage(state: ProjectState, fileName: string, onProgress: ProgressFn): Promise<{ target: SaveTarget | null; missingCount: number }> {
+  const name = vssFileName(fileName);
   const picker = fsWin().showSaveFilePicker;
   if (picker && !inSubFrame()) {
     let handle: FileSystemFileHandle | null = null;
     try {
       handle = await picker({
         suggestedName: name,
-        types: [{ description: 'Projeto VS Stage', accept: { 'application/octet-stream': [VSC_EXT] } }],
+        types: [{ description: 'Projeto VS Stage (.vss)', accept: { 'application/octet-stream': [VSS_EXT, VSC_EXT] } }],
       });
     } catch (err) {
       if (!isSecurityError(err)) throw err;
     }
     if (handle) {
-      await writePackageToHandle(state, handle, onProgress);
+      const { missingCount } = await writePackageToHandle(state, handle, onProgress);
       await rebindPackageSources(state, handle);
-      return { kind: 'package', handle };
+      return { target: { kind: 'package', handle }, missingCount };
     }
   }
 
   const parts: Chunk[] = [];
-  await writePackage(state, stripVsc(name), onProgress, async (chunk) => { parts.push(chunk); });
+  const { missingCount } = await writePackage(state, stripProjectExt(name), onProgress, async (chunk) => { parts.push(chunk); });
   downloadBlob(new Blob(parts, { type: 'application/octet-stream' }), name);
-  return null;
+  return { target: null, missingCount };
 }
 
 type PermissionHandle = FileSystemHandle & {
@@ -426,14 +436,16 @@ export function saveTargetLabel(target: SaveTarget): string {
   return target.kind === 'package' ? target.handle.name : target.name;
 }
 
-export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn): Promise<void> {
+export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn): Promise<{ missingCount: number }> {
   if (target.kind === 'package') {
     await ensureWritable(target.handle);
-    await writePackageToHandle(state, target.handle, onProgress);
+    const { missingCount } = await writePackageToHandle(state, target.handle, onProgress);
     await rebindPackageSources(state, target.handle);
+    return { missingCount };
   } else {
     await ensureWritable(target.dir);
     await writeProjectFolder(target.dir, target.name, state, onProgress);
+    return { missingCount: 0 };
   }
 }
 
@@ -442,7 +454,7 @@ async function pickProjectFile(): Promise<{ file: File; handle?: FileSystemFileH
   if (picker && !inSubFrame()) {
     try {
       const [handle] = await picker({
-        types: [{ description: 'Projeto VS Stage', accept: { 'application/octet-stream': [VSC_EXT] } }],
+        types: [{ description: 'Projeto VS Stage (.vss / .vsc)', accept: { 'application/octet-stream': [VSS_EXT, VSC_EXT] } }],
       });
       return { file: await handle.getFile(), handle };
     } catch (err) {
@@ -450,14 +462,15 @@ async function pickProjectFile(): Promise<{ file: File; handle?: FileSystemFileH
       throw err;
     }
   }
-  const [file] = await pickWithInput((input) => { input.accept = VSC_EXT; });
+  const [file] = await pickWithInput((input) => { input.accept = `${VSS_EXT},${VSC_EXT}`; });
   return { file };
 }
 
 export async function openProjectFile(onProgress: ProgressFn): Promise<LoadedProject> {
   const { file, handle } = await pickProjectFile();
-  if (!file.name.toLowerCase().endsWith(VSC_EXT)) {
-    throw new Error('Escolha um arquivo de projeto .vsc.');
+  const nameLower = file.name.toLowerCase();
+  if (!nameLower.endsWith(VSS_EXT) && !nameLower.endsWith(VSC_EXT)) {
+    throw new Error('Escolha um arquivo de projeto .vss ou .vsc.');
   }
   const loaded = await readPackage(file, onProgress);
   return handle ? { ...loaded, target: { kind: 'package', handle } } : loaded;
@@ -489,7 +502,7 @@ export async function reopenProject(target: SaveTarget, onProgress: ProgressFn):
 }
 
 async function readPackage(file: File, onProgress: ProgressFn): Promise<LoadedProject> {
-  const invalid = () => new Error('Este arquivo .vsc está incompleto ou corrompido.');
+  const invalid = () => new Error('Este arquivo de projeto (.vss) está incompleto ou corrompido.');
   const dataStart = VSC_MAGIC.length;
   if (file.size < dataStart + TRAILER_SIZE) throw invalid();
   if (await file.slice(0, dataStart).text() !== VSC_MAGIC) throw invalid();

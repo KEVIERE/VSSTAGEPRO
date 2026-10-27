@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore, BLOCK_COLORS } from '@/store';
 import {
   ListMusic, Plus, Music2, Flag, ArrowUp,
   FlagTriangleRight, Link, Maximize2, Minimize2, SlidersHorizontal, Loader2, AlertTriangle, FolderDown, Gauge, AudioWaveform,
-  ChevronRight, ChevronsDownUp, ChevronsUpDown, CheckCircle2,
+  ChevronRight, ChevronsDownUp, ChevronsUpDown, CheckCircle2, Search, X,
 } from 'lucide-react';
 import { formatTime, toneLabel, bpmLabel } from '@/components/ShowRundown';
 import { SongAdjuster } from '@/components/AdjustmentsTower';
@@ -63,6 +63,9 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   const [importOpen, setImportOpen] = useState(false);
   const [fileDragOver, setFileDragOver] = useState(false);
   const fileDragDepth = useRef(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const lastVisibleEntryRef = useRef<typeof playlist[0] | null>(null);
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -239,6 +242,16 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
         </div>
         <div className="flex items-center gap-1 ml-auto pl-2 flex-shrink-0">
           <button
+            className={`transition-colors ${searchOpen ? 'text-logic-accent' : 'text-logic-text-muted hover:text-logic-text'}`}
+            onClick={() => {
+              setSearchOpen(!searchOpen);
+              if (searchOpen) setSearchQuery('');
+            }}
+            title={searchOpen ? 'Fechar busca' : 'Pesquisar música'}
+          >
+            <Search size={14} />
+          </button>
+          <button
             className={`transition-colors ${selectedSongId ? 'text-logic-text-muted hover:text-logic-text' : 'text-logic-text-muted/30 cursor-not-allowed'}`}
             onClick={() => { if (selectedSongId) createBlock(selectedSongId); }}
             disabled={!selectedSongId}
@@ -292,6 +305,25 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
           <ImportVSDialog open={importOpen} onClose={() => setImportOpen(false)} onOpenAiSeparator={onOpenAiSeparator} />
         </div>
       </div>
+
+      {searchOpen && (
+        <div className="flex items-center gap-1.5 px-3 h-8 bg-logic-bg-deep border-b border-logic-border-dark animate-[fadeIn_150ms_ease-out]">
+          <Search size={12} className="text-logic-text-muted shrink-0" />
+          <input
+            autoFocus
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Filtrar músicas do repertório..."
+            className="flex-1 bg-transparent text-xs text-logic-text placeholder:text-logic-text-muted outline-none"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="text-logic-text-muted hover:text-white p-0.5 rounded">
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
 
       {instantPrep?.ready && (
         <div
@@ -375,14 +407,21 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
               <DropLine active={dropPos?.type === 'top'} />
             </div>
 
+            {(() => { lastVisibleEntryRef.current = null; return null; })()}
             {playlist.map((entry, index) => {
+              if (searchQuery.trim() && !entry.name.toLowerCase().includes(searchQuery.trim().toLowerCase())) {
+                return null;
+              }
               const isCurrent = entry.songId === currentSongId && transport.isPlaying;
               const isNext = entry.songId === nextSongId;
               const isSelected = selectedSongId === entry.songId;
               const block = entry.blockId ? blocks.find((b) => b.id === entry.blockId) : null;
               const song = songs.find((sg) => sg.id === entry.songId);
-              const prevEntry = index > 0 ? playlist[index - 1] : null;
-              const showBlock = block && (!prevEntry || prevEntry.blockId !== block.id);
+              // Compara com a última música VISÍVEL (não a anterior na lista completa), senão uma
+              // busca que esconde a 1ª música de um bloco deixaria o cabeçalho do bloco sem aparecer.
+              const prevVisibleEntry = lastVisibleEntryRef.current;
+              const showBlock = block && (!prevVisibleEntry || prevVisibleEntry.blockId !== block.id);
+              lastVisibleEntryRef.current = entry;
               const isPlayed = currentIndex >= 0 && index < currentIndex;
               const canExpand = hasDetails(song);
               const expanded = canExpand && !collapsedRows.has(entry.songId);

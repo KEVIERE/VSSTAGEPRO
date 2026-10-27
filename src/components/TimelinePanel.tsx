@@ -1056,10 +1056,12 @@ function TimelineHorizontalScrollbar({
   scrollRef,
   timelineWidth,
   headerWidth,
+  onDoubleClickFit,
 }: {
   scrollRef: React.RefObject<HTMLDivElement>;
   timelineWidth: number;
   headerWidth: number;
+  onDoubleClickFit?: () => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -1144,7 +1146,11 @@ function TimelineHorizontalScrollbar({
       ref={barRef}
       className="flex-1 h-full bg-[#121212] relative cursor-pointer overflow-hidden border-l border-logic-border-dark select-none"
       onPointerDown={handleTrackPointerDown}
-      title="Rolar timeline horizontalmente"
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onDoubleClickFit?.();
+      }}
+      title="Rolar timeline horizontalmente (duplo clique: ajustar zoom para caber a música inteira na tela)"
     >
       <div
         className="absolute top-1/2 -translate-y-1/2 h-[8px] rounded-full bg-[#3e3e3e] hover:bg-[#525252] active:bg-[#626262] border border-white/[0.08] shadow-sm cursor-grab active:cursor-grabbing transition-colors"
@@ -1154,6 +1160,10 @@ function TimelineHorizontalScrollbar({
           minWidth: '24px',
         }}
         onPointerDown={handleThumbPointerDown}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onDoubleClickFit?.();
+        }}
       />
     </div>
   );
@@ -1772,6 +1782,16 @@ export default function TimelinePanel() {
     target.addEventListener('pointercancel', up);
   }, [zoomH, setCurrentTime, isPlaying, song, grid, snapStep]);
 
+  // Duplo clique na barra de rolagem horizontal: ajusta o zoom perfeitamente para preencher o espaço com a música inteira
+  const handleFitSongToScreen = useCallback(() => {
+    if (!song || song.duration <= 0.1 || !scrollRef.current) return;
+    const clientW = scrollRef.current.clientWidth ?? 1000;
+    const availableW = Math.max(300, clientW - HEADER_W - 40);
+    const targetZoom = Math.max(1, Math.min(200, availableW / song.duration));
+    setZoomH(targetZoom);
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+  }, [song, HEADER_W, setZoomH]);
+
   const gridStyle = grid ? {} : {
     backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx}px)`,
   };
@@ -1931,14 +1951,25 @@ export default function TimelinePanel() {
             </div>
 
             <div
+              data-selectable="timeline"
               className="relative flex-shrink-0 z-10"
               style={{ width: `${timelineWidth}px`, ...gridStyle }}
               onPointerDown={(e) => {
                 const target = e.target as HTMLElement;
                 if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
                   if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                    e.stopPropagation();
                     selectClip(null);
                     lastSelectedClipIdRef.current = null;
+                    // Ao clicar em qualquer lugar vazio da timeline, move o cursor para a posição clicada
+                    // sem trocar a música atual selecionada (mantém na música que está)
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const clickX = e.clientX - rect.left;
+                    const clickTime = snapTime(Math.max(0, clickX / zoomH), grid, e.altKey ? 'off' : snapStep);
+                    setCurrentTime(clickTime);
+                    if (isPlaying && song) {
+                      audioEngine.seekTo(clickTime);
+                    }
                   }
                 }
               }}
@@ -2025,6 +2056,7 @@ export default function TimelinePanel() {
           scrollRef={scrollRef}
           timelineWidth={timelineWidth}
           headerWidth={HEADER_W}
+          onDoubleClickFit={handleFitSongToScreen}
         />
       </div>
 
