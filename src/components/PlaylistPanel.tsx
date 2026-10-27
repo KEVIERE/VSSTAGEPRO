@@ -13,6 +13,7 @@ import { MedleySlices } from '@/components/MedleySlices';
 import { isMedley, playedDuration } from '@/lib/medley';
 import { useCollapsedRows } from '@/lib/useCollapsedRows';
 import { groupDroppedEntries, importSongGroups, takeDroppedEntries } from '@/lib/importManager';
+import { audioEngine } from '@/lib/audioEngine';
 
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
@@ -677,27 +678,63 @@ function blockEdge(hex: string): string {
   return `#${ch((n >> 16) & 255)}${ch((n >> 8) & 255)}${ch(n & 255)}`;
 }
 
+// Lê a posição direto do motor de áudio (clock do AudioContext) via requestAnimationFrame e
+// escreve no DOM sem passar pelo estado do Zustand — assim o preenchimento acompanha a música
+// em tempo real, sem o salto/travada de re-renderizar o React a cada tick do transport.
 function CurrentProgressBar() {
-  const progress = useStore((s) => s.transport.songProgress);
+  const barRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const st = useStore.getState();
+      const song = st.songs.find((sg) => sg.id === st.transport.currentSongId);
+      const duration = song?.duration ?? 0;
+      const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+      const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+      const pct = duration > 0 ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0;
+      if (barRef.current) barRef.current.style.width = `${pct}%`;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
   return (
     <div className="h-1 bg-[#0a1a0a]">
-      <div
-        className="h-full bg-logic-lcd-green transition-all duration-75 ease-linear"
-        style={{ width: `${progress * 100}%` }}
-      />
+      <div ref={barRef} className="h-full bg-logic-lcd-green will-change-[width]" style={{ width: '0%' }} />
     </div>
   );
 }
 
 function NextCountdownBar({ currentDuration }: { currentDuration: number }) {
-  const countdown = useStore((s) => s.transport.nextSongCountdown);
-  if (countdown <= 0) return null;
+  const barRef = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const st = useStore.getState();
+      const song = st.songs.find((sg) => sg.id === st.transport.currentSongId);
+      const duration = song?.duration ?? currentDuration;
+      const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+      const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+      const countdown = Math.max(0, duration - t);
+      const show = countdown > 0 && st.transport.nextSongId !== null;
+      setVisible((prev) => (prev === show ? prev : show));
+      if (barRef.current && duration > 0) {
+        const pct = Math.min(100, Math.max(0, (1 - countdown / duration) * 100));
+        barRef.current.style.width = `${pct}%`;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [currentDuration]);
+
+  if (!visible) return null;
   return (
     <div className="h-1 bg-[#1a1000]">
-      <div
-        className="h-full bg-logic-lcd-amber ml-auto transition-all duration-75 ease-linear"
-        style={{ width: `${Math.min(100, (1 - countdown / currentDuration) * 100)}%` }}
-      />
+      <div ref={barRef} className="h-full bg-logic-lcd-amber ml-auto will-change-[width]" style={{ width: '0%' }} />
     </div>
   );
 }

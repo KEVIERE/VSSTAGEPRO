@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Loader2, Headphones,
   X, Radio, Repeat, Layers, ListOrdered,
@@ -7,7 +7,8 @@ import { useStore } from '@/store';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import { formatTime, useShowTotals } from '@/components/ShowRundown';
 import { currentAndNextSlice, sliceDuration } from '@/lib/medley';
-import type { PlayFlow } from '@/types';
+import { audioEngine } from '@/lib/audioEngine';
+import type { PlayFlow, Song } from '@/types';
 
 const FLOWS: { id: PlayFlow; label: string; hint: string; icon: typeof Repeat }[] = [
   { id: 'continuo', label: 'Contínuo', hint: 'Toca a lista inteira, uma atrás da outra', icon: Repeat },
@@ -24,12 +25,112 @@ function useClock() {
   return now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-function SongCard({ label, name, tone, progress, time, reverse = false, medley }: {
-  label: string; name: string | null; tone: 'green' | 'amber'; progress: number; time?: string; reverse?: boolean; medley?: string;
+// Relógio grande "Restante da música": atualiza direto do relógio de hardware a 60fps via rAF,
+// sem disparar re-render do React nem depender dos ticks do Zustand.
+function RemainingDisplay({ current, title }: { current: Song | undefined; title: string }) {
+  const textRef = useRef<HTMLDivElement>(null);
+  const currentDuration = current?.duration ?? 0;
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = textRef.current;
+      if (el) {
+        if (!current || currentDuration <= 0) {
+          el.textContent = '--:--';
+          el.className = 'mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums text-logic-text-muted/50';
+        } else {
+          const st = useStore.getState();
+          const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+          const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+          const left = Math.max(0, currentDuration - t);
+          el.textContent = `-${formatTime(left)}`;
+          el.className = `mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums ${left <= 15 ? 'text-logic-lcd-red' : 'text-logic-lcd-green'}`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [current, currentDuration]);
+
+  return (
+    <div className="rounded-xl border border-logic-border-dark bg-black px-6 py-6 text-center">
+      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-logic-text-muted">Restante da música</div>
+      <div ref={textRef} className="mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums text-logic-text-muted/50">
+        --:--
+      </div>
+      <div className="mt-3 text-xl xl:text-2xl font-semibold leading-tight text-logic-text truncate" title={title}>{title}</div>
+    </div>
+  );
+}
+
+// Barra contínua de alta taxa: escreve style.width direto no DOM em cada quadro (60fps),
+// eliminando completamente o atraso, pulo ou efeito elástico de CSS transitions.
+function LiveProgressBar({
+  tone,
+  reverse = false,
+  mode,
+  currentSongDuration,
+}: {
+  tone: 'green' | 'amber';
+  reverse?: boolean;
+  mode: 'current' | 'next';
+  currentSongDuration: number;
+}) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const colorCls = tone === 'green' ? 'bg-logic-lcd-green' : 'bg-logic-lcd-amber';
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = barRef.current;
+      if (el) {
+        const st = useStore.getState();
+        const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+        const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+
+        if (mode === 'current') {
+          const pct = currentSongDuration > 0 ? Math.min(100, Math.max(0, (t / currentSongDuration) * 100)) : 0;
+          el.style.width = `${pct}%`;
+        } else {
+          // Barra de regresso (próxima música)
+          const countdown = Math.max(0, currentSongDuration - t);
+          const hasNext = st.transport.nextSongId !== null && st.transport.playFlow !== 'uma-uma';
+          const pct = hasNext && currentSongDuration > 0 && countdown > 0
+            ? Math.min(100, Math.max(0, (1 - countdown / currentSongDuration) * 100))
+            : 0;
+          el.style.width = `${pct}%`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [mode, currentSongDuration]);
+
+  return (
+    <div className={`flex h-1.5 rounded-full bg-black/40 overflow-hidden ${reverse ? 'justify-end' : ''}`}>
+      <div ref={barRef} className={`h-full ${colorCls} will-change-[width]`} style={{ width: '0%' }} />
+    </div>
+  );
+}
+
+function SongCard({
+  label, name, tone, time, reverse = false, medley, mode, currentDuration = 0,
+}: {
+  label: string;
+  name: string | null;
+  tone: 'green' | 'amber';
+  time?: string;
+  reverse?: boolean;
+  medley?: string;
+  mode: 'current' | 'next';
+  currentDuration?: number;
 }) {
   const c = tone === 'green'
-    ? { border: 'border-logic-lcd-green/50', bg: 'bg-logic-lcd-green/[0.08]', text: 'text-logic-lcd-green', bar: 'bg-logic-lcd-green' }
-    : { border: 'border-logic-lcd-amber/50', bg: 'bg-logic-lcd-amber/[0.08]', text: 'text-logic-lcd-amber', bar: 'bg-logic-lcd-amber' };
+    ? { border: 'border-logic-lcd-green/50', bg: 'bg-logic-lcd-green/[0.08]', text: 'text-logic-lcd-green' }
+    : { border: 'border-logic-lcd-amber/50', bg: 'bg-logic-lcd-amber/[0.08]', text: 'text-logic-lcd-amber' };
   return (
     <div className={`flex flex-col justify-between min-w-0 h-[92px] rounded-lg border px-4 py-2.5 transition-colors duration-300 ${name ? `${c.border} ${c.bg}` : 'border-logic-border-dark bg-logic-bg-deep'}`}>
       <div className="flex items-center justify-between text-2xs font-semibold uppercase tracking-[0.16em]">
@@ -43,9 +144,7 @@ function SongCard({ label, name, tone, progress, time, reverse = false, medley }
         <div className={`text-base font-semibold leading-tight ${medley ? 'truncate' : 'line-clamp-2'}`}>{name ?? '—'}</div>
         {medley && <div className="text-xs leading-tight truncate text-logic-text-dim">{medley}</div>}
       </div>
-      <div className={`flex h-1.5 rounded-full bg-black/40 overflow-hidden ${reverse ? 'justify-end' : ''}`}>
-        <div className={`h-full ${c.bar} transition-[width] duration-75 ease-linear`} style={{ width: `${Math.min(100, Math.max(0, progress * 100))}%` }} />
-      </div>
+      <LiveProgressBar tone={tone} reverse={reverse} mode={mode} currentSongDuration={currentDuration} />
     </div>
   );
 }
@@ -69,9 +168,6 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   const active = !transport.isStopped || transport.isPlaying;
   const current = active ? songs.find((s) => s.id === transport.currentSongId) : undefined;
   const next = transport.playFlow !== 'uma-uma' ? songs.find((s) => s.id === transport.nextSongId) : undefined;
-  const songLeft = current ? Math.max(0, current.duration - transport.currentTime) : 0;
-  const nextProgress = current && current.duration > 0 && transport.nextSongCountdown > 0
-    ? 1 - transport.nextSongCountdown / current.duration : 0;
   const slices = currentAndNextSlice(current, transport.currentTime);
   const currentName = current ? slices.current?.name ?? current.name : null;
   const nextName = current && slices.next ? slices.next.name : next?.name ?? null;
@@ -158,18 +254,29 @@ export default function ShowModePanel({ showName }: { showName: string }) {
         </div>
 
         <div className="flex flex-col justify-center gap-3 flex-1">
-        <div className="rounded-xl border border-logic-border-dark bg-black px-6 py-6 text-center">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em] text-logic-text-muted">Restante da música</div>
-          <div className={`mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums ${current ? (songLeft <= 15 ? 'text-logic-lcd-red' : 'text-logic-lcd-green') : 'text-logic-text-muted/50'}`}>
-            {current ? `-${formatTime(songLeft)}` : '--:--'}
-          </div>
-          <div className="mt-3 text-xl xl:text-2xl font-semibold leading-tight text-logic-text truncate" title={title}>{title}</div>
-        </div>
+          <RemainingDisplay current={current} title={title} />
 
-        <div className="grid grid-cols-2 gap-3">
-          <SongCard label="Tocando" name={currentName} medley={slices.current ? current?.name : undefined} tone="green" progress={current ? transport.songProgress : 0} time={current ? formatTime(current.duration) : undefined} />
-          <SongCard label="Próxima" name={nextName} medley={slices.next ? current?.name : undefined} tone="amber" reverse progress={slices.next ? 0 : nextProgress} time={nextTime} />
-        </div>
+          <div className="grid grid-cols-2 gap-3">
+            <SongCard
+              label="Tocando"
+              name={currentName}
+              medley={slices.current ? current?.name : undefined}
+              tone="green"
+              time={current ? formatTime(current.duration) : undefined}
+              mode="current"
+              currentDuration={current?.duration ?? 0}
+            />
+            <SongCard
+              label="Próxima"
+              name={nextName}
+              medley={slices.next ? current?.name : undefined}
+              tone="amber"
+              reverse
+              time={nextTime}
+              mode="next"
+              currentDuration={current?.duration ?? 0}
+            />
+          </div>
         </div>
 
         <div className="grid grid-cols-3 shrink-0 rounded-lg border border-logic-border-dark bg-logic-bg-deep divide-x divide-logic-border-dark">
