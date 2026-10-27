@@ -39,8 +39,6 @@ function createSplash() {
     skipTaskbar: true,
     hasShadow: true,
     roundedCorners: true,
-    vibrancy: 'hud',
-    visualEffectState: 'active',
     backgroundColor: '#00000000',
     center: true,
     show: false,

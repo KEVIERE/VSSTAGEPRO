@@ -61,8 +61,8 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
       <div
         className="splash-card w-full max-w-[646px] aspect-[16/9] rounded-[24px] overflow-hidden"
         style={{
-          background: 'linear-gradient(180deg, rgba(36, 38, 43, 0.6) 0%, rgba(12, 13, 16, 0.78) 100%)',
-          boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.09), inset 0 1px 0 rgba(255,255,255,0.12), 0 40px 80px -20px rgba(0,0,0,0.8)',
+          background: 'linear-gradient(180deg, rgba(32, 34, 40, 0.94) 0%, rgba(14, 15, 18, 0.98) 100%)',
+          boxShadow: '0 24px 48px rgba(0, 0, 0, 0.75), inset 0 0 0 1px rgba(255, 255, 255, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
           transform: leaving ? 'scale(1.03)' : 'scale(1)',
           transition: `transform ${EXIT_MS}ms ease`,
         }}

@@ -5,7 +5,7 @@ import { useStore } from '@/store';
 import { clipAudioToBuffer, ensureSongLoaded, getClipAudio, getClipSource, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
 import type { ClipAudio } from '@/lib/audioLibrary';
 import type { AudioClip, PlaylistEntry, RoutingTarget, Song, SongTempoSegment } from '@/types';
-import { detectBpm, detectClickTempo, detectClickMultiTempo, type TempoResult } from '@/lib/beatDetector';
+import { detectBpm, detectClickTempo, type TempoResult } from '@/lib/beatDetector';
 import { parseWavMetadata } from '@/lib/reaperMetadata';
 
 const AUDIO_EXTENSIONS = /\.(wav|mp3|aac|ogg|flac|m4a|aif|aiff|wma|opus)$/i;
@@ -203,8 +203,10 @@ function reportSummary(results: SongImportResult[], brokenSongs: string[]) {
   setTimeout(() => useStore.getState().setImportProgress(null), hasProblem ? 8000 : 3000);
 }
 
-// Todo VS tem click: tenta primeiro tudo que pareça click (pela trilha ou pelo nome), depois os demais áudios.
-// Lê também metadados gravados na exportação do Reaper/DAWs e detecta medleys com múltiplos andamentos.
+// Todo VS tem click: ancora o BPM e o início do compasso (downbeat) na primeira música do VS,
+// sincronizando o click na grade com precisão milimétrica.
+// Não adiciona outros tempos automaticamente na régua: caso o andamento mude lá na frente
+// (ex.: medley), o próprio usuário clica com o botão direito na régua no ponto exato e insere o novo BPM.
 async function applyBpm(songId: string): Promise<boolean> {
   const { clickFirst, audioFallback } = bpmCandidates(songId);
   const song = useStore.getState().songs.find((s) => s.id === songId);
@@ -212,18 +214,11 @@ async function applyBpm(songId: string): Promise<boolean> {
   let result: TempoResult | null = null;
   let sourceId: string | null = null;
 
-  // 1. Metadados do arquivo (Reaper, Pro Tools, BWF, ACID chunks)
+  // 1. Confere se o arquivo (especialmente o click) trouxe metadados de BPM gravados no Reaper/DAWs
   for (const id of clickFirst) {
     const src = getClipSource(id);
     if (src) {
       const wavMeta = await parseWavMetadata(src);
-      if (wavMeta?.tempoSegments && wavMeta.tempoSegments.length > 1) {
-        const audio = getClipAudio(id);
-        const clickResult = audio ? detectClickTempo(audio, beatsPerBar) : null;
-        const downbeat = clickResult?.downbeat ?? 0;
-        setSongBpm(songId, wavMeta.bpm || wavMeta.tempoSegments[0].bpm, 'click', downbeat, wavMeta.tempoSegments);
-        return true;
-      }
       if (wavMeta?.bpm) {
         const audio = getClipAudio(id);
         const clickResult = audio ? detectClickTempo(audio, beatsPerBar) : null;
@@ -234,18 +229,7 @@ async function applyBpm(songId: string): Promise<boolean> {
     }
   }
 
-  // 2. Análise do Click para Medleys / Múltiplos BPMs
-  for (const id of clickFirst) {
-    const audio = getClipAudio(id);
-    if (!audio) continue;
-    const multi = detectClickMultiTempo(audio, beatsPerBar);
-    if (multi && multi.isMultiTempo && multi.segments.length > 1) {
-      setSongBpm(songId, multi.bpm, 'click', multi.downbeat, multi.segments);
-      return true;
-    }
-  }
-
-  // 3. Análise padrão do pulso do Click (tempo único)
+  // 2. Análise exata dos pulsos sonoros do Click para cravar o BPM e o downbeat na primeira música
   for (const id of clickFirst) {
     const audio = getClipAudio(id);
     if (!audio) continue;
@@ -253,7 +237,7 @@ async function applyBpm(songId: string): Promise<boolean> {
     if (result) { sourceId = id; break; }
   }
 
-  // 4. Fallback pela bateria/mix se não houver click audível
+  // 3. Fallback pela bateria/mix se não houver click audível
   if (!result && audioFallback) {
     const audio = getClipAudio(audioFallback);
     if (audio) {
