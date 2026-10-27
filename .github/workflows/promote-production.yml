@@ -24,11 +24,12 @@ jobs:
           if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
             VERSION=$(node -p "require('./desktop/package.json').version" 2>/dev/null || echo "1.1.x")
             NOW=$(TZ="America/Sao_Paulo" date +"%d/%m/%Y às %H:%M:%S")
-            MSG="🚀 *UPGRADE DE PRODUÇÃO INICIADO*
-━━━━━━━━━━━━━━━━━━━━
-📦 *Versão base:* \`v${VERSION}\` (Build ${BUILD_NUM})
-🕒 *Horário:* ${NOW} (Horário de Brasília)
-⏳ *Etapas:* Compilando Site Oficial, Staging e gerando instaladores Mac (.dmg ARM64 + Intel)..."
+            MSG=$(printf '%s\n%s\n%s\n%s\n%s' \
+              "🚀 *UPGRADE DE PRODUÇÃO INICIADO*" \
+              "━━━━━━━━━━━━━━━━━━━━" \
+              "📦 *Versão base:* \`v${VERSION}\` (Build ${BUILD_NUM})" \
+              "🕒 *Horário:* ${NOW} (Horário de Brasília)" \
+              "⏳ *Etapas:* Compilando Site Oficial, Staging e gerando instaladores Mac (.dmg ARM64 + Intel)...")
             curl -s -X POST \
               -H "Authorization: Bearer $SUPABASE_KEY" \
               -H "apikey: $SUPABASE_KEY" \
@@ -71,19 +72,21 @@ jobs:
               MANIFEST=$(curl -s "https://download.vsstagepro.com.br/mac/manifest.json?t=$(date +%s)" || echo "{}")
               PUB_VER=$(echo "$MANIFEST" | jq -r '.version // empty')
               [ -z "$PUB_VER" ] && PUB_VER=$(node -p "require('./desktop/package.json').version" 2>/dev/null || echo "1.1.x")
-              MSG="✅ *UPGRADE DE PRODUÇÃO CONCLUÍDO COM SUCESSO!*
-━━━━━━━━━━━━━━━━━━━━
-🎉 *Status:* 100% Publicado e Ativo!
-📦 *Versão Oficial:* \`v${PUB_VER}\` (Build ${BUILD_NUM})
-🕒 *Horário:* ${NOW} (Brasília)
-💻 *Instaladores Mac:* Apple Silicon (arm64) e Intel (x64) prontos no download oficial.
-🌐 *Web:* Site oficial e Staging atualizados."
+              MSG=$(printf '%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+                "✅ *UPGRADE DE PRODUÇÃO CONCLUÍDO COM SUCESSO!*" \
+                "━━━━━━━━━━━━━━━━━━━━" \
+                "🎉 *Status:* 100% Publicado e Ativo!" \
+                "📦 *Versão Oficial:* \`v${PUB_VER}\` (Build ${BUILD_NUM})" \
+                "🕒 *Horário:* ${NOW} (Brasília)" \
+                "💻 *Instaladores Mac:* Apple Silicon (arm64) e Intel (x64) prontos no download oficial." \
+                "🌐 *Web:* Site oficial e Staging atualizados.")
             else
-              MSG="❌ *UPGRADE DE PRODUÇÃO FALHOU*
-━━━━━━━━━━━━━━━━━━━━
-⚠️ *Status:* Erro durante a geração dos instaladores do Mac.
-🕒 *Horário:* ${NOW} (Brasília)
-Verifique os logs detalhados na aba Actions do GitHub."
+              MSG=$(printf '%s\n%s\n%s\n%s\n%s' \
+                "❌ *UPGRADE DE PRODUÇÃO FALHOU*" \
+                "━━━━━━━━━━━━━━━━━━━━" \
+                "⚠️ *Status:* Erro durante a geração dos instaladores do Mac." \
+                "🕒 *Horário:* ${NOW} (Brasília)" \
+                "Verifique os logs detalhados na aba Actions do GitHub.")
             fi
             curl -s -X POST \
               -H "Authorization: Bearer $SUPABASE_KEY" \
