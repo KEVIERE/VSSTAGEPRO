@@ -39,6 +39,7 @@ import SubscriptionReturn from '@/components/SubscriptionReturn';
 import AdminPage from '@/components/admin/AdminPage';
 import MobileShowRemote from '@/components/MobileShowRemote';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
+import { copyClips, duplicateClips, pasteClips } from '@/lib/clipClipboard';
 import { trackFeature, useFeatureTracking } from '@/lib/featureUsage';
 import type { License } from '@/components/DirectorAccess';
 import LocalNetworkDialog from '@/components/network/LocalNetworkDialog';
@@ -310,6 +311,22 @@ function DirectorApp({ license }: { license: License }) {
         return;
       }
       if (isTextInput || el?.tagName === 'SELECT') return;
+
+      if (ctrl && key === 'c') {
+        const count = copyClips();
+        if (count > 0) e.preventDefault();
+        return;
+      }
+      if (ctrl && key === 'v') {
+        const pasted = pasteClips();
+        if (pasted.length > 0) e.preventDefault();
+        return;
+      }
+      if (ctrl && key === 'd') {
+        const dups = duplicateClips();
+        if (dups.length > 0) e.preventDefault();
+        return;
+      }
 
       if (ctrl && key === 'z' && !e.shiftKey) {
         e.preventDefault();

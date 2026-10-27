@@ -1085,8 +1085,8 @@ function TimelineHorizontalScrollbar({
     };
   }, [scrollRef, headerWidth, timelineWidth]);
 
-  // A área visível da timeline (descontando a largura fixa das tracks)
-  const viewW = Math.max(10, clientWidth - headerWidth);
+  // A área visível da timeline (exclusiva das faixas)
+  const viewW = Math.max(10, clientWidth);
   const totalW = Math.max(viewW, timelineWidth);
   const maxScroll = Math.max(1, scrollWidth - clientWidth);
 
@@ -1204,6 +1204,7 @@ export default function TimelinePanel() {
   const updateSong = useStore((s) => s.updateSong);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
+  const trackHeadersRef = useRef<HTMLDivElement>(null);
   const [regionDrag, setRegionDrag] = useState<RegionDrag>(null);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
@@ -1664,16 +1665,33 @@ export default function TimelinePanel() {
     if (!el) return;
     const quantum = 256;
     const start = Math.max(0, Math.floor((el.scrollLeft - VIEW_MARGIN_PX) / quantum) * quantum);
-    const end = Math.ceil((el.scrollLeft + el.clientWidth - HEADER_W + VIEW_MARGIN_PX) / quantum) * quantum;
+    const end = Math.ceil((el.scrollLeft + el.clientWidth + VIEW_MARGIN_PX) / quantum) * quantum;
     setVisible((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
   }, []);
 
   const handleScroll = useCallback(() => {
-    if (scrollRef.current && headerScrollRef.current) {
-      headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+    if (scrollRef.current) {
+      if (headerScrollRef.current) {
+        headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
+      }
+      if (trackHeadersRef.current) {
+        trackHeadersRef.current.scrollTop = scrollRef.current.scrollTop;
+      }
     }
     updateVisible();
   }, [updateVisible]);
+
+  useEffect(() => {
+    const el = trackHeadersRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop += e.deltaY;
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1786,11 +1804,11 @@ export default function TimelinePanel() {
   const handleFitSongToScreen = useCallback(() => {
     if (!song || song.duration <= 0.1 || !scrollRef.current) return;
     const clientW = scrollRef.current.clientWidth ?? 1000;
-    const availableW = Math.max(300, clientW - HEADER_W - 40);
+    const availableW = Math.max(300, clientW - 40);
     const targetZoom = Math.max(1, Math.min(200, availableW / song.duration));
     setZoomH(targetZoom);
     if (scrollRef.current) scrollRef.current.scrollLeft = 0;
-  }, [song, HEADER_W, setZoomH]);
+  }, [song, setZoomH]);
 
   const gridStyle = grid ? {} : {
     backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx}px)`,
@@ -1911,18 +1929,19 @@ export default function TimelinePanel() {
         </div>
       </div>
 
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative"
-        onScroll={handleScroll}
-      >
+      <div className="flex-1 flex overflow-hidden relative">
         {!song ? (
-          <div className="flex items-center justify-center h-full text-logic-text-muted text-xs">
+          <div className="flex items-center justify-center h-full w-full text-logic-text-muted text-xs">
             Importe um VS ou selecione uma música para ver a timeline
           </div>
         ) : (
-          <div className="flex" style={{ minHeight: '100%', width: `${timelineWidth + HEADER_W}px` }}>
-            <div className="bg-[#1e1e24] border-r border-logic-border-dark sticky left-0 z-50 shrink-0 shadow-[4px_0_16px_rgba(0,0,0,0.6)]" style={{ width: `${HEADER_W}px` }}>
+          <>
+            {/* Coluna da esquerda (Tracks): LARGURA FIXA, 100% IMÓVEL HORIZONTALMENTE */}
+            <div
+              ref={trackHeadersRef}
+              className="bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden overflow-y-hidden select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]"
+              style={{ width: `${HEADER_W}px` }}
+            >
               <TimecodeTrackRow songId={song.id} />
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
@@ -1950,89 +1969,96 @@ export default function TimelinePanel() {
               </div>
             </div>
 
+            {/* Coluna da direita (Timeline & Clipes): Rola horizontalmente e verticalmente */}
             <div
-              data-selectable="timeline"
-              className="relative flex-shrink-0 z-10"
-              style={{ width: `${timelineWidth}px`, ...gridStyle }}
-              onPointerDown={(e) => {
-                const target = e.target as HTMLElement;
-                if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
-                  if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-                    e.stopPropagation();
-                    selectClip(null);
-                    lastSelectedClipIdRef.current = null;
-                    // Ao clicar em qualquer lugar vazio da timeline, move o cursor para a posição clicada
-                    // sem trocar a música atual selecionada (mantém na música que está)
-                    const rect = e.currentTarget.getBoundingClientRect();
-                    const clickX = e.clientX - rect.left;
-                    const clickTime = snapTime(Math.max(0, clickX / zoomH), grid, e.altKey ? 'off' : snapStep);
-                    setCurrentTime(clickTime);
-                    if (isPlaying && song) {
-                      audioEngine.seekTo(clickTime);
+              ref={scrollRef}
+              className="flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10"
+              onScroll={handleScroll}
+            >
+              <div
+                data-selectable="timeline"
+                className="relative flex-shrink-0 z-10"
+                style={{ width: `${timelineWidth}px`, minHeight: '100%', ...gridStyle }}
+                onPointerDown={(e) => {
+                  const target = e.target as HTMLElement;
+                  if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
+                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                      e.stopPropagation();
+                      selectClip(null);
+                      lastSelectedClipIdRef.current = null;
+                      // Ao clicar em qualquer lugar vazio da timeline, move o cursor para a posição clicada
+                      // sem trocar a música atual selecionada (mantém na música que está)
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clickX = e.clientX - rect.left;
+                      const clickTime = snapTime(Math.max(0, clickX / zoomH), grid, e.altKey ? 'off' : snapStep);
+                      setCurrentTime(clickTime);
+                      if (isPlaying && song) {
+                        audioEngine.seekTo(clickTime);
+                      }
                     }
                   }
-                }
-              }}
-            >
-              {allVisibleTracks.map((track) => {
-                const isFolder = track.isSubgroup;
-                const isTc = track.id === TIMECODE_TRACK_ID;
-                const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
-                const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
-                return (
-                  <div
-                    key={track.id}
-                    className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
-                    style={{ height: `${rowHeight}px` }}
-                  >
-                    {trackClips.map((clip) => (
-                      <ClipBlock
-                        key={clip.id}
-                        clip={clip}
-                        isSelected={selectedSet.has(clip.id)}
-                        onTrimStart={handleTrimStart}
-                        onMoveStart={handleMoveStart}
-                        trim={trimDrag}
-                        move={moveDrag}
-                        trackHeight={rowHeight}
-                        zoomH={zoomH}
-                        visible={visible}
-                        allowMove={!timelineLocked}
-                        timelineLocked={timelineLocked}
-                      />
-                    ))}
-                    {track.id === 'track-maestro' && recordingMaestro?.isRecording && recordingMaestro.songId === song.id && (
-                      <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} zoomH={zoomH} />
-                    )}
+                }}
+              >
+                {allVisibleTracks.map((track) => {
+                  const isFolder = track.isSubgroup;
+                  const isTc = track.id === TIMECODE_TRACK_ID;
+                  const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
+                  const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
+                  return (
+                    <div
+                      key={track.id}
+                      className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
+                      style={{ height: `${rowHeight}px` }}
+                    >
+                      {trackClips.map((clip) => (
+                        <ClipBlock
+                          key={clip.id}
+                          clip={clip}
+                          isSelected={selectedSet.has(clip.id)}
+                          onTrimStart={handleTrimStart}
+                          onMoveStart={handleMoveStart}
+                          trim={trimDrag}
+                          move={moveDrag}
+                          trackHeight={rowHeight}
+                          zoomH={zoomH}
+                          visible={visible}
+                          allowMove={!timelineLocked}
+                          timelineLocked={timelineLocked}
+                        />
+                      ))}
+                      {track.id === 'track-maestro' && recordingMaestro?.isRecording && recordingMaestro.songId === song.id && (
+                        <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} zoomH={zoomH} />
+                      )}
+                    </div>
+                  );
+                })}
+
+                {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
+
+                <RegionGuides song={song} zoomH={zoomH} drag={regionDrag} />
+
+                {trimDrag && (
+                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${trimDrag.end * zoomH}px` }}>
+                    <div className="absolute top-0 bottom-0 w-px bg-logic-lcd-amber/80" />
+                    <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-amber/60 text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
+                      Fim {trimDrag.label}{trimDrag.ids.size > 1 ? ` (${trimDrag.ids.size} áudios)` : ''}
+                    </span>
                   </div>
-                );
-              })}
+                )}
 
-              {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
+                {moveDrag && (
+                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${moveDrag.start * zoomH}px` }}>
+                    <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
+                    <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
+                      Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}
+                    </span>
+                  </div>
+                )}
 
-              <RegionGuides song={song} zoomH={zoomH} drag={regionDrag} />
-
-              {trimDrag && (
-                <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${trimDrag.end * zoomH}px` }}>
-                  <div className="absolute top-0 bottom-0 w-px bg-logic-lcd-amber/80" />
-                  <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-amber/60 text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
-                    Fim {trimDrag.label}{trimDrag.ids.size > 1 ? ` (${trimDrag.ids.size} áudios)` : ''}
-                  </span>
-                </div>
-              )}
-
-              {moveDrag && (
-                <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${moveDrag.start * zoomH}px` }}>
-                  <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
-                  <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
-                    Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}
-                  </span>
-                </div>
-              )}
-
-              <Playhead zoomH={zoomH} songId={song.id} />
+                <Playhead zoomH={zoomH} songId={song.id} />
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 

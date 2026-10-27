@@ -7,7 +7,7 @@ import { isTimecodeTrackId } from '@/lib/timecode';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, ProjectState, Song, Track } from '@/types';
 
-export type BounceMode = 'lr' | 'multipista';
+export type BounceMode = 'lr' | 'multipista' | 'show-continuo';
 
 function sanitize(name: string): string {
   return (name || '').replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Sem Nome';
@@ -208,7 +208,7 @@ interface FileJob {
 
 // Antes de carregar o áudio, conta as faixas que têm clipe para a barra de progresso já começar certa.
 function estimateFiles(song: Song, state: ProjectState, mode: BounceMode): number {
-  if (mode === 'lr') return 1;
+  if (mode === 'lr' || mode === 'show-continuo') return 1;
   const known = new Set(state.tracks.map((t) => t.id));
   return new Set(state.clips.filter((c) => c.songId === song.id && known.has(c.trackId)).map((c) => c.trackId)).size;
 }
@@ -262,11 +262,17 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
   }
 
   const projectName = sanitize(state.projectName);
-  const suffix = req.mode === 'lr' ? 'LR MASTER' : 'MULTIPISTA';
+  const suffix = req.mode === 'lr' ? 'LR MASTER' : req.mode === 'show-continuo' ? 'SHOW CONTINUO' : 'MULTIPISTA';
   let target: ExportTarget;
   let baseRel: string;
   let lrFileName = '';
-  if (req.scope === 'musica' && req.mode === 'lr') {
+  if (req.mode === 'show-continuo') {
+    const picked = await openFileTarget(`${projectName} - SHOW COMPLETO CONTÍNUO.wav`);
+    if (!picked) return null;
+    target = picked.target;
+    lrFileName = picked.name;
+    baseRel = '';
+  } else if (req.scope === 'musica' && req.mode === 'lr') {
     const picked = await openFileTarget(`${sanitize(songs[0].name)} - LR MASTER.wav`);
     if (!picked) return null;
     target = picked.target;
@@ -295,6 +301,52 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
     hooks.onProgress({ fraction: total ? Math.min(1, (saved + part) / total) : 0, label, saved, total, location: target.location });
 
   report('Preparando...', 0);
+
+  // Modo Show Contínuo: mixa cada música do show e emenda todas em sequência num único WAV master estéreo
+  if (req.mode === 'show-continuo') {
+    const renderedBuffers: AudioBuffer[] = [];
+    for (let si = 0; si < songs.length; si++) {
+      if (hooks.cancelled()) { run.status = 'cancelled'; break; }
+      const song = songs[si];
+      const songLabel = `Música ${si + 1} de ${songs.length} – ${song.name}`;
+      report(`${songLabel} · mixando faixa`, 0);
+      try {
+        await withSongAudio(song.id, async () => {
+          const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true);
+          renderedBuffers.push(buf);
+        });
+        saved++;
+        songsSaved++;
+      } catch (err) {
+        console.warn('[bounce] falha na música', song.name, err);
+        incomplete.push(song.name);
+      }
+    }
+
+    if (run.status === 'cancelled' || renderedBuffers.length === 0) {
+      return { status: run.status, location: target.location, saved: songsSaved, total: songs.length, incomplete, empty };
+    }
+
+    report('Emendando músicas em sequência contínua...', 0.92);
+    const sampleRate = renderedBuffers[0].sampleRate;
+    const totalFrames = renderedBuffers.reduce((sum, b) => sum + b.length, 0);
+    const fullBuffer = new AudioBuffer({ length: totalFrames, numberOfChannels: 2, sampleRate });
+    let frameOffset = 0;
+    for (const b of renderedBuffers) {
+      for (let ch = 0; ch < Math.min(2, b.numberOfChannels); ch++) {
+        fullBuffer.copyToChannel(b.getChannelData(ch), ch, frameOffset);
+      }
+      frameOffset += b.length;
+    }
+
+    report('Codificando WAV do show completo...', 0.96);
+    const data = encodeWavFloat32(fullBuffer);
+    const outName = lrFileName || `${projectName} - SHOW COMPLETO CONTÍNUO.wav`;
+    report(`Salvando ${outName}...`, 0.98);
+    await target.write(outName, data);
+    return { status: 'done', location: target.location, saved: 1, total: 1, incomplete, empty };
+  }
+
   for (let si = 0; si < songs.length; si++) {
     const song = songs[si];
     const songLabel = songs.length > 1 ? `Música ${si + 1} de ${songs.length} – ${song.name}` : song.name;

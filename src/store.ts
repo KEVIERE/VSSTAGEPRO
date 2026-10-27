@@ -220,6 +220,7 @@ interface StoreActions {
   deleteShow: (id: string) => void;
   activateShow: (id: string | null) => void;
   addClip: (clip: AudioClip) => void;
+  addClips: (clips: AudioClip[]) => void;
   updateClip: (clipId: string, updates: Partial<AudioClip>) => void;
   splitClipAt: (clipId: string, atSeconds: number) => boolean;
   splitClipsAt: (clipIds: string[], atSeconds: number) => boolean;
@@ -737,6 +738,27 @@ export const useStore = create<Store>()(
           clips: [...s.clips, { ...clip, trackId: childId }],
         };
       }),
+      addClips: (newClips) => set((s) => {
+        if (newClips.length === 0) return s;
+        const allClips = [...s.clips, ...newClips];
+        const touchedSongs = new Set(newClips.map((c) => c.songId));
+        const newDurations = new Map<string, number>();
+        for (const songId of touchedSongs) {
+          const songRemaining = allClips.filter((c) => c.songId === songId);
+          newDurations.set(
+            songId,
+            songRemaining.length > 0
+              ? Math.max(0.1, ...songRemaining.map((c) => c.startTime + clipPlayLength(c)))
+              : 0
+          );
+        }
+        return {
+          clips: allClips,
+          selectedClipIds: newClips.map((c) => c.id),
+          songs: s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg)),
+          playlist: s.playlist.map((p) => (newDurations.has(p.songId) ? { ...p, duration: newDurations.get(p.songId)! } : p)),
+        };
+      }),
       updateClip: (clipId, updates) => set((s) => {
         // nunca deixa um clipe apontar diretamente para um subgrupo (pasta)
         let safe = updates;
@@ -812,15 +834,46 @@ export const useStore = create<Store>()(
 
         return true;
       },
-      removeClip: (clipId) => set((s) => ({
-        clips: s.clips.filter((c) => c.id !== clipId),
-        selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
-      })),
+      removeClip: (clipId) => set((s) => {
+        const target = s.clips.find((c) => c.id === clipId);
+        const nextClips = s.clips.filter((c) => c.id !== clipId);
+        const songId = target?.songId;
+        if (!songId) {
+          return {
+            clips: nextClips,
+            selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
+          };
+        }
+        const songRemaining = nextClips.filter((c) => c.songId === songId);
+        const newDuration = songRemaining.length > 0
+          ? Math.max(0.1, ...songRemaining.map((c) => c.startTime + clipPlayLength(c)))
+          : 0;
+        return {
+          clips: nextClips,
+          selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
+          songs: s.songs.map((sg) => (sg.id === songId ? { ...sg, duration: newDuration } : sg)),
+          playlist: s.playlist.map((p) => (p.songId === songId ? { ...p, duration: newDuration } : p)),
+        };
+      }),
       removeClips: (clipIds) => set((s) => {
         const toRemove = new Set(clipIds);
+        const nextClips = s.clips.filter((c) => !toRemove.has(c.id));
+        const touchedSongs = new Set(s.clips.filter((c) => toRemove.has(c.id)).map((c) => c.songId));
+        const newDurations = new Map<string, number>();
+        for (const songId of touchedSongs) {
+          const songRemaining = nextClips.filter((c) => c.songId === songId);
+          newDurations.set(
+            songId,
+            songRemaining.length > 0
+              ? Math.max(0.1, ...songRemaining.map((c) => c.startTime + clipPlayLength(c)))
+              : 0
+          );
+        }
         return {
-          clips: s.clips.filter((c) => !toRemove.has(c.id)),
+          clips: nextClips,
           selectedClipIds: s.selectedClipIds.filter((id) => !toRemove.has(id)),
+          songs: s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg)),
+          playlist: s.playlist.map((p) => (newDurations.has(p.songId) ? { ...p, duration: newDurations.get(p.songId)! } : p)),
         };
       }),
       routeClip: (clipId, targetTrackId) => set((s) => {

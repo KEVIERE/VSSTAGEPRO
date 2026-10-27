@@ -131,6 +131,10 @@ export default function BounceDialog() {
             )}
             <ChoiceButton title="LR Master" onClick={() => runBounce('lr')}
               text={scope === 'musica' ? 'Um único WAV estéreo com o mix final.' : 'Um WAV estéreo por música.'} />
+            {scope === 'projeto' && (
+              <ChoiceButton title="Show Completo em Áudio Único" onClick={() => runBounce('show-continuo')}
+                text="Um único arquivo WAV estéreo com todas as músicas do show em sequência contínua (uma emendada na outra)." />
+            )}
             <ChoiceButton title="Multipista" onClick={() => runBounce('multipista')}
               text="Uma pasta por música com um WAV para cada faixa que tem áudio, com o nome da faixa." />
             <div className="flex justify-start mt-4">

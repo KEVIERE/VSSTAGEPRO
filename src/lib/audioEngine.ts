@@ -308,6 +308,8 @@ class AudioEngine {
   private warnedSongs = new Map<string, number>();
   // A música no ar ainda toca só pelo começo pronto (o áudio inteiro está abrindo).
   private headOnly = false;
+  // Clipes que já terminaram de tocar nesta passada (drained no worklet)
+  private endedClips = new Set<string>();
   // As faixas no ar ainda leem o começo já ajustado.
   private partialActive = false;
   private partialTimer: number | null = null;
@@ -516,6 +518,11 @@ class AudioEngine {
         try { node.port.postMessage({ startTime: whenWall }); } catch { /* ignore */ }
         this.clipGains.set(clip.id, clipGain);
         if (clipPan) this.clipPanners.set(clip.id, clipPan);
+        node.port.onmessage = (ev) => {
+          if (ev.data?.type === 'ended') {
+            this.handleClipEnded(songId, clip.id);
+          }
+        };
         this.activeClips.set(clip.id, {
           node,
           clipStartTime: clip.startTime,
@@ -905,6 +912,7 @@ class AudioEngine {
 
       this.isPlaying = true;
       this.currentSongId = songId;
+      this.endedClips.clear();
       this.markOnAir(songId);
       this.playbackOffset = startOffset;
       this.playbackAlpha = alpha;
@@ -946,6 +954,12 @@ class AudioEngine {
         try {
           p.node.port.postMessage({ type: 'seek', offsetSamples, startTime: whenWall, fadeInFrames: offsetSamples > 0 ? 512 : 1 });
         } catch { /* ignore */ }
+
+        p.node.port.onmessage = (ev) => {
+          if (ev.data?.type === 'ended') {
+            this.handleClipEnded(songId, p.clipId);
+          }
+        };
 
         this.activeClips.set(p.clipId, {
           node: p.node,
@@ -1065,9 +1079,12 @@ class AudioEngine {
       clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
       node.connect(clipGain);
 
-      const readyFor = (nodeRef: AudioWorkletNode) => new Promise<void>((resolve) => {
+      const readyFor = (nodeRef: AudioWorkletNode, clipId: string) => new Promise<void>((resolve) => {
         nodeRef.port.onmessage = (ev) => {
           if (ev.data?.type === 'ready') resolve();
+          if (ev.data?.type === 'ended') {
+            this.handleClipEnded(songId, clipId);
+          }
         };
       });
 
@@ -1080,13 +1097,13 @@ class AudioEngine {
         channel.gain.gain.value = channelGainFor(target, tracks, target.volume);
         channel.panner.pan.value = effectivePan(target.id, target.pan, lr);
         this.clipPanners.set(clip.id, clipPan);
-        pending.push({ clipId: clip.id, node, clip, ready: readyFor(node), sampleRate, bufferLength, clipGain, clipPan });
+        pending.push({ clipId: clip.id, node, clip, ready: readyFor(node, clip.id), sampleRate, bufferLength, clipGain, clipPan });
       } else {
         const channel = this.ensureChannel(target.id);
         clipGain.connect(channel.gain);
         channel.gain.gain.value = channelGainFor(target, tracks, target.volume);
         channel.panner.pan.value = effectivePan(target.id, target.pan, lr);
-        pending.push({ clipId: clip.id, node, clip, ready: readyFor(node), sampleRate, bufferLength, clipGain, clipPan: null });
+        pending.push({ clipId: clip.id, node, clip, ready: readyFor(node, clip.id), sampleRate, bufferLength, clipGain, clipPan: null });
       }
       this.clipGains.set(clip.id, clipGain);
     }
@@ -1290,6 +1307,10 @@ class AudioEngine {
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();
       if (s.tracks !== prev.tracks) this.channels.forEach((_, id) => this.routeChannel(id));
+      // Se clipes foram apagados, divididos ou cortados enquanto toca, recalcula o fim da música
+      if (s.clips !== prev.clips && this.isPlaying && this.currentSongId) {
+        this.scheduleSongEnd();
+      }
     });
   }
 
@@ -1496,13 +1517,32 @@ class AudioEngine {
     });
   }
 
-  private scheduleSongEnd(songDuration: number) {
+  private handleClipEnded(songId: string, clipId: string) {
+    if (!this.isPlaying || this.currentSongId !== songId || this.armedLoop) return;
+    this.endedClips.add(clipId);
+    if (this.activeClips.size > 0 && Array.from(this.activeClips.keys()).every((id) => this.endedClips.has(id))) {
+      // Ao terminar o áudio mais longo do VS, já parte imediatamente para a próxima música sem engasgo
+      this.onSongEnd();
+    }
+  }
+
+  private scheduleSongEnd(songDuration?: number) {
     if (this.songEndTimeout) { clearTimeout(this.songEndTimeout); this.songEndTimeout = null; }
     // com um loop armado, o fim da música só é agendado quando o loop for desligado
     if (this.armedLoop) return;
     const pos = this.getCurrentTime();
-    const song = useStore.getState().songs.find((s) => s.id === this.currentSongId);
-    const end = song && pos < playableEnd(song) - 0.01 ? Math.min(songDuration, playableEnd(song)) : songDuration;
+    const store = useStore.getState();
+    const song = store.songs.find((s) => s.id === this.currentSongId);
+    if (!song) return;
+
+    // Se o usuário splitou o VS e apagou a parte da direita, ou arrastou a aresta (trim),
+    // o novo final é exatamente o ponto onde o áudio mais longo termina.
+    const activeClipsList = store.clips.filter((c) => c.songId === song.id && isStemClip(c) && store.tracks.some((t) => t.id === c.trackId));
+    const maxClipEnd = activeClipsList.length > 0
+      ? Math.max(...activeClipsList.map((c) => c.startTime + clipPlayLength(c)))
+      : song.duration;
+    const baseDuration = Math.min(songDuration ?? song.duration, maxClipEnd);
+    const end = pos < playableEnd(song) - 0.01 ? Math.min(baseDuration, playableEnd(song)) : baseDuration;
     const remaining = Math.max(0, (end - pos) * this.playbackAlpha * 1000);
     this.songEndTimeout = window.setTimeout(() => this.onSongEnd(), remaining);
   }

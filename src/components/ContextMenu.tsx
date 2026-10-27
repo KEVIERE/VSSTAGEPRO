@@ -4,6 +4,7 @@ import type { RoutingTarget } from '@/types';
 import { masterAudioClip } from '@/lib/voiceMastering';
 import { reclassifyClipWithAi } from '@/lib/aiRouter';
 import { glueSelectedClips } from '@/lib/clipGlue';
+import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
 
 interface ContextMenuState {
   visible: boolean;
@@ -174,6 +175,45 @@ export default function ContextMenu() {
           )}
         </>
       )}
+
+      <div className="h-px bg-logic-border-dark my-1" />
+
+      <button
+        className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        onClick={() => {
+          if (state.clipId) copyClips([state.clipId]);
+          closeMenu();
+        }}
+      >
+        <span>Copiar</span>
+        <span className="text-[10px] opacity-75 font-mono">⌘C</span>
+      </button>
+
+      {hasCopiedClips() && (
+        <button
+          className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+          onClick={() => {
+            pasteClips(clip?.trackId);
+            closeMenu();
+          }}
+        >
+          <span>Colar no Cursor</span>
+          <span className="text-[10px] opacity-75 font-mono">⌘V</span>
+        </button>
+      )}
+
+      <button
+        className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        onClick={() => {
+          if (state.clipId) duplicateClips([state.clipId]);
+          closeMenu();
+        }}
+      >
+        <span>Duplicar</span>
+        <span className="text-[10px] opacity-75 font-mono">⌘D</span>
+      </button>
+
+      <div className="h-px bg-logic-border-dark my-1" />
 
       <button
         className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
