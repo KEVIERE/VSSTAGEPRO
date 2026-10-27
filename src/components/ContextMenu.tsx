@@ -3,6 +3,7 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { RoutingTarget } from '@/types';
 import { masterAudioClip } from '@/lib/voiceMastering';
 import { reclassifyClipWithAi } from '@/lib/aiRouter';
+import { glueSelectedClips } from '@/lib/clipGlue';
 
 interface ContextMenuState {
   visible: boolean;
@@ -185,6 +186,17 @@ export default function ContextMenu() {
         }}
       >
         Dividir no Cursor (Split)
+      </button>
+
+      <button
+        className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        onClick={() => {
+          void glueSelectedClips(state.clipId ? [state.clipId, ...useStore.getState().selectedClipIds] : undefined);
+          closeMenu();
+        }}
+      >
+        <span>Emendar Clipes (Unir)</span>
+        <span className="text-[10px] opacity-75 font-mono">⇧⌘G</span>
       </button>
 
       <button

@@ -14,6 +14,7 @@ import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
 import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { audioEngine } from '@/lib/audioEngine';
 import { clipPlayLength } from '@/lib/audioLibrary';
+import { glueSelectedClips } from '@/lib/clipGlue';
 
 // O programa é Mac-only: atalhos sempre no padrão do teclado Mac (⌘), nunca Ctrl.
 const SAVE_SHORTCUT = '⌘S';
@@ -194,6 +195,14 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
           action: () => {
             const st = useStore.getState();
             if (st.selectedClipIds.length >= 2) st.groupClips(st.selectedClipIds);
+            setOpenMenu(null);
+          },
+        },
+        {
+          label: 'Emendar Clipes (Unir)',
+          shortcut: '⇧⌘G',
+          action: () => {
+            void glueSelectedClips();
             setOpenMenu(null);
           },
         },

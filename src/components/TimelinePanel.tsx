@@ -19,6 +19,7 @@ import { barBeatLabel, snapTime, songGrid } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
+import { glueSelectedClips } from '@/lib/clipGlue';
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
 type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
@@ -1331,7 +1332,10 @@ export default function TimelinePanel() {
         selectAllSongClips();
       } else if (key === 'g') {
         e.preventDefault();
-        if (selectedClipIds.length >= 2) {
+        if (e.shiftKey) {
+          // Atalho ⌘+Shift+G (ou Ctrl+Shift+G): Emendar / Unir clipes de áudio (Glue)
+          void glueSelectedClips();
+        } else if (selectedClipIds.length >= 2) {
           groupClips(selectedClipIds);
         }
       } else if (key === 'u') {
