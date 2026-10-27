@@ -1,10 +1,11 @@
+import { useEffect, useRef } from 'react';
 import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, Loader2, X, Headphones, SlidersVertical } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
 import { effectiveBpm } from '@/lib/musicianApi';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { currentAndNextSlice, paramsAt } from '@/lib/medley';
+import { currentAndNextSlice, paramsAt, sliceDuration } from '@/lib/medley';
 import type { PlayFlow } from '@/types';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
@@ -19,6 +20,101 @@ const STATUS_STYLES = {
   stopped: { label: 'PARADO', text: 'text-logic-text-dim', dot: 'bg-logic-text-muted', bar: 'bg-logic-accent' },
   loading: { label: 'CARREGANDO', text: 'text-logic-accent', dot: 'bg-logic-accent shadow-[0_0_6px_1px_rgba(10,132,255,0.5)] animate-pulse', bar: 'bg-logic-accent' },
 } as const;
+
+// Barra contínua de alta taxa: escreve style.width direto no DOM em cada quadro (60fps),
+// eliminando completamente o atraso, pulo ou efeito elástico de CSS transitions.
+function TransportPlayingBar({ isFinalCountdown }: { isFinalCountdown: boolean }) {
+  const barRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = barRef.current;
+      if (el) {
+        const st = useStore.getState();
+        const curId = st.transport.currentSongId ?? st.selectedSongId;
+        const curSong = st.songs.find((s) => s.id === curId);
+        const duration = curSong?.duration ?? 0;
+        if (!st.transport.isPlaying || duration <= 0) {
+          el.style.width = '0%';
+        } else {
+          const live = audioEngine.isRunning() && !audioEngine.isUserSeeking();
+          const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+          const slices = curSong ? currentAndNextSlice(curSong, t) : { current: null, next: null };
+          let pct = 0;
+          if (slices.current) {
+            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
+            pct = Math.min(100, Math.max(0, ((t - slices.current.start) / sDur) * 100));
+          } else {
+            pct = Math.min(100, Math.max(0, (t / duration) * 100));
+          }
+          el.style.width = `${pct}%`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden">
+      <div
+        ref={barRef}
+        className={`h-full ${isFinalCountdown ? 'bg-logic-lcd-red' : 'bg-logic-lcd-green'} will-change-[width]`}
+        style={{ width: '0%' }}
+      />
+    </div>
+  );
+}
+
+// Barra de regresso do painel Próxima: enche da direita para a esquerda continuamente a 60fps
+function TransportNextBar() {
+  const barRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    const tick = () => {
+      const el = barRef.current;
+      if (el) {
+        const st = useStore.getState();
+        const curId = st.transport.currentSongId ?? st.selectedSongId;
+        const curSong = st.songs.find((s) => s.id === curId);
+        const duration = curSong?.duration ?? 0;
+        if (!st.transport.isPlaying || duration <= 0) {
+          el.style.width = '0%';
+        } else {
+          const live = audioEngine.isRunning() && !audioEngine.isUserSeeking();
+          const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+          const slices = curSong ? currentAndNextSlice(curSong, t) : { current: null, next: null };
+          let pct = 0;
+          if (slices.next && slices.current) {
+            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
+            const left = Math.max(0, slices.current.end - t);
+            pct = Math.min(100, Math.max(0, (1 - left / sDur) * 100));
+          } else {
+            const left = Math.max(0, duration - t);
+            pct = Math.min(100, Math.max(0, (1 - left / duration) * 100));
+          }
+          el.style.width = `${pct}%`;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden flex justify-end">
+      <div
+        ref={barRef}
+        className="h-full bg-logic-lcd-amber ml-auto will-change-[width]"
+        style={{ width: '0%' }}
+      />
+    </div>
+  );
+}
 
 export default function TransportBar() {
   const transport = useStore((s) => s.transport);
@@ -40,7 +136,6 @@ export default function TransportBar() {
   const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
   const currentSong = songs.find((sg) => sg.id === transport.currentSongId);
   const nextSong = songs.find((sg) => sg.id === transport.nextSongId);
-  const progressPct = Math.round(transport.songProgress * 100);
   const hasNextSong = transport.isPlaying && transport.playFlow !== 'uma-uma' && !!nextSong;
   const statusKey = isLoading ? 'loading' : transport.isPlaying ? 'playing' : transport.isPaused ? 'paused' : 'stopped';
   const status = STATUS_STYLES[statusKey];
@@ -164,12 +259,7 @@ export default function TransportBar() {
               </span>
             )}
           </div>
-          <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden">
-            <div
-              className={`h-full transition-[width] duration-100 ${finalCountdown !== null ? 'bg-logic-lcd-red' : 'bg-logic-lcd-green'}`}
-              style={{ width: `${showCurrent ? progressPct : 0}%` }}
-            />
-          </div>
+          <TransportPlayingBar isFinalCountdown={finalCountdown !== null} />
         </div>
 
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
@@ -179,12 +269,7 @@ export default function TransportBar() {
           <span className="block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ff9f0a' : '#555' }}>
             {hasNextSong && nextSong ? nextSong.name : '---'}
           </span>
-          <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden flex justify-end">
-            <div
-              className="h-full bg-logic-lcd-amber transition-[width] duration-100"
-              style={{ width: `${hasNextSong && currentSong ? progressPct : 0}%` }}
-            />
-          </div>
+          <TransportNextBar />
         </div>
       </div>
 
