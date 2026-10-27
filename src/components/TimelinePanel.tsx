@@ -1190,10 +1190,16 @@ export default function TimelinePanel() {
   const setTrackHeaderWidth = useStore((s) => s.setTrackHeaderWidth);
   const setCurrentTime = useStore((s) => s.setCurrentTime);
   const addSongRegion = useStore((s) => s.addSongRegion);
+  const updateSong = useStore((s) => s.updateSong);
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const [regionDrag, setRegionDrag] = useState<RegionDrag>(null);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
+  // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
+  // não conseguir sincronizar um trecho (ex.: medley com transições muito sutis ou sem click).
+  const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number } | null>(null);
+  const setTempoAt = useStore((s) => s.setTempoAt);
+  const removeTempoAt = useStore((s) => s.removeTempoAt);
   const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
   const [noSpaceHint, setNoSpaceHint] = useState(false);
   const [trimDrag, setTrimDrag] = useState<TrimDrag>(null);
@@ -1426,9 +1432,6 @@ export default function TimelinePanel() {
       el.addEventListener("pointerup", up);
       el.addEventListener("pointercancel", up);
     }
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
   };
 
   const handleSelectClip = (clip: AudioClip, additive: boolean, isShift: boolean) => {
@@ -1503,6 +1506,12 @@ export default function TimelinePanel() {
     const additive = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
     const isAlreadySelected = selectedSet.has(clip.id);
+    // Seleção e membros do grupo ANTES de qualquer troca de seleção abaixo — usados em up()
+    // para decidir se um clique simples (sem arrastar) deve focar só este clipe.
+    const currentSelection = selectedClipIds.filter((id) => songClips.some((c) => c.id === id));
+    const groupMembers = clip.groupId
+      ? songClips.filter((c) => c.groupId === clip.groupId).map((c) => c.id)
+      : [clip.id];
 
     if (isShift || additive || !isAlreadySelected) {
       handleSelectClip(clip, additive, isShift);
@@ -1843,14 +1852,25 @@ export default function TimelinePanel() {
               onContextMenu={(e) => {
                 e.preventDefault();
                 if (!song || !grid) return;
+                if (e.shiftKey) {
+                  // Shift + botão direito: cravar início de compasso (comportamento original)
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const clickX = e.clientX - rect.left;
+                  const clickTime = Math.max(0, clickX / zoomH);
+                  const barDuration = grid.beatsPerBar * grid.beat;
+                  const newDownbeat = clickTime % barDuration;
+                  updateSong(song.id, { downbeat: Math.round(newDownbeat * 1000) / 1000 });
+                  return;
+                }
+                // Botão direito simples: último recurso manual — abre o campo para cravar o
+                // andamento (BPM) a partir deste ponto exato da régua (ideal para medleys).
                 const rect = e.currentTarget.getBoundingClientRect();
-                const clickX = e.clientX - rect.left;
-                const clickTime = Math.max(0, clickX / zoomH);
-                const barDuration = grid.beatsPerBar * grid.beat;
-                const newDownbeat = clickTime % barDuration;
-                updateSong(song.id, { downbeat: Math.round(newDownbeat * 1000) / 1000 });
+                const clickTime = Math.max(0, (e.clientX - rect.left) / zoomH);
+                const segs = grid.tempoSegments;
+                const existingBpm = segs?.find((s) => clickTime >= s.startTime && clickTime < s.endTime)?.bpm ?? song.bpm;
+                setManualTempoPoint({ time: clickTime, x: e.clientX, y: e.clientY, existingBpm });
               }}
-              title="Clique para posicionar cursor. Botão direito: Cravar início de compasso neste ponto."
+              title="Clique para posicionar cursor. Botão direito: cravar o andamento neste ponto (último recurso). Shift + botão direito: cravar início de compasso."
             >
               {grid && song && <BarRulerLayer song={song} grid={grid} zoomH={zoomH} visible={visible} />}
               {visibleTicks.map((tick) => (
@@ -2028,6 +2048,88 @@ export default function TimelinePanel() {
         />
       )}
 
+      {manualTempoPoint && song && (
+        <ManualTempoPopover
+          point={manualTempoPoint}
+          onClose={() => setManualTempoPoint(null)}
+          onApply={(bpm) => { setTempoAt(song.id, manualTempoPoint.time, bpm); setManualTempoPoint(null); }}
+          onRemove={() => { removeTempoAt(song.id, manualTempoPoint.time); setManualTempoPoint(null); }}
+        />
+      )}
+
+    </div>
+  );
+}
+
+// Último recurso manual: define/corrige o andamento (BPM) a partir de um ponto exato da régua,
+// para medleys ou trocas de andamento que a detecção automática do click não conseguiu identificar.
+function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
+  point: { time: number; x: number; y: number; existingBpm?: number };
+  onClose: () => void;
+  onApply: (bpm: number) => void;
+  onRemove: () => void;
+}) {
+  const [value, setValue] = useState(String(Math.round((point.existingBpm ?? 120) * 10) / 10));
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', handleDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [onClose]);
+
+  const submit = () => {
+    const bpm = Number(value.replace(',', '.'));
+    if (Number.isFinite(bpm) && bpm >= 30 && bpm <= 320) onApply(bpm);
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="fixed z-[200] bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl p-3 w-56"
+      style={{ left: `${Math.min(point.x, window.innerWidth - 240)}px`, top: `${Math.min(point.y, window.innerHeight - 140)}px` }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <div className="text-2xs font-semibold text-logic-text-dim uppercase tracking-wider mb-2">
+        Cravar andamento neste ponto
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          autoFocus
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => setValue(e.target.value.replace(/[^\d.,]/g, '').slice(0, 6))}
+          onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+          className="flex-1 bg-logic-bg-deep border border-logic-border-light rounded px-2 h-8 text-sm font-mono text-logic-text outline-none focus:border-logic-accent"
+          placeholder="BPM"
+        />
+        <span className="text-2xs text-logic-text-muted">BPM</span>
+      </div>
+      <p className="text-2xs text-logic-text-muted mt-2 leading-snug">
+        Último recurso: use só quando a sincronização automática não acertar este trecho (ex.: medley).
+      </p>
+      <div className="flex gap-2 mt-3">
+        <button
+          onClick={submit}
+          className="flex-1 h-8 rounded-md bg-logic-accent text-white text-xs font-semibold hover:brightness-110 transition"
+        >
+          Cravar aqui
+        </button>
+        <button
+          onClick={onRemove}
+          className="h-8 px-3 rounded-md border border-logic-border-light text-logic-text-dim text-xs font-semibold hover:text-logic-text hover:bg-logic-bg-elevated transition"
+          title="Remove a mudança de andamento manual mais próxima"
+        >
+          Remover
+        </button>
+      </div>
     </div>
   );
 }

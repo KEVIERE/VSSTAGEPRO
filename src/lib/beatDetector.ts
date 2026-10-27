@@ -313,3 +313,96 @@ export async function detectMultiTempo(audioBuffer: AudioBuffer): Promise<MultiT
     isMultiTempo: false,
   };
 }
+
+/**
+ * Detecta múltiplos andamentos a partir da trilha de Click (especial para Medleys / Popuris).
+ * Identifica transições estáveis entre seções e cria os segmentos de andamento correspondentes.
+ */
+export function detectClickMultiTempo(
+  audio: ClipAudio,
+  beatsPerBar = 4
+): { segments: TempoSegment[]; bpm: number; isMultiTempo: boolean; downbeat: number } | null {
+  const { env, hop, len, max } = envelope(audio);
+  if (max < 300) return null;
+
+  const onsets = onsetsAt(audio, env, hop, len, max * 0.12);
+  const times = onsets.times;
+  if (times.length < 24) return null;
+
+  const maxTime = times[times.length - 1];
+  const windowSec = 16;
+  const stepSec = 4;
+  const localTempos: Array<{ time: number; bpm: number }> = [];
+
+  for (let t = 0; t + windowSec <= maxTime; t += stepSec) {
+    const windowTimes = times.filter((x) => x >= t && x < t + windowSec);
+    if (windowTimes.length >= 8) {
+      const rough = modePeriod(windowTimes);
+      if (rough) {
+        const bpm = foldIntoRange(60 / rough);
+        localTempos.push({ time: t, bpm: tidyBpm(bpm) });
+      }
+    }
+  }
+
+  if (localTempos.length >= 4) {
+    const rawSegments: Array<{ startTime: number; endTime: number; bpm: number }> = [];
+    let curBpm = localTempos[0].bpm;
+    let segStart = 0;
+
+    for (let i = 1; i < localTempos.length; i++) {
+      const candBpm = localTempos[i].bpm;
+      if (Math.abs(candBpm - curBpm) >= 6) {
+        const subsequent = localTempos.slice(i, i + 3).map((w) => w.bpm);
+        const avg = subsequent.reduce((a, b) => a + b, 0) / subsequent.length;
+        if (Math.abs(avg - curBpm) >= 5) {
+          const splitTime = Math.round(localTempos[i].time * 10) / 10;
+          rawSegments.push({
+            startTime: segStart,
+            endTime: splitTime,
+            bpm: curBpm,
+          });
+          curBpm = Math.round(avg * 10) / 10;
+          segStart = splitTime;
+          i += 2;
+        }
+      }
+    }
+
+    if (rawSegments.length >= 1) {
+      rawSegments.push({
+        startTime: segStart,
+        endTime: Math.ceil(maxTime),
+        bpm: curBpm,
+      });
+
+      const segments: TempoSegment[] = rawSegments.map((s) => {
+        // Ancora o tempo 1 deste segmento num compasso inteiro de verdade (usa a fórmula de
+        // compasso da música), em vez de cravar na primeira batida solta detectada.
+        const segTimes = times.filter((x) => x >= s.startTime && x <= s.endTime);
+        const segPeriod = 60 / s.bpm;
+        let downbeat = s.startTime;
+        if (segTimes.length >= beatsPerBar) {
+          const fit = fitGrid(segTimes, segPeriod);
+          if (fit) {
+            let first = fit.t0;
+            while (first - segPeriod * beatsPerBar >= s.startTime - 1e-3) first -= segPeriod * beatsPerBar;
+            while (first < s.startTime) first += segPeriod;
+            downbeat = first;
+          }
+        }
+        return { startTime: s.startTime, endTime: s.endTime, bpm: s.bpm, downbeat };
+      });
+
+      return {
+        segments,
+        bpm: segments[0].bpm,
+        isMultiTempo: true,
+        downbeat: segments[0].downbeat || 0,
+      };
+    }
+  }
+
+  return null;
+}
+

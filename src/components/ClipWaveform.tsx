@@ -75,83 +75,82 @@ const WaveTile = memo(function WaveTile({ peaks, color, gain = 1, fullWidth, off
       values[x] = Math.pow(Math.max(0, Math.min(1, raw)), 0.68);
     }
 
-    // 2. Linha central de zero-crossing analógica (eixo de fase de estúdio)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+    // 2. Linha central ultra-discreta de estúdio (referência de zero-crossing analógica fina)
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.07)';
     ctx.lineWidth = 0.5;
     ctx.beginPath();
     ctx.moveTo(0, mid);
     ctx.lineTo(width, mid);
     ctx.stroke();
 
-    // 3. Renderização de Envelope Fechado com Leve Assimetria Acústica (Padrão Apple Logic Pro 11 / Pro Tools)
+    // 3. Renderização de Envelope Fechado Contínuo de Alta Fidelidade (Padrão Apple Logic Pro 11 / Pro Tools HD)
+    // Em trechos de silêncio (v < 0.003), a altura é exatamente 0 para não formar linha grossa no meio
     ctx.beginPath();
     ctx.moveTo(0, mid);
     for (let x = 0; x <= width; x++) {
-      const hTop = Math.max(1, values[x] * amp);
+      const v = values[x];
+      const hTop = v < 0.003 ? 0 : Math.max(0.5, v * amp);
       ctx.lineTo(x, mid - hTop);
     }
     ctx.lineTo(width, mid);
     for (let x = width; x >= 0; x--) {
-      // Leve assimetria de fase real (ondas gravadas reais nunca são espelhos 100% sintéticos)
-      const hBottom = Math.max(1, values[x] * amp * 0.96);
+      const v = values[x];
+      const hBottom = v < 0.003 ? 0 : Math.max(0.5, v * amp);
       ctx.lineTo(x, mid + hBottom);
     }
     ctx.closePath();
 
-    // Gradiente vertical rico e encorpado de DAW profissional: sólido, vibrante e com presença
+    // Gradiente vertical rico e encorpado de DAW profissional: sólido, vibrante e com presença real
     const bodyGrad = ctx.createLinearGradient(0, mid - amp, 0, mid + amp);
     bodyGrad.addColorStop(0, `${color}`);
     bodyGrad.addColorStop(0.3, `${color}f0`);
-    bodyGrad.addColorStop(0.5, `${color}d0`);
+    bodyGrad.addColorStop(0.5, `${color}b8`);
     bodyGrad.addColorStop(0.7, `${color}f0`);
     bodyGrad.addColorStop(1, `${color}`);
 
     ctx.fillStyle = bodyGrad;
     ctx.fill();
 
-    // 4. Núcleo Interno de Energia Musical (RMS / Densidade Sonora 3D)
-    // Destaca a sustentação musical (corpo da voz, peso do baixo e decay dos instrumentos)
+    // 4. Contorno de Crista Nítido e Cirúrgico (Ataques e Transientes sem borrões nem sombras artificiais)
     ctx.beginPath();
-    ctx.moveTo(0, mid);
+    let startedTop = false;
     for (let x = 0; x <= width; x++) {
-      const rmsTop = Math.pow(values[x], 1.25) * amp * 0.58;
-      ctx.lineTo(x, mid - rmsTop);
-    }
-    ctx.lineTo(width, mid);
-    for (let x = width; x >= 0; x--) {
-      const rmsBottom = Math.pow(values[x], 1.25) * amp * 0.54;
-      ctx.lineTo(x, mid + rmsBottom);
-    }
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
-    ctx.fill();
-
-    // 5. Contorno de Crista Iluminado (Ataques e Transientes Cirúrgicos)
-    // Faz cada batida de caixa, bumbo e ataque vocal saltar aos olhos com nitidez profissional
-    ctx.save();
-    ctx.shadowColor = `${color}88`;
-    ctx.shadowBlur = 3;
-
-    ctx.beginPath();
-    for (let x = 0; x <= width; x++) {
-      const hTop = Math.max(1, values[x] * amp);
-      if (x === 0) ctx.moveTo(x, mid - hTop);
-      else ctx.lineTo(x, mid - hTop);
+      const v = values[x];
+      if (v < 0.003) {
+        startedTop = false;
+        continue;
+      }
+      const hTop = Math.max(0.5, v * amp);
+      if (!startedTop) {
+        ctx.moveTo(x, mid - hTop);
+        startedTop = true;
+      } else {
+        ctx.lineTo(x, mid - hTop);
+      }
     }
     ctx.strokeStyle = `${color}`;
-    ctx.lineWidth = 1.2;
+    ctx.lineWidth = 1;
     ctx.stroke();
 
     ctx.beginPath();
+    let startedBottom = false;
     for (let x = 0; x <= width; x++) {
-      const hBottom = Math.max(1, values[x] * amp * 0.96);
-      if (x === 0) ctx.moveTo(x, mid + hBottom);
-      else ctx.lineTo(x, mid + hBottom);
+      const v = values[x];
+      if (v < 0.003) {
+        startedBottom = false;
+        continue;
+      }
+      const hBottom = Math.max(0.5, v * amp);
+      if (!startedBottom) {
+        ctx.moveTo(x, mid + hBottom);
+        startedBottom = true;
+      } else {
+        ctx.lineTo(x, mid + hBottom);
+      }
     }
     ctx.strokeStyle = `${color}cc`;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 0.8;
     ctx.stroke();
-    ctx.restore();
   }, [peaks, color, gain, fullWidth, offset, width, height]);
 
   return (

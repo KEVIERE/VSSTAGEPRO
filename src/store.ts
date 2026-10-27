@@ -4,7 +4,7 @@ import { routeByName } from '@/lib/nameRouter';
 import { computeNextSongId } from '@/lib/playFlow';
 import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
-  PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve,
+  PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
 } from '@/types';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipSource, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { normalizePages } from '@/lib/prompterTypes';
@@ -239,6 +239,10 @@ interface StoreActions {
   renameSong: (songId: string, name: string) => void;
   setSongBpmAdjust: (songId: string, adjust: number) => void;
   setSongTuner: (songId: string, tuner: number) => void;
+  /** Crava manualmente o andamento a partir de um ponto da régua (último recurso para medleys/trocas de BPM que a detecção automática não pegou). */
+  setTempoAt: (songId: string, atTime: number, bpm: number) => void;
+  /** Remove a mudança de andamento manual mais próxima deste ponto, voltando o trecho ao segmento anterior. */
+  removeTempoAt: (songId: string, atTime: number) => void;
   addSongRegion: (songId: string, region: SongRegion) => boolean;
   updateSongRegion: (songId: string, regionId: string, updates: Partial<Omit<SongRegion, 'id'>>) => void;
   removeSongRegion: (songId: string, regionId: string) => void;
@@ -937,6 +941,61 @@ export const useStore = create<Store>()(
       })),
       setSongBpmAdjust: (songId, adjust) => set((s) => ({ songs: s.songs.map((sg) => sg.id === songId ? { ...sg, bpmAdjust: adjust } : sg) })),
       setSongTuner: (songId, tuner) => set((s) => ({ songs: s.songs.map((sg) => sg.id === songId ? { ...sg, tuner } : sg) })),
+
+      // Último recurso manual: a pessoa clica num ponto da régua (ex.: onde um medley muda de música)
+      // e define o BPM dali para frente. Divide/substitui os segmentos existentes mantendo o resto da grade intacto.
+      setTempoAt: (songId, atTime, bpm) => set((s) => {
+        const song = s.songs.find((sg) => sg.id === songId);
+        if (!song) return s;
+        const safeBpm = Math.max(30, Math.min(320, bpm));
+        const base: SongTempoSegment[] = song.tempoSegments && song.tempoSegments.length > 0
+          ? song.tempoSegments
+          : [{ startTime: 0, endTime: song.duration, bpm: song.bpm }];
+
+        const next: SongTempoSegment[] = [];
+        for (const seg of base) {
+          if (atTime <= seg.startTime + 1e-6 || atTime >= seg.endTime - 1e-6) {
+            next.push(seg);
+            continue;
+          }
+          // o ponto cai dentro deste segmento: corta em dois, o novo BPM vale do ponto até o fim
+          next.push({ ...seg, endTime: atTime });
+          next.push({ startTime: atTime, endTime: seg.endTime, bpm: safeBpm, downbeat: atTime });
+        }
+        // Se o ponto caiu exatamente numa borda, ainda garante que o segmento certo carregue o BPM novo
+        const merged = next.map((seg) => (Math.abs(seg.startTime - atTime) < 1e-6 ? { ...seg, bpm: safeBpm, downbeat: atTime } : seg))
+          .sort((a, b) => a.startTime - b.startTime);
+
+        return {
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, tempoSegments: merged, bpm: merged[0]?.bpm ?? sg.bpm, bpmDetected: true, bpmMissing: false, bpmSource: 'manual' as const }
+            : sg),
+        };
+      }),
+
+      removeTempoAt: (songId, atTime) => set((s) => {
+        const song = s.songs.find((sg) => sg.id === songId);
+        if (!song?.tempoSegments || song.tempoSegments.length <= 1) return s;
+        const sorted = [...song.tempoSegments].sort((a, b) => a.startTime - b.startTime);
+        // encontra o segmento cujo início é o mais próximo do ponto clicado (ignora o primeiro, que não tem borda anterior)
+        let closestIdx = -1;
+        let closestDist = Infinity;
+        for (let i = 1; i < sorted.length; i++) {
+          const d = Math.abs(sorted[i].startTime - atTime);
+          if (d < closestDist) { closestDist = d; closestIdx = i; }
+        }
+        if (closestIdx < 1) return s;
+        // funde o segmento removido com o anterior (o anterior passa a cobrir até o fim do removido)
+        const merged = [...sorted];
+        merged[closestIdx - 1] = { ...merged[closestIdx - 1], endTime: merged[closestIdx].endTime };
+        merged.splice(closestIdx, 1);
+        const finalSegments = merged.length > 1 ? merged : undefined;
+        return {
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, tempoSegments: finalSegments, bpm: finalSegments?.[0]?.bpm ?? merged[0]?.bpm ?? sg.bpm }
+            : sg),
+        };
+      }),
 
       addSongRegion: (songId, region) => {
         const song = get().songs.find((sg) => sg.id === songId);

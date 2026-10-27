@@ -76,8 +76,12 @@ export function channelGainFor(track: Track, allTracks: Track[], volume: number)
   // o timecode só obedece ao próprio mudo: solo e mudo das outras faixas não o calam
   if (isTimecodeTrackId(track.id)) return track.mute ? 0 : faderToGain(volume);
   const anySolo = allTracks.some((t) => t.solo && !isTimecodeTrackId(t.id));
-  const audible = (!anySolo || chainHas(track, allTracks, (t) => t.solo) || treeHasSolo(track, allTracks))
-    && !chainHas(track, allTracks, (t) => t.mute);
+  const inSoloChain = chainHas(track, allTracks, (t) => t.solo) || treeHasSolo(track, allTracks);
+  // Padrão de estúdio (Logic Pro / Pro Tools): Solo SEMPRE vence Mudo na própria faixa/grupo —
+  // soar uma faixa que ficou muda antes (ex.: trilha de ambiência mutada por padrão pela IA)
+  // precisa tocar imediatamente, sem precisar desligar o mudo manualmente primeiro.
+  if (inSoloChain) return faderToGain(volume);
+  const audible = !anySolo && !chainHas(track, allTracks, (t) => t.mute);
   return audible ? faderToGain(volume) : 0;
 }
 
@@ -86,7 +90,9 @@ export function channelGainFor(track: Track, allTracks: Track[], volume: number)
 // mostra ou esconde os controles. Solo de clipe é restrito à própria música (como o
 // solo de faixa é restrito à mixagem inteira), senão um solo isolado silenciaria shows
 // com várias músicas abertas ao mesmo tempo.
+// Padrão de estúdio: Solo sempre vence Mudo no próprio clipe (mesma regra de channelGainFor).
 export function clipGainFor(clip: AudioClip, songClips: AudioClip[]): number {
+  if (clip.solo) return clip.gain ?? 1;
   if (clip.mute) return 0;
   const anySolo = songClips.some((c) => c.solo);
   if (anySolo && !clip.solo) return 0;

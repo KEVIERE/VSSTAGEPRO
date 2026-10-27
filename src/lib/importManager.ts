@@ -2,10 +2,11 @@ import { decodeFile, generateMarkers } from '@/lib/audioDecoder';
 import { cleanClipName, routeByName, isUnreadableName } from '@/lib/nameRouter';
 import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
-import { clipAudioToBuffer, ensureSongLoaded, getClipAudio, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
+import { clipAudioToBuffer, ensureSongLoaded, getClipAudio, getClipSource, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
 import type { ClipAudio } from '@/lib/audioLibrary';
-import type { AudioClip, PlaylistEntry, RoutingTarget, Song } from '@/types';
-import { detectBpm, detectClickTempo, type TempoResult } from '@/lib/beatDetector';
+import type { AudioClip, PlaylistEntry, RoutingTarget, Song, SongTempoSegment } from '@/types';
+import { detectBpm, detectClickTempo, detectClickMultiTempo, type TempoResult } from '@/lib/beatDetector';
+import { parseWavMetadata } from '@/lib/reaperMetadata';
 
 const AUDIO_EXTENSIONS = /\.(wav|mp3|aac|ogg|flac|m4a|aif|aiff|wma|opus)$/i;
 const DECODE_CONCURRENCY = 4;
@@ -203,19 +204,56 @@ function reportSummary(results: SongImportResult[], brokenSongs: string[]) {
 }
 
 // Todo VS tem click: tenta primeiro tudo que pareça click (pela trilha ou pelo nome), depois os demais áudios.
-// Só se nenhum deles tiver pulso regular é que a bateria/percussão vai para a estimativa por áudio.
+// Lê também metadados gravados na exportação do Reaper/DAWs e detecta medleys com múltiplos andamentos.
 async function applyBpm(songId: string): Promise<boolean> {
   const { clickFirst, audioFallback } = bpmCandidates(songId);
   const song = useStore.getState().songs.find((s) => s.id === songId);
   const beatsPerBar = song?.beatsPerBar ?? 4;
   let result: TempoResult | null = null;
   let sourceId: string | null = null;
+
+  // 1. Metadados do arquivo (Reaper, Pro Tools, BWF, ACID chunks)
+  for (const id of clickFirst) {
+    const src = getClipSource(id);
+    if (src) {
+      const wavMeta = await parseWavMetadata(src);
+      if (wavMeta?.tempoSegments && wavMeta.tempoSegments.length > 1) {
+        const audio = getClipAudio(id);
+        const clickResult = audio ? detectClickTempo(audio, beatsPerBar) : null;
+        const downbeat = clickResult?.downbeat ?? 0;
+        setSongBpm(songId, wavMeta.bpm || wavMeta.tempoSegments[0].bpm, 'click', downbeat, wavMeta.tempoSegments);
+        return true;
+      }
+      if (wavMeta?.bpm) {
+        const audio = getClipAudio(id);
+        const clickResult = audio ? detectClickTempo(audio, beatsPerBar) : null;
+        const downbeat = clickResult?.downbeat ?? 0;
+        setSongBpm(songId, wavMeta.bpm, 'click', downbeat);
+        return true;
+      }
+    }
+  }
+
+  // 2. Análise do Click para Medleys / Múltiplos BPMs
+  for (const id of clickFirst) {
+    const audio = getClipAudio(id);
+    if (!audio) continue;
+    const multi = detectClickMultiTempo(audio, beatsPerBar);
+    if (multi && multi.isMultiTempo && multi.segments.length > 1) {
+      setSongBpm(songId, multi.bpm, 'click', multi.downbeat, multi.segments);
+      return true;
+    }
+  }
+
+  // 3. Análise padrão do pulso do Click (tempo único)
   for (const id of clickFirst) {
     const audio = getClipAudio(id);
     if (!audio) continue;
     result = detectClickTempo(audio, beatsPerBar);
     if (result) { sourceId = id; break; }
   }
+
+  // 4. Fallback pela bateria/mix se não houver click audível
   if (!result && audioFallback) {
     const audio = getClipAudio(audioFallback);
     if (audio) {
@@ -232,9 +270,20 @@ async function applyBpm(songId: string): Promise<boolean> {
   return true;
 }
 
-export function setSongBpm(songId: string, bpm: number, source: NonNullable<Song['bpmSource']>, downbeat?: number) {
+export function setSongBpm(
+  songId: string,
+  bpm: number,
+  source: NonNullable<Song['bpmSource']>,
+  downbeat?: number,
+  tempoSegments?: SongTempoSegment[]
+) {
   useStore.getState().updateSong(songId, {
-    bpm, bpmDetected: true, bpmMissing: false, bpmSource: source, ...(downbeat !== undefined ? { downbeat } : {}),
+    bpm,
+    bpmDetected: true,
+    bpmMissing: false,
+    bpmSource: source,
+    ...(downbeat !== undefined ? { downbeat } : {}),
+    ...(tempoSegments && tempoSegments.length > 1 ? { tempoSegments } : {}),
   });
   const withBpm = (list: PlaylistEntry[]) => list.map((p) => p.songId === songId ? { ...p, bpm } : p);
   useStore.setState((s) => ({
@@ -402,6 +451,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
 
   // Fase 2: roteia, cria faixas e insere clipes (serial, mas rápido — só manipula estado).
   const childTrackCounts: Record<string, Record<string, number>> = {};
+  const usedTracksInSong = new Set<string>();
   let maxDuration = 0;
 
   for (const entry of decodedEntries) {
@@ -434,22 +484,33 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
     // o que é o áudio sem precisar abrir o arquivo. A faixa continua numerada normalmente.
     const clipDisplayName = route ? numberedName : cleanClipName(file.name);
 
+    // S\u00f3 reaproveita a faixa se o nome for EXATAMENTE id\u00eantico e se a faixa ainda N\u00c3O tiver sido
+    // ocupada por outro clipe nesta mesma m\u00fasica.
+    // Isso garante de forma absoluta que NENHUM \u00e1udio fique por cima do outro na timeline!
     const existingChild = useStore.getState().tracks.find((t) => {
-      if (t.parentId !== trackId) return false;
+      if (t.parentId !== trackId || usedTracksInSong.has(t.id)) return false;
       const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-      return norm(t.name) === norm(numberedName) || norm(t.name.replace(/\s+\d+$/, '')) === norm(childTrackName);
+      return norm(t.name) === norm(numberedName);
     });
 
     let actualTrackId: string;
-    if (trackId === 'track-guia' || trackId === 'track-click' || trackId === 'track-maestro') {
+    if ((trackId === 'track-guia' || trackId === 'track-click' || trackId === 'track-maestro') && !usedTracksInSong.has(trackId)) {
       actualTrackId = trackId;
     } else if (existingChild) {
       actualTrackId = existingChild.id;
     } else {
-      const childId = `${trackId}-child-${Date.now()}-${index}`;
-      useStore.getState().addChildTrack(trackId, numberedName, childId);
+      let finalName = numberedName;
+      let suffix = count;
+      const currentTracks = useStore.getState().tracks;
+      while (currentTracks.some((t) => t.parentId === trackId && t.name.toLowerCase() === finalName.toLowerCase())) {
+        suffix++;
+        finalName = `${childTrackName} ${suffix}`;
+      }
+      const childId = `${trackId}-child-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+      useStore.getState().addChildTrack(trackId, finalName, childId);
       actualTrackId = childId;
     }
+    usedTracksInSong.add(actualTrackId);
 
     const markers = generateMarkers(duration);
 
