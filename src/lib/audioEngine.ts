@@ -1745,7 +1745,7 @@ class AudioEngine {
   private startMetering() {
     this.stopMetering();
     const METER_INTERVAL_MS = 33; // ~30 fps para medidores VU
-    const STORE_INTERVAL_MS = 20; // 50 Hz em tempo real para cursor e barras de progresso/regresso sem engasgos
+    const STORE_INTERVAL_MS = 100; // 10 Hz para estado textual e teleprompter sem sobrecarregar a CPU
     let lastMeterTick = 0;
     let lastStoreTick = 0;
     const levels = new Map<string, number>();

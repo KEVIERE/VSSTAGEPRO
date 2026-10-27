@@ -2,20 +2,48 @@ name: Upgrade de produção
 
 # Orquestrador: um clique (no botão "Upgrade de produção" da aba "Teste interno" do
 # admin, ou manualmente aqui) publica a versão atual da branch main para todo mundo:
-#  1. Site (vsstagepro.com.br) — mesmo processo de deploy-site.yml.
-#  2. App de Mac — gera novo .dmg (arm64 + x64), testa (assinatura/montagem/reconstrução
-#     das partes) e publica em VPS + Supabase, igual ao mac-installer.yml.
-# Cada app já aberto recebe o aviso de atualização quase na hora (Supabase Realtime);
-# quem está fechado recebe na próxima vez que abrir com internet.
+#  1. Notifica início no Telegram via bot oficial de alertas.
+#  2. Site (vsstagepro.com.br) — mesmo processo de deploy-site.yml.
+#  3. Staging (/staging) — ambiente de teste interno atualizado.
+#  4. App de Mac — gera novo .dmg (arm64 + x64), testa e publica em VPS + Supabase.
+#  5. Notifica conclusão no Telegram com detalhes da versão e links.
 on:
   workflow_dispatch:
 
 jobs:
+  notify-start:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enviar alerta de início no Telegram
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUILD_NUM: ${{ github.run_number }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
+            VERSION=$(node -p "require('./desktop/package.json').version" 2>/dev/null || echo "1.1.x")
+            NOW=$(TZ="America/Sao_Paulo" date +"%d/%m/%Y às %H:%M:%S")
+            MSG="🚀 *UPGRADE DE PRODUÇÃO INICIADO*
+━━━━━━━━━━━━━━━━━━━━
+📦 *Versão base:* \`v${VERSION}\` (Build ${BUILD_NUM})
+🕒 *Horário:* ${NOW} (Horário de Brasília)
+⏳ *Etapas:* Compilando Site Oficial, Staging e gerando instaladores Mac (.dmg ARM64 + Intel)..."
+            curl -s -X POST \
+              -H "Authorization: Bearer $SUPABASE_KEY" \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg m "$MSG" '{message: $m}')" \
+              "$SUPABASE_URL/functions/v1/telegram-alert" || true
+          fi
+
   site:
+    needs: notify-start
     uses: ./.github/workflows/deploy-site.yml
     secrets: inherit
 
   staging:
+    needs: notify-start
     uses: ./.github/workflows/deploy-staging.yml
     secrets: inherit
 
@@ -23,3 +51,44 @@ jobs:
     needs: [site, staging]
     uses: ./.github/workflows/mac-installer.yml
     secrets: inherit
+
+  notify-finish:
+    needs: [mac]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enviar alerta de conclusão no Telegram
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUILD_NUM: ${{ github.run_number }}
+          RESULT: ${{ needs.mac.result }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
+            NOW=$(TZ="America/Sao_Paulo" date +"%d/%m/%Y às %H:%M:%S")
+            if [ "$RESULT" = "success" ]; then
+              MANIFEST=$(curl -s "https://download.vsstagepro.com.br/mac/manifest.json?t=$(date +%s)" || echo "{}")
+              PUB_VER=$(echo "$MANIFEST" | jq -r '.version // empty')
+              [ -z "$PUB_VER" ] && PUB_VER=$(node -p "require('./desktop/package.json').version" 2>/dev/null || echo "1.1.x")
+              MSG="✅ *UPGRADE DE PRODUÇÃO CONCLUÍDO COM SUCESSO!*
+━━━━━━━━━━━━━━━━━━━━
+🎉 *Status:* 100% Publicado e Ativo!
+📦 *Versão Oficial:* \`v${PUB_VER}\` (Build ${BUILD_NUM})
+🕒 *Horário:* ${NOW} (Brasília)
+💻 *Instaladores Mac:* Apple Silicon (arm64) e Intel (x64) prontos no download oficial.
+🌐 *Web:* Site oficial e Staging atualizados."
+            else
+              MSG="❌ *UPGRADE DE PRODUÇÃO FALHOU*
+━━━━━━━━━━━━━━━━━━━━
+⚠️ *Status:* Erro durante a geração dos instaladores do Mac.
+🕒 *Horário:* ${NOW} (Brasília)
+Verifique os logs detalhados na aba Actions do GitHub."
+            fi
+            curl -s -X POST \
+              -H "Authorization: Bearer $SUPABASE_KEY" \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg m "$MSG" '{message: $m}')" \
+              "$SUPABASE_URL/functions/v1/telegram-alert" || true
+          fi

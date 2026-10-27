@@ -27,23 +27,23 @@ function useClock() {
 
 // Relógio grande "Restante da música": atualiza direto do relógio de hardware a 60fps via rAF,
 // sem disparar re-render do React nem depender dos ticks do Zustand.
-function RemainingDisplay({ current, title }: { current: Song | undefined; title: string }) {
+function RemainingDisplay({ title }: { title: string }) {
   const textRef = useRef<HTMLDivElement>(null);
-  const currentDuration = current?.duration ?? 0;
 
   useEffect(() => {
     let raf = 0;
     const tick = () => {
       const el = textRef.current;
       if (el) {
-        if (!current || currentDuration <= 0) {
+        const st = useStore.getState();
+        const curSong = st.songs.find((s) => s.id === st.transport.currentSongId);
+        if (!curSong || curSong.duration <= 0) {
           el.textContent = '--:--';
           el.className = 'mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums text-logic-text-muted/50';
         } else {
-          const st = useStore.getState();
           const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
           const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-          const left = Math.max(0, currentDuration - t);
+          const left = Math.max(0, curSong.duration - t);
           el.textContent = `-${formatTime(left)}`;
           el.className = `mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums ${left <= 15 ? 'text-logic-lcd-red' : 'text-logic-lcd-green'}`;
         }
@@ -52,7 +52,7 @@ function RemainingDisplay({ current, title }: { current: Song | undefined; title
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [current, currentDuration]);
+  }, []);
 
   return (
     <div className="rounded-xl border border-logic-border-dark bg-black px-6 py-6 text-center">
@@ -71,12 +71,10 @@ function LiveProgressBar({
   tone,
   reverse = false,
   mode,
-  currentSongDuration,
 }: {
   tone: 'green' | 'amber';
   reverse?: boolean;
   mode: 'current' | 'next';
-  currentSongDuration: number;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const colorCls = tone === 'green' ? 'bg-logic-lcd-green' : 'bg-logic-lcd-amber';
@@ -87,19 +85,41 @@ function LiveProgressBar({
       const el = barRef.current;
       if (el) {
         const st = useStore.getState();
+        const curSong = st.songs.find((s) => s.id === st.transport.currentSongId);
+        if (!curSong || curSong.duration <= 0) {
+          el.style.width = '0%';
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+
         const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
         const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+        const slices = currentAndNextSlice(curSong, t);
 
         if (mode === 'current') {
-          const pct = currentSongDuration > 0 ? Math.min(100, Math.max(0, (t / currentSongDuration) * 100)) : 0;
+          // Barra de progresso (Tocando): corre da esquerda para a direita
+          let pct = 0;
+          if (slices.current) {
+            const sDur = Math.max(0.01, sliceDuration(curSong, slices.current));
+            pct = Math.min(100, Math.max(0, ((t - slices.current.start) / sDur) * 100));
+          } else {
+            pct = Math.min(100, Math.max(0, (t / curSong.duration) * 100));
+          }
           el.style.width = `${pct}%`;
         } else {
-          // Barra de regresso (próxima música)
-          const countdown = Math.max(0, currentSongDuration - t);
-          const hasNext = st.transport.nextSongId !== null && st.transport.playFlow !== 'uma-uma';
-          const pct = hasNext && currentSongDuration > 0 && countdown > 0
-            ? Math.min(100, Math.max(0, (1 - countdown / currentSongDuration) * 100))
-            : 0;
+          // Barra de regresso (Próxima): enche da direita para a esquerda (reverse = true com justify-end)
+          let pct = 0;
+          if (slices.next && slices.current) {
+            const sDur = Math.max(0.01, sliceDuration(curSong, slices.current));
+            const left = Math.max(0, slices.current.end - t);
+            pct = Math.min(100, Math.max(0, (1 - left / sDur) * 100));
+          } else {
+            const hasNext = st.transport.nextSongId !== null && st.transport.playFlow !== 'uma-uma';
+            if (hasNext && curSong.duration > 0) {
+              const left = Math.max(0, curSong.duration - t);
+              pct = Math.min(100, Math.max(0, (1 - left / curSong.duration) * 100));
+            }
+          }
           el.style.width = `${pct}%`;
         }
       }
@@ -107,7 +127,7 @@ function LiveProgressBar({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mode, currentSongDuration]);
+  }, [mode]);
 
   return (
     <div className={`flex h-1.5 rounded-full bg-black/40 overflow-hidden ${reverse ? 'justify-end' : ''}`}>
@@ -117,7 +137,7 @@ function LiveProgressBar({
 }
 
 function SongCard({
-  label, name, tone, time, reverse = false, medley, mode, currentDuration = 0,
+  label, name, tone, time, reverse = false, medley, mode,
 }: {
   label: string;
   name: string | null;
@@ -126,7 +146,6 @@ function SongCard({
   reverse?: boolean;
   medley?: string;
   mode: 'current' | 'next';
-  currentDuration?: number;
 }) {
   const c = tone === 'green'
     ? { border: 'border-logic-lcd-green/50', bg: 'bg-logic-lcd-green/[0.08]', text: 'text-logic-lcd-green' }
@@ -144,13 +163,17 @@ function SongCard({
         <div className={`text-base font-semibold leading-tight ${medley ? 'truncate' : 'line-clamp-2'}`}>{name ?? '—'}</div>
         {medley && <div className="text-xs leading-tight truncate text-logic-text-dim">{medley}</div>}
       </div>
-      <LiveProgressBar tone={tone} reverse={reverse} mode={mode} currentSongDuration={currentDuration} />
+      <LiveProgressBar tone={tone} reverse={reverse} mode={mode} />
     </div>
   );
 }
 
 export default function ShowModePanel({ showName }: { showName: string }) {
-  const transport = useStore((s) => s.transport);
+  const isPlaying = useStore((s) => s.transport.isPlaying);
+  const isStopped = useStore((s) => s.transport.isStopped);
+  const currentSongId = useStore((s) => s.transport.currentSongId);
+  const nextSongId = useStore((s) => s.transport.nextSongId);
+  const playFlow = useStore((s) => s.transport.playFlow);
   const songs = useStore((s) => s.songs);
   const playlist = useStore((s) => s.playlist);
   const showBpmTower = useStore((s) => s.showBpmTower);
@@ -165,10 +188,10 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   const { total, remaining } = useShowTotals(playlist, songs);
   const clock = useClock();
 
-  const active = !transport.isStopped || transport.isPlaying;
-  const current = active ? songs.find((s) => s.id === transport.currentSongId) : undefined;
-  const next = transport.playFlow !== 'uma-uma' ? songs.find((s) => s.id === transport.nextSongId) : undefined;
-  const slices = currentAndNextSlice(current, transport.currentTime);
+  const active = !isStopped || isPlaying;
+  const current = active ? songs.find((s) => s.id === currentSongId) : undefined;
+  const next = playFlow !== 'uma-uma' ? songs.find((s) => s.id === nextSongId) : undefined;
+  const slices = currentAndNextSlice(current, isPlaying && audioEngine.isRunning() ? audioEngine.getCurrentTime() : 0);
   const currentName = current ? slices.current?.name ?? current.name : null;
   const nextName = current && slices.next ? slices.next.name : next?.name ?? null;
   const nextTime = current && slices.next ? formatTime(sliceDuration(current, slices.next)) : next ? formatTime(next.duration) : undefined;
@@ -254,7 +277,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
         </div>
 
         <div className="flex flex-col justify-center gap-3 flex-1">
-          <RemainingDisplay current={current} title={title} />
+          <RemainingDisplay title={title} />
 
           <div className="grid grid-cols-2 gap-3">
             <SongCard
@@ -264,7 +287,6 @@ export default function ShowModePanel({ showName }: { showName: string }) {
               tone="green"
               time={current ? formatTime(current.duration) : undefined}
               mode="current"
-              currentDuration={current?.duration ?? 0}
             />
             <SongCard
               label="Próxima"
@@ -274,7 +296,6 @@ export default function ShowModePanel({ showName }: { showName: string }) {
               reverse
               time={nextTime}
               mode="next"
-              currentDuration={current?.duration ?? 0}
             />
           </div>
         </div>
