@@ -11,6 +11,7 @@ import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJu
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import { TimecodePlayer } from '@/lib/timecodePlayer';
+import { isUserInteracting } from '@/lib/interactionTracker';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
 
@@ -303,6 +304,8 @@ class AudioEngine {
   private renderTimers = new Map<string, number>();
   private renderRuns = new Map<string, number>();
   private renderingSongs = new Map<string, { done: number; total: number }>();
+  // Evita repetir o mesmo aviso de áudio ausente a cada nova tentativa da mesma música no ar.
+  private warnedSongs = new Map<string, number>();
   // A música no ar ainda toca só pelo começo pronto (o áudio inteiro está abrindo).
   private headOnly = false;
   // As faixas no ar ainda leem o começo já ajustado.
@@ -406,24 +409,24 @@ class AudioEngine {
     return this.playableClipIds(songId).every((id) => have.has(id));
   }
 
-  // Uma música pela metade nunca vai ao ar: para e avisa quais áudios falharam e por quê.
-  private refuseIncompleteSong(songId: string) {
+  // Uma faixa que falhou NUNCA para a música: toca tudo que carregou e só avisa (sem bloquear)
+  // quais áudios específicos ficaram de fora. Parar a reprodução é só o usuário, no Stop.
+  private warnIncompleteSong(songId: string) {
     const store = useStore.getState();
     const missing = store.clips.filter((c) => missingClipIds(songId).includes(c.id));
+    if (missing.length === 0) return;
     const song = store.songs.find((s) => s.id === songId);
     const songName = song?.name ?? 'a música';
     const listOf = (clips: typeof missing) => clips.slice(0, 5).map((c) => c.name).join(', ')
       + (clips.length > 5 ? ` e mais ${clips.length - 5}` : '');
     const gone = missing.filter((c) => loadFailure(c.id) === 'missing');
     const broken = missing.filter((c) => loadFailure(c.id) === 'format');
-    const parts: string[] = [];
-    if (gone.length) parts.push(`não encontrei no computador: ${listOf(gone)}. Os arquivos podem ter sido movidos ou apagados; abra o projeto de novo a partir da pasta onde eles estão`);
-    if (broken.length) parts.push(`estes arquivos estão danificados ou num formato que não consigo ler: ${listOf(broken)}`);
     const lowMem = missing.filter((c) => !gone.includes(c) && !broken.includes(c));
-    if (lowMem.length) parts.push(`faltou memória para abrir: ${listOf(lowMem)}. Feche outras abas ou programas e dê Play de novo`);
-    this.stopAll();
-    store.stop();
-    store.setPlaybackError(`"${songName}" não foi tocada porque ${parts.join('; ')}.`);
+    const parts: string[] = [];
+    if (gone.length) parts.push(`não encontrei no computador: ${listOf(gone)}`);
+    if (broken.length) parts.push(`arquivo danificado ou num formato que não consigo ler: ${listOf(broken)}`);
+    if (lowMem.length) parts.push(`ainda carregando (toca assim que abrir): ${listOf(lowMem)}`);
+    store.setPlaybackError(`"${songName}" está tocando normalmente; só ${parts.join('; ')}.`);
   }
 
   private reportMissing(songId: string, startedIds: Iterable<string>) {
@@ -433,7 +436,107 @@ class AudioEngine {
     if (missing.length === 0) return;
     console.warn('[audioEngine] faixas sem áudio', missing.map((c) => c.name));
     const names = missing.slice(0, 4).map((c) => c.name).join(', ');
-    store.setPlaybackError(`Não foi possível carregar ${missing.length === 1 ? 'a faixa' : 'as faixas'}: ${names}${missing.length > 4 ? '…' : ''}. Dê Stop e Play para tentar de novo.`);
+    // A música continua tocando normalmente com as outras faixas; isto é só um aviso informativo.
+    store.setPlaybackError(`A música está tocando; só não entrou ${missing.length === 1 ? 'a faixa' : 'as faixas'}: ${names}${missing.length > 4 ? '…' : ''}.`);
+    // Nenhuma faixa fica muda pelo resto da música: continua tentando entrar sozinha assim que o áudio abrir.
+    this.lateAttachMissingClips(songId, this.playGeneration, 0);
+  }
+
+  // Entra ao vivo com uma faixa que não conseguiu começar junto com o resto (memória ocupada,
+  // decodificação ainda em andamento): quando o áudio dela abrir, ela se junta no ponto exato
+  // da música sem interromper nada que já está tocando. Tenta de novo sozinha até conseguir.
+  private lateAttachMissingClips(songId: string, gen: number, attempt: number) {
+    const LATE_ATTACH_MAX_ATTEMPTS = 20;
+    window.setTimeout(() => {
+      if (gen !== this.playGeneration || !this.isPlayingSong(songId) || !this.ctx) return;
+      const ctx = this.ctx;
+      const store = useStore.getState();
+      const song = store.songs.find((s) => s.id === songId);
+      if (!song) return;
+      const tracks = store.tracks;
+      const lr = store.lrMasterActive;
+      const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c) && store.tracks.some((t) => t.id === c.trackId));
+      const stillMissing = clips.filter((c) => !this.activeClips.has(c.id));
+      if (stillMissing.length === 0) return;
+
+      const bpmAdjust = song.bpmAdjust ?? 0;
+      const alpha = bpmAdjustToAlpha(bpmAdjust);
+      const tempo = tempoFromBpm(bpmAdjust);
+      const cents = song.tuner * 100;
+      const nowPos = (ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1);
+
+      let attachedAny = false;
+      for (const clip of stillMissing) {
+        const buffer = getClipPlayAudio(clip);
+        if (!buffer) continue;
+        const track = tracks.find((t) => t.id === clip.trackId);
+        if (!track) continue;
+        const end = clip.startTime + clipPlayLength(clip);
+        if (nowPos >= end) continue; // a música já passou do fim deste clipe: não há mais o que entrar
+        attachedAny = true;
+
+        const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+        const melodic = isMelodicTrack(track, tracks);
+        const sampleRate = buffer.sampleRate;
+        const left = buffer.channels[0];
+        const right = buffer.channels[1] ?? left;
+        const pitch = melodic ? pitchFromCents(cents) : 1;
+        const local = Math.max(0, nowPos - clip.startTime);
+        const offsetSamples = Math.floor(local * sampleRate);
+        const whenWall = ctx.currentTime + Math.max(0, clip.startTime - nowPos) * alpha;
+
+        const node = new AudioWorkletNode(ctx, 'clip-player', {
+          numberOfInputs: 0,
+          numberOfOutputs: 1,
+          outputChannelCount: [2],
+          processorOptions: {
+            left, right, sampleRate,
+            offsetSamples,
+            tempo, pitch,
+            process: songNeedsProcessing(song),
+            primeTargetFrames: 1024,
+            fadeInFrames: 512,
+          },
+        });
+        const clipGain = ctx.createGain();
+        const gTarget = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
+        node.connect(clipGain);
+        let clipPan: StereoPannerNode | null = null;
+        if (track.parentId) {
+          clipPan = ctx.createStereoPanner();
+          clipPan.pan.value = effectivePan(track.id, track.pan, lr);
+          clipGain.connect(clipPan);
+          const channel = this.ensureChannel(target.id);
+          clipPan.connect(channel.gain);
+        } else {
+          const channel = this.ensureChannel(target.id);
+          clipGain.connect(channel.gain);
+        }
+        scheduleClipFade(clipGain, ctx, gTarget, clip, clipPlayLength(clip), this.playbackStartTime, alpha);
+        try { node.port.postMessage({ startTime: whenWall }); } catch { /* ignore */ }
+        this.clipGains.set(clip.id, clipGain);
+        if (clipPan) this.clipPanners.set(clip.id, clipPan);
+        this.activeClips.set(clip.id, {
+          node,
+          clipStartTime: clip.startTime,
+          scheduledStartWall: whenWall,
+          durationSeconds: clipPlayLength(clip),
+          sampleRate,
+          bufferLength: buffer.length,
+          clipGain,
+          clipPanner: clipPan,
+          trackId: clip.trackId,
+        });
+      }
+
+      const stillLeft = clips.some((c) => !this.activeClips.has(c.id) && getClipPlayAudio(c) === null);
+      if (stillLeft && attempt < LATE_ATTACH_MAX_ATTEMPTS) {
+        this.lateAttachMissingClips(songId, gen, attempt + 1);
+      } else if (!attachedAny && stillLeft) {
+        // esgotou as tentativas automáticas: deixa de insistir, mas nunca para a música
+        console.warn('[audioEngine] algumas faixas não entraram após várias tentativas', songId);
+      }
+    }, Math.min(5000, 600 + attempt * 500));
   }
 
   private disposePreparedBundle(bundle: PreparedBundle) {
@@ -760,10 +863,9 @@ class AudioEngine {
           await ensureSongLoaded(songId);
           if (loadGen !== this.playGeneration) return;
         }
-        if (!isSongLoaded(songId)) {
-          this.refuseIncompleteSong(songId);
-          return;
-        }
+        // Mesmo que alguma faixa não tenha aberto, a música sempre vai ao ar com o que
+        // já carregou: nenhuma falha de carregamento impede o Play. Só avisa, sem travar.
+        if (!isSongLoaded(songId)) this.warnIncompleteSong(songId);
       }
     }
     const fastSeek = options?.fastSeek === true;
@@ -1049,21 +1151,24 @@ class AudioEngine {
   }
 
   // A música largou pelo começo pronto: quando o áudio inteiro abre, cada faixa continua nele sem corte.
-  private async finishHeadStart(songId: string, gen: number) {
+  // A música NUNCA para por causa disso — ela segue tocando pelo começo pronto, e cada faixa é
+  // estendida assim que o resto dela abrir. Faixas que demoram mais ganham novas tentativas em
+  // segundo plano sem que o usuário precise fazer Stop/Play.
+  private async finishHeadStart(songId: string, gen: number, attempt = 0) {
     await ensureSongLoaded(songId).catch(() => { /* tratado abaixo */ });
     if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
     const store = useStore.getState();
-    if (!isSongLoaded(songId)) {
-      const name = store.songs.find((s) => s.id === songId)?.name ?? 'a música';
-      store.setPlaybackError(`Parte do áudio de "${name}" não abriu a tempo: algumas faixas podem ficar mudas depois dos primeiros segundos. Dê Stop e Play para tentar de novo.`);
-      return;
-    }
+
     // Uma faixa por vez e sem cópia no reprodutor: o som no ar não sente a troca.
+    const stillMissing: string[] = [];
     for (const [clipId, active] of Array.from(this.activeClips.entries())) {
       if (gen !== this.playGeneration || this.activeClips.get(clipId) !== active) return;
       const clip = store.clips.find((c) => c.id === clipId);
       const audio = clip ? getClipPlayAudio(clip) : null;
-      if (!audio) continue;
+      if (!audio) {
+        if (clip) stillMissing.push(clipId);
+        continue;
+      }
       const left = audio.channels[0].slice();
       const right = audio.channels[1] ? audio.channels[1].slice() : left;
       // a transferência zera o tamanho do array, então o tamanho é guardado antes
@@ -1074,6 +1179,32 @@ class AudioEngine {
       await new Promise((r) => setTimeout(r, 0));
     }
     if (gen !== this.playGeneration) return;
+
+    const HEAD_START_MAX_ATTEMPTS = 20; // ~1 minuto de novas tentativas antes de parar de insistir sozinho
+    if (stillMissing.length > 0) {
+      const permanentlyGone = stillMissing.filter((id) => {
+        const f = loadFailure(id);
+        return f === 'missing' || f === 'format';
+      });
+      const stillLoading = stillMissing.filter((id) => !permanentlyGone.includes(id));
+      // Arquivo realmente ausente/corrompido: avisa uma vez por música no ar, sem bloquear o resto dela.
+      if (permanentlyGone.length > 0 && this.warnedSongs.get(songId) !== gen) {
+        this.warnedSongs.set(songId, gen);
+        this.warnIncompleteSong(songId);
+      }
+      // Só falta de memória/tempo de decodificação: tenta de novo em segundo plano — a faixa
+      // entra assim que abrir, sem que o usuário precise fazer nada. A música nunca para para esperar.
+      if (stillLoading.length > 0 && attempt < HEAD_START_MAX_ATTEMPTS) {
+        const delay = Math.min(4000, 500 + attempt * 400);
+        window.setTimeout(() => {
+          if (gen === this.playGeneration && this.isPlayingSong(songId)) {
+            this.finishHeadStart(songId, gen, attempt + 1);
+          }
+        }, delay);
+        return;
+      }
+    }
+
     this.headOnly = false;
     this.scheduleRender(songId, 0);
   }
@@ -1973,6 +2104,12 @@ class AudioEngine {
     const runNext = async (): Promise<void> => {
       while (cursor < targets.length) {
         if (this.renderRuns.get(songId) !== token) return;
+        // Enquanto o usuário está arrastando, rolando ou dando zoom, este trabalho cede a vez
+        // em vez de competir pela thread principal e travar a interação.
+        while (isUserInteracting()) {
+          if (this.renderRuns.get(songId) !== token) return;
+          await new Promise((r) => setTimeout(r, 120));
+        }
         const i = cursor++;
         const t = targets[i];
         if (dir && t.diskName && saved[i]) {
@@ -1994,7 +2131,8 @@ class AudioEngine {
         if (toMake > 0) this.setRendering(songId, true, { done: Math.min(made, toMake), total: toMake });
       }
     };
-    await Promise.all(Array.from({ length: Math.min(RENDER_CONCURRENCY, targets.length) }, runNext));
+    const liveConcurrency = this.isPlaying ? 1 : Math.min(RENDER_CONCURRENCY, targets.length);
+    await Promise.all(Array.from({ length: Math.max(1, liveConcurrency) }, runNext));
     if (this.renderRuns.get(songId) !== token) return;
 
     // Só entrega se todas as faixas ficaram prontas: misturar faixas processadas e ao vivo desalinha os instrumentos.

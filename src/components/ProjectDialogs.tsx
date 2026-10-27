@@ -3,6 +3,7 @@ import { FolderOpen, Package, X, FolderCog, FileCog } from 'lucide-react';
 import { useStore } from '@/store';
 import { loadOpenedProject } from '@/lib/projectQuickSave';
 import { rememberProject } from '@/lib/recentProjects';
+import { saveProjectBackup } from '@/lib/projectBackups';
 import {
   canChooseSaveLocation,
   isFolderSaveSupported,
@@ -115,6 +116,7 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             disabled={busy || !folderSaveSupported}
             onClick={() => run(async () => {
               if (mode === 'save') {
+                void saveProjectBackup(useStore.getState());
                 const target = await saveProjectAsFolder(useStore.getState(), projectName, progress);
                 setProjectName(projectName);
                 setSaveTarget(target);
@@ -148,6 +150,7 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             disabled={busy}
             onClick={() => run(async () => {
               if (mode === 'save') {
+                void saveProjectBackup(useStore.getState());
                 const { target, missingCount } = await saveProjectAsPackage(useStore.getState(), projectName, progress);
                 setProjectName(projectName);
                 setSaveTarget(target);

@@ -4,6 +4,7 @@ import { useHoverDismiss } from '@/lib/useHoverDismiss';
 import ImportVSDialog from '@/components/ImportVSDialog';
 import AudioDeviceDialog from '@/components/AudioDeviceDialog';
 import ProjectDialogs from '@/components/ProjectDialogs';
+import ProjectBackupsDialog from '@/components/ProjectBackupsDialog';
 import ShowsMenu from '@/components/ShowsMenu';
 import { DEFAULT_SHOW_NAME } from '@/lib/shows';
 import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package } from 'lucide-react';
@@ -43,6 +44,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [backupsOpen, setBackupsOpen] = useState(false);
   const newProject = useStore((s) => s.newProject);
   const toggleMixer = useStore((s) => s.toggleMixer);
   const togglePlaylist = useStore((s) => s.togglePlaylist);
@@ -118,6 +120,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         { label: 'Abrir Projeto...', action: openOpen },
         { label: 'Aberto Recentemente', recent: true },
         { label: 'Salvar', shortcut: SAVE_SHORTCUT, action: () => { setOpenMenu(null); saveCurrentProject(); } },
+        { label: 'Histórico de Backups...', action: () => { setBackupsOpen(true); setOpenMenu(null); } },
         {
           label: 'Abrir o Último Projeto ao Iniciar', checked: autoOpen,
           action: () => { setAutoOpenEnabled(!autoOpen); setAutoOpen(!autoOpen); setOpenMenu(null); },
@@ -371,6 +374,8 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         mode={saveDialogOpen ? 'save' : openDialogOpen ? 'open' : null}
         onClose={() => { setSaveDialogOpen(false); setOpenDialogOpen(false); }}
       />
+
+      <ProjectBackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
 
       <AudioDeviceDialog
         open={audioDeviceDialogOpen}

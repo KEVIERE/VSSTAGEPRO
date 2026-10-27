@@ -2,6 +2,7 @@ import { useStore } from '@/store';
 import { quickSave, reopenProject, saveTargetLabel, type LoadedProject } from '@/lib/projectSaver';
 import { stopPlayback } from '@/lib/transportControl';
 import { forgetRecentProject, rememberProject, type RecentProject } from '@/lib/recentProjects';
+import { saveProjectBackup } from '@/lib/projectBackups';
 import { friendlyError } from '@/lib/friendlyError';
 
 let clearTimer: number | null = null;
@@ -62,6 +63,9 @@ export async function saveCurrentProject() {
   const target = st.saveTarget;
   st.setSaveStatus({ kind: 'saving', message: 'Salvando...' });
   try {
+    // Backup leve (só estrutura, sem áudio) antes de sobrescrever: guarda os últimos 10 salvamentos
+    // deste projeto com horário, para poder voltar a uma versão anterior quando precisar.
+    void saveProjectBackup(st);
     const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }));
     useStore.getState().setExportProgress(null);
     void rememberProject(useStore.getState().projectName, target);

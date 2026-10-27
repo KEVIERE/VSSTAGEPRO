@@ -1,5 +1,6 @@
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { ensureSongLoaded, getClipAudio, getClipSource, registerClipSource } from '@/lib/audioLibrary';
+import type { ClipAudio } from '@/lib/audioLibrary';
 import type { AudioClip, ProjectState, Track } from '@/types';
 import { projectPlaylist, syncedShows } from '@/lib/shows';
 import { withoutLoops } from '@/lib/regions';
@@ -54,7 +55,21 @@ function sanitize(name: string): string {
   return (name || '').replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Sem Nome';
 }
 
-function buildManifestBase(state: ProjectState): SavedManifest {
+// Salvar de novo sem ter mudado o áudio não deve recodificar o WAV outra vez: o clipe que não
+// mudou usa o mesmo blob já codificado da vez anterior. A chave inclui a referência do buffer em
+// memória (troca sozinha se o áudio for substituído) e o chip de indexador (length), então um
+// áudio realmente diferente nunca reaproveita o blob de outro.
+const wavEncodeCache = new Map<string, { audio: ClipAudio; blob: Blob }>();
+
+function encodeWavCached(clipId: string, audio: ClipAudio): Blob {
+  const cached = wavEncodeCache.get(clipId);
+  if (cached && cached.audio === audio) return cached.blob;
+  const blob = new Blob([encodeWavInt16(audio)], { type: 'audio/wav' });
+  wavEncodeCache.set(clipId, { audio, blob });
+  return blob;
+}
+
+export function buildManifestBase(state: ProjectState): SavedManifest {
   return {
     version: 3,
     projectName: state.projectName,
@@ -141,8 +156,8 @@ async function forEachAsset(
       }
       if (audio) {
         try {
-          data = new Blob([encodeWavInt16(audio)], { type: 'audio/wav' });
-        } catch {}
+          data = encodeWavCached(a.clip.id, audio);
+        } catch { /* ignore: salva sem este áudio e avisa no resumo */ }
       }
     }
     await write(a, data);

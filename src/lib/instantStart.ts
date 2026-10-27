@@ -9,6 +9,7 @@ import { entryExists, fullCopyName, hash, purgeStale, readEntry, readyDir, sourc
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { stretchClipAudio, tempoFromBpm } from '@/lib/timeStretch';
 import { canReadWavDirect, readWav, wavConvertsRate } from '@/lib/wavReader';
+import { isUserInteracting } from '@/lib/interactionTracker';
 import { useStore } from '@/store';
 import type { AudioClip, Song } from '@/types';
 
@@ -191,12 +192,13 @@ async function runPasses() {
   }
 }
 
-// O Play e a importação têm a vez; com música tocando o preparo segue, só que mais leve.
+// O Play, a importação e qualquer interação do usuário (arrastar, rolar, zoom) têm a vez;
+// o preparo em segundo plano nunca disputa a thread principal com quem está mexendo no programa.
 async function yieldToPlayback() {
   for (;;) {
     const st = useStore.getState();
-    if (!deps!.isBusy() && st.importProgress?.status !== 'decoding') break;
-    await new Promise((r) => setTimeout(r, 200));
+    if (!deps!.isBusy() && st.importProgress?.status !== 'decoding' && !isUserInteracting()) break;
+    await new Promise((r) => setTimeout(r, 120));
   }
   if (useStore.getState().transport.isPlaying) await new Promise((r) => setTimeout(r, 60));
 }
@@ -288,7 +290,8 @@ function planKey(p: ClipPlan): string {
 }
 
 function concurrency(): number {
-  return useStore.getState().transport.isPlaying ? 1 : CLIP_CONCURRENCY;
+  if (useStore.getState().transport.isPlaying) return 1;
+  return isUserInteracting() ? 1 : CLIP_CONCURRENCY;
 }
 
 function showReady(failed: number) {

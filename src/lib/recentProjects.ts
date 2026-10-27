@@ -12,12 +12,22 @@ const DB_NAME = 'vs-stage';
 const STORE = 'recentProjects';
 const MAX_RECENT = 8;
 
+// Versão 2: mesmo banco "vs-stage" também guarda o histórico de backups (projectBackups.ts).
+// As duas entradas precisam concordar na versão, senão quem abrir por último recebe VersionError.
+const DB_VERSION = 2;
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (typeof indexedDB === 'undefined') { reject(new Error('Sem armazenamento local.')); return; }
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' });
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('projectBackups')) {
+        const backups = db.createObjectStore('projectBackups', { keyPath: 'id' });
+        backups.createIndex('projectName', 'projectName', { unique: false });
+        backups.createIndex('timestamp', 'timestamp', { unique: false });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
