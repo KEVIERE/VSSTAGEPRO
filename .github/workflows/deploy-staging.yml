@@ -42,7 +42,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Sincronizar versão mais recente do app
+      - name: Sincronizar versão mais recente do app (Staging à frente da produção)
         run: |
           node -e '
             const fs = require("fs");
@@ -53,16 +53,26 @@ jobs:
               res.on("end", () => {
                 try {
                   const j = JSON.parse(d);
-                  if (j.version) {
-                    const p = JSON.parse(fs.readFileSync("desktop/package.json", "utf8"));
-                    // Se o manifesto tiver versão igual ou superior, mantém sincronizado
-                    const cmp = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-                    if (cmp(j.version, p.version) >= 0) {
-                      p.version = j.version;
-                      fs.writeFileSync("desktop/package.json", JSON.stringify(p, null, 2) + "\n");
-                      console.log("Versão do staging sincronizada com o manifesto:", j.version);
+                  const p = JSON.parse(fs.readFileSync("desktop/package.json", "utf8"));
+                  const parseV = (v) => v.split(".").map(Number);
+                  const sParts = parseV(j.version || "1.0.0");
+                  const pParts = parseV(p.version || "1.0.0");
+                  const cmp = (a, b) => {
+                    for (let i = 0; i < 3; i++) {
+                      if ((a[i] || 0) > (b[i] || 0)) return 1;
+                      if ((a[i] || 0) < (b[i] || 0)) return -1;
                     }
+                    return 0;
+                  };
+                  // O staging deve sempre estar à frente da produção para refletir o código mais recente em teste
+                  let targetParts = cmp(pParts, sParts) > 0 ? pParts : sParts;
+                  if (cmp(targetParts, sParts) <= 0) {
+                    targetParts = [...sParts];
+                    targetParts[2] += 1;
                   }
+                  p.version = targetParts.join(".");
+                  fs.writeFileSync("desktop/package.json", JSON.stringify(p, null, 2) + "\n");
+                  console.log("Versão do staging sempre à frente da produção:", p.version);
                 } catch(e) {}
               });
             }).on("error", () => {});
