@@ -1,4 +1,4 @@
-import { encodeWavFloat32 } from '@/lib/wavEncoder';
+import { encodeWavFloat32, encodePcmFloat32, wavHeaderFloat32 } from '@/lib/wavEncoder';
 import { clipGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, withSongAudio } from '@/lib/audioLibrary';
@@ -302,49 +302,119 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
 
   report('Preparando...', 0);
 
-  // Modo Show Contínuo: mixa cada música do show e emenda todas em sequência num único WAV master estéreo
+  // Modo Show Contínuo: mixa cada música do show e emenda todas em sequência num único WAV master estéreo.
+  // Cada música é renderizada, gravada no disco e descartada da memória antes da próxima começar —
+  // em nenhum momento o show inteiro fica inteiro em RAM, mesmo com dezenas de músicas longas.
   if (req.mode === 'show-continuo') {
-    const renderedBuffers: AudioBuffer[] = [];
-    for (let si = 0; si < songs.length; si++) {
-      if (hooks.cancelled()) { run.status = 'cancelled'; break; }
-      const song = songs[si];
-      const songLabel = `Música ${si + 1} de ${songs.length} – ${song.name}`;
-      report(`${songLabel} · mixando faixa`, 0);
-      try {
-        await withSongAudio(song.id, async () => {
-          const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true);
-          renderedBuffers.push(buf);
-        });
-        saved++;
-        songsSaved++;
-      } catch (err) {
-        console.warn('[bounce] falha na música', song.name, err);
-        incomplete.push(song.name);
-      }
-    }
-
-    if (run.status === 'cancelled' || renderedBuffers.length === 0) {
-      return { status: run.status, location: target.location, saved: songsSaved, total: songs.length, incomplete, empty };
-    }
-
-    report('Emendando músicas em sequência contínua...', 0.92);
-    const sampleRate = renderedBuffers[0].sampleRate;
-    const totalFrames = renderedBuffers.reduce((sum, b) => sum + b.length, 0);
-    const fullBuffer = new AudioBuffer({ length: totalFrames, numberOfChannels: 2, sampleRate });
-    let frameOffset = 0;
-    for (const b of renderedBuffers) {
-      for (let ch = 0; ch < Math.min(2, b.numberOfChannels); ch++) {
-        fullBuffer.copyToChannel(b.getChannelData(ch), ch, frameOffset);
-      }
-      frameOffset += b.length;
-    }
-
-    report('Codificando WAV do show completo...', 0.96);
-    const data = encodeWavFloat32(fullBuffer);
     const outName = lrFileName || `${projectName} - SHOW COMPLETO CONTÍNUO.wav`;
-    report(`Salvando ${outName}...`, 0.98);
-    await target.write(outName, data);
-    return { status: 'done', location: target.location, saved: 1, total: 1, incomplete, empty };
+    const sampleRate = 48000;
+
+    // Precisa saber a duração total ANTES de escrever (o cabeçalho WAV declara o tamanho do arquivo
+    // logo no início). Os áudios ainda não precisam estar abertos para isso — só a estrutura do projeto.
+    const songFrames = songs.map((s) => {
+      const alpha = bpmAdjustToAlpha(s.bpmAdjust || 0);
+      return Math.max(1, Math.ceil(songLength(s, state.clips) * alpha * sampleRate));
+    });
+    const totalFrames = songFrames.reduce((a, b) => a + b, 0);
+
+    if (!target.openStream) {
+      // Destino sem suporte a gravação em pedaços (ex.: download direto no navegador sem app
+      // nem acesso a pastas): mantém o caminho em memória como alternativa, com aviso de escala.
+      const renderedBuffers: AudioBuffer[] = [];
+      for (let si = 0; si < songs.length; si++) {
+        if (hooks.cancelled()) { run.status = 'cancelled'; break; }
+        const song = songs[si];
+        report(`Música ${si + 1} de ${songs.length} – ${song.name} · mixando`, 0);
+        try {
+          await withSongAudio(song.id, async () => {
+            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true);
+            renderedBuffers.push(buf);
+          });
+          saved++;
+          songsSaved++;
+        } catch (err) {
+          console.warn('[bounce] falha na música', song.name, err);
+          incomplete.push(song.name);
+        }
+      }
+      if (run.status === 'cancelled' || renderedBuffers.length === 0) {
+        return {
+          status: run.status, location: target.location, saved: songsSaved, total: songs.length,
+          songsSaved, songsTotal: songs.length, incomplete, empty, reveal: null,
+        };
+      }
+      report('Emendando músicas em sequência contínua...', 0.92);
+      const sr = renderedBuffers[0].sampleRate;
+      const totalF = renderedBuffers.reduce((sum, b) => sum + b.length, 0);
+      const fullBuffer = new AudioBuffer({ length: totalF, numberOfChannels: 2, sampleRate: sr });
+      let frameOffset = 0;
+      for (const b of renderedBuffers) {
+        for (let ch = 0; ch < Math.min(2, b.numberOfChannels); ch++) {
+          fullBuffer.copyToChannel(b.getChannelData(ch), ch, frameOffset);
+        }
+        frameOffset += b.length;
+      }
+      report('Codificando WAV do show completo...', 0.96);
+      const data = encodeWavFloat32(fullBuffer);
+      report(`Salvando ${outName}...`, 0.98);
+      await target.write(outName, data);
+      return {
+        status: 'done', location: target.location, saved: 1, total: 1,
+        songsSaved, songsTotal: songs.length, incomplete, empty,
+        reveal: target.reveal ? () => target.reveal!(outName) : null,
+      };
+    }
+
+    const stream = await target.openStream(outName);
+    try {
+      await stream.append(wavHeaderFloat32(totalFrames, 2, sampleRate));
+
+      for (let si = 0; si < songs.length; si++) {
+        if (hooks.cancelled()) { run.status = 'cancelled'; break; }
+        const song = songs[si];
+        const songLabel = `Música ${si + 1} de ${songs.length} – ${song.name}`;
+        report(`${songLabel} · mixando faixa`, 0);
+        try {
+          await withSongAudio(song.id, async () => {
+            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true);
+            report(`${songLabel} · gravando no disco`, 0.5);
+            // PCM dessa música vai direto pro arquivo; o buffer sai de escopo e pode ser liberado
+            // pelo coletor de lixo antes da próxima música começar a renderizar.
+            await stream.append(encodePcmFloat32(buf));
+          });
+          saved++;
+          songsSaved++;
+        } catch (err) {
+          console.warn('[bounce] falha na música', song.name, err);
+          incomplete.push(song.name);
+        }
+        report(`${songLabel} · concluída`, 1);
+      }
+
+      if (run.status === 'cancelled') {
+        await stream.abort();
+        return {
+          status: 'cancelled', location: target.location, saved: songsSaved, total: songs.length,
+          songsSaved, songsTotal: songs.length, incomplete, empty, reveal: null,
+        };
+      }
+      if (songsSaved === 0) {
+        await stream.abort();
+        throw new Error('Nenhuma música do show pôde ser mixada para o áudio contínuo.');
+      }
+
+      report('Finalizando arquivo do show completo...', 0.99);
+      await stream.close();
+    } catch (err) {
+      await stream.abort().catch(() => {});
+      throw err;
+    }
+
+    return {
+      status: 'done', location: target.location, saved: 1, total: 1,
+      songsSaved, songsTotal: songs.length, incomplete, empty,
+      reveal: target.reveal ? () => target.reveal!(outName) : null,
+    };
   }
 
   for (let si = 0; si < songs.length; si++) {

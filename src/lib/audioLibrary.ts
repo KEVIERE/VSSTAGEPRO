@@ -195,6 +195,15 @@ export function loadFailure(clipId: string): LoadFailure | null {
   return entries.get(clipId)?.failure ?? null;
 }
 
+/** Só considera com problema se o arquivo realmente não existe no disco ou estiver corrompido.
+ * Ter sido liberado temporariamente da memória RAM não é defeito — o arquivo abre sob demanda. */
+export function hasPermanentFailure(songId: string): boolean {
+  for (const e of entries.values()) {
+    if (e.songId === songId && (e.failure === 'missing' || e.failure === 'format')) return true;
+  }
+  return false;
+}
+
 /** Solta o áudio aberto de faixas removidas; esquece o arquivo só quando nem o Desfazer pode trazê-las de volta. */
 export function pruneAudioLibrary(liveClipIds: Set<string>, historyClipIds: Set<string>) {
   for (const [id, e] of entries) {
@@ -278,7 +287,7 @@ export function ensureSongLoaded(songId: string): Promise<void> {
       loading.delete(songId);
       songLoads.delete(songId);
       useStore.getState().setSongLoading(songId, false);
-      useStore.getState().setSongIncomplete(songId, !isSongLoaded(songId));
+      useStore.getState().setSongIncomplete(songId, hasPermanentFailure(songId));
       trimToBudget();
     }
   })();

@@ -426,7 +426,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
               const canExpand = hasDetails(song);
               const expanded = canExpand && !collapsedRows.has(entry.songId);
               const audioStatus = incompleteSongIds.includes(entry.songId) ? (
-                <span title="Faltou memória para abrir todos os áudios desta música. Ela não será tocada pela metade." className="inline-flex flex-shrink-0 text-logic-lcd-red">
+                <span title="Arquivo de áudio não encontrado no computador." className="inline-flex flex-shrink-0 text-logic-lcd-red">
                   <AlertTriangle size={wide ? 14 : 11} />
                 </span>
               ) : null;

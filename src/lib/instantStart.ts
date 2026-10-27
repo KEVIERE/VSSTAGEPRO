@@ -192,15 +192,14 @@ async function runPasses() {
   }
 }
 
-// O Play, a importação e qualquer interação do usuário (arrastar, rolar, zoom) têm a vez;
-// o preparo em segundo plano nunca disputa a thread principal com quem está mexendo no programa.
+// O Play e a decodificação da importação têm a vez; durante interação ativa cede brevemente.
 async function yieldToPlayback() {
   for (;;) {
     const st = useStore.getState();
     if (!deps!.isBusy() && st.importProgress?.status !== 'decoding' && !isUserInteracting()) break;
-    await new Promise((r) => setTimeout(r, 120));
+    await new Promise((r) => setTimeout(r, 30));
   }
-  if (useStore.getState().transport.isPlaying) await new Promise((r) => setTimeout(r, 60));
+  if (useStore.getState().transport.isPlaying) await new Promise((r) => setTimeout(r, 40));
 }
 
 function orderedSongs(): Song[] {
@@ -291,7 +290,7 @@ function planKey(p: ClipPlan): string {
 
 function concurrency(): number {
   if (useStore.getState().transport.isPlaying) return 1;
-  return isUserInteracting() ? 1 : CLIP_CONCURRENCY;
+  return CLIP_CONCURRENCY;
 }
 
 function showReady(failed: number) {
@@ -388,10 +387,14 @@ export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
   deps = builderDeps;
   let prev = useStore.getState();
   let prevKey = structureKey();
-  scheduleRun(1200);
+  scheduleRun(150);
   const unsub = useStore.subscribe((state) => {
     const before = prev;
     prev = state;
+    // Ao selecionar ou trocar de música, coloca ela no topo da fila para preparar imediatamente
+    if (state.selectedSongId !== before.selectedSongId && state.selectedSongId) {
+      requestPriority(state.selectedSongId);
+    }
     if (state.songs === before.songs && state.clips === before.clips && state.tracks === before.tracks) return;
     if (state.songs !== before.songs) {
       for (const s of state.songs) {
@@ -406,7 +409,7 @@ export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
     const key = structureKey();
     if (key === prevKey) return;
     prevKey = key;
-    scheduleRun(400);
+    scheduleRun(150);
   });
   return () => {
     unsub();

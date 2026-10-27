@@ -144,6 +144,10 @@ handle('exportPickFile', (name) => exportFiles.pickFile(win, name));
 handle('exportWrite', (id, rel, data) => exportFiles.writeFile(id, rel, data));
 handle('exportFreeSpace', (id) => exportFiles.freeSpace(id));
 handle('exportReveal', (id, rel) => exportFiles.reveal(id, rel));
+handle('exportStreamOpen', (id, rel) => exportFiles.streamOpen(id, rel));
+handle('exportStreamAppend', (streamId, chunk) => exportFiles.streamAppend(streamId, chunk));
+handle('exportStreamClose', (streamId) => exportFiles.streamClose(streamId));
+handle('exportStreamAbort', (streamId) => exportFiles.streamAbort(streamId));
 handle('hasLocalDemucs', () => hasLocalDemucs());
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 

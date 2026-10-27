@@ -116,85 +116,136 @@ function scheduleClipFade(
   playbackStartTime: number,
   alpha: number,
 ) {
-  const fadeIn = clip.fadeIn ?? 0;
-  const fadeOut = clip.fadeOut ?? 0;
+  const fadeIn = Math.max(0, clip.fadeIn ?? 0);
+  const fadeOut = Math.max(0, clip.fadeOut ?? 0);
   const now = ctx.currentTime;
   try { clipGain.gain.cancelScheduledValues(now); } catch { /* ignore */ }
 
-  if (!fadeIn && !fadeOut) {
-    try { clipGain.gain.setValueAtTime(baseGain, now); } catch { clipGain.gain.value = baseGain; }
+  const clipWallStart = playbackStartTime + clip.startTime * alpha;
+  const clipWallEnd = clipWallStart + playDuration * alpha;
+
+  if (fadeIn <= 0 && fadeOut <= 0) {
+    if (now < clipWallStart) {
+      try {
+        clipGain.gain.setValueAtTime(0, now);
+        clipGain.gain.setValueAtTime(baseGain, clipWallStart);
+        clipGain.gain.setValueAtTime(0, clipWallEnd);
+      } catch {
+        clipGain.gain.value = baseGain;
+      }
+    } else if (now < clipWallEnd) {
+      try {
+        clipGain.gain.setValueAtTime(baseGain, now);
+        clipGain.gain.setValueAtTime(0, clipWallEnd);
+      } catch {
+        clipGain.gain.value = baseGain;
+      }
+    } else {
+      try { clipGain.gain.setValueAtTime(0, now); } catch { clipGain.gain.value = 0; }
+    }
     return;
   }
 
-  // O instante absoluto (wall clock) em que o início tocável do clipe começa
-  const clipWallZero = playbackStartTime + clip.startTime * alpha;
-  const currentLocal = Math.max(0, (now - clipWallZero) / alpha);
-  const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
+  const fadeOutStartOffset = Math.max(fadeIn, playDuration - fadeOut);
+  const wallFadeInEnd = clipWallStart + fadeIn * alpha;
+  const wallFadeOutStart = clipWallStart + fadeOutStartOffset * alpha;
 
-  // Determina ganho exato no instante atual (offset local)
-  let currentGain = baseGain;
-  if (currentLocal < fadeIn && fadeIn > 0) {
-    const frac = currentLocal / fadeIn;
-    currentGain = evaluateFadeCurve(clip.fadeCurveIn ?? 'linear', frac, true) * baseGain;
-  } else if (currentLocal >= fadeOutStart && fadeOut > 0) {
-    const frac = Math.min(1, (currentLocal - fadeOutStart) / fadeOut);
-    currentGain = evaluateFadeCurve(clip.fadeCurveOut ?? 'linear', frac, false) * baseGain;
-  } else if (currentLocal >= playDuration && playDuration > 0) {
-    currentGain = 0;
-  }
+  const curveIn = clip.fadeCurveIn ?? 'linear';
+  const curveOut = clip.fadeCurveOut ?? 'linear';
 
-  // ANCHOR: setValueAtTime DEVE ser o ponto de partida agendado antes de qualquer linearRampToValueAtTime!
-  try {
-    clipGain.gain.setValueAtTime(currentGain, now);
-  } catch {
-    clipGain.gain.value = currentGain;
-  }
-
-  // Pontos futuros para automação do fade
-  const points: Array<{ wallTime: number; gain: number }> = [];
-
-  // FADE IN
-  if (fadeIn > 0) {
-    const curveIn = clip.fadeCurveIn ?? 'linear';
-    const STEPS = curveIn === 'linear' ? 1 : 16;
-    for (let i = 1; i <= STEPS; i++) {
-      const frac = i / STEPS;
-      const wallT = clipWallZero + (frac * fadeIn) * alpha;
-      if (wallT > now) {
-        points.push({
-          wallTime: wallT,
-          gain: evaluateFadeCurve(curveIn, frac, true) * baseGain,
-        });
-      }
-    }
-  }
-
-  // PLATÔ E FADE OUT
-  if (fadeOut > 0) {
-    const wallFadeOutStart = clipWallZero + fadeOutStart * alpha;
-    if (wallFadeOutStart > now && fadeIn > 0) {
-      points.push({ wallTime: wallFadeOutStart, gain: baseGain });
-    }
-
-    const curveOut = clip.fadeCurveOut ?? 'linear';
-    const STEPS = curveOut === 'linear' ? 1 : 16;
-    for (let i = 1; i <= STEPS; i++) {
-      const frac = i / STEPS;
-      const wallT = clipWallZero + (fadeOutStart + frac * fadeOut) * alpha;
-      if (wallT > now) {
-        points.push({
-          wallTime: wallT,
-          gain: evaluateFadeCurve(curveOut, frac, false) * baseGain,
-        });
-      }
-    }
-  }
-
-  points.sort((a, b) => a.wallTime - b.wallTime);
-  for (const pt of points) {
+  // Se o ponto de reprodução ainda não alcançou o início do clipe:
+  if (now < clipWallStart) {
     try {
-      clipGain.gain.linearRampToValueAtTime(pt.gain, pt.wallTime);
-    } catch { /* ignore */ }
+      // 1. Silêncio antes do clipe começar (NUNCA vaza áudio antes do início do clipe!)
+      clipGain.gain.setValueAtTime(0, now);
+      // 2. No exato instante em que o clipe começa, crava em 0
+      clipGain.gain.setValueAtTime(0, clipWallStart);
+
+      // 3. Rampa exata do Fade In: inicia no início do clipe e dura o tamanho do fade
+      if (fadeIn > 0) {
+        const STEPS = curveIn === 'linear' ? 1 : 16;
+        for (let i = 1; i <= STEPS; i++) {
+          const frac = i / STEPS;
+          const t = clipWallStart + frac * fadeIn * alpha;
+          const g = evaluateFadeCurve(curveIn, frac, true) * baseGain;
+          clipGain.gain.linearRampToValueAtTime(g, t);
+        }
+      } else {
+        clipGain.gain.setValueAtTime(baseGain, clipWallStart);
+      }
+
+      // 4. Platô: mantém baseGain do fim do Fade In até o início do Fade Out
+      if (fadeOut > 0 && wallFadeOutStart > wallFadeInEnd) {
+        clipGain.gain.setValueAtTime(baseGain, wallFadeOutStart);
+      }
+
+      // 5. Rampa exata do Fade Out
+      if (fadeOut > 0) {
+        const STEPS = curveOut === 'linear' ? 1 : 16;
+        for (let i = 1; i <= STEPS; i++) {
+          const frac = i / STEPS;
+          const t = wallFadeOutStart + frac * fadeOut * alpha;
+          const g = evaluateFadeCurve(curveOut, frac, false) * baseGain;
+          clipGain.gain.linearRampToValueAtTime(g, t);
+        }
+      } else {
+        clipGain.gain.setValueAtTime(0, clipWallEnd);
+      }
+    } catch {
+      clipGain.gain.value = baseGain;
+    }
+    return;
+  }
+
+  // Se já estamos dentro da reprodução do clipe:
+  const currentOffset = (now - clipWallStart) / alpha;
+  let currentG = baseGain;
+  if (currentOffset < fadeIn && fadeIn > 0) {
+    currentG = evaluateFadeCurve(curveIn, currentOffset / fadeIn, true) * baseGain;
+  } else if (currentOffset >= fadeOutStartOffset && fadeOut > 0) {
+    const frac = Math.min(1, (currentOffset - fadeOutStartOffset) / fadeOut);
+    currentG = evaluateFadeCurve(curveOut, frac, false) * baseGain;
+  } else if (currentOffset >= playDuration) {
+    currentG = 0;
+  }
+
+  try {
+    clipGain.gain.setValueAtTime(currentG, now);
+
+    // Continua o Fade In restante se estivermos no meio dele
+    if (now < wallFadeInEnd && fadeIn > 0) {
+      const STEPS = curveIn === 'linear' ? 1 : 16;
+      for (let i = 1; i <= STEPS; i++) {
+        const frac = i / STEPS;
+        const t = clipWallStart + frac * fadeIn * alpha;
+        if (t > now) {
+          const g = evaluateFadeCurve(curveIn, frac, true) * baseGain;
+          clipGain.gain.linearRampToValueAtTime(g, t);
+        }
+      }
+    }
+
+    // Platô até o Fade Out
+    if (fadeOut > 0 && wallFadeOutStart > now) {
+      clipGain.gain.setValueAtTime(baseGain, wallFadeOutStart);
+    }
+
+    // Fade Out
+    if (fadeOut > 0 && now < clipWallEnd) {
+      const STEPS = curveOut === 'linear' ? 1 : 16;
+      for (let i = 1; i <= STEPS; i++) {
+        const frac = i / STEPS;
+        const t = wallFadeOutStart + frac * fadeOut * alpha;
+        if (t > now) {
+          const g = evaluateFadeCurve(curveOut, frac, false) * baseGain;
+          clipGain.gain.linearRampToValueAtTime(g, t);
+        }
+      }
+    } else if (now < clipWallEnd) {
+      clipGain.gain.setValueAtTime(0, clipWallEnd);
+    }
+  } catch {
+    clipGain.gain.value = baseGain;
   }
 }
 
@@ -2148,7 +2199,7 @@ class AudioEngine {
         // em vez de competir pela thread principal e travar a interação.
         while (isUserInteracting()) {
           if (this.renderRuns.get(songId) !== token) return;
-          await new Promise((r) => setTimeout(r, 120));
+          await new Promise((r) => setTimeout(r, 30));
         }
         const i = cursor++;
         const t = targets[i];

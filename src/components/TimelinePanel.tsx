@@ -1205,6 +1205,7 @@ export default function TimelinePanel() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const trackHeadersRef = useRef<HTMLDivElement>(null);
+  const timelinePanelRef = useRef<HTMLDivElement>(null);
   const [regionDrag, setRegionDrag] = useState<RegionDrag>(null);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
@@ -1685,11 +1686,14 @@ export default function TimelinePanel() {
     const el = trackHeadersRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
       if (scrollRef.current) {
-        scrollRef.current.scrollTop += e.deltaY;
+        // Ao rolar em cima das tracks, rola estritamente na vertical (nunca na horizontal)
+        const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        scrollRef.current.scrollTop += delta;
       }
     };
-    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
@@ -1719,26 +1723,53 @@ export default function TimelinePanel() {
     setZoomH(Math.round(current * factor * 100) / 100);
   }, [setZoomH]);
 
+  // Zoom da timeline com os dois dedos no trackpad do Mac (pinch-to-zoom e wheel com Ctrl)
   useEffect(() => {
-    const el = scrollRef.current;
+    const el = timelinePanelRef.current;
     if (!el) return;
+
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
-      const rect = el.getBoundingClientRect();
-      const mouseX = Math.max(0, e.clientX - rect.left - HEADER_W);
-      const factor = Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.01);
+      e.stopPropagation();
+      const scrollEl = scrollRef.current;
+      const rect = scrollEl ? scrollEl.getBoundingClientRect() : el.getBoundingClientRect();
+      const mouseX = Math.max(0, e.clientX - rect.left);
+      const factor = Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.015);
       zoomAround(factor, mouseX);
     };
+
+    // Suporte a gestos nativos de pinça (pinch) no Safari e Chromium do macOS
+    let gestureStartZoom = 1;
+    const onGestureStart = (e: any) => {
+      e.preventDefault();
+      gestureStartZoom = useStore.getState().zoomH;
+    };
+    const onGestureChange = (e: any) => {
+      e.preventDefault();
+      const scrollEl = scrollRef.current;
+      const rect = scrollEl ? scrollEl.getBoundingClientRect() : el.getBoundingClientRect();
+      const mouseX = Math.max(0, e.clientX - rect.left);
+      const targetZoom = Math.max(1, Math.min(200, gestureStartZoom * (e.scale || 1)));
+      const factor = targetZoom / Math.max(0.1, useStore.getState().zoomH);
+      zoomAround(factor, mouseX);
+    };
+
     el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
+    el.addEventListener('gesturestart', onGestureStart as EventListener, { passive: false });
+    el.addEventListener('gesturechange', onGestureChange as EventListener, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('gesturestart', onGestureStart as EventListener);
+      el.removeEventListener('gesturechange', onGestureChange as EventListener);
+    };
   }, [zoomAround]);
 
   const zoomButton = (factor: number) => {
     const el = scrollRef.current;
     const st = useStore.getState();
     const playheadX = st.transport.currentTime * st.zoomH - (el?.scrollLeft ?? 0);
-    const viewW = el ? el.clientWidth - HEADER_W : 0;
+    const viewW = el ? el.clientWidth : 0;
     zoomAround(factor, playheadX >= 0 && playheadX <= viewW ? playheadX : viewW / 2);
   };
 
@@ -1815,7 +1846,7 @@ export default function TimelinePanel() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
+    <div ref={timelinePanelRef} className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
           {/* Ações Rápidas: Cápsula Segmentada Unificada estilo Logic Pro 11 / Apple macOS */}

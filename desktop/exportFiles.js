@@ -64,6 +64,57 @@ async function writeFile(id, rel, data) {
   }
 }
 
+// Gravação em pedaços direto no disco (um arquivo aberto por stream), usado pelo Show Contínuo:
+// cada música é escrita assim que fica pronta, sem nunca juntar o show inteiro na memória do app.
+const streams = new Map();
+
+async function streamOpen(id, rel) {
+  const target = resolveInside(id, rel);
+  const tmp = `${target}.parcial`;
+  try {
+    await fs.promises.mkdir(path.dirname(target), { recursive: true });
+    const handle = await fs.promises.open(tmp, 'w');
+    const streamId = crypto.randomUUID();
+    streams.set(streamId, { handle, tmp, target });
+    return { ok: true, streamId };
+  } catch (err) {
+    return { ok: false, code: errorCode(err) };
+  }
+}
+
+async function streamAppend(streamId, chunk) {
+  const entry = streams.get(String(streamId));
+  if (!entry) return { ok: false, code: 'stream_desconhecido' };
+  try {
+    await entry.handle.appendFile(Buffer.from(chunk));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, code: errorCode(err) };
+  }
+}
+
+async function streamClose(streamId) {
+  const entry = streams.get(String(streamId));
+  if (!entry) return { ok: false, code: 'stream_desconhecido' };
+  streams.delete(String(streamId));
+  try {
+    await entry.handle.close();
+    await fs.promises.rename(entry.tmp, entry.target);
+    return { ok: true };
+  } catch (err) {
+    await fs.promises.rm(entry.tmp, { force: true }).catch(() => {});
+    return { ok: false, code: errorCode(err) };
+  }
+}
+
+async function streamAbort(streamId) {
+  const entry = streams.get(String(streamId));
+  if (!entry) return;
+  streams.delete(String(streamId));
+  await entry.handle.close().catch(() => {});
+  await fs.promises.rm(entry.tmp, { force: true }).catch(() => {});
+}
+
 async function freeSpace(id) {
   try {
     const s = await fs.promises.statfs(resolveInside(id, ''));
@@ -80,4 +131,4 @@ async function reveal(id, rel) {
   await shell.openPath(st ? target : resolveInside(id, ''));
 }
 
-module.exports = { pickFolder, pickFile, writeFile, freeSpace, reveal };
+module.exports = { pickFolder, pickFile, writeFile, freeSpace, reveal, streamOpen, streamAppend, streamClose, streamAbort };

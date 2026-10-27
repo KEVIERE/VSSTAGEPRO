@@ -22,6 +22,82 @@ function MasterGrReadout() {
   );
 }
 
+// Fader profissional de estúdio (Logic Pro 11 / Pro Tools):
+// Curso geométrico exato em pixels — onde o mouse arrasta é exatamente onde o cap do fader se posiciona.
+// Zero descompasso com inputs nativos de range.
+function Fader({
+  value,
+  onChange,
+  onDoubleClick,
+  width = 20,
+  height = 120,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  onDoubleClick?: () => void;
+  width?: number;
+  height?: number;
+}) {
+  const capHeight = 12;
+  const travel = height - capHeight;
+  const pct = Math.max(0, Math.min(1, value / 1.5));
+  const bottomPx = pct * travel;
+
+  const handlePointer = (clientY: number, rect: DOMRect) => {
+    const fromBottom = rect.bottom - clientY - capHeight / 2;
+    const ratio = Math.max(0, Math.min(1, fromBottom / travel));
+    const nextVal = Math.round(ratio * 1.5 * 100) / 100;
+    onChange(nextVal);
+  };
+
+  const handleDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const rect = target.getBoundingClientRect();
+    handlePointer(e.clientY, rect);
+
+    const move = (ev: PointerEvent) => {
+      handlePointer(ev.clientY, rect);
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+      try { target.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
+
+  return (
+    <div
+      className="relative bg-logic-bg-deep rounded-sm border border-logic-border-dark cursor-ns-resize select-none overflow-hidden"
+      style={{ width: `${width}px`, height: `${height}px` }}
+      onPointerDown={handleDown}
+      onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
+      title="Arraste para ajustar o volume. Duplo clique: 0 dB."
+    >
+      {/* Pista do fader com centro rebaixado */}
+      <div className="absolute left-1/2 -translate-x-1/2 top-1.5 bottom-1.5 w-1 rounded-full bg-black/60 border border-white/5 pointer-events-none" />
+      {/* Linha de referência de 0 dB (volume 0.8 / 1.5 = 53.33% do curso) */}
+      <div
+        className="absolute left-0 right-0 h-px bg-white/30 pointer-events-none"
+        style={{ bottom: `${(0.8 / 1.5) * travel + capHeight / 2}px` }}
+      />
+      {/* Cap do fader metálico de estúdio com marcação luminosa central */}
+      <div
+        className="absolute left-0.5 right-0.5 rounded-sm bg-gradient-to-b from-[#4a4a50] via-[#2a2a2e] to-[#1e1e22] border border-white/20 shadow-md pointer-events-none flex items-center justify-center"
+        style={{ height: `${capHeight}px`, bottom: `${bottomPx}px` }}
+      >
+        <div className="w-full h-0.5 bg-logic-text shadow-[0_0_2px_rgba(255,255,255,0.8)]" />
+      </div>
+    </div>
+  );
+}
+
 function MixerChannel({ trackId }: { trackId: string }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === trackId));
   const setVolume = useStore((s) => s.setVolume);
@@ -36,7 +112,6 @@ function MixerChannel({ trackId }: { trackId: string }) {
   if (!track) return null;
 
   const isSelected = selectedTrackId === track.id;
-  const faderPct = track.volume * 66.67;
   const isClipping = track.clipIndicator;
   const volDb = volumeToDb(track.volume);
   const volDbLabel = volDb === -Infinity ? '-inf' : `${volDb > 0.05 ? '+' : ''}${volDb.toFixed(1)}`;
@@ -127,28 +202,13 @@ function MixerChannel({ trackId }: { trackId: string }) {
         </div>
 
         {/* Fader */}
-        <div
-          className="relative w-5 h-[120px] bg-logic-bg-deep rounded-sm border border-logic-border-dark"
-          onDoubleClick={(e) => { e.stopPropagation(); setVolume(track.id, 0.8); }}
-          title="Duplo clique = 0 dB"
-        >
-          <input
-            type="range"
-            min={0}
-            max={1.5}
-            step={0.01}
-            value={track.volume}
-            onChange={(e) => { e.stopPropagation(); setVolume(track.id, parseFloat(e.target.value)); }}
-            onClick={(e) => e.stopPropagation()}
-            className="absolute inset-0 w-full h-full opacity-0 cursor-ns-resize"
-            style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
-          />
-          <div className="absolute left-0 right-0 h-px bg-logic-border-light pointer-events-none" style={{ bottom: 'calc(53.33% - 0.5px)' }} />
-          <div
-            className="absolute left-0 right-0 h-1.5 bg-logic-text rounded-sm pointer-events-none border border-logic-border-dark"
-            style={{ bottom: `calc(${faderPct}% - 3px)` }}
-          />
-        </div>
+        <Fader
+          value={track.volume}
+          onChange={(v) => setVolume(track.id, v)}
+          onDoubleClick={() => setVolume(track.id, 0.8)}
+          width={20}
+          height={120}
+        />
       </div>
 
       <span className="text-2xs font-mono text-logic-text-muted" title="Ganho do fader">
@@ -293,32 +353,19 @@ export default function MixerPanel() {
             </div>
 
             {/* Fader */}
-            <div
-              className="relative w-3 h-[120px] bg-[#1c1c1c] rounded-sm border border-logic-border-dark"
-              onDoubleClick={() => { setMasterVolume(0.8); audioEngine.setMasterVolume(0.8); }}
-              title="Duplo clique = 0 dB"
-            >
-              <input
-                type="range"
-                min={0}
-                max={1.5}
-                step={0.01}
-                value={masterVolume}
-                onChange={(e) => {
-                  const v = parseFloat(e.target.value);
-                  setMasterVolume(v);
-                  audioEngine.setMasterVolume(v);
-                }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-ns-resize"
-                style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
-              />
-              <div className="absolute left-1/2 -translate-x-1/2 top-1 bottom-1 w-1.5 rounded-full bg-[#3a3a3e] border border-[#2a2a2e] pointer-events-none" />
-              <div className="absolute left-0 right-0 h-px bg-logic-border-light pointer-events-none" style={{ bottom: 'calc(53.33% - 0.5px)' }} />
-              <div
-                className="absolute left-0 right-0 h-1.5 bg-logic-text rounded-sm pointer-events-none border border-logic-border-dark"
-                style={{ bottom: `calc(${masterVolume * 66.67}% - 3px)` }}
-              />
-            </div>
+            <Fader
+              value={masterVolume}
+              onChange={(v) => {
+                setMasterVolume(v);
+                audioEngine.setMasterVolume(v);
+              }}
+              onDoubleClick={() => {
+                setMasterVolume(0.8);
+                audioEngine.setMasterVolume(0.8);
+              }}
+              width={20}
+              height={120}
+            />
           </div>
 
           <span className="text-2xs font-mono text-logic-text-muted" title="Ganho do fader">
