@@ -1,5 +1,5 @@
 import { encodeWavInt16 } from '@/lib/wavEncoder';
-import { getClipAudio, getClipSource, registerClipSource } from '@/lib/audioLibrary';
+import { ensureSongLoaded, getClipAudio, getClipSource, registerClipSource } from '@/lib/audioLibrary';
 import type { AudioClip, ProjectState, Track } from '@/types';
 import { projectPlaylist, syncedShows } from '@/lib/shows';
 import { withoutLoops } from '@/lib/regions';
@@ -122,9 +122,26 @@ async function forEachAsset(
     done++;
     onProgress(`Salvando ${done} de ${total}: ${a.relPath}`);
     let data: Blob | null = getClipSource(a.clip.id);
+    // Testa se o source original é acessível; se o arquivo foi movido ou o descritor expirou,
+    // reconstrói a partir do buffer de áudio em memória com fallback automático.
+    if (data) {
+      try {
+        await data.slice(0, 16).arrayBuffer();
+      } catch {
+        data = null;
+      }
+    }
     if (!data) {
-      const audio = getClipAudio(a.clip.id);
-      if (audio) data = new Blob([encodeWavInt16(audio)], { type: 'audio/wav' });
+      let audio = getClipAudio(a.clip.id);
+      if (!audio) {
+        await ensureSongLoaded(a.clip.songId).catch(() => {});
+        audio = getClipAudio(a.clip.id);
+      }
+      if (audio) {
+        try {
+          data = new Blob([encodeWavInt16(audio)], { type: 'audio/wav' });
+        } catch {}
+      }
     }
     await write(a, data);
   }
@@ -350,10 +367,17 @@ async function writePackageToHandle(state: ProjectState, handle: FileSystemFileH
 
 // Os áudios abertos de um .vsc apontam para o arquivo antigo; depois de regravá-lo, passam a apontar para o novo.
 async function rebindPackageSources(state: ProjectState, handle: FileSystemFileHandle) {
-  const { sources } = await readPackage(await handle.getFile(), () => undefined);
-  for (const c of state.clips) {
-    const src = sources.get(c.id);
-    if (src) registerClipSource(c.id, c.songId, src);
+  try {
+    const file = await handle.getFile();
+    const { sources } = await readPackage(file, () => undefined);
+    for (const c of state.clips) {
+      const src = sources.get(c.id);
+      if (src) registerClipSource(c.id, c.songId, src);
+    }
+  } catch (err) {
+    // Não-crítico: se o handle ainda estiver temporariamente bloqueado pelo OS após o close(),
+    // o arquivo já foi gravado no disco com sucesso absoluto.
+    console.warn('[projectSaver] rebind pós-salvamento ignorado:', err);
   }
 }
 
