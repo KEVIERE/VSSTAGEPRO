@@ -1,7 +1,7 @@
 {
   "name": "vs-stage-desktop",
   "productName": "VS Stage",
-  "version": "1.1.80",
+  "version": "1.1.81",
   "private": true,
   "description": "VS Stage para Mac com Rede Local do palco",
   "main": "main.js",
