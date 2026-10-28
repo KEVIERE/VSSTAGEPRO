@@ -192,11 +192,17 @@ async function renderSliceOffline(
       clipGain.connect(channel.gain);
     }
 
-    if (sliceStart > 0 && clip.startTime < sliceStart) {
-      const offsetSeconds = (sliceStart - clip.startTime) * alpha;
-      source.start(0, offsetSeconds);
-    } else {
-      source.start(startWall);
+    const localStart = clip.startTime - sliceStart;
+    const when = Math.max(0, localStart * alpha);
+    const offset = localStart < 0 ? Math.max(0, -localStart * alpha) : 0;
+    const bufDur = source.buffer?.duration ?? 0;
+    if (offset < bufDur - 0.005) {
+      try {
+        if (offset > 0.001) source.start(when, offset);
+        else source.start(when);
+      } catch (err) {
+        console.warn('[bounce] agendamento de clipe protegido:', clip.name, err);
+      }
     }
   }
 

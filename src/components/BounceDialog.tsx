@@ -59,7 +59,9 @@ export default function BounceDialog() {
       if (!res) { setStep('mode'); return; }
       setResult(res); setStep('done');
     } catch (e) {
-      setError(friendlyError(e, 'Não foi possível exportar o áudio. Tente de novo.'));
+      console.error('[bounce] erro ao exportar:', e);
+      const specific = (e instanceof Error && e.message) ? e.message : '';
+      setError(specific || friendlyError(e, 'Não foi possível exportar o áudio. Tente de novo.'));
       setStep('error');
     }
   };

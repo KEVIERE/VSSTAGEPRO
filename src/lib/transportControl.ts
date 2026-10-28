@@ -41,15 +41,25 @@ function refreshNextSong(songId: string) {
   st.setNextSong(computeNextSongId(songId, st.playlist, st.playlistOrder, st.transport.playFlow));
 }
 
-export function startPlayback() {
+export async function startPlayback() {
   const st = useStore.getState();
-  if (st.transport.isPlaying || audioEngine.isStarting()) return;
+  if (st.transport.isPlaying) return;
+  if (audioEngine.isStarting()) {
+    // Se o motor estava terminando uma ação anterior, espera até 200ms em vez de descartar o clique do Play
+    for (let i = 0; i < 5 && audioEngine.isStarting(); i++) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    if (useStore.getState().transport.isPlaying) return;
+  }
   const songId = st.selectedSongId ?? st.playlist[0]?.songId ?? null;
   if (!songId) return;
   const song = st.songs.find((sg) => sg.id === songId);
-  // a posição guardada pertence à última música tocada; outra música escolhida começa do início
+  // Se o usuário cortou o fim do VS, o cursor pode estar além da nova duração:
+  // nesse caso toca da última fatia ou volta ao início, sem travar
   const cursor = !st.transport.currentSongId || st.transport.currentSongId === songId ? st.transport.currentTime : 0;
-  const offset = song && cursor > 0 && cursor < song.duration - 0.05 ? cursor : entryPoint(song);
+  const maxSafe = song ? Math.max(0, song.duration - 0.05) : 0;
+  const safeCursor = Math.min(cursor, maxSafe);
+  const offset = song && safeCursor > 0 ? safeCursor : entryPoint(song);
   st.setPlaybackError(null);
   st.play();
   audioEngine.playSong(songId, offset)

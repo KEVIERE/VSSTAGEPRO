@@ -46,11 +46,11 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
 
   return (
     <div
-      className="splash fixed inset-0 z-[200] flex items-center justify-center p-6 cursor-default select-none"
+      className="splash fixed inset-0 z-[200] flex items-center justify-center p-6 cursor-default select-none will-change-opacity"
       style={{
-        background: 'radial-gradient(ellipse at center, rgba(27, 28, 32, 0.55) 0%, rgba(6, 7, 9, 0.82) 75%)',
-        backdropFilter: 'blur(24px) saturate(140%)',
-        WebkitBackdropFilter: 'blur(24px) saturate(140%)',
+        background: 'radial-gradient(ellipse at center, rgba(18, 19, 23, 0.88) 0%, rgba(6, 7, 9, 0.96) 85%)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
         opacity: leaving ? 0 : 1,
         transition: `opacity ${EXIT_MS}ms ease`,
       }}
