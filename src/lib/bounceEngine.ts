@@ -1,7 +1,7 @@
 import { encodeWavFloat32, encodePcmFloat32, wavHeaderFloat32 } from '@/lib/wavEncoder';
 import { clipGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, withSongAudio } from '@/lib/audioLibrary';
+import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, withSongAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
@@ -14,26 +14,10 @@ function sanitize(name: string): string {
   return (name || '').replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Sem Nome';
 }
 
-// No multipista cada faixa sai inteira: mudo e solo da mesa não calam o arquivo.
-function channelGain(track: Track, all: Track[], respectMuteSolo: boolean): number {
-  if (respectMuteSolo) {
-    if (track.mute) return 0;
-    const anySolo = all.some((t) => t.solo && !t.isSubgroup && !isTimecodeTrackId(t.id));
-    if (anySolo && !track.solo && !track.isSubgroup) return 0;
-  }
-  let g = faderToGain(track.volume);
-  let p = track.parentId ? all.find((t) => t.id === track.parentId) : null;
-  while (p) {
-    if (respectMuteSolo && p.mute) return 0;
-    g *= faderToGain(p.volume);
-    p = p.parentId ? all.find((t) => t.id === p!.parentId) : null;
-  }
-  return g;
-}
-
-function effectivePan(track: Track, lrMasterActive: boolean): number {
-  if (!lrMasterActive) return track.pan;
-  if (track.id === 'track-guia' || track.id === 'track-click' || track.id === 'track-maestro') return -1;
+function effectivePan(trackId: string, trackPan: number, lrMasterActive: boolean): number {
+  if (isTimecodeTrackId(trackId)) return 0;
+  if (!lrMasterActive) return trackPan;
+  if (trackId === 'track-guia' || trackId === 'track-click' || trackId === 'track-maestro') return -1;
   return 1;
 }
 
@@ -91,17 +75,18 @@ async function renderSliceOffline(
   }
 
   const trackChannels = new Map<string, { gain: GainNode; panner: StereoPannerNode }>();
-  const ensureChannel = (track: Track) => {
-    const existing = trackChannels.get(track.id);
+  const ensureChannel = (targetTrack: Track) => {
+    const existing = trackChannels.get(targetTrack.id);
     if (existing) return existing;
     const gain = ctx.createGain();
     const panner = ctx.createStereoPanner();
-    gain.gain.value = channelGain(track, tracks, respectMuteSolo);
-    panner.pan.value = effectivePan(track, lrMasterActive);
+    const chGain = respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume);
+    gain.gain.value = chGain;
+    panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
     gain.connect(panner);
     panner.connect(masterOut);
     const node = { gain, panner };
-    trackChannels.set(track.id, node);
+    trackChannels.set(targetTrack.id, node);
     return node;
   };
 
@@ -112,7 +97,22 @@ async function renderSliceOffline(
     // Pula se o clipe não intercepta esta fatia
     if (clipEnd <= sliceStart || clip.startTime >= sliceEnd) continue;
 
-    const clipAudio = getClipPlayAudio(clip);
+    let clipAudio = getClipPlayAudio(clip);
+    if (!clipAudio) {
+      // Se não estiver em RAM, garante a abertura do áudio original sem gerar silêncio
+      const src = getClipSource(clip.id);
+      if (src) {
+        try {
+          const audio = await openClipAudio(clip.songId, clip.id, src);
+          if (audio) {
+            putClipAudio(clip.id, clip.songId, audio);
+            clipAudio = getClipPlayAudio(clip);
+          }
+        } catch (e) {
+          console.warn('[renderOffline] clipe não pôde ser aberto:', clip.name, e);
+        }
+      }
+    }
     if (!clipAudio) continue;
     const track = tracks.find((t) => t.id === clip.trackId);
     if (!track) continue;
@@ -124,13 +124,25 @@ async function renderSliceOffline(
     const melodic = isMelodicTrack(track, tracks);
     source.buffer = await processClipAudioAsync(ctx, clipAudio, alpha, melodic ? cents : 0);
     source.playbackRate.value = 1;
-    const clipGain = ctx.createGain();
 
-    const routingGain = target !== track ? channelGain(track, tracks, respectMuteSolo) / Math.max(1e-6, channelGain(target, tracks, respectMuteSolo)) : 1;
-    const baseGain = routingGain * clipGainFor(clip, songClips);
+    const clipGain = ctx.createGain();
+    // Paridade 100% idêntica com a reprodução ao vivo de audioEngine.ts:
+    // Faixa filha aplica ganho e pan próprio no clipe e conecta ao canal do subgrupo (sem divisão)
+    const trackVolumeGain = track.parentId
+      ? (respectMuteSolo ? channelGainFor(track, tracks, track.volume) : faderToGain(track.volume))
+      : 1;
+    const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
     clipGain.gain.value = baseGain;
     source.connect(clipGain);
-    clipGain.connect(channel.gain);
+
+    if (track.parentId) {
+      const clipPan = ctx.createStereoPanner();
+      clipPan.pan.value = effectivePan(track.id, track.pan, lrMasterActive);
+      clipGain.connect(clipPan);
+      clipPan.connect(channel.gain);
+    } else {
+      clipGain.connect(channel.gain);
+    }
 
     // Onde na timeline do contexto (em segundos) o áudio deste clipe começa a tocar dentro da fatia
     const whenInContext = Math.max(0, clip.startTime - sliceStart) * alpha;

@@ -602,10 +602,11 @@ function DirectorApp({ license }: { license: License }) {
       // BPM/afinador NÃO entram aqui: são aplicados ao vivo pelo
       // applySongPlaybackParams, que também atualiza o preparo em cache.
       // Reconstruir a cada clique no botão de BPM travaria o aplicativo.
+      // Cortes e edições de clipes são tratados diretamente por audioEngine.updateLiveClipPosition
+      // e stopClipsLive. Disparar reconstrução completa do preparo travaria o Play logo após o corte.
       if (
         selectionChanged ||
         nextChanged ||
-        clipsChanged ||
         playlistChanged ||
         transportStopped
       ) {

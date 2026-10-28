@@ -5,7 +5,8 @@ import { audioEngine } from '@/lib/audioEngine';
 import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
 import { effectiveBpm } from '@/lib/musicianApi';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { currentAndNextSlice, paramsAt, sliceDuration } from '@/lib/medley';
+import { currentAndNextSlice, paramsAt } from '@/lib/medley';
+import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow } from '@/types';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
@@ -29,27 +30,9 @@ function TransportPlayingBar({ isFinalCountdown }: { isFinalCountdown: boolean }
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const el = barRef.current;
-      if (el) {
-        const st = useStore.getState();
-        const curId = st.transport.currentSongId ?? st.selectedSongId;
-        const curSong = st.songs.find((s) => s.id === curId);
-        const duration = curSong?.duration ?? 0;
-        if (!st.transport.isPlaying || duration <= 0) {
-          el.style.width = '0%';
-        } else {
-          const live = audioEngine.isRunning() && !audioEngine.isUserSeeking();
-          const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-          const slices = curSong ? currentAndNextSlice(curSong, t) : { current: null, next: null };
-          let pct = 0;
-          if (slices.current) {
-            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
-            pct = Math.min(100, Math.max(0, ((t - slices.current.start) / sDur) * 100));
-          } else {
-            pct = Math.min(100, Math.max(0, (t / duration) * 100));
-          }
-          el.style.width = `${pct}%`;
-        }
+      if (barRef.current) {
+        const pct = getLiveProgressPct();
+        barRef.current.style.width = `${pct}%`;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -69,35 +52,16 @@ function TransportPlayingBar({ isFinalCountdown }: { isFinalCountdown: boolean }
 }
 
 // Barra de regresso do painel Próxima: enche da direita para a esquerda continuamente a 60fps
+// Funciona como uma ampulheta sincronizada exatamente com a música que está tocando.
 function TransportNextBar() {
   const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const el = barRef.current;
-      if (el) {
-        const st = useStore.getState();
-        const curId = st.transport.currentSongId ?? st.selectedSongId;
-        const curSong = st.songs.find((s) => s.id === curId);
-        const duration = curSong?.duration ?? 0;
-        if (!st.transport.isPlaying || duration <= 0) {
-          el.style.width = '0%';
-        } else {
-          const live = audioEngine.isRunning() && !audioEngine.isUserSeeking();
-          const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-          const slices = curSong ? currentAndNextSlice(curSong, t) : { current: null, next: null };
-          let pct = 0;
-          if (slices.next && slices.current) {
-            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
-            const left = Math.max(0, slices.current.end - t);
-            pct = Math.min(100, Math.max(0, (1 - left / sDur) * 100));
-          } else {
-            const left = Math.max(0, duration - t);
-            pct = Math.min(100, Math.max(0, (1 - left / duration) * 100));
-          }
-          el.style.width = `${pct}%`;
-        }
+      if (barRef.current) {
+        const pct = getLiveProgressPct();
+        barRef.current.style.width = `${pct}%`;
       }
       raf = requestAnimationFrame(tick);
     };

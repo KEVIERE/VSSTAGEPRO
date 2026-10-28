@@ -14,6 +14,7 @@ import { isMedley, playedDuration } from '@/lib/medley';
 import { useCollapsedRows } from '@/lib/useCollapsedRows';
 import { groupDroppedEntries, importSongGroups, takeDroppedEntries } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
+import { getLiveProgressPct } from '@/lib/playProgress';
 
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
@@ -606,7 +607,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                     )}
                     {wide && isCurrent && <CurrentProgressBar />}
                     {wide && isNext && transport.isPlaying && song && (
-                      <NextCountdownBar currentDuration={songs.find((sg) => sg.id === currentSongId)?.duration ?? 1} />
+                      <NextCountdownBar />
                     )}
                   </div>
                 </div>
@@ -725,16 +726,9 @@ function CurrentProgressBar() {
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const el = barRef.current;
-      if (el) {
-        const st = useStore.getState();
-        const curId = st.transport.currentSongId ?? st.selectedSongId;
-        const song = st.songs.find((sg) => sg.id === curId);
-        const duration = song?.duration ?? 0;
-        const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-        const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-        const pct = duration > 0 ? Math.min(100, Math.max(0, (t / duration) * 100)) : 0;
-        el.style.width = `${pct}%`;
+      if (barRef.current) {
+        const pct = getLiveProgressPct();
+        barRef.current.style.width = `${pct}%`;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -749,29 +743,23 @@ function CurrentProgressBar() {
   );
 }
 
-function NextCountdownBar({ currentDuration }: { currentDuration: number }) {
+// Barra de regresso do painel Próxima: enche da direita para a esquerda continuamente a 60fps
+// Funciona como ampulheta com 100% de concordância com a música que está tocando (inclusive em medleys).
+function NextCountdownBar() {
   const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const el = barRef.current;
-      if (el) {
-        const st = useStore.getState();
-        const curId = st.transport.currentSongId ?? st.selectedSongId;
-        const song = st.songs.find((sg) => sg.id === curId);
-        const duration = song?.duration ?? currentDuration;
-        const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-        const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-        const left = Math.max(0, duration - t);
-        const pct = duration > 0 ? Math.min(100, Math.max(0, (1 - left / duration) * 100)) : 0;
-        el.style.width = `${pct}%`;
+      if (barRef.current) {
+        const pct = getLiveProgressPct();
+        barRef.current.style.width = `${pct}%`;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [currentDuration]);
+  }, []);
 
   return (
     <div className="h-1 bg-[#1a1000] flex justify-end">

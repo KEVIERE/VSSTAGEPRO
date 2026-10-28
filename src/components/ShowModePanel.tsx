@@ -8,6 +8,7 @@ import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import { formatTime, useShowTotals } from '@/components/ShowRundown';
 import { currentAndNextSlice, sliceDuration } from '@/lib/medley';
 import { audioEngine } from '@/lib/audioEngine';
+import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow, Song } from '@/types';
 
 const FLOWS: { id: PlayFlow; label: string; hint: string; icon: typeof Repeat }[] = [
@@ -88,14 +89,14 @@ function RemainingDisplay({ title }: { title: string }) {
 
 // Barra contínua de alta taxa: escreve style.width direto no DOM em cada quadro (60fps),
 // eliminando completamente o atraso, pulo ou efeito elástico de CSS transitions.
+// Funciona como ampulheta com 100% de concordância entre Tocando e Próxima (inclusive em medleys).
 function LiveProgressBar({
   tone,
   reverse = false,
-  mode,
 }: {
   tone: 'green' | 'amber';
   reverse?: boolean;
-  mode: 'current' | 'next';
+  mode?: 'current' | 'next';
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const colorCls = tone === 'green' ? 'bg-logic-lcd-green' : 'bg-logic-lcd-amber';
@@ -103,52 +104,15 @@ function LiveProgressBar({
   useEffect(() => {
     let raf = 0;
     const tick = () => {
-      const el = barRef.current;
-      if (el) {
-        const st = useStore.getState();
-        const curId = st.transport.currentSongId ?? st.selectedSongId ?? st.playlist[0]?.songId;
-        const curSong = st.songs.find((s) => s.id === curId);
-        const duration = curSong?.duration ?? 0;
-
-        if (duration <= 0) {
-          el.style.width = '0%';
-          raf = requestAnimationFrame(tick);
-          return;
-        }
-
-        const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-        const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-        const slices = curSong ? currentAndNextSlice(curSong, t) : { current: null, next: null };
-
-        if (mode === 'current') {
-          // Barra de progresso (Tocando): corre da esquerda para a direita
-          let pct = 0;
-          if (slices.current) {
-            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
-            pct = Math.min(100, Math.max(0, ((t - slices.current.start) / sDur) * 100));
-          } else {
-            pct = Math.min(100, Math.max(0, (t / duration) * 100));
-          }
-          el.style.width = `${pct}%`;
-        } else {
-          // Barra de regresso (Próxima): enche da direita para a esquerda (reverse = true com justify-end)
-          let pct = 0;
-          if (slices.next && slices.current) {
-            const sDur = Math.max(0.01, sliceDuration(curSong!, slices.current));
-            const left = Math.max(0, slices.current.end - t);
-            pct = Math.min(100, Math.max(0, (1 - left / sDur) * 100));
-          } else {
-            const left = Math.max(0, duration - t);
-            pct = Math.min(100, Math.max(0, (1 - left / duration) * 100));
-          }
-          el.style.width = `${pct}%`;
-        }
+      if (barRef.current) {
+        const pct = getLiveProgressPct();
+        barRef.current.style.width = `${pct}%`;
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [mode]);
+  }, []);
 
   return (
     <div className={`flex h-1.5 rounded-full bg-black/40 overflow-hidden ${reverse ? 'justify-end' : ''}`}>

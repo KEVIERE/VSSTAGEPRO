@@ -288,6 +288,8 @@ export function ensureSongLoaded(songId: string): Promise<void> {
       songLoads.delete(songId);
       useStore.getState().setSongLoading(songId, false);
       useStore.getState().setSongIncomplete(songId, hasPermanentFailure(songId));
+      // Protege songId do trim imediato para não descartar os buffers que acabaram de abrir
+      retained.add(songId);
       trimToBudget();
     }
   })();
@@ -328,14 +330,13 @@ export function retainSongs(songIds: Array<string | null | undefined>, options?:
 
 /** Carrega uma música só durante uma tarefa (salvar, exportar) e libera depois. */
 export async function withSongAudio<T>(songId: string, fn: () => Promise<T>): Promise<T> {
+  retainSongs([songId]);
   await ensureSongLoaded(songId);
   try {
     return await fn();
   } finally {
-    if (!isProtected(songId)) {
-      for (const e of entries.values()) {
-        if (e.songId === songId) e.buffer = null;
-      }
+    for (const e of entries.values()) {
+      if (e.songId === songId) e.buffer = null;
     }
   }
 }
