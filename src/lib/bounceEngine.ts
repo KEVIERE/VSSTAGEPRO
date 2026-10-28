@@ -27,12 +27,24 @@ function songLength(song: Song, clips: AudioClip[]): number {
   return Math.max(maxEnd, 1);
 }
 
+function createBufferFallback(length: number, channels: number, sampleRate: number): AudioBuffer {
+  try {
+    return new AudioBuffer({ length: Math.max(1, length), numberOfChannels: channels, sampleRate });
+  } catch {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const dummy = new AudioContextClass();
+    const buf = dummy.createBuffer(channels, Math.max(1, length), sampleRate);
+    dummy.close().catch(() => {});
+    return buf;
+  }
+}
+
 function concatAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
-  if (buffers.length === 0) return new AudioBuffer({ length: 1, numberOfChannels: 2, sampleRate: 48000 });
+  if (buffers.length === 0) return createBufferFallback(1, 2, 48000);
   if (buffers.length === 1) return buffers[0];
   const sampleRate = buffers[0].sampleRate;
   const totalFrames = buffers.reduce((sum, b) => sum + b.length, 0);
-  const out = new AudioBuffer({ length: totalFrames, numberOfChannels: 2, sampleRate });
+  const out = createBufferFallback(totalFrames, 2, sampleRate);
   let offset = 0;
   for (const b of buffers) {
     for (let c = 0; c < Math.min(2, b.numberOfChannels); c++) {
@@ -126,13 +138,49 @@ async function renderSliceOffline(
     source.playbackRate.value = 1;
 
     const clipGain = ctx.createGain();
-    // Paridade 100% idêntica com a reprodução ao vivo de audioEngine.ts:
-    // Faixa filha aplica ganho e pan próprio no clipe e conecta ao canal do subgrupo (sem divisão)
     const trackVolumeGain = track.parentId
       ? (respectMuteSolo ? channelGainFor(track, tracks, track.volume) : faderToGain(track.volume))
       : 1;
     const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
-    clipGain.gain.value = baseGain;
+
+    const playDuration = clipPlayLen * alpha;
+    const startWall = Math.max(0, clip.startTime - sliceStart) * alpha;
+    const fadeIn = (clip.fadeIn ?? 0) * alpha;
+    const fadeOut = (clip.fadeOut ?? 0) * alpha;
+    if (fadeIn > 0 || fadeOut > 0) {
+      const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
+      if (fadeIn > 0) {
+        const curveIn = clip.fadeCurveIn ?? 'linear';
+        clipGain.gain.setValueAtTime(0, startWall);
+        if (curveIn === 'linear') {
+          clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
+        } else {
+          const STEPS = 8;
+          for (let i = 1; i <= STEPS; i++) {
+            const frac = i / STEPS;
+            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveIn, frac, true) * baseGain, startWall + frac * fadeIn);
+          }
+        }
+      } else {
+        clipGain.gain.setValueAtTime(baseGain, startWall);
+      }
+      if (fadeOut > 0) {
+        const curveOut = clip.fadeCurveOut ?? 'linear';
+        clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
+        if (curveOut === 'linear') {
+          clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
+        } else {
+          const STEPS = 8;
+          for (let i = 1; i <= STEPS; i++) {
+            const frac = i / STEPS;
+            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveOut, frac, false) * baseGain, startWall + fadeOutStart + frac * fadeOut);
+          }
+        }
+      }
+    } else {
+      clipGain.gain.value = baseGain;
+    }
+
     source.connect(clipGain);
 
     if (track.parentId) {
@@ -144,15 +192,11 @@ async function renderSliceOffline(
       clipGain.connect(channel.gain);
     }
 
-    // Onde na timeline do contexto (em segundos) o áudio deste clipe começa a tocar dentro da fatia
-    const whenInContext = Math.max(0, clip.startTime - sliceStart) * alpha;
-    // Offset dentro do buffer do clipe (em segundos do buffer já com time-stretch aplicado)
-    const clipOffsetWithin = Math.max(0, sliceStart - clip.startTime) * alpha;
-    const availableInBuffer = Math.max(0, (source.buffer.duration) - clipOffsetWithin);
-    const durationToPlay = Math.min(availableInBuffer, Math.max(0, clipEnd - Math.max(sliceStart, clip.startTime)) * alpha);
-
-    if (durationToPlay > 0.001) {
-      source.start(whenInContext, clipOffsetWithin, durationToPlay);
+    if (sliceStart > 0 && clip.startTime < sliceStart) {
+      const offsetSeconds = (sliceStart - clip.startTime) * alpha;
+      source.start(0, offsetSeconds);
+    } else {
+      source.start(startWall);
     }
   }
 
@@ -416,7 +460,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
       report('Emendando músicas em sequência contínua...', 0.92);
       const sr = renderedBuffers[0].sampleRate;
       const totalF = renderedBuffers.reduce((sum, b) => sum + b.length, 0);
-      const fullBuffer = new AudioBuffer({ length: totalF, numberOfChannels: 2, sampleRate: sr });
+      const fullBuffer = createBufferFallback(totalF, 2, sr);
       let frameOffset = 0;
       for (const b of renderedBuffers) {
         for (let ch = 0; ch < Math.min(2, b.numberOfChannels); ch++) {

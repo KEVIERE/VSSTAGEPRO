@@ -5,7 +5,7 @@ import { audioEngine } from '@/lib/audioEngine';
 import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
 import { effectiveBpm } from '@/lib/musicianApi';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { currentAndNextSlice, paramsAt } from '@/lib/medley';
+import { currentAndNextSlice, isMedley, paramsAt } from '@/lib/medley';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow } from '@/types';
 
@@ -100,12 +100,22 @@ export default function TransportBar() {
   const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
   const currentSong = songs.find((sg) => sg.id === transport.currentSongId);
   const nextSong = songs.find((sg) => sg.id === transport.nextSongId);
-  const hasNextSong = transport.isPlaying && transport.playFlow !== 'uma-uma' && !!nextSong;
+  const activeSlices = currentAndNextSlice(currentSong, transport.currentTime);
+  const isMedleyPlaying = !!currentSong && isMedley(currentSong) && transport.isPlaying;
+  const hasNextSong = transport.isPlaying && (
+    isMedleyPlaying
+      ? (activeSlices.next ? true : (transport.playFlow !== 'uma-uma' && !!nextSong))
+      : (transport.playFlow !== 'uma-uma' && !!nextSong)
+  );
+  const nextDisplayName = isMedleyPlaying
+    ? (activeSlices.next ? activeSlices.next.name : (nextSong ? nextSong.name : '---'))
+    : (nextSong ? nextSong.name : '---');
+  const nextIsMedleySlice = isMedleyPlaying && !!activeSlices.next;
   const statusKey = isLoading ? 'loading' : transport.isPlaying ? 'playing' : transport.isPaused ? 'paused' : 'stopped';
   const status = STATUS_STYLES[statusKey];
   const showCurrent = !!currentSong && !transport.isStopped;
   const baseBpm = currentSong?.bpmDetected && currentSong.bpm ? Math.round(currentSong.bpm) : null;
-  const slice = currentAndNextSlice(currentSong, transport.currentTime).current;
+  const slice = activeSlices.current;
   const sliceBpmAdjust = currentSong ? paramsAt(currentSong, transport.currentTime).bpmAdjust : 0;
   const liveBpm = currentSong ? effectiveBpm(currentSong.bpm, currentSong.bpmDetected, sliceBpmAdjust) : null;
   const bpmDelta = baseBpm !== null && liveBpm !== null ? liveBpm - baseBpm : 0;
@@ -227,11 +237,16 @@ export default function TransportBar() {
         </div>
 
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
-          <div className="flex items-center h-3">
+          <div className="flex items-center justify-between h-3">
             <span className="text-2xs leading-3 text-logic-text-muted uppercase tracking-wider">Próxima</span>
+            {nextIsMedleySlice && (
+              <span className="px-1 rounded-[3px] border border-logic-lcd-amber/70 text-[9px] leading-[11px] font-semibold tracking-[0.14em] text-logic-lcd-amber opacity-90">
+                MEDLEY
+              </span>
+            )}
           </div>
           <span className="block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ff9f0a' : '#555' }}>
-            {hasNextSong && nextSong ? nextSong.name : '---'}
+            {nextDisplayName}
           </span>
           <TransportNextBar />
         </div>
