@@ -1,5 +1,5 @@
 import { encodeWavFloat32, encodePcmFloat32, wavHeaderFloat32 } from '@/lib/wavEncoder';
-import { clipGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
+import { clipGainFor, channelGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, withSongAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
