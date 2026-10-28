@@ -1,7 +1,7 @@
 import { encodeWavFloat32, encodePcmFloat32, wavHeaderFloat32 } from '@/lib/wavEncoder';
 import { clipGainFor, channelGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, withSongAudio } from '@/lib/audioLibrary';
+import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, withSongAudio, type ClipAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
@@ -55,6 +55,41 @@ function concatAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
   return out;
 }
 
+// Quantos clipes entram juntos em cada passada de renderização. Cada passada converte só o áudio
+// dela para o formato nativo e libera tudo ao terminar: o pico de memória deixa de crescer com o
+// número de faixas, que era o que fazia faixas sumirem (mudas) ou a exportação falhar no navegador.
+const EXPORT_BATCH = 4;
+
+const yieldToUi = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/**
+ * Áudio aberto de um clipe para exportar. Se a memória já soltou o áudio, reabre do arquivo e
+ * tenta de novo antes de desistir. Quando realmente não abre, avisa com erro: uma faixa NUNCA
+ * pode sair muda no arquivo exportado sem ninguém saber.
+ * Devolve null só quando o clipe nunca teve arquivo (ausente ou ignorado ao abrir o projeto).
+ */
+async function exportAudioFor(clip: AudioClip): Promise<ClipAudio | null> {
+  const cached = getClipPlayAudio(clip);
+  if (cached) return cached;
+  const src = getClipSource(clip.id);
+  if (!src) return null;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const audio = await openClipAudio(clip.songId, clip.id, src);
+      putClipAudio(clip.id, clip.songId, audio);
+      const playable = getClipPlayAudio(clip);
+      if (playable) return playable;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[bounce] tentativa ${attempt + 1} de abrir "${clip.name}" falhou:`, err);
+    }
+    await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+  }
+  console.error('[bounce] clipe não abriu para exportar:', clip.name, lastErr);
+  throw new Error(`Não foi possível abrir o áudio "${clip.name}" para exportar (memória insuficiente ou arquivo ilegível). Feche outros programas e tente de novo.`);
+}
+
 // Renderiza um trecho isolado [sliceStart, sliceEnd] com BPM e Tom específicos daquele trecho
 async function renderSliceOffline(
   song: Song,
@@ -72,141 +107,161 @@ async function renderSliceOffline(
   const sliceDurSec = Math.max(0.05, sliceEnd - sliceStart);
   const outDuration = sliceDurSec * alpha;
   const sampleRate = 48000;
-  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(outDuration * sampleRate)), sampleRate);
+  const totalFrames = Math.max(1, Math.ceil(outDuration * sampleRate));
   const cents = tuner * 100;
   const respectMuteSolo = !trackFilter;
 
-  let masterOut: AudioNode = ctx.destination;
-  if (applyMasterLimiter) {
-    const makeup = ctx.createGain();
-    makeup.gain.value = Math.pow(10, 1.5 / 20);
-    const limiter = createSafetyLimiter(ctx);
-    makeup.connect(limiter);
-    limiter.connect(ctx.destination);
-    masterOut = makeup;
-  }
-
-  const trackChannels = new Map<string, { gain: GainNode; panner: StereoPannerNode }>();
-  const ensureChannel = (targetTrack: Track) => {
-    const existing = trackChannels.get(targetTrack.id);
-    if (existing) return existing;
-    const gain = ctx.createGain();
-    const panner = ctx.createStereoPanner();
-    const chGain = respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume);
-    gain.gain.value = chGain;
-    panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
-    gain.connect(panner);
-    panner.connect(masterOut);
-    const node = { gain, panner };
-    trackChannels.set(targetTrack.id, node);
-    return node;
-  };
-
   const songClips = clips.filter((c) => c.songId === song.id && !isTimecodeTrackId(c.trackId));
-  for (const clip of songClips) {
-    const clipPlayLen = clipPlayLength(clip);
-    const clipEnd = clip.startTime + clipPlayLen;
-    // Pula se o clipe não intercepta esta fatia
-    if (clipEnd <= sliceStart || clip.startTime >= sliceEnd) continue;
 
-    let clipAudio = getClipPlayAudio(clip);
-    if (!clipAudio) {
-      // Se não estiver em RAM, garante a abertura do áudio original sem gerar silêncio
-      const src = getClipSource(clip.id);
-      if (src) {
-        try {
-          const audio = await openClipAudio(clip.songId, clip.id, src);
-          if (audio) {
-            putClipAudio(clip.id, clip.songId, audio);
-            clipAudio = getClipPlayAudio(clip);
-          }
-        } catch (e) {
-          console.warn('[renderOffline] clipe não pôde ser aberto:', clip.name, e);
-        }
-      }
-    }
-    if (!clipAudio) continue;
+  // Só entram os clipes que cruzam este trecho e pertencem às faixas pedidas. O filtro vem ANTES
+  // de abrir qualquer áudio: na multipista cada arquivo abre só o que é dele.
+  const wanted: Array<{ clip: AudioClip; track: Track }> = [];
+  for (const clip of songClips) {
+    const clipEnd = clip.startTime + clipPlayLength(clip);
+    if (clipEnd <= sliceStart || clip.startTime >= sliceEnd) continue;
     const track = tracks.find((t) => t.id === clip.trackId);
     if (!track) continue;
     if (trackFilter && !trackFilter(track)) continue;
+    wanted.push({ clip, track });
+  }
 
-    const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
-    const channel = ensureChannel(target);
-    const source = ctx.createBufferSource();
-    const melodic = isMelodicTrack(track, tracks);
-    source.buffer = await processClipAudioAsync(ctx, clipAudio, alpha, melodic ? cents : 0);
-    source.playbackRate.value = 1;
+  // O mix das passadas é somado aqui (a soma de sinais é exatamente o que o Web Audio faz no destino).
+  const accL = new Float32Array(totalFrames);
+  const accR = new Float32Array(totalFrames);
 
-    const clipGain = ctx.createGain();
-    const trackVolumeGain = track.parentId
-      ? (respectMuteSolo ? channelGainFor(track, tracks, track.volume) : faderToGain(track.volume))
-      : 1;
-    const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
+  for (let from = 0; from < wanted.length; from += EXPORT_BATCH) {
+    const batch = wanted.slice(from, from + EXPORT_BATCH);
+    const ctx = new OfflineAudioContext(2, totalFrames, sampleRate);
 
-    const playDuration = clipPlayLen * alpha;
-    const startWall = Math.max(0, clip.startTime - sliceStart) * alpha;
-    const fadeIn = (clip.fadeIn ?? 0) * alpha;
-    const fadeOut = (clip.fadeOut ?? 0) * alpha;
-    if (fadeIn > 0 || fadeOut > 0) {
-      const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
-      if (fadeIn > 0) {
-        const curveIn = clip.fadeCurveIn ?? 'linear';
-        clipGain.gain.setValueAtTime(0, startWall);
-        if (curveIn === 'linear') {
-          clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
+    const trackChannels = new Map<string, { gain: GainNode; panner: StereoPannerNode }>();
+    const ensureChannel = (targetTrack: Track) => {
+      const existing = trackChannels.get(targetTrack.id);
+      if (existing) return existing;
+      const gain = ctx.createGain();
+      const panner = ctx.createStereoPanner();
+      gain.gain.value = respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume);
+      panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
+      gain.connect(panner);
+      panner.connect(ctx.destination);
+      const node = { gain, panner };
+      trackChannels.set(targetTrack.id, node);
+      return node;
+    };
+
+    let scheduled = 0;
+    for (const { clip, track } of batch) {
+      const clipPlayLen = clipPlayLength(clip);
+      const clipAudio = await exportAudioFor(clip);
+      if (!clipAudio) continue;
+
+      const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+      const channel = ensureChannel(target);
+      const source = ctx.createBufferSource();
+      const melodic = isMelodicTrack(track, tracks);
+      source.buffer = await processClipAudioAsync(ctx, clipAudio, alpha, melodic ? cents : 0);
+      source.playbackRate.value = 1;
+
+      const clipGain = ctx.createGain();
+      const trackVolumeGain = track.parentId
+        ? (respectMuteSolo ? channelGainFor(track, tracks, track.volume) : faderToGain(track.volume))
+        : 1;
+      const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
+
+      const playDuration = clipPlayLen * alpha;
+      const startWall = Math.max(0, clip.startTime - sliceStart) * alpha;
+      const fadeIn = (clip.fadeIn ?? 0) * alpha;
+      const fadeOut = (clip.fadeOut ?? 0) * alpha;
+      if (fadeIn > 0 || fadeOut > 0) {
+        const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
+        if (fadeIn > 0) {
+          const curveIn = clip.fadeCurveIn ?? 'linear';
+          clipGain.gain.setValueAtTime(0, startWall);
+          if (curveIn === 'linear') {
+            clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
+          } else {
+            const STEPS = 8;
+            for (let i = 1; i <= STEPS; i++) {
+              const frac = i / STEPS;
+              clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveIn, frac, true) * baseGain, startWall + frac * fadeIn);
+            }
+          }
         } else {
-          const STEPS = 8;
-          for (let i = 1; i <= STEPS; i++) {
-            const frac = i / STEPS;
-            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveIn, frac, true) * baseGain, startWall + frac * fadeIn);
+          clipGain.gain.setValueAtTime(baseGain, startWall);
+        }
+        if (fadeOut > 0) {
+          const curveOut = clip.fadeCurveOut ?? 'linear';
+          clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
+          if (curveOut === 'linear') {
+            clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
+          } else {
+            const STEPS = 8;
+            for (let i = 1; i <= STEPS; i++) {
+              const frac = i / STEPS;
+              clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveOut, frac, false) * baseGain, startWall + fadeOutStart + frac * fadeOut);
+            }
           }
         }
       } else {
-        clipGain.gain.setValueAtTime(baseGain, startWall);
+        clipGain.gain.value = baseGain;
       }
-      if (fadeOut > 0) {
-        const curveOut = clip.fadeCurveOut ?? 'linear';
-        clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
-        if (curveOut === 'linear') {
-          clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
-        } else {
-          const STEPS = 8;
-          for (let i = 1; i <= STEPS; i++) {
-            const frac = i / STEPS;
-            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveOut, frac, false) * baseGain, startWall + fadeOutStart + frac * fadeOut);
-          }
+
+      source.connect(clipGain);
+
+      if (track.parentId) {
+        const clipPan = ctx.createStereoPanner();
+        clipPan.pan.value = effectivePan(track.id, track.pan, lrMasterActive);
+        clipGain.connect(clipPan);
+        clipPan.connect(channel.gain);
+      } else {
+        clipGain.connect(channel.gain);
+      }
+
+      const localStart = clip.startTime - sliceStart;
+      const when = Math.max(0, localStart * alpha);
+      const offset = localStart < 0 ? Math.max(0, -localStart * alpha) : 0;
+      const bufDur = source.buffer?.duration ?? 0;
+      if (offset < bufDur - 0.005) {
+        try {
+          if (offset > 0.001) source.start(when, offset);
+          else source.start(when);
+          scheduled++;
+        } catch (err) {
+          console.warn('[bounce] agendamento de clipe protegido:', clip.name, err);
         }
       }
-    } else {
-      clipGain.gain.value = baseGain;
+      await yieldToUi();
     }
 
-    source.connect(clipGain);
-
-    if (track.parentId) {
-      const clipPan = ctx.createStereoPanner();
-      clipPan.pan.value = effectivePan(track.id, track.pan, lrMasterActive);
-      clipGain.connect(clipPan);
-      clipPan.connect(channel.gain);
-    } else {
-      clipGain.connect(channel.gain);
-    }
-
-    const localStart = clip.startTime - sliceStart;
-    const when = Math.max(0, localStart * alpha);
-    const offset = localStart < 0 ? Math.max(0, -localStart * alpha) : 0;
-    const bufDur = source.buffer?.duration ?? 0;
-    if (offset < bufDur - 0.005) {
-      try {
-        if (offset > 0.001) source.start(when, offset);
-        else source.start(when);
-      } catch (err) {
-        console.warn('[bounce] agendamento de clipe protegido:', clip.name, err);
+    if (scheduled > 0) {
+      const rendered = await ctx.startRendering();
+      const l = rendered.getChannelData(0);
+      const r = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : l;
+      const n = Math.min(totalFrames, rendered.length);
+      for (let i = 0; i < n; i++) {
+        accL[i] += l[i];
+        accR[i] += r[i];
       }
     }
+    await yieldToUi();
   }
 
-  return await ctx.startRendering();
+  const mixed = createBufferFallback(totalFrames, 2, sampleRate);
+  mixed.copyToChannel(accL, 0);
+  mixed.copyToChannel(accR, 1);
+  if (!applyMasterLimiter) return mixed;
+
+  // Limitador de segurança do master, aplicado sobre a soma final (como na mesa de reprodução).
+  const master = new OfflineAudioContext(2, totalFrames, sampleRate);
+  const src = master.createBufferSource();
+  src.buffer = mixed;
+  const makeup = master.createGain();
+  makeup.gain.value = Math.pow(10, 1.5 / 20);
+  const limiter = createSafetyLimiter(master);
+  src.connect(makeup);
+  makeup.connect(limiter);
+  limiter.connect(master.destination);
+  src.start(0);
+  return await master.startRendering();
 }
 
 async function renderOffline(
@@ -327,7 +382,7 @@ function estimateFiles(song: Song, state: ProjectState, mode: BounceMode): numbe
 
 function multitrackJobs(song: Song, state: ProjectState): FileJob[] {
   const songClips = state.clips
-    .filter((c) => c.songId === song.id && getClipPlayAudio(c))
+    .filter((c) => c.songId === song.id && (getClipPlayAudio(c) || getClipSource(c.id)))
     .sort((a, b) => a.startTime - b.startTime);
   const order = new Map(state.tracks.map((t, i) => [t.id, i]));
   const trackIds = Array.from(new Set(songClips.map((c) => c.trackId)))

@@ -65,10 +65,12 @@ function chainHas(track: Track, allTracks: Track[], pred: (t: Track) => boolean)
 
 function treeHasSolo(track: Track, allTracks: Track[]): boolean {
   if (track.solo) return true;
-  return track.children.some((id) => {
+  const fromChildren = track.children.some((id) => {
     const c = allTracks.find((x) => x.id === id);
     return c ? treeHasSolo(c, allTracks) : false;
   });
+  if (fromChildren) return true;
+  return allTracks.some((c) => c.parentId === track.id && treeHasSolo(c, allTracks));
 }
 
 const isStemClip = (c: AudioClip) => !isTimecodeTrackId(c.trackId);
