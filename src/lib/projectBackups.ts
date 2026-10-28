@@ -62,10 +62,16 @@ function formatBackupTime(ts: number): string {
   return `${time} · ${date}`;
 }
 
-/** Guarda um snapshot do projeto antes de sobrescrever, mantendo os últimos 10 de cada projeto. */
+/** Guarda um snapshot do projeto antes de sobrescrever, mantendo os últimos 10 de cada projeto.
+ * Remove os arrays pesados de picos de forma de onda (waveformPeaks) do backup: eles só servem
+ * para desenhar a onda na tela e ocupavam mais de 90% do tamanho (dezenas de megabytes que
+ * congelavam o navegador no structuredClone a cada ⌘S). Ao restaurar, os picos continuam
+ * nos clipes já abertos ou são recarregados pelo projeto. */
 export async function saveProjectBackup(state: ProjectState): Promise<ProjectBackup | null> {
   try {
-    const manifest = buildManifestBase(state);
+    const rawManifest = buildManifestBase(state);
+    const lightClips = rawManifest.clips.map((c) => (c.waveformPeaks && c.waveformPeaks.length > 0 ? { ...c, waveformPeaks: [] } : c));
+    const manifest: SavedManifest = { ...rawManifest, clips: lightClips };
     const projectName = state.projectName || 'Sem Nome';
     const now = Date.now();
     const backup: ProjectBackup = {
@@ -117,14 +123,22 @@ export async function restoreProjectBackup(backup: ProjectBackup): Promise<void>
   const store = useStore.getState();
   const savedSources = new Map<string, Blob>();
   const savedAudio = new Map<string, ReturnType<typeof getClipAudio>>();
+  const savedPeaks = new Map<string, number[]>();
   for (const c of store.clips) {
     const src = getClipSource(c.id);
     if (src) savedSources.set(c.id, src);
     const audio = getClipAudio(c.id);
     if (audio) savedAudio.set(c.id, audio);
+    if (c.waveformPeaks && c.waveformPeaks.length > 0) savedPeaks.set(c.id, c.waveformPeaks);
   }
 
-  store.loadProject(backup.manifest);
+  // Devolve os picos de onda para os clipes do backup restaurado
+  const restoredClips = (backup.manifest.clips || []).map((c) => {
+    const peaks = (c.waveformPeaks && c.waveformPeaks.length > 0) ? c.waveformPeaks : (savedPeaks.get(c.id) || []);
+    return { ...c, waveformPeaks: peaks };
+  });
+
+  store.loadProject({ ...backup.manifest, clips: restoredClips });
 
   for (const c of useStore.getState().clips) {
     const src = savedSources.get(c.id);

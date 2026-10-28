@@ -4,6 +4,7 @@ import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, withSongAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
 import { isTimecodeTrackId } from '@/lib/timecode';
+import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, ProjectState, Song, Track } from '@/types';
 
@@ -42,29 +43,47 @@ function songLength(song: Song, clips: AudioClip[]): number {
   return Math.max(maxEnd, 1);
 }
 
-async function renderOffline(
+function concatAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
+  if (buffers.length === 0) return new AudioBuffer({ length: 1, numberOfChannels: 2, sampleRate: 48000 });
+  if (buffers.length === 1) return buffers[0];
+  const sampleRate = buffers[0].sampleRate;
+  const totalFrames = buffers.reduce((sum, b) => sum + b.length, 0);
+  const out = new AudioBuffer({ length: totalFrames, numberOfChannels: 2, sampleRate });
+  let offset = 0;
+  for (const b of buffers) {
+    for (let c = 0; c < Math.min(2, b.numberOfChannels); c++) {
+      out.copyToChannel(b.getChannelData(c), c, offset);
+    }
+    offset += b.length;
+  }
+  return out;
+}
+
+// Renderiza um trecho isolado [sliceStart, sliceEnd] com BPM e Tom específicos daquele trecho
+async function renderSliceOffline(
   song: Song,
+  sliceStart: number,
+  sliceEnd: number,
+  bpmAdjust: number,
+  tuner: number,
   tracks: Track[],
   clips: AudioClip[],
   lrMasterActive: boolean,
   trackFilter?: (t: Track) => boolean,
   applyMasterLimiter = false
 ): Promise<AudioBuffer> {
-  const bpmAdjust = song.bpmAdjust || 0;
   const alpha = bpmAdjustToAlpha(bpmAdjust);
-  const duration = songLength(song, clips) * alpha;
+  const sliceDurSec = Math.max(0.05, sliceEnd - sliceStart);
+  const outDuration = sliceDurSec * alpha;
   const sampleRate = 48000;
-  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * sampleRate)), sampleRate);
-  const cents = (song.tuner || 0) * 100;
+  const ctx = new OfflineAudioContext(2, Math.max(1, Math.ceil(outDuration * sampleRate)), sampleRate);
+  const cents = tuner * 100;
   const respectMuteSolo = !trackFilter;
 
-  // No mixdown "LR Master" (não na multipista, que precisa sair crua), um pequeno make-up gain seguido do
-  // mesmo limiter de segurança do bus ao vivo deixa o arquivo exportado mais cheio/competitivo em volume
-  // sem nunca estourar — mastering real, não só headroom cru.
   let masterOut: AudioNode = ctx.destination;
   if (applyMasterLimiter) {
     const makeup = ctx.createGain();
-    makeup.gain.value = Math.pow(10, 1.5 / 20); // +1.5 dB, conservador
+    makeup.gain.value = Math.pow(10, 1.5 / 20);
     const limiter = createSafetyLimiter(ctx);
     makeup.connect(limiter);
     limiter.connect(ctx.destination);
@@ -86,8 +105,13 @@ async function renderOffline(
     return node;
   };
 
-  const songClips = clips.filter((c) => c.songId === song.id);
-  for (const clip of songClips.filter((c) => !isTimecodeTrackId(c.trackId))) {
+  const songClips = clips.filter((c) => c.songId === song.id && !isTimecodeTrackId(c.trackId));
+  for (const clip of songClips) {
+    const clipPlayLen = clipPlayLength(clip);
+    const clipEnd = clip.startTime + clipPlayLen;
+    // Pula se o clipe não intercepta esta fatia
+    if (clipEnd <= sliceStart || clip.startTime >= sliceEnd) continue;
+
     const clipAudio = getClipPlayAudio(clip);
     if (!clipAudio) continue;
     const track = tracks.find((t) => t.id === clip.trackId);
@@ -101,53 +125,79 @@ async function renderOffline(
     source.buffer = await processClipAudioAsync(ctx, clipAudio, alpha, melodic ? cents : 0);
     source.playbackRate.value = 1;
     const clipGain = ctx.createGain();
-    // Ajustes do modo DAW (gain/mute/solo/fade) sempre valem na exportação, mesmo que
-    // o DAW esteja desligado no momento — igual à reprodução.
+
     const routingGain = target !== track ? channelGain(track, tracks, respectMuteSolo) / Math.max(1e-6, channelGain(target, tracks, respectMuteSolo)) : 1;
     const baseGain = routingGain * clipGainFor(clip, songClips);
-    const playDuration = clipPlayLength(clip) * alpha;
-    const startWall = clip.startTime * alpha;
-    const fadeIn = (clip.fadeIn ?? 0) * alpha;
-    const fadeOut = (clip.fadeOut ?? 0) * alpha;
-    if (fadeIn > 0 || fadeOut > 0) {
-      const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
-      if (fadeIn > 0) {
-        const curveIn = clip.fadeCurveIn ?? 'linear';
-        clipGain.gain.setValueAtTime(0, startWall);
-        if (curveIn === 'linear') {
-          clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
-        } else {
-          const STEPS = 8;
-          for (let i = 1; i <= STEPS; i++) {
-            const frac = i / STEPS;
-            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveIn, frac, true) * baseGain, startWall + frac * fadeIn);
-          }
-        }
-      } else {
-        clipGain.gain.setValueAtTime(baseGain, startWall);
-      }
-      if (fadeOut > 0) {
-        const curveOut = clip.fadeCurveOut ?? 'linear';
-        clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
-        if (curveOut === 'linear') {
-          clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
-        } else {
-          const STEPS = 8;
-          for (let i = 1; i <= STEPS; i++) {
-            const frac = i / STEPS;
-            clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveOut, frac, false) * baseGain, startWall + fadeOutStart + frac * fadeOut);
-          }
-        }
-      }
-    } else {
-      clipGain.gain.value = baseGain;
-    }
+    clipGain.gain.value = baseGain;
     source.connect(clipGain);
     clipGain.connect(channel.gain);
-    source.start(startWall);
+
+    // Onde na timeline do contexto (em segundos) o áudio deste clipe começa a tocar dentro da fatia
+    const whenInContext = Math.max(0, clip.startTime - sliceStart) * alpha;
+    // Offset dentro do buffer do clipe (em segundos do buffer já com time-stretch aplicado)
+    const clipOffsetWithin = Math.max(0, sliceStart - clip.startTime) * alpha;
+    const availableInBuffer = Math.max(0, (source.buffer.duration) - clipOffsetWithin);
+    const durationToPlay = Math.min(availableInBuffer, Math.max(0, clipEnd - Math.max(sliceStart, clip.startTime)) * alpha);
+
+    if (durationToPlay > 0.001) {
+      source.start(whenInContext, clipOffsetWithin, durationToPlay);
+    }
   }
 
   return await ctx.startRendering();
+}
+
+async function renderOffline(
+  song: Song,
+  tracks: Track[],
+  clips: AudioClip[],
+  lrMasterActive: boolean,
+  trackFilter?: (t: Track) => boolean,
+  applyMasterLimiter = false
+): Promise<AudioBuffer> {
+  // Se for um Medley com fatias:
+  // - Renderiza apenas as fatias marcadas (enabled !== false), pulando as desmarcadas!
+  // - Cada fatia respeita o seu próprio Tom (tuner) e BPM (bpmAdjust)!
+  // - Emenda as fatias marcadas em sequência contínua
+  if (isMedley(song)) {
+    const slices = medleySlices(song).filter(isSliceEnabled);
+    if (slices.length === 0) {
+      return new AudioBuffer({ length: 48000, numberOfChannels: 2, sampleRate: 48000 });
+    }
+    const buffers: AudioBuffer[] = [];
+    for (const s of slices) {
+      const p = sliceParams(song, s);
+      const buf = await renderSliceOffline(
+        song,
+        s.start,
+        s.end,
+        p.bpmAdjust,
+        p.tuner,
+        tracks,
+        clips,
+        lrMasterActive,
+        trackFilter,
+        applyMasterLimiter
+      );
+      buffers.push(buf);
+    }
+    return concatAudioBuffers(buffers);
+  }
+
+  // Música padrão (sem fatias de medley): renderiza do início ao fim respeitando BPM e Tom da música
+  const duration = songLength(song, clips);
+  return renderSliceOffline(
+    song,
+    0,
+    duration,
+    song.bpmAdjust || 0,
+    song.tuner || 0,
+    tracks,
+    clips,
+    lrMasterActive,
+    trackFilter,
+    applyMasterLimiter
+  );
 }
 
 // O timecode sai como o arquivo original: sem BPM, sem afinador e sem fader.
@@ -310,8 +360,16 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
     const sampleRate = 48000;
 
     // Precisa saber a duração total ANTES de escrever (o cabeçalho WAV declara o tamanho do arquivo
-    // logo no início). Os áudios ainda não precisam estar abertos para isso — só a estrutura do projeto.
+    // logo no início). Considera exatamente as fatias marcadas em cada medley e o BPM de cada uma.
     const songFrames = songs.map((s) => {
+      if (isMedley(s)) {
+        const slices = medleySlices(s).filter(isSliceEnabled);
+        return slices.reduce((sum, sl) => {
+          const p = sliceParams(s, sl);
+          const alpha = bpmAdjustToAlpha(p.bpmAdjust);
+          return sum + Math.max(1, Math.ceil((sl.end - sl.start) * alpha * sampleRate));
+        }, 0);
+      }
       const alpha = bpmAdjustToAlpha(s.bpmAdjust || 0);
       return Math.max(1, Math.ceil(songLength(s, state.clips) * alpha * sampleRate));
     });

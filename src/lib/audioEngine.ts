@@ -1721,8 +1721,13 @@ class AudioEngine {
     const ctx = this.ctx;
     const store = useStore.getState();
     const songId = this.currentSongId;
-    const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c));
-    const canSeekInPlace = ctx !== null && !this.headOnly && clips.length > 0 && clips.every((c) => this.activeClips.has(c.id) || (time >= c.startTime + c.duration));
+    const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c) && store.tracks.some((t) => t.id === c.trackId));
+    // Só impede o pulo no lugar quem TEM áudio aberto e ainda não está tocando (ex.: clipe colado agora).
+    // Faixa sem áudio (arquivo ausente ou ainda abrindo) não pode forçar a reconstrução de todos os
+    // reprodutores a cada clique no cursor — era isso que deixava o cursor lento e travando; essas
+    // faixas entram sozinhas assim que o áudio abrir (lateAttach).
+    const blocking = clips.filter((c) => !this.activeClips.has(c.id) && time < c.startTime + clipPlayLength(c) && !!getClipPlayAudio(c));
+    const canSeekInPlace = ctx !== null && !this.headOnly && this.activeClips.size > 0 && blocking.length === 0;
 
     if (!canSeekInPlace) {
       this.seekLock = { active: true, targetTime: time };

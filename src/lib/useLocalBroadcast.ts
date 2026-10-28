@@ -74,17 +74,29 @@ export function useLocalBroadcast(): LocalBroadcast {
 
     publish();
     let prev = useStore.getState();
+    let cursorTimer: number | null = null;
     const unsub = useStore.subscribe((s) => {
       const a = prev.transport;
       const b = s.transport;
-      const changed =
+      const cursorMovedWhileStopped = !b.isPlaying && a.currentTime !== b.currentTime;
+      const immediate =
         a.isPlaying !== b.isPlaying || a.isPaused !== b.isPaused || a.isStopped !== b.isStopped ||
         a.currentSongId !== b.currentSongId || a.nextSongId !== b.nextSongId || a.playFlow !== b.playFlow ||
-        (!b.isPlaying && a.currentTime !== b.currentTime) ||
         s.songs !== prev.songs || s.blocks !== prev.blocks || s.playlistOrder !== prev.playlistOrder ||
         s.lyricMaps !== prev.lyricMaps || s.activeShowId !== prev.activeShowId || s.shows !== prev.shows;
       prev = s;
-      if (changed) publish();
+      if (immediate) {
+        if (cursorTimer !== null) { window.clearTimeout(cursorTimer); cursorTimer = null; }
+        publish();
+      } else if (cursorMovedWhileStopped) {
+        // Scrub na timeline com o som parado: debounda o envio para a rede local em 120ms
+        // para não disparar dezenas de mensagens pesadas com IPC por segundo enquanto o usuário arrasta o cursor.
+        if (cursorTimer !== null) window.clearTimeout(cursorTimer);
+        cursorTimer = window.setTimeout(() => {
+          cursorTimer = null;
+          publish();
+        }, 120);
+      }
     });
 
     let last = Date.now();
@@ -93,7 +105,11 @@ export function useLocalBroadcast(): LocalBroadcast {
       if (Date.now() - last >= every - 50) { last = Date.now(); publish(); }
     }, 200);
 
-    return () => { unsub(); window.clearInterval(beat); };
+    return () => {
+      unsub();
+      if (cursorTimer !== null) window.clearTimeout(cursorTimer);
+      window.clearInterval(beat);
+    };
   }, [bridge, active]);
 
   useEffect(() => {

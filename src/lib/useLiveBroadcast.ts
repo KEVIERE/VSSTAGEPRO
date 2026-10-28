@@ -142,20 +142,31 @@ export function useLiveBroadcast(): LiveBroadcast {
 
     let prev = useStore.getState();
     let setlistTimer: number | null = null;
+    let cursorTimer: number | null = null;
     const unsub = useStore.subscribe((state) => {
       const a = prev.transport;
       const b = state.transport;
+      const cursorMovedWhileStopped = !b.isPlaying && a.currentTime !== b.currentTime;
       const transportChanged =
         a.isPlaying !== b.isPlaying || a.isPaused !== b.isPaused || a.isStopped !== b.isStopped ||
-        a.currentSongId !== b.currentSongId || a.nextSongId !== b.nextSongId || a.playFlow !== b.playFlow ||
-        (!b.isPlaying && a.currentTime !== b.currentTime);
+        a.currentSongId !== b.currentSongId || a.nextSongId !== b.nextSongId || a.playFlow !== b.playFlow;
       const setlistChanged =
         state.songs !== prev.songs || state.blocks !== prev.blocks ||
         state.playlistOrder !== prev.playlistOrder || state.projectName !== prev.projectName ||
         state.activeShowId !== prev.activeShowId || state.shows !== prev.shows;
       prev = state;
       if (b.isPlaying && !a.isPlaying) claim();
-      if (transportChanged) send(show);
+      if (transportChanged) {
+        if (cursorTimer !== null) { window.clearTimeout(cursorTimer); cursorTimer = null; }
+        send(show);
+      } else if (cursorMovedWhileStopped) {
+        // Scrub no cursor com o som parado não deve disparar POST na nuvem a cada pixel
+        if (cursorTimer !== null) window.clearTimeout(cursorTimer);
+        cursorTimer = window.setTimeout(() => {
+          cursorTimer = null;
+          send(show);
+        }, 150);
+      }
       if (setlistChanged) {
         setlistDirty.current = true;
         if (setlistTimer !== null) window.clearTimeout(setlistTimer);
@@ -177,6 +188,8 @@ export function useLiveBroadcast(): LiveBroadcast {
       unsub();
       window.clearInterval(beat);
       if (setlistTimer !== null) window.clearTimeout(setlistTimer);
+      if (cursorTimer !== null) window.clearTimeout(cursorTimer);
+    };
     };
   }, [show, onAir, yielded, send, claim]);
 
