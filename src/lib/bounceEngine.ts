@@ -1,7 +1,7 @@
 import { encodeWavFloat32, encodePcmFloat32, wavHeaderFloat32 } from '@/lib/wavEncoder';
 import { clipGainFor, channelGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, withSongAudio, type ClipAudio } from '@/lib/audioLibrary';
+import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, releaseClipAudio, withSongAudio, type ClipAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
@@ -58,7 +58,7 @@ function concatAudioBuffers(buffers: AudioBuffer[]): AudioBuffer {
 // Quantos clipes entram juntos em cada passada de renderização. Cada passada converte só o áudio
 // dela para o formato nativo e libera tudo ao terminar: o pico de memória deixa de crescer com o
 // número de faixas, que era o que fazia faixas sumirem (mudas) ou a exportação falhar no navegador.
-const EXPORT_BATCH = 4;
+const EXPORT_BATCH = 1;
 
 const yieldToUi = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -66,13 +66,15 @@ const yieldToUi = () => new Promise<void>((r) => setTimeout(r, 0));
  * Áudio aberto de um clipe para exportar. Se a memória já soltou o áudio, reabre do arquivo e
  * tenta de novo antes de desistir. Quando realmente não abre, avisa com erro: uma faixa NUNCA
  * pode sair muda no arquivo exportado sem ninguém saber.
- * Devolve null só quando o clipe nunca teve arquivo (ausente ou ignorado ao abrir o projeto).
+ * Se o arquivo estiver ausente, falha com o nome do clipe em vez de gerar silêncio.
  */
-async function exportAudioFor(clip: AudioClip): Promise<ClipAudio | null> {
+async function exportAudioFor(clip: AudioClip): Promise<ClipAudio> {
   const cached = getClipPlayAudio(clip);
   if (cached) return cached;
   const src = getClipSource(clip.id);
-  if (!src) return null;
+  if (!src) {
+    throw new Error(`O clipe "${clip.name}" não tem áudio acessível para exportar. Relocalize o arquivo ausente e tente novamente.`);
+  }
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -80,6 +82,7 @@ async function exportAudioFor(clip: AudioClip): Promise<ClipAudio | null> {
       putClipAudio(clip.id, clip.songId, audio);
       const playable = getClipPlayAudio(clip);
       if (playable) return playable;
+      throw new Error(`O áudio do clipe "${clip.name}" está vazio ou não pôde ser lido.`);
     } catch (err) {
       lastErr = err;
       console.warn(`[bounce] tentativa ${attempt + 1} de abrir "${clip.name}" falhou:`, err);
@@ -88,6 +91,22 @@ async function exportAudioFor(clip: AudioClip): Promise<ClipAudio | null> {
   }
   console.error('[bounce] clipe não abriu para exportar:', clip.name, lastErr);
   throw new Error(`Não foi possível abrir o áudio "${clip.name}" para exportar (memória insuficiente ou arquivo ilegível). Feche outros programas e tente de novo.`);
+}
+
+/** Converte e libera o original imediatamente; o grafo offline conserva só o buffer processado do clipe atual. */
+async function processExportClip(
+  ctx: BaseAudioContext,
+  clip: AudioClip,
+  alpha: number,
+  cents: number,
+): Promise<AudioBuffer> {
+  const audio = await exportAudioFor(clip);
+  try {
+    return await processClipAudioAsync(ctx, audio, alpha, cents);
+  } finally {
+    releaseClipAudio(clip.id);
+    await yieldToUi();
+  }
 }
 
 // Renderiza um trecho isolado [sliceStart, sliceEnd] com BPM e Tom específicos daquele trecho
@@ -120,7 +139,7 @@ async function renderSliceOffline(
     const clipEnd = clip.startTime + clipPlayLength(clip);
     if (clipEnd <= sliceStart || clip.startTime >= sliceEnd) continue;
     const track = tracks.find((t) => t.id === clip.trackId);
-    if (!track) continue;
+    if (!track) throw new Error(`O clipe "${clip.name}" de "${song.name}" aponta para uma faixa inexistente. Corrija o roteamento antes de exportar.`);
     if (trackFilter && !trackFilter(track)) continue;
     wanted.push({ clip, track });
   }
@@ -151,14 +170,13 @@ async function renderSliceOffline(
     let scheduled = 0;
     for (const { clip, track } of batch) {
       const clipPlayLen = clipPlayLength(clip);
-      const clipAudio = await exportAudioFor(clip);
-      if (!clipAudio) continue;
+      const melodic = isMelodicTrack(track, tracks);
+      const processed = await processExportClip(ctx, clip, alpha, melodic ? cents : 0);
 
       const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
       const channel = ensureChannel(target);
       const source = ctx.createBufferSource();
-      const melodic = isMelodicTrack(track, tracks);
-      source.buffer = await processClipAudioAsync(ctx, clipAudio, alpha, melodic ? cents : 0);
+      source.buffer = processed;
       source.playbackRate.value = 1;
 
       const clipGain = ctx.createGain();
@@ -220,14 +238,16 @@ async function renderSliceOffline(
       const when = Math.max(0, localStart * alpha);
       const offset = localStart < 0 ? Math.max(0, -localStart * alpha) : 0;
       const bufDur = source.buffer?.duration ?? 0;
-      if (offset < bufDur - 0.005) {
-        try {
-          if (offset > 0.001) source.start(when, offset);
-          else source.start(when);
-          scheduled++;
-        } catch (err) {
-          console.warn('[bounce] agendamento de clipe protegido:', clip.name, err);
-        }
+      if (offset >= bufDur - 0.005) {
+        throw new Error(`O clipe "${clip.name}" termina antes da fatia "${song.name}" (${sliceStart.toFixed(2)}s). Confira os cortes e a posição do clipe.`);
+      }
+      try {
+        if (offset > 0.001) source.start(when, offset);
+        else source.start(when);
+        scheduled++;
+      } catch (err) {
+        console.error('[bounce] agendamento falhou:', clip.name, err);
+        throw new Error(`Não foi possível agendar o clipe "${clip.name}" na exportação.`);
       }
       await yieldToUi();
     }
@@ -318,9 +338,13 @@ async function renderOffline(
 }
 
 // O timecode sai como o arquivo original: sem BPM, sem afinador e sem fader.
-function timecodeBuffer(clip: AudioClip): AudioBuffer | null {
-  const audio = getClipPlayAudio(clip);
-  return audio ? clipAudioToBuffer(audio) : null;
+async function timecodeBuffer(clip: AudioClip): Promise<AudioBuffer> {
+  const audio = await exportAudioFor(clip);
+  try {
+    return clipAudioToBuffer(audio);
+  } finally {
+    releaseClipAudio(clip.id);
+  }
 }
 
 export async function renderLrMasterForSong(song: Song, state: ProjectState): Promise<AudioBuffer> {
@@ -382,9 +406,11 @@ function estimateFiles(song: Song, state: ProjectState, mode: BounceMode): numbe
 
 function multitrackJobs(song: Song, state: ProjectState): FileJob[] {
   const songClips = state.clips
-    .filter((c) => c.songId === song.id && (getClipPlayAudio(c) || getClipSource(c.id)))
+    .filter((c) => c.songId === song.id)
     .sort((a, b) => a.startTime - b.startTime);
   const order = new Map(state.tracks.map((t, i) => [t.id, i]));
+  const orphan = songClips.find((c) => !order.has(c.trackId));
+  if (orphan) throw new Error(`O clipe "${orphan.name}" de "${song.name}" aponta para uma faixa inexistente. Corrija o roteamento antes de exportar.`);
   const trackIds = Array.from(new Set(songClips.map((c) => c.trackId)))
     .filter((id) => order.has(id))
     .sort((a, b) => order.get(a)! - order.get(b)!);
@@ -395,8 +421,7 @@ function multitrackJobs(song: Song, state: ProjectState): FileJob[] {
       name: 'TIMECODE (LTC).wav',
       label: 'Timecode (LTC)',
       render: async () => {
-        const buf = timecodeBuffer(tcClip);
-        if (!buf) throw new Error('Não foi possível ler o áudio do timecode.');
+        const buf = await timecodeBuffer(tcClip);
         return encodeWavFloat32(buf);
       },
     });
