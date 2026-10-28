@@ -121,7 +121,8 @@ async function renderSliceOffline(
   lrMasterActive: boolean,
   trackFilter?: (t: Track) => boolean,
   applyMasterLimiter = false,
-  cancelled: () => boolean = () => false
+  cancelled: () => boolean = () => false,
+  masterVolume = 0.8
 ): Promise<AudioBuffer> {
   const alpha = bpmAdjustToAlpha(bpmAdjust);
   const sliceDurSec = Math.max(0.05, sliceEnd - sliceStart);
@@ -279,7 +280,7 @@ async function renderSliceOffline(
   const src = master.createBufferSource();
   src.buffer = mixed;
   const makeup = master.createGain();
-  makeup.gain.value = Math.pow(10, 1.5 / 20);
+  makeup.gain.value = faderToGain(masterVolume);
   const limiter = createSafetyLimiter(master);
   src.connect(makeup);
   makeup.connect(limiter);
@@ -295,7 +296,8 @@ async function renderOffline(
   lrMasterActive: boolean,
   trackFilter?: (t: Track) => boolean,
   applyMasterLimiter = false,
-  cancelled: () => boolean = () => false
+  cancelled: () => boolean = () => false,
+  masterVolume = 0.8
 ): Promise<AudioBuffer> {
   // Se for um Medley com fatias:
   // - Renderiza apenas as fatias marcadas (enabled !== false), pulando as desmarcadas!
@@ -320,7 +322,8 @@ async function renderOffline(
         lrMasterActive,
         trackFilter,
         applyMasterLimiter,
-        cancelled
+        cancelled,
+        masterVolume
       );
       buffers.push(buf);
     }
@@ -340,7 +343,8 @@ async function renderOffline(
     lrMasterActive,
     trackFilter,
     applyMasterLimiter,
-    cancelled
+    cancelled,
+    masterVolume
   );
 }
 
@@ -534,7 +538,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         report(`Música ${si + 1} de ${songs.length} – ${song.name} · mixando`, 0);
         try {
           await withSongAudio(song.id, async () => {
-            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled);
+            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume);
             renderedBuffers.push(buf);
           });
           saved++;
@@ -584,7 +588,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         report(`${songLabel} · mixando faixa`, 0);
         try {
           await withSongAudio(song.id, async () => {
-            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled);
+            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume);
             report(`${songLabel} · gravando no disco`, 0.5);
             // PCM dessa música vai direto pro arquivo; o buffer sai de escopo e pode ser liberado
             // pelo coletor de lixo antes da próxima música começar a renderizar.
@@ -636,7 +640,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
             label: 'mix LR Master',
-            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled)),
+            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume)),
           }]
         : multitrackJobs(song, state, hooks.cancelled);
       total += jobs.length - estimates[si];
