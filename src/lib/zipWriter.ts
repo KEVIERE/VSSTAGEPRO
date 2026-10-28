@@ -27,6 +27,21 @@ export interface ZipEntryInput {
 
 export function buildZip(entries: ZipEntryInput[]): Blob {
   const enc = new TextEncoder();
+  // ZIP clássico usa campos de 32 bits. Não produzir um arquivo corrompido quando
+  // offsets ou tamanhos excedem esse limite: o destino precisa suportar ZIP64.
+  const max = 0xffffffff;
+  let localSize = 0;
+  let directorySize = 0;
+  if (entries.length >= 0xffff) throw new Error('Exportação grande demais para ZIP no navegador. Abra o programa em uma janela própria do Chrome ou Edge e escolha uma pasta.');
+  for (const entry of entries) {
+    const nameLength = enc.encode(entry.path).length;
+    if (nameLength > 0xffff || entry.data.byteLength >= max || localSize >= max) {
+      throw new Error('Exportação grande demais para ZIP no navegador. Abra o programa em uma janela própria do Chrome ou Edge e escolha uma pasta.');
+    }
+    localSize += 30 + nameLength + entry.data.byteLength;
+    directorySize += 46 + nameLength;
+  }
+  if (localSize >= max || directorySize >= max) throw new Error('Exportação grande demais para ZIP no navegador. Abra o programa em uma janela própria do Chrome ou Edge e escolha uma pasta.');
   const localChunks: Uint8Array[] = [];
   const centralChunks: Uint8Array[] = [];
   let offset = 0;

@@ -1,4 +1,4 @@
-import { encodeWavFloat32, encodePcmFloat32, wavHeaderFloat32 } from '@/lib/wavEncoder';
+import { encodeWavPcm24, encodePcm24, wavHeaderPcm24 } from '@/lib/wavEncoder';
 import { clipGainFor, channelGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, releaseClipAudio, withSongAudio, type ClipAudio } from '@/lib/audioLibrary';
@@ -422,7 +422,7 @@ function multitrackJobs(song: Song, state: ProjectState): FileJob[] {
       label: 'Timecode (LTC)',
       render: async () => {
         const buf = await timecodeBuffer(tcClip);
-        return encodeWavFloat32(buf);
+        return encodeWavPcm24(buf);
       },
     });
   }
@@ -436,7 +436,7 @@ function multitrackJobs(song: Song, state: ProjectState): FileJob[] {
       name: n === 1 ? `${base}.wav` : `${base} (${n}).wav`,
       label: `Faixa ${i + 1} de ${stems.length}: ${track.name}`,
       render: async () =>
-        encodeWavFloat32(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, (t) => t.id === track.id)),
+        encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, (t) => t.id === track.id)),
     });
   });
   return jobs;
@@ -555,7 +555,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         frameOffset += b.length;
       }
       report('Codificando WAV do show completo...', 0.96);
-      const data = encodeWavFloat32(fullBuffer);
+      const data = encodeWavPcm24(fullBuffer);
       report(`Salvando ${outName}...`, 0.98);
       await target.write(outName, data);
       return {
@@ -567,7 +567,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
 
     const stream = await target.openStream(outName);
     try {
-      await stream.append(wavHeaderFloat32(totalFrames, 2, sampleRate));
+      await stream.append(wavHeaderPcm24(totalFrames, 2, sampleRate));
 
       for (let si = 0; si < songs.length; si++) {
         if (hooks.cancelled()) { run.status = 'cancelled'; break; }
@@ -580,7 +580,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
             report(`${songLabel} · gravando no disco`, 0.5);
             // PCM dessa música vai direto pro arquivo; o buffer sai de escopo e pode ser liberado
             // pelo coletor de lixo antes da próxima música começar a renderizar.
-            await stream.append(encodePcmFloat32(buf));
+            await stream.append(encodePcm24(buf));
           });
           saved++;
           songsSaved++;
@@ -627,7 +627,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
             label: 'mix LR Master',
-            render: async () => encodeWavFloat32(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true)),
+            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true)),
           }]
         : multitrackJobs(song, state);
       total += jobs.length - estimates[si];
