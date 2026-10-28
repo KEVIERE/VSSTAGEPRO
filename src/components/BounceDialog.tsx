@@ -223,7 +223,7 @@ function WorkingView({ progress, cancelling, onCancel }: { progress: ExportProgr
         )}
       </div>
       <div className="flex justify-end mt-4">
-        <button className="logic-btn" disabled={cancelling || !progress} onClick={onCancel}>
+        <button className="logic-btn" disabled={cancelling} onClick={onCancel}>
           {cancelling ? 'Cancelando ao fim da faixa atual...' : 'Cancelar'}
         </button>
       </div>

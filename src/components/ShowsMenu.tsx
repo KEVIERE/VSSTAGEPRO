@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Check, ChevronDown, Copy, ListMusic, Pencil, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, ChevronDown, Copy, ListMusic, Pencil, Plus, Trash2, FilePlus2 } from 'lucide-react';
 import { useStore } from '@/store';
 import { DEFAULT_SHOW_NAME } from '@/lib/shows';
 import ShowEditorDialog from '@/components/ShowEditorDialog';
+import { saveProjectAsPackage, saveProjectAsFolder, isFolderSaveSupported } from '@/lib/projectSaver';
+import { syncedShows } from '@/lib/shows';
 
 export default function ShowsMenu({ open, onToggle, onClose }: { open: boolean; onToggle: () => void; onClose: () => void }) {
   const shows = useStore((s) => s.shows);
@@ -14,6 +16,10 @@ export default function ShowsMenu({ open, onToggle, onClose }: { open: boolean; 
   const defaultCount = useStore((s) => s.defaultPlaylist?.length ?? 0);
   const [editor, setEditor] = useState<{ showId: string | null } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [copyId, setCopyId] = useState<string | null>(null);
+  const [copyBusy, setCopyBusy] = useState(false);
+  const [copyMessage, setCopyMessage] = useState('');
+  const copyAbort = useRef<AbortController | null>(null);
 
   useEffect(() => { if (!open) setConfirmDelete(null); }, [open]);
 
@@ -22,6 +28,36 @@ export default function ShowsMenu({ open, onToggle, onClose }: { open: boolean; 
   const pick = (id: string | null) => {
     activateShow(id === activeShowId ? null : id);
     onClose();
+  };
+
+  const saveShowCopy = async (format: 'package' | 'folder') => {
+    const st = useStore.getState();
+    const show = syncedShows(st).find((item) => item.id === copyId);
+    if (!show || !show.playlist.length) { setCopyMessage('Este show não tem músicas para salvar.'); return; }
+    const ids = new Set(show.playlist.map((p) => p.songId));
+    const playlist = show.playlist.filter((p) => st.songs.some((song) => song.id === p.songId)).map((p, order) => ({ ...p, order }));
+    const usedBlocks = new Set(playlist.map((p) => p.blockId).filter(Boolean));
+    const copy = {
+      ...st, projectName: show.name,
+      songs: st.songs.filter((song) => ids.has(song.id)),
+      clips: st.clips.filter((clip) => ids.has(clip.songId)),
+      playlist, playlistOrder: playlist.map((p) => p.songId),
+      blocks: st.blocks.filter((block) => usedBlocks.has(block.id)),
+      shows: [], activeShowId: null, defaultPlaylist: null,
+      lyricMaps: Object.fromEntries(Object.entries(st.lyricMaps).filter(([id]) => ids.has(id))),
+    };
+    copyAbort.current = new AbortController();
+    setCopyBusy(true); setCopyMessage('Escolha onde salvar a cópia...');
+    try {
+      if (format === 'folder') await saveProjectAsFolder(copy, `${show.name} - cópia`, setCopyMessage, copyAbort.current.signal, true);
+      else {
+        const result = await saveProjectAsPackage(copy, `${show.name} - cópia`, setCopyMessage, copyAbort.current.signal, false);
+        if (result.missingCount) { setCopyMessage(`Cópia salva com ${result.missingCount} áudio(s) ausente(s).`); return; }
+      }
+      setCopyMessage('Cópia salva. O projeto original continua aberto e inalterado.');
+    } catch (err) {
+      setCopyMessage((err as DOMException)?.name === 'AbortError' ? 'Salvamento cancelado. Na opção de pasta, arquivos já gravados podem permanecer.' : `Não foi possível salvar: ${(err as Error).message}`);
+    } finally { copyAbort.current = null; setCopyBusy(false); }
   };
 
   return (
@@ -64,6 +100,7 @@ export default function ShowsMenu({ open, onToggle, onClose }: { open: boolean; 
               ) : (
                 <>
                   <RowAction label="Editar e renomear" onClick={() => { setEditor({ showId: sh.id }); onClose(); }}><Pencil size={11} /></RowAction>
+                  <RowAction label="Criar projeto deste show" onClick={() => { setCopyId(sh.id); setCopyMessage(''); onClose(); }}><FilePlus2 size={11} /></RowAction>
                   <RowAction label="Duplicar" onClick={() => duplicateShow(sh.id)}><Copy size={11} /></RowAction>
                   <RowAction label="Excluir" onClick={() => setConfirmDelete(sh.id)}><Trash2 size={11} /></RowAction>
                 </>
@@ -81,6 +118,18 @@ export default function ShowsMenu({ open, onToggle, onClose }: { open: boolean; 
         </div>
       )}
 
+      {copyId && <div className="fixed inset-0 z-[230] flex items-center justify-center bg-black/60">
+        <div className="w-[480px] max-w-[92vw] rounded bg-logic-bg-panel border border-logic-border-light p-5">
+          <h2 className="text-sm font-semibold mb-3">Criar projeto a partir do show</h2>
+          <p className="text-xs text-logic-text-dim mb-4">Salva somente as músicas deste show em uma cópia independente. O projeto atual não será alterado.</p>
+          {copyMessage && <p className="text-xs mb-4" role="status">{copyMessage}</p>}
+          <div className="flex flex-wrap gap-2">
+            <button className="logic-btn-accent" disabled={copyBusy} onClick={() => void saveShowCopy('package')}>Salvar arquivo .vss</button>
+            <button className="logic-btn" disabled={copyBusy || !isFolderSaveSupported()} onClick={() => void saveShowCopy('folder')}>Salvar em pasta</button>
+            <button className="logic-btn" onClick={() => copyBusy ? copyAbort.current?.abort() : setCopyId(null)}>{copyBusy ? 'Cancelar salvamento' : 'Fechar'}</button>
+          </div>
+        </div>
+      </div>}
       {editor && <ShowEditorDialog showId={editor.showId} onClose={() => setEditor(null)} />}
     </div>
   );

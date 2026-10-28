@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FolderOpen, Package, X, FolderCog, FileCog } from 'lucide-react';
 import { useStore } from '@/store';
 import { loadOpenedProject } from '@/lib/projectQuickSave';
@@ -28,6 +28,8 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState('');
+  const controller = useRef<AbortController | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (!mode) return;
@@ -49,6 +51,8 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
 
   const run = async (fn: () => Promise<string>) => {
     setBusy(true);
+    setCancelling(false);
+    controller.current = new AbortController();
     setError(null);
     try {
       const doneMessage = await fn();
@@ -67,6 +71,7 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
       setError(msg);
       setExportProgress(null);
     } finally {
+      controller.current = null;
       setBusy(false);
     }
   };
@@ -117,7 +122,7 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             onClick={() => run(async () => {
               if (mode === 'save') {
                 void saveProjectBackup(useStore.getState());
-                const target = await saveProjectAsFolder(useStore.getState(), projectName, progress);
+                const target = await saveProjectAsFolder(useStore.getState(), projectName, progress, controller.current?.signal);
                 setProjectName(projectName);
                 setSaveTarget(target);
                 void rememberProject(projectName, target);
@@ -151,7 +156,7 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             onClick={() => run(async () => {
               if (mode === 'save') {
                 void saveProjectBackup(useStore.getState());
-                const { target, missingCount } = await saveProjectAsPackage(useStore.getState(), projectName, progress);
+                const { target, missingCount } = await saveProjectAsPackage(useStore.getState(), projectName, progress, controller.current?.signal);
                 setProjectName(projectName);
                 setSaveTarget(target);
                 void rememberProject(projectName, target);
@@ -200,10 +205,10 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-logic-border-dark">
           <button
             className="px-3 py-1.5 text-xs rounded bg-logic-bg-deep text-logic-text border border-logic-border-dark hover:bg-logic-bg-panel-light transition-colors disabled:opacity-50"
-            onClick={onClose}
-            disabled={busy}
+            onClick={() => { if (busy) { controller.current?.abort(); setCancelling(true); } else onClose(); }}
+            disabled={busy && (mode !== 'save' || cancelling)}
           >
-            {busy ? 'Trabalhando...' : 'Cancelar'}
+            {busy ? (cancelling ? 'Cancelando...' : 'Cancelar salvamento') : 'Cancelar'}
           </button>
         </div>
       </div>

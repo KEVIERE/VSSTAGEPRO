@@ -6,6 +6,9 @@ import { saveProjectBackup } from '@/lib/projectBackups';
 import { friendlyError } from '@/lib/friendlyError';
 
 let clearTimer: number | null = null;
+let saveController: AbortController | null = null;
+
+export function cancelCurrentSave() { saveController?.abort(); }
 
 export function loadOpenedProject(loaded: LoadedProject): string {
   stopPlayback();
@@ -61,12 +64,14 @@ export async function saveCurrentProject() {
     return;
   }
   const target = st.saveTarget;
+  saveController = new AbortController();
+  const signal = saveController.signal;
   st.setSaveStatus({ kind: 'saving', message: 'Salvando...' });
   try {
     // Backup leve (só estrutura, sem áudio) antes de sobrescrever: guarda os últimos 10 salvamentos
     // deste projeto com horário, para poder voltar a uma versão anterior quando precisar.
     void saveProjectBackup(st);
-    const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }));
+    const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
     useStore.getState().setExportProgress(null);
     void rememberProject(useStore.getState().projectName, target);
     if (missingCount > 0) {
@@ -87,5 +92,7 @@ export async function saveCurrentProject() {
         ? friendlyError(err)
         : 'Não foi possível salvar no arquivo do projeto. Tente "Salvar Projeto..." para escolher outro local.';
     flash({ kind: 'error', message }, 8000);
+  } finally {
+    saveController = null;
   }
 }
