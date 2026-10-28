@@ -190,7 +190,6 @@ export function useLiveBroadcast(): LiveBroadcast {
       if (setlistTimer !== null) window.clearTimeout(setlistTimer);
       if (cursorTimer !== null) window.clearTimeout(cursorTimer);
     };
-    };
   }, [show, onAir, yielded, send, claim]);
 
   const resendSetlist = useCallback(() => {
