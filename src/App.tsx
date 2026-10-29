@@ -4,7 +4,7 @@ import { FileText, Radio, X } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { startInstantStartBuilder } from '@/lib/instantStart';
-import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
+import { audioMemoryUsage, ensureSongLoaded, getClipAudio, pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
 import { computeNextSongId } from '@/lib/playFlow';
 import { togglePlayPause, stopPlayback, startPlayback, watchPlaylistForNextSong } from '@/lib/transportControl';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
@@ -563,6 +563,54 @@ function DirectorApp({ license }: { license: License }) {
     return unsub;
   }, []);
 
+  // Ao abrir um projeto, aquece o áudio completo das músicas enquanto houver memória.
+  useEffect(() => {
+    let generation = 0;
+    const prepare = async () => {
+      const run = ++generation;
+      const initial = useStore.getState();
+      const songs = initial.songs.filter((song) => initial.clips.some((clip) => clip.songId === song.id));
+      let done = 0;
+      for (const song of songs) {
+        if (run !== generation) return;
+        const memory = audioMemoryUsage();
+        if (memory.used >= memory.limit * 0.8) {
+          useStore.getState().setProjectAudioPrep({ done, total: songs.length, status: 'incomplete', message: 'Limite de memória atingido; nem todas as músicas estão prontas.' });
+          return;
+        }
+        await ensureSongLoaded(song.id);
+        if (run !== generation) return;
+        const current = useStore.getState();
+        if (current.clips.some((clip) => clip.songId === song.id && !getClipAudio(clip.id))) {
+          current.setProjectAudioPrep({ done, total: songs.length, status: 'incomplete', message: `Não foi possível carregar todas as faixas de "${song.name}".` });
+          return;
+        }
+        done++;
+        current.setProjectAudioPrep({ done, total: songs.length, status: 'loading' });
+      }
+      if (run === generation) {
+        const current = useStore.getState();
+        const missing = current.clips.some((clip) => songs.some((song) => song.id === clip.songId) && !getClipAudio(clip.id));
+        current.setProjectAudioPrep(missing
+          ? { done, total: songs.length, status: 'incomplete', message: 'Parte do áudio foi liberada da memória; o projeto não está totalmente carregado.' }
+          : { done, total: songs.length, status: 'ready' });
+      }
+    };
+    let wasLoading = false;
+    const unsub = useStore.subscribe((state) => {
+      const loading = state.projectAudioPrep?.status === 'loading';
+      if (loading && !wasLoading) {
+        wasLoading = true;
+        queueMicrotask(() => { if (useStore.getState().projectAudioPrep?.status === 'loading') void prepare(); });
+      } else if (!loading) {
+        wasLoading = false;
+        if (!state.projectAudioPrep) generation++;
+      }
+    });
+    if (useStore.getState().projectAudioPrep?.status === 'loading') { wasLoading = true; void prepare(); }
+    return () => { generation++; unsub(); };
+  }, []);
+
   // Mantém na memória só o áudio da música em uso, da selecionada e da próxima;
   // o das outras é liberado. O carregamento acontece em segundo plano. Reage apenas a
   // mudanças estruturais — BPM/afinador são aplicados ao vivo no preparo em cache.
@@ -584,6 +632,9 @@ function DirectorApp({ license }: { license: License }) {
         const historyIds = new Set<string>();
         for (const h of [...pastStates, ...futureStates]) h.clips?.forEach((c) => historyIds.add(c.id));
         pruneAudioLibrary(new Set(st.clips.map((c) => c.id)), historyIds);
+        if (st.projectAudioPrep?.status === 'ready' && st.clips.some((clip) => !getClipAudio(clip.id))) {
+          st.setProjectAudioPrep({ ...st.projectAudioPrep, status: 'incomplete', message: 'Parte do áudio não está mais disponível na memória.' });
+        }
         retainSongs(keep);
         audioEngine.releaseUnretained(keep);
         const first = selId ?? playingId;

@@ -96,6 +96,18 @@ function freeUnprotected() {
   }
 }
 
+export function audioMemoryUsage(): { used: number; limit: number } {
+  const seen = new Set<ClipAudio>();
+  let used = 0;
+  for (const entry of entries.values()) {
+    if (entry.buffer && !seen.has(entry.buffer)) {
+      seen.add(entry.buffer);
+      used += audioBytes(entry.buffer);
+    }
+  }
+  return { used, limit: MEMORY_BUDGET_BYTES };
+}
+
 function audioBytes(a: ClipAudio): number {
   return a.channels.reduce((n, ch) => n + ch.byteLength, 0);
 }

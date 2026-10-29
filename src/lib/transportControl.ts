@@ -44,6 +44,10 @@ function refreshNextSong(songId: string) {
 export async function startPlayback() {
   const st = useStore.getState();
   if (st.transport.isPlaying) return;
+  if (st.projectAudioPrep?.status === 'loading') {
+    st.setPlaybackError(`Aguarde a preparação do projeto: ${st.projectAudioPrep.done} de ${st.projectAudioPrep.total} músicas carregadas.`);
+    return;
+  }
   if (audioEngine.isStarting()) {
     // Se o motor estava terminando uma ação anterior, espera até 200ms em vez de descartar o clique do Play
     for (let i = 0; i < 5 && audioEngine.isStarting(); i++) {

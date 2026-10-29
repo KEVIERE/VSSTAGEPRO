@@ -533,8 +533,6 @@ class AudioEngine {
       const alpha = bpmAdjustToAlpha(bpmAdjust);
       const tempo = tempoFromBpm(bpmAdjust);
       const cents = song.tuner * 100;
-      const nowPos = (ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1);
-
       let attachedAny = false;
       for (const clip of stillMissing) {
         const buffer = getClipPlayAudio(clip);
@@ -542,6 +540,8 @@ class AudioEngine {
         const track = tracks.find((t) => t.id === clip.trackId);
         if (!track) continue;
         const end = clip.startTime + clipPlayLength(clip);
+        const at = ctx.currentTime + 0.1;
+        const nowPos = (at - this.playbackStartTime) / (this.playbackAlpha || 1);
         if (nowPos >= end) continue; // a música já passou do fim deste clipe: não há mais o que entrar
         attachedAny = true;
 
@@ -553,7 +553,7 @@ class AudioEngine {
         const pitch = melodic ? pitchFromCents(cents) : 1;
         const local = Math.max(0, nowPos - clip.startTime);
         const offsetSamples = Math.floor(local * sampleRate);
-        const whenWall = ctx.currentTime + Math.max(0, clip.startTime - nowPos) * alpha;
+        const whenWall = at + Math.max(0, clip.startTime - nowPos) * alpha;
 
         const node = new AudioWorkletNode(ctx, 'clip-player', {
           numberOfInputs: 0,
@@ -1221,16 +1221,21 @@ class AudioEngine {
       this.clipGains.set(clip.id, clipGain);
     }
 
-    // Fase 2: espera todos confirmarem o pré-aquecimento. Em pulo rápido
-    // (seek durante play), encurtamos drasticamente a janela para o cursor
-    // reagir quase imediatamente.
-    const primeTimeout = fastSeek ? 120 : 180;
-    await Promise.race([
-      Promise.all(pending.map((p) => p.ready)),
-      new Promise<void>((resolve) => setTimeout(resolve, primeTimeout)),
+    // Só agenda a largada quando todos os reprodutores confirmam o pré-aquecimento.
+    // Uma faixa ainda não preparada não pode entrar atrasada em relação às demais.
+    const ready = await Promise.race([
+      Promise.all(pending.map((p) => p.ready)).then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 5000)),
     ]);
     if (myGen !== this.playGeneration) {
       purgePending();
+      return;
+    }
+    if (!ready) {
+      purgePending();
+      this.stopAll();
+      useStore.getState().stop();
+      useStore.getState().setPlaybackError('Não foi possível preparar todas as faixas a tempo. Confira a saída de áudio e tente novamente.');
       return;
     }
 
@@ -1369,10 +1374,8 @@ class AudioEngine {
     const fire = () => {
       this.partialTimer = null;
       if (gen !== this.playGeneration || !this.isPlayingSong(songId) || !this.partialActive) return;
-      if (this.headOnly) {
-        this.partialTimer = window.setTimeout(fire, 150);
-        return;
-      }
+      // Mesmo que alguma faixa ainda esteja carregando, não deixe o áudio
+      // processado parcial terminar antes de passar para o processamento ao vivo.
       this.handoffFromPartial(songId);
     };
     const delay = Math.max(0, (endWall - 1.5 - this.ctx!.currentTime) * 1000);
@@ -1639,8 +1642,8 @@ class AudioEngine {
   private handleClipEnded(songId: string, clipId: string) {
     if (!this.isPlaying || this.currentSongId !== songId || this.armedLoop) return;
     this.endedClips.add(clipId);
-    if (this.activeClips.size > 0 && Array.from(this.activeClips.keys()).every((id) => this.endedClips.has(id))) {
-      // Ao terminar o áudio mais longo do VS, já parte imediatamente para a próxima música sem engasgo
+    if (!this.headOnly && this.activeClips.size > 0 && Array.from(this.activeClips.keys()).every((id) => this.endedClips.has(id))) {
+      // Um trecho inicial pode acabar antes de o áudio completo chegar; isso não é fim da música.
       this.onSongEnd();
     }
   }

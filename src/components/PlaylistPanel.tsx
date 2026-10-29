@@ -43,6 +43,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   const mixerVisible = useStore((s) => s.mixerVisible);
   const incompleteSongIds = useStore((s) => s.incompleteSongIds);
   const instantPrep = useStore((s) => s.instantPrep);
+  const projectAudioPrep = useStore((s) => s.projectAudioPrep);
   const toggleMixer = useStore((s) => s.toggleMixer);
   const renameBlock = useStore((s) => s.renameBlock);
   const setBlockColor = useStore((s) => s.setBlockColor);
@@ -326,6 +327,12 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
         </div>
       )}
 
+      {projectAudioPrep && (
+        <div className="flex items-center gap-2 px-3 py-1 bg-logic-bg-deep border-b border-logic-border-dark text-2xs text-logic-text-dim" role="status">
+          {projectAudioPrep.status === 'loading' && <Loader2 size={10} className="animate-spin shrink-0" />}
+          <span>{projectAudioPrep.status === 'loading' ? `Carregando projeto: ${projectAudioPrep.done} de ${projectAudioPrep.total} músicas` : projectAudioPrep.status === 'ready' ? 'Áudios carregados na memória' : projectAudioPrep.message}</span>
+        </div>
+      )}
       {instantPrep?.ready && (
         <div
           className="flex items-center gap-2 px-3 h-6 bg-logic-bg-deep border-b border-logic-border-dark text-2xs whitespace-nowrap overflow-hidden animate-[fadeIn_200ms_ease-out]"

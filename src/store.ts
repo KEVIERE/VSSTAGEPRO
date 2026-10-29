@@ -68,6 +68,7 @@ interface ProjectStateExt {
   loadingSongIds: string[];
   incompleteSongIds: string[];
   instantPrep: InstantPrep | null;
+  projectAudioPrep: { done: number; total: number; status: 'loading' | 'ready' | 'incomplete'; message?: string } | null;
   /** Quantas saídas físicas a interface de áudio escolhida oferece */
   outputChannelCount: number;
   queuedRegion: { songId: string; regionId: string } | null;
@@ -106,6 +107,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   loadingSongIds: [],
   incompleteSongIds: [],
   instantPrep: null,
+  projectAudioPrep: null,
   outputChannelCount: 2,
   queuedRegion: null,
   sectionKeys: localStorage.getItem('sectionKeys') === '1',
@@ -253,6 +255,7 @@ interface StoreActions {
   setSongLoading: (songId: string, loading: boolean) => void;
   setSongIncomplete: (songId: string, incomplete: boolean) => void;
   setInstantPrep: (prep: InstantPrep | null) => void;
+  setProjectAudioPrep: (prep: ProjectStateExt['projectAudioPrep']) => void;
   setQueuedRegion: (queued: { songId: string; regionId: string } | null) => void;
   updateMedleyPart: (songId: string, partId: string, patch: Partial<Omit<MedleyPart, 'id'>>) => void;
   toggleSectionKeys: () => void;
@@ -609,11 +612,11 @@ export const useStore = create<Store>()(
 
       applyLoadedProject: (manifest, sources, target) => {
         get().loadProject(manifest);
-        set({ saveTarget: target ?? null });
         for (const c of get().clips) {
           const src = sources.get(c.id);
           if (src) registerClipSource(c.id, c.songId, src);
         }
+        set({ saveTarget: target ?? null, projectAudioPrep: { done: 0, total: get().songs.length, status: 'loading' } });
       },
 
       newProject: () => {
@@ -1111,6 +1114,7 @@ export const useStore = create<Store>()(
         if (loading === has) return {};
         return { loadingSongIds: loading ? [...s.loadingSongIds, songId] : s.loadingSongIds.filter((id) => id !== songId) };
       }),
+      setProjectAudioPrep: (prep) => set({ projectAudioPrep: prep }),
       setInstantPrep: (prep) => set((s) => (
         prep?.done === s.instantPrep?.done && prep?.total === s.instantPrep?.total && prep?.name === s.instantPrep?.name
           && prep?.ready === s.instantPrep?.ready && prep?.failed === s.instantPrep?.failed ? {} : { instantPrep: prep }
