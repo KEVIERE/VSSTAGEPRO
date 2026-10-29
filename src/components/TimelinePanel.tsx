@@ -1056,12 +1056,17 @@ function TimelineHorizontalScrollbar({
   scrollRef,
   timelineWidth,
   headerWidth,
+  zoomH,
   onDoubleClickFit,
+  onZoomTo,
 }: {
   scrollRef: React.RefObject<HTMLDivElement>;
   timelineWidth: number;
   headerWidth: number;
+  zoomH: number;
   onDoubleClickFit?: () => void;
+  /** Novo zoom (px/s) mantendo o instante `anchorTime` (s) no ponto `anchorX` (px) da tela. */
+  onZoomTo?: (zoom: number, anchorTime: number, anchorX: number) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -1132,6 +1137,45 @@ function TimelineHorizontalScrollbar({
     window.addEventListener('pointercancel', up);
   };
 
+  // Alças nas pontas do controle (como no Logic/Reaper): arrastar uma ponta muda o zoom e a
+  // outra ponta fica parada no mesmo instante da música.
+  const handleEdgePointerDown = (side: 'left' | 'right') => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !scrollRef.current || !barRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = scrollRef.current;
+    const barW = barRef.current.clientWidth || 1;
+    const zoom0 = zoomH;
+    const contentSec = Math.max(0.1, timelineWidth / zoom0);
+    const view = Math.max(10, el.clientWidth);
+    const leftTime = el.scrollLeft / zoom0;
+    const rightTime = (el.scrollLeft + view) / zoom0;
+    const thumb0 = Math.max(24, ratio * barW);
+    const startX = e.clientX;
+    let rafId: number | null = null;
+    const move = (ev: PointerEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const dx = ev.clientX - startX;
+        const thumb = Math.max(12, Math.min(barW, thumb0 + (side === 'right' ? dx : -dx)));
+        // largura do controle = parte visível da música: mais largo, menos zoom
+        const visibleSec = (thumb / barW) * contentSec;
+        const zoom = Math.max(1, Math.min(500, view / Math.max(0.05, visibleSec)));
+        if (side === 'right') onZoomTo?.(zoom, leftTime, 0);
+        else onZoomTo?.(zoom, rightTime, view);
+      });
+    };
+    const up = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
   // Clique na pista para pular para a posição
   const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || !barRef.current || !scrollRef.current) return;
@@ -1150,7 +1194,7 @@ function TimelineHorizontalScrollbar({
         e.stopPropagation();
         onDoubleClickFit?.();
       }}
-      title="Rolar timeline horizontalmente (duplo clique: ajustar zoom para caber a música inteira na tela)"
+      title="Rolar a timeline. Pontas do controle: zoom. Duplo clique: a música inteira cabe na tela (vale também para as próximas músicas que você selecionar, até mudar o zoom à mão)"
     >
       <div
         className="absolute top-1/2 -translate-y-1/2 h-[8px] rounded-full bg-[#3e3e3e] hover:bg-[#525252] active:bg-[#626262] border border-white/[0.08] shadow-sm cursor-grab active:cursor-grabbing transition-colors"
@@ -1164,7 +1208,19 @@ function TimelineHorizontalScrollbar({
           e.stopPropagation();
           onDoubleClickFit?.();
         }}
-      />
+      >
+        {(['left', 'right'] as const).map((side) => (
+          <div
+            key={side}
+            className={`absolute top-[-3px] bottom-[-3px] w-[7px] cursor-ew-resize group/edge ${side === 'left' ? 'left-0' : 'right-0'}`}
+            onPointerDown={handleEdgePointerDown(side)}
+            onDoubleClick={(e) => { e.stopPropagation(); onDoubleClickFit?.(); }}
+            title="Arraste para dar zoom na timeline"
+          >
+            <div className={`absolute top-1/2 -translate-y-1/2 h-[10px] w-[3px] rounded-full bg-white/35 group-hover/edge:bg-logic-accent ${side === 'left' ? 'left-[2px]' : 'right-[2px]'}`} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1831,15 +1887,37 @@ export default function TimelinePanel() {
     target.addEventListener('pointercancel', up);
   }, [zoomH, setCurrentTime, isPlaying, song, grid, snapStep]);
 
-  // Duplo clique na barra de rolagem horizontal: ajusta o zoom perfeitamente para preencher o espaço com a música inteira
-  const handleFitSongToScreen = useCallback(() => {
-    if (!song || song.duration <= 0.1 || !scrollRef.current) return;
+  // Duplo clique na barra de rolagem horizontal: a música inteira (até o último clipe) cabe na
+  // tela. Liga o modo "caber na tela": cada música selecionada depois também se ajusta sozinha,
+  // até a pessoa mudar o zoom à mão.
+  const fitModeRef = useRef(false);
+  const fitZoomRef = useRef<number | null>(null);
+  const fitToScreen = useCallback(() => {
+    if (!song || contentEnd <= 0.1 || !scrollRef.current) return;
     const clientW = scrollRef.current.clientWidth ?? 1000;
     const availableW = Math.max(300, clientW - 40);
-    const targetZoom = Math.max(1, Math.min(200, availableW / song.duration));
+    const targetZoom = Math.round(Math.max(1, Math.min(200, availableW / contentEnd)) * 100) / 100;
+    fitZoomRef.current = targetZoom;
     setZoomH(targetZoom);
-    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
-  }, [song, setZoomH]);
+    scrollRef.current.scrollLeft = 0;
+  }, [song, contentEnd, setZoomH]);
+  const handleFitSongToScreen = useCallback(() => {
+    fitModeRef.current = true;
+    fitToScreen();
+  }, [fitToScreen]);
+  useEffect(() => {
+    if (fitModeRef.current) fitToScreen();
+    // só ao trocar de música (ou ela mudar de tamanho), não a cada render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song?.id, contentEnd]);
+  useEffect(() => {
+    // zoom diferente do ajustado = mexeram no zoom à mão: o modo desliga
+    if (fitModeRef.current && fitZoomRef.current !== null && Math.abs(zoomH - fitZoomRef.current) > 0.011) fitModeRef.current = false;
+  }, [zoomH]);
+  const zoomToAnchor = useCallback((zoom: number, anchorTime: number, anchorX: number) => {
+    zoomAnchorRef.current = { time: anchorTime, mouseX: anchorX };
+    setZoomH(Math.round(zoom * 100) / 100);
+  }, [setZoomH]);
 
   const gridStyle = grid ? {} : {
     backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx}px)`,
@@ -2120,12 +2198,14 @@ export default function TimelinePanel() {
           </span>
         </div>
 
-        {/* Scrollbar Horizontal da Timeline (sem alças de zoom, exclusivo a partir da aresta direita das faixas) */}
+        {/* Scrollbar Horizontal da Timeline, com alças de zoom nas pontas (a partir da aresta direita das faixas) */}
         <TimelineHorizontalScrollbar
           scrollRef={scrollRef}
           timelineWidth={timelineWidth}
           headerWidth={HEADER_W}
+          zoomH={zoomH}
           onDoubleClickFit={handleFitSongToScreen}
+          onZoomTo={zoomToAnchor}
         />
       </div>
 

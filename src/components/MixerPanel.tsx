@@ -10,20 +10,6 @@ import OutputMenu from '@/components/OutputMenu';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import { useMeterLevel } from '@/lib/meterBus';
 
-// Mostra quanto o limiter de segurança do master está atuando agora (em dB). Diferente do indicador
-// de clip: redução ativa é o limiter funcionando normalmente, não um problema — por isso sem alarme/pulse.
-function MasterGrReadout() {
-  const gr = useMeterLevel('master-gr'); // valor em dB (0 ou negativo), não é amplitude linear
-  const active = gr < -0.05;
-  return (
-    <div className="flex items-center gap-1" title="Redução de ganho do limiter de segurança do master (dB)">
-      <span className={`text-2xs font-mono ${active ? 'text-logic-lcd-amber' : 'text-logic-text-muted opacity-40'}`}>
-        GR {active ? gr.toFixed(1) : '0.0'}
-      </span>
-    </div>
-  );
-}
-
 // Volume igual entre os VS: liga/desliga e mostra o alvo comum e a medição em andamento.
 function LevelMatchButton() {
   const on = useStore((s) => !!s.levelMatch);
@@ -416,7 +402,6 @@ export default function MixerPanel() {
           </div>
 
           <LevelReadout id="master" title="Nível de saída do master agora (dBFS, pico das últimas 1,5 s, depois do limiter)" />
-          <MasterGrReadout />
           <LevelMatchButton />
 
           {/* Anti-clip */}
