@@ -19,7 +19,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
+import { DownloadError, downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
 
@@ -34,7 +34,7 @@ type Status =
   | { kind: 'idle' }
   | { kind: 'downloading'; arch: MacBuild['arch']; received: number }
   | { kind: 'done'; arch: MacBuild['arch'] }
-  | { kind: 'error'; arch: MacBuild['arch'] };
+  | { kind: 'error'; arch: MacBuild['arch']; reason: string };
 
 const CHIP_HINT: Record<MacBuild['arch'], { title: string; subtitle: string; hint: string }> = {
   arm64: {
@@ -104,8 +104,12 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
       );
       saveBlob(blob, build.file);
       setStatus({ kind: 'done', arch: build.arch });
-    } catch {
-      if (!ctrl.signal.aborted) setStatus({ kind: 'error', arch: build.arch });
+    } catch (err) {
+      if (!ctrl.signal.aborted) {
+        const reason = err instanceof DownloadError ? err.reason : 'a conexão com o servidor de downloads falhou';
+        console.warn('[download] falhou', err);
+        setStatus({ kind: 'error', arch: build.arch, reason });
+      }
     }
   };
 
@@ -319,7 +323,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                       ) : isError ? (
                         <div className="space-y-2">
                           <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-xs text-rose-400 text-center">
-                            Falha ao baixar. Verifique a conexão e tente novamente.
+                            Falha ao baixar: {status.kind === 'error' ? status.reason : ''}. Verifique a conexão e tente novamente.
                           </div>
                           <button
                             onClick={() => start(build)}
