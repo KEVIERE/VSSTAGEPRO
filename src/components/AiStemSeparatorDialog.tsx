@@ -288,7 +288,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   <span>Stems separadas automaticamente:</span>
                 </p>
                 <p className="leading-relaxed">
-                  🥁 <strong>Bateria</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎸 <strong>Guitarras/Violões</strong> ➔ Pasta Guitarras &nbsp;|&nbsp; 🎹 <strong>Teclados</strong> ➔ Pasta Teclados &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
+                  🥁 <strong>Bateria e percussão</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎸 <strong>Violões ou guitarras</strong> ➔ Pasta Violões ou Guitarras (a IA ouve e decide) &nbsp;|&nbsp; 🎹 <strong>Teclados</strong> ➔ Pasta Teclados &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; 🎻 <strong>Demais instrumentos</strong> ➔ Pasta Outros &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
                 </p>
               </div>
             </div>

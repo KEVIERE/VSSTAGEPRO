@@ -14,9 +14,6 @@ import { useStore } from '@/store';
 import type { AudioClip, Song } from '@/types';
 import { generateMarkers, decodeBlob } from '@/lib/audioDecoder';
 
-// Pastas para onde o stem "outros" pode ir quando a IA reconhece o instrumento.
-const OTHER_DESTINATIONS = new Set<string>(['track-sanfonas', 'track-percussoes', 'track-violoes', 'track-teclados', 'track-guitarras', 'track-solos']);
-
 /**
  * Pergunta à IA de instrumentos o que tem no stem: 3 trechos de 5 s entre os mais fortes,
  * vence o instrumento que aparecer mais (desempate pela confiança). null = não reconheceu.
@@ -249,7 +246,7 @@ export async function separateSongToVS(
     const acoustic = heard?.target === 'track-violoes';
     stemConfigs.push({
       name: songName + (acoustic ? ' - Violões' : ' - Guitarras'),
-      childName: acoustic ? 'Violão' : 'Guitarra',
+      childName: acoustic ? 'Violões' : 'Guitarras',
       buffer: guitarBuffer,
       parentTrackId: acoustic ? 'track-violoes' : 'track-guitarras',
       startTime: leadIn,
@@ -277,15 +274,13 @@ export async function separateSongToVS(
     duration,
   });
 
-  // O stem "outros" (sanfona, percussão, cordas...) vai para a pasta do instrumento que a IA
-  // reconhecer com segurança; se não reconhecer, fica em Outros.
-  const otherHeard = await classifyStem(otherBuffer, songId + '-other');
-  const otherTarget = otherHeard && OTHER_DESTINATIONS.has(otherHeard.target) ? otherHeard : null;
+  // O stem "outros" é uma mistura (sanfona, cordas, sintetizador, teclado...): fica em Outros.
+  // Tentar adivinhar o instrumento dele mandava teclado para Sanfonas.
   stemConfigs.push({
-    name: songName + ' - ' + (otherTarget ? otherTarget.childName : 'Outros'),
-    childName: otherTarget ? otherTarget.childName : 'Outros',
+    name: songName + ' - Outros Instrumentos',
+    childName: 'Outros Instrumentos',
     buffer: otherBuffer,
-    parentTrackId: otherTarget ? otherTarget.target : 'track-outros',
+    parentTrackId: 'track-outros',
     startTime: leadIn,
     duration,
   });
@@ -324,12 +319,16 @@ export async function separateSongToVS(
     if (parentId === 'track-guia' || parentId === 'track-click' || parentId === 'track-maestro') {
       actualTrackId = parentId;
     } else {
-      const existingChild = store.tracks.find((t) => t.parentId === parentId);
+      // Sempre a faixa com o NOME do stem ("Bateria", "Baixo", "Teclados"...): antes ia para a
+      // primeira faixa da pasta, e a bateria inteira caía em "Surdo 1". Vários VS feitos com
+      // IA dividem os mesmos canais no mixer em vez de criar um novo a cada música.
+      const wanted = config.childName.trim().toLocaleLowerCase('pt-BR');
+      const existingChild = useStore.getState().tracks.find((t) => t.parentId === parentId && t.name.trim().toLocaleLowerCase('pt-BR') === wanted);
       if (existingChild) {
         actualTrackId = existingChild.id;
       } else {
         const childId = parentId + '-child-' + Date.now() + '-' + i;
-        store.addChildTrack(parentId, config.childName, childId);
+        useStore.getState().addChildTrack(parentId, config.childName, childId);
         actualTrackId = childId;
       }
     }
