@@ -37,7 +37,7 @@ export default function PublicLinkNotice() {
       <div className="flex gap-2">
         <AlertTriangle size={14} className="shrink-0 mt-0.5" />
         <span>
-          Cole o endereço do VS Stage publicado na internet (o mesmo que abre no navegador, por exemplo <span className="font-mono">https://seu-site.bolt.host</span>). Os links online passam a usar esse endereço.
+          Cole o endereço do VS Stage publicado na internet (o mesmo que abre no navegador, por exemplo <span className="font-mono">https://vsstagepro.com.br</span>). Os links online passam a usar esse endereço.
         </span>
       </div>
       <form

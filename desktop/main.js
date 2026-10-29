@@ -232,7 +232,7 @@ function buildMenu() {
         ...(isMac ? [{ type: 'separator' }, { role: 'front', label: 'Trazer Todas para a Frente' }] : []),
       ],
     },
-    { role: 'help', label: 'Ajuda', submenu: [{ label: 'Site do VS Stage Pro', click: () => shell.openExternal('https://vsstage-pro-showonline.bolt.host') }] },
+    { role: 'help', label: 'Ajuda', submenu: [{ label: 'Site do VS Stage Pro', click: () => shell.openExternal('https://vsstagepro.com.br') }] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
