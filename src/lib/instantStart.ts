@@ -122,15 +122,17 @@ function headFromOpenAudio(audio: ClipAudio): HeadAudio {
  */
 export function headsFromOpenAudio(clips: AudioClip[], startOffset: number): Map<string, HeadAudio> | null {
   if (clips.length === 0) return null;
-  const out = new Map<string, HeadAudio>();
+  const sources: Array<{ clip: AudioClip; audio: ClipAudio }> = [];
   for (const clip of clips) {
     const audio = getClipPlayAudio(clip);
     if (!audio) return null;
-    const head = headFromOpenAudio(audio);
-    const local = (startOffset - clip.startTime) * head.sampleRate;
-    if (head.length < head.fullFrames && local > head.length - START_MARGIN_SECONDS * head.sampleRate) return null;
-    out.set(clip.id, head);
+    const frames = Math.min(audio.length, Math.floor(HEAD_SECONDS * audio.sampleRate));
+    const local = (startOffset - clip.startTime) * audio.sampleRate;
+    if (frames < audio.length && local > frames - START_MARGIN_SECONDS * audio.sampleRate) return null;
+    sources.push({ clip, audio });
   }
+  const out = new Map<string, HeadAudio>();
+  for (const { clip, audio } of sources) out.set(clip.id, headFromOpenAudio(audio));
   return out;
 }
 
