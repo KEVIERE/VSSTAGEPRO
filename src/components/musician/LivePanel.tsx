@@ -2,6 +2,7 @@ import { PenLine, Radio, WifiOff, UserPlus } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetInfo, ShowLive, SignalStatus } from '@/lib/musicianTypes';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { songKeyLabel } from '@/lib/musicKey';
+import { isMedleySong, partKey } from '@/lib/medleySheets';
 
 export function formatTime(s: number): string {
   const total = Math.max(0, Math.round(s));
@@ -25,7 +26,7 @@ function toneText(tuner: number | undefined): string {
 }
 
 export default function LivePanel({
-  lv, live, currentSong, nextSong, orderedSongs, sheets, selectedSongId,
+  lv, live, currentSong, nextSong, orderedSongs, sheets, selectedSongId, livePartId,
   onSelectSong, onCreateAccount,
 }: {
   lv: LiveView;
@@ -35,6 +36,8 @@ export default function LivePanel({
   orderedSongs: SetlistSong[];
   sheets: SheetInfo[];
   selectedSongId: string | null;
+  /** Parte do medley tocando agora */
+  livePartId?: string | null;
   onSelectSong: (id: string) => void;
   onCreateAccount: (() => void) | null;
 }) {
@@ -110,9 +113,10 @@ export default function LivePanel({
           const isNext = isPlaying && live?.nextSongId === song.id;
           const isSelected = selectedSongId === song.id;
           const hasSheet = sheets.some((s) => s.song_id === song.id);
+          const medley = isMedleySong(song);
           return (
+            <div key={song.id}>
             <button
-              key={song.id}
               className={`relative w-full grid grid-cols-[28px_1fr_56px_64px] sm:grid-cols-[28px_1fr_56px_48px_56px_64px] gap-2 px-3 h-11 items-center text-left border-b border-logic-border-dark transition-colors duration-100
                 ${isCurrent ? 'bg-logic-lcd-green/10' : isNext ? 'bg-logic-lcd-amber/10' : 'hover:bg-logic-bg-panel-light'}
                 ${isSelected ? 'shadow-[inset_3px_0_0_#0a84ff]' : ''}`}
@@ -132,6 +136,32 @@ export default function LivePanel({
                 {isNext && live ? formatTime(lv.nextSongCountdown) : formatTime(starts[i])}
               </span>
             </button>
+            {medley && song.parts!.map((part, j) => {
+              const key = partKey(song.id, part.id);
+              const partNow = isCurrent && livePartId === part.id;
+              const skipped = part.enabled === false;
+              return (
+                <button
+                  key={key}
+                  onClick={() => onSelectSong(key)}
+                  title={`Caderno de "${part.name}": cole a cifra, escreva ou faça a partitura desta parte`}
+                  className={`relative w-full grid grid-cols-[28px_1fr_56px_64px] sm:grid-cols-[28px_1fr_56px_48px_56px_64px] gap-2 px-3 h-9 items-center text-left border-b border-logic-border-dark/60 transition-colors duration-100
+                    ${partNow ? 'bg-logic-lcd-green/15' : 'bg-black/20 hover:bg-logic-bg-panel-light'}
+                    ${selectedSongId === key ? 'shadow-[inset_3px_0_0_#0a84ff]' : ''} ${skipped ? 'opacity-50' : ''}`}
+                >
+                  <span className="text-2xs font-mono text-logic-text-muted text-right pr-1">{i + 1}.{j + 1}</span>
+                  <span className="col-span-1 sm:col-span-3 flex items-center gap-1.5 min-w-0 pl-2 border-l border-logic-border-light">
+                    {partNow && <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-green animate-pulse flex-shrink-0" />}
+                    <span className={`text-xs truncate ${partNow ? 'text-logic-lcd-green font-semibold' : 'text-logic-text-dim'}`}>{part.name}</span>
+                    {skipped && <span className="text-[10px] text-logic-text-muted flex-shrink-0">pulada</span>}
+                    {sheets.some((s) => s.song_id === key) && <PenLine size={11} className="text-logic-accent flex-shrink-0" />}
+                  </span>
+                  <span className="text-2xs font-mono text-right text-logic-text-muted tabular-nums">{formatTime(part.end - part.start)}</span>
+                  <span className="text-2xs font-mono text-right text-logic-text-muted tabular-nums">{formatTime(starts[i] + part.start)}</span>
+                </button>
+              );
+            })}
+            </div>
           );
         })}
         {orderedSongs.length === 0 && (

@@ -4,6 +4,7 @@ import type {
   Setlist, ShowLive, Membership, MemberStatus, ShowInvite, SheetBackend,
 } from './musicianTypes';
 import type { Song, Block } from '@/types';
+import { isSliceEnabled, medleySlices } from '@/lib/medley';
 
 export function effectiveBpm(bpm: number, detected: boolean | undefined, bpmAdjust: number): number | null {
   if (!detected || !bpm) return null;
@@ -229,7 +230,10 @@ export function buildSetlist(
       baseBpm: s.bpmDetected && s.bpm ? Math.round(s.bpm) : null,
       bpmAdjust: s.bpmAdjust || 0, tuner: s.tuner || 0,
       musicKey: s.musicKey || songKeys?.[s.id]?.key || undefined,
-    })),
+      parts: medleySlices(s).map((p) => ({
+        id: p.id, name: p.name, start: p.start, end: p.end, ...(isSliceEnabled(p) ? {} : { enabled: false }),
+      })),
+    })).map((x) => (x.parts.length ? x : { ...x, parts: undefined })),
     blocks: blocks.map((b) => ({ id: b.id, name: b.name, color: b.color })),
     order: playlistOrder,
   };
@@ -241,10 +245,11 @@ export function buildLive(
   currentSongId: string | null, nextSongId: string | null,
   bpm: number | null, playFlow: string, onAir: boolean,
   sliceName: string | null = null, nextSliceName: string | null = null,
+  sliceId: string | null = null, nextSliceId: string | null = null,
 ): ShowLive {
   return {
     isPlaying, isPaused, currentTime, songProgress, nextSongCountdown,
-    currentSongId, nextSongId, bpm, playFlow, onAir, sliceName, nextSliceName,
+    currentSongId, nextSongId, bpm, playFlow, onAir, sliceName, nextSliceName, sliceId, nextSliceId,
     publishedAt: Date.now(),
   };
 }

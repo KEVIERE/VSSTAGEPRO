@@ -13,14 +13,18 @@ for (let r = 0; r < 6; r++) {
   doc.lines.push({ ...newLine('section'), label: r % 2 ? 'Refrão' : `Verso ${r / 2 + 1}` } as never);
   for (const v of verses) doc.lines.push({ ...newLine('chords'), lyric: v, chords: [{ at: 0, chord: 'G' }, { at: 10, chord: 'D' }, { at: 18, chord: 'Em' }] } as never);
 }
-const sheets: SheetInfo[] = [{ id: 'sh1', song_id: 's1', title: 'Canção', content: JSON.stringify(doc), shared_from: null, updated_at: new Date().toISOString() }];
+const MEDLEY = location.search.includes('medley');
+const partDoc = emptyDoc();
+partDoc.lines.push({ ...newLine('section'), label: 'Aclame' } as never, { ...newLine('chords'), lyric: 'Aclame ao Senhor toda a terra', chords: [{ at: 0, chord: 'D' }, { at: 7, chord: 'A' }, { at: 14, chord: 'Bm' }] } as never);
+const sheets: SheetInfo[] = [
+  { id: 'sh2', song_id: 's3~b', title: 'Aclame', content: JSON.stringify(partDoc), shared_from: null, updated_at: new Date().toISOString() },{ id: 'sh1', song_id: 's1', title: 'Canção', content: JSON.stringify(doc), shared_from: null, updated_at: new Date().toISOString() }];
 const backend: SheetBackend = {
   key: 'teste', storedIn: 'neste teste',
   save: async () => 'sh1', remove: async () => {}, songLyrics: async () => [], colleagues: async () => [], share: async () => 0,
 };
 
 function App() {
-  const [t, setT] = useState(30);
+  const [t, setT] = useState(MEDLEY ? 55 : 30);
   useEffect(() => { const id = setInterval(() => setT((x) => (x + 1) % 200), 1000); return () => clearInterval(id); }, []);
   const now = new Date().toISOString();
   const state: MusicianState = {
@@ -31,10 +35,16 @@ function App() {
         songs: [
           { id: 's1', name: 'Canção do Teste', duration: 200, bpm: 92, baseBpm: 90, bpmAdjust: 3, tuner: 2, musicKey: 'G', blockId: null },
           { id: 's2', name: 'Segunda Música', duration: 180, bpm: 120, baseBpm: 120, bpmAdjust: 0, tuner: 0, musicKey: 'Em', blockId: null },
+          { id: 's3', name: 'Medley Louvor', duration: 200, bpm: 100, baseBpm: 100, bpmAdjust: 0, tuner: 0, musicKey: 'D', blockId: null,
+            parts: [
+              { id: 'a', name: 'Grande é o Senhor', start: 0, end: 60 },
+              { id: 'b', name: 'Aclame ao Senhor', start: 60, end: 130 },
+              { id: 'c', name: 'Te Louvarei', start: 130, end: 200, enabled: false },
+            ] },
         ],
-        blocks: [], order: ['s1', 's2'],
+        blocks: [], order: ['s1', 's3', 's2'],
       },
-      live: { isPlaying: true, isPaused: false, currentTime: t, songProgress: t / 200, nextSongCountdown: 200 - t, currentSongId: 's1', nextSongId: 's2', bpm: 92, playFlow: 'continuo', onAir: true, publishedAt: Date.now() },
+      live: { isPlaying: true, isPaused: false, currentTime: t, songProgress: t / 200, nextSongCountdown: 200 - t, currentSongId: MEDLEY ? 's3' : 's1', nextSongId: 's2', sliceId: MEDLEY ? (t < 60 ? 'a' : t < 130 ? 'b' : 'c') : null, sliceName: MEDLEY ? (t < 60 ? 'Grande é o Senhor' : t < 130 ? 'Aclame ao Senhor' : 'Te Louvarei') : null, bpm: 92, playFlow: 'continuo', onAir: true, publishedAt: Date.now() },
       live_at: now,
     },
     server_now: now,

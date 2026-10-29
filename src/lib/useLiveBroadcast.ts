@@ -65,6 +65,7 @@ export function snapshot(onAir: boolean, withSetlist: boolean) {
       t.isPlaying, t.isPaused, currentTime, progress, countdown,
       t.currentSongId, t.nextSongId, song ? effectiveBpm(song.bpm, song.bpmDetected, bpmAdjust) : null,
       t.playFlow, onAir, slices.current?.name ?? null, slices.next?.name ?? null,
+      slices.current?.id ?? null, slices.next?.id ?? null,
     ),
   };
 }

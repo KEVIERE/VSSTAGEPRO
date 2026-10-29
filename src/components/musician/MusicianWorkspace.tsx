@@ -4,6 +4,7 @@ import LivePanel from '@/components/musician/LivePanel';
 import SheetPanel from '@/components/musician/SheetPanel';
 import StageView from '@/components/musician/StageView';
 import { songKeyLabel } from '@/lib/musicKey';
+import { currentPart, liveSheetKey, resolveKey } from '@/lib/medleySheets';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import type { MusicianState, SetlistSong, SheetBackend, SheetInfo } from '@/lib/musicianTypes';
 
@@ -122,8 +123,12 @@ export default function MusicianWorkspace({
     live?.currentSongId ?? null, shownTimeRef.current, currentSong?.duration,
   );
 
-  const sheetSongId = (follow ? (live?.currentSongId ?? pinnedSongId) : pinnedSongId) ?? orderedSongs[0]?.id ?? null;
-  const sheetSong = sheetSongId ? songMap.get(sheetSongId) : undefined;
+  // Num medley, o caderno no ar é o da parte tocando (cada parte tem o seu).
+  const livePart = currentPart(currentSong, live, lv.currentTime);
+  const liveKey = live?.currentSongId ? liveSheetKey(currentSong, live, lv.currentTime, sheets) ?? live.currentSongId : null;
+  const sheetSongId = (follow ? (liveKey ?? pinnedSongId) : pinnedSongId) ?? orderedSongs[0]?.id ?? null;
+  const { song: sheetSong, part: sheetPart } = resolveKey(songMap, sheetSongId);
+  const sheetName = sheetPart ? `${sheetPart.name} (${sheetSong?.name ?? 'medley'})` : sheetSong?.name ?? '';
 
   const dismissHint = () => {
     setShowHint(false);
@@ -137,7 +142,7 @@ export default function MusicianWorkspace({
 
   const selectSong = (id: string) => {
     setPinnedSongId(id);
-    setFollow(id === live?.currentSongId);
+    setFollow(id === liveKey);
     openTab('sheet');
     if (focus === 'live') enterFocus('sheet');
   };
@@ -150,16 +155,16 @@ export default function MusicianWorkspace({
   const livePanel = (
     <LivePanel
       lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
-      orderedSongs={orderedSongs} sheets={sheets} selectedSongId={sheetSongId}
+      orderedSongs={orderedSongs} sheets={sheets} selectedSongId={sheetSongId} livePartId={livePart?.id ?? null}
       onSelectSong={selectSong} onCreateAccount={onCreateAccount}
     />
   );
   const sheetPanel = (
     <SheetPanel
-      backend={backend} songId={sheetSongId ?? null} songName={sheetSong?.name ?? ''}
+      backend={backend} songId={sheetSongId ?? null} songName={sheetName}
       sheet={sheets.find((s) => s.song_id === sheetSongId)}
       follow={follow} onToggleFollow={toggleFollow} onSheetsChanged={onSheetsChanged}
-      liveSongId={live?.currentSongId ?? null} liveSongName={currentSong?.name ?? null}
+      liveSongId={liveKey} liveSongName={livePart ? `${livePart.name} (${currentSong?.name ?? 'medley'})` : currentSong?.name ?? null}
     />
   );
 
@@ -213,7 +218,7 @@ export default function MusicianWorkspace({
         <StageView
           lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
           backend={backend} sheets={sheets} onSheetsChanged={onSheetsChanged}
-          onEdit={(id) => { saveStage(false); setPinnedSongId(id); setFollow(id === live?.currentSongId); openTab('sheet'); }}
+          onEdit={(id) => { saveStage(false); setPinnedSongId(id); setFollow(id === liveKey); openTab('sheet'); }}
           keyOf={songKeyLabel}
         />
       ) : focus ? (

@@ -11,6 +11,7 @@ import NotebookPage from './notebook/NotebookPage';
 import { ChordDock, StaffDock, type NoteBrush } from './notebook/NotebookDocks';
 import { clampStep } from './notebook/StaffLine';
 import SharePane from './notebook/SharePane';
+import { splitKey } from '@/lib/medleySheets';
 import PasteChordsDialog from './notebook/PasteChordsDialog';
 
 const TOOLS_LS = 'vs_nb_tools';
@@ -131,7 +132,7 @@ export default function SheetPanel({
   const importLyrics = async () => {
     setImporting(true);
     try {
-      const texts = await backend.songLyrics(songId);
+      const texts = await backend.songLyrics(splitKey(songId).songId);
       const lines = linesFromLyrics(texts);
       if (!lines.length) {
         setToast({ ok: false, text: 'A letra desta música ainda não foi escrita no Teleprompter.' });

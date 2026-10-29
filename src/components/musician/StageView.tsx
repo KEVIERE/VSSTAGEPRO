@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowDownWideNarrow, Maximize, Minus, PenLine, Plus } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetBackend, SheetInfo, ShowLive } from '@/lib/musicianTypes';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
+import { currentPart, liveSheetKey } from '@/lib/medleySheets';
 import { useNotebook } from './notebook/useNotebook';
 import NotebookPage from './notebook/NotebookPage';
 import { bpmText, NowNextBlock, SignalBanner } from './LivePanel';
@@ -38,8 +39,12 @@ export default function StageView({
     const z = Number(localStorage.getItem(ZOOM_LS));
     return z >= 0.6 && z <= 2.5 ? z : 1;
   });
-  const songId = currentSong?.id ?? null;
-  const nb = useNotebook({ backend, songId, songName: currentSong?.name ?? '', sheet: sheets.find((s) => s.song_id === songId), onSheetsChanged });
+  // Num medley, a cifra mostrada é a da parte tocando (ou a da música inteira, se só ela existir).
+  const part = currentPart(currentSong, live, lv.currentTime);
+  const songId = currentSong ? liveSheetKey(currentSong, live, lv.currentTime, sheets) : null;
+  const onPart = !!part && songId !== currentSong?.id;
+  const sheetName = onPart ? part!.name : currentSong?.name ?? '';
+  const nb = useNotebook({ backend, songId, songName: sheetName, sheet: sheets.find((s) => s.song_id === songId), onSheetsChanged });
   const doc = nb.doc;
   const isEmpty = doc.lines.length === 0 && doc.strokes.length === 0;
 
@@ -53,6 +58,10 @@ export default function StageView({
   const secondsLeft = currentSong ? (currentSong.duration - lv.currentTime) * bpmAdjustToAlpha(currentSong.bpmAdjust ?? 0) : Infinity;
   const finalCountdown = isPlaying && secondsLeft <= 10 ? Math.max(0, Math.ceil(secondsLeft)) : null;
   const progress = Math.max(0, Math.min(1, lv.songProgress));
+  // a rolagem da cifra de uma parte acompanha só o trecho dessa parte
+  const scrollProgress = onPart
+    ? Math.max(0, Math.min(1, (lv.currentTime - part!.start) / Math.max(1, part!.end - part!.start)))
+    : progress;
 
   const saveFit = (f: Fit) => { setFit(f); try { localStorage.setItem(FIT_LS, f); } catch { /* só conveniência */ } };
   const saveZoom = (z: number) => {
@@ -100,7 +109,7 @@ export default function StageView({
       if (box && Date.now() > manualUntil.current) {
         const max = box.scrollHeight - box.clientHeight;
         if (max > 0) {
-          const target = Math.max(0, Math.min(1, (progress - 0.04) / 0.92)) * max;
+          const target = Math.max(0, Math.min(1, (scrollProgress - 0.04) / 0.92)) * max;
           const delta = target - box.scrollTop;
           if (Math.abs(delta) > 0.5) box.scrollTop += delta * 0.08;
         }
@@ -109,7 +118,7 @@ export default function StageView({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [fit, isPlaying, progress]);
+  }, [fit, isPlaying, scrollProgress]);
 
   // música nova: volta ao topo
   useEffect(() => {
@@ -190,7 +199,7 @@ export default function StageView({
         ) : isEmpty ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6">
             <PenLine size={28} className="text-logic-text-muted mb-2" />
-            <p className="text-sm text-logic-text-dim">Sem cifra para {currentSong?.name}</p>
+            <p className="text-sm text-logic-text-dim">Sem cifra para {sheetName}</p>
             <button onClick={() => onEdit(songId)} className="mt-3 h-9 px-3 rounded-lg bg-logic-accent text-white text-xs font-semibold hover:brightness-110">Escrever a cifra</button>
           </div>
         ) : (

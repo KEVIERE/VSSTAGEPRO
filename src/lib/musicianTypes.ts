@@ -13,6 +13,9 @@ export interface ShowLive {
   /** Música do medley tocando agora e a próxima que vai tocar */
   sliceName?: string | null;
   nextSliceName?: string | null;
+  /** Id da parte do medley tocando agora e da próxima (para trocar o caderno sozinho) */
+  sliceId?: string | null;
+  nextSliceId?: string | null;
 }
 
 export type SignalStatus = 'live' | 'nosignal' | 'ended';
@@ -36,6 +39,17 @@ export interface SetlistSong {
   /** Tom original da música (cifra curta); com o tuner vira o tom que soa. */
   musicKey?: string;
   blockId: string | null;
+  /** Partes de um medley (música fatiada), em ordem; cada uma tem seu próprio caderno */
+  parts?: SetlistPart[];
+}
+
+export interface SetlistPart {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  /** false = o diretor pula esta parte */
+  enabled?: boolean;
 }
 
 export interface SetlistBlock {
