@@ -158,8 +158,9 @@ class LocalServer {
     const qr = {};
     for (const role of ROLES) {
       urls[role] = base ? `${base}/${PATH[role]}` : null;
-      // O QR leva o PIN depois do # (o navegador não envia essa parte pela rede): escaneou, entrou.
-      const pin = this.pins[role];
+      // O QR dos músicos só abre a página: o PIN é digitado na primeira vez (o QR pode
+      // aparecer na tela do palco). Os outros papéis levam o PIN depois do # para entrar direto.
+      const pin = role === 'musician' ? null : this.pins[role];
       qr[role] = urls[role] ? await this.qr(pin ? `${urls[role]}#pin=${pin}` : urls[role]) : null;
     }
     const now = Date.now();
@@ -337,11 +338,11 @@ class LocalServer {
       const lyrics = Object.entries(this.mergedLyrics()).map(([song_id, pages]) => ({
         song_id, pages, updated_at: this.lyricsUpdatedAt[song_id] || this.publishedAt,
       }));
-      // QR de entrada dos músicos (com o PIN) só quando o diretor liga a opção na tela do palco
+      // QR de entrada dos músicos (sem o PIN) só quando o diretor liga a opção na tela do palco
       let joinQr = null;
       if (this.prompter?.toggles?.joinQr && this.pins?.musician) {
         const base = lanAddresses()[0];
-        if (base) joinQr = await this.qr(`http://${base}:${this.port}/${PATH.musician}#pin=${this.pins.musician}`);
+        if (base) joinQr = await this.qr(`http://${base}:${this.port}/${PATH.musician}`);
       }
       return this.json(res, 200, {
         show,

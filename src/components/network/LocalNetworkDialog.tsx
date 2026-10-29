@@ -64,7 +64,7 @@ function MacOnly() {
         {[
           ['Ligue o roteador do palco', 'Não precisa ter internet. O Mac e os aparelhos só precisam estar no mesmo Wi-Fi.'],
           ['Escolha Rede Local', 'Pela setinha ao lado do botão Show Online ou pelo menu Arquivo.'],
-          ['Mostre os QR codes', 'Músicos, produtor e a TV do palco escaneiam e entram na hora, cada um com seu PIN.'],
+          ['Mostre os QR codes', 'Produtor e TV do palco escaneiam e entram na hora. Os músicos escaneiam e digitam o PIN na primeira vez; depois o celular fica lembrado.'],
           ['Use Configurar Rede', 'O programa testa tudo e avisa com "Rede pronta" quando estiver funcionando.'],
         ].map(([t, d], i) => (
           <li key={t} className="flex gap-3">

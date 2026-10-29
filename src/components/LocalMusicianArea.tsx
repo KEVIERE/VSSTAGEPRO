@@ -32,16 +32,10 @@ function errorText(msg: string): string {
 }
 
 export default function LocalMusicianArea() {
-  // PIN do QR code: com um nome já usado neste aparelho, entra direto (sem tela de entrada)
-  const [linkPin] = useState(takePinFromLink);
-  const [login, setLogin] = useState<Login | null>(() => {
-    const saved = savedLogin();
-    if (linkPin) {
-      const name = saved?.name ?? rememberedName();
-      return name ? { name, pin: linkPin } : null;
-    }
-    return saved;
-  });
+  // O PIN é sempre digitado pelo músico. Links antigos com #pin= só têm o PIN apagado do endereço.
+  useState(takePinFromLink);
+  // Celular que já entrou fica lembrado até o diretor gerar um PIN novo.
+  const [login, setLogin] = useState<Login | null>(savedLogin);
   const [state, setState] = useState<MusicianState | null>(null);
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -116,7 +110,7 @@ export default function LocalMusicianArea() {
     setSheets([]);
   };
 
-  if (!login || !backend || (!state && error)) return <LocalLogin onEnter={enter} initialError={error} linkPin={linkPin} />;
+  if (!login || !backend || (!state && error)) return <LocalLogin onEnter={enter} initialError={error} />;
 
   if (!state) {
     return (
@@ -144,9 +138,9 @@ export default function LocalMusicianArea() {
   );
 }
 
-function LocalLogin({ onEnter, initialError, linkPin }: { onEnter: (l: Login) => Promise<string | null>; initialError: string | null; linkPin: string | null }) {
+function LocalLogin({ onEnter, initialError }: { onEnter: (l: Login) => Promise<string | null>; initialError: string | null }) {
   const [name, setName] = useState(() => savedLogin()?.name ?? rememberedName() ?? '');
-  const [pin, setPin] = useState(linkPin ?? '');
+  const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const cleanPin = pin.replace(/\D/g, '').slice(0, 6);
@@ -181,9 +175,6 @@ function LocalLogin({ onEnter, initialError, linkPin }: { onEnter: (l: Login) =>
           />
         </div>
 
-        {linkPin && !initialError ? (
-          <p className="mt-4 flex items-center gap-2 text-xs text-logic-lcd-green"><KeyRound size={14} /> PIN do QR code já preenchido — só falta o seu nome.</p>
-        ) : (<>
         <label htmlFor="local-pin" className="block text-xs font-medium text-logic-text-dim mt-4 mb-2">PIN dos músicos</label>
         <div className="relative">
           <KeyRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-logic-text-muted" />
@@ -192,7 +183,6 @@ function LocalLogin({ onEnter, initialError, linkPin }: { onEnter: (l: Login) =>
             className="w-full pl-9 pr-3 py-3 rounded-lg bg-logic-bg-deep border border-logic-border-light text-logic-text tracking-[0.3em] outline-none focus:border-logic-lcd-green transition-colors placeholder:tracking-normal placeholder:text-logic-text-muted"
           />
         </div>
-        </>)}
 
         {error && <p className="text-sm text-logic-lcd-red mt-3" role="alert">{error}</p>}
         <button
