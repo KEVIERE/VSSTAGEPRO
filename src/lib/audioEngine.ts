@@ -4,8 +4,9 @@ import { computeNextSongId } from '@/lib/playFlow';
 import { getClipPlayerWorkletUrl } from '@/lib/clipPlayerWorklet';
 import { clipPlayLength, ensureSongLoaded, getClipAudio, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
 import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
-import { audioStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
-import type { StreamHandle } from '@/lib/audioStreamer';
+import { audioStreamer, diskStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
+import type { DiskHandle, RangeReader, StreamHandle } from '@/lib/audioStreamer';
+import { openRangeReader, openRangeReaders } from '@/lib/diskSource';
 import type { HeadAudio, StretchedHead } from '@/lib/instantStart';
 import { entryExists, markUsed, readEntry, readyDir, renderedName, writeEntry } from '@/lib/readyStore';
 import { sortedRegions } from '@/lib/regions';
@@ -19,6 +20,9 @@ import type { AudioClip, Song, SongRegion, Track } from '@/types';
 import type { ClipAudio } from '@/lib/audioLibrary';
 
 const RETIME_LEAD = 0.06;
+// Trecho lido do disco antes de largar (~0,7 s): pequeno para o Play sair rápido; o leitor
+// antecipado já está buscando o que vem depois enquanto ele toca.
+const START_WINDOW_FRAMES = 1 << 15;
 
 // Fader scale: 0.8 = 0 dB (unity), 1.5 = +12 dB, 0 = silence
 export function faderToGain(volume: number): number {
@@ -289,6 +293,8 @@ interface PreparedPending {
 interface PreparedBundle {
   songId: string;
   signature: string;
+  /** Reprodutores alimentados direto do disco (a música não precisa estar aberta na memória). */
+  disk?: boolean;
   pending: PreparedPending[];
   /** Estado e identidade da fonte na criação do reprodutor. */
   snapshots: Map<string, { audio: ReturnType<typeof getClipAudio>; trimStart: number; duration: number; trackId: string }>;
@@ -402,6 +408,47 @@ class AudioEngine {
     this.feeds.set(node, handle);
     void handle.done.then(() => { if (this.feeds.get(node) === handle) this.feeds.delete(node); });
     return handle;
+  }
+
+  // Músicas cujos reprodutores leem direto do disco, e quando a do ar terminou de chegar.
+  private diskSongs = new Set<string>();
+  private onAirDiskDone: { songId: string; done: Promise<void> } | null = null;
+
+  private feedDisk(node: AudioWorkletNode, reader: RangeReader, fromFrame: number, priority: number, initial?: { start: number; channels: Int16Array[] }): DiskHandle {
+    this.feeds.get(node)?.cancel();
+    const handle = diskStreamer.start(node.port, reader, { from: fromFrame, priority, initial });
+    this.feeds.set(node, handle);
+    void handle.done.then(() => { if (this.feeds.get(node) === handle) this.feeds.delete(node); });
+    return handle;
+  }
+
+  /** Assinatura de um preparo lido do disco: só o que está na timeline, sem precisar do áudio aberto. */
+  private diskSignature(songId: string): string | null {
+    const store = useStore.getState();
+    const song = store.songs.find((s) => s.id === songId);
+    if (!song) return null;
+    const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c)).sort((a, b) => a.id.localeCompare(b.id));
+    if (clips.length === 0) return null;
+    return `disk|${song.bpmAdjust}|${song.tuner}|` + clips.map((c) => `${c.id}|${c.trackId}|${c.startTime.toFixed(4)}|${c.duration.toFixed(4)}|${(c.trimStart ?? 0).toFixed(4)}|${(c.trimEnd ?? 0).toFixed(4)}|${c.gain ?? 1}|${c.mute ? 1 : 0}|${c.solo ? 1 : 0}|${(c.fadeIn ?? 0).toFixed(3)}|${(c.fadeOut ?? 0).toFixed(3)}|${c.fadeCurveIn ?? 'linear'}|${c.fadeCurveOut ?? 'linear'}|${getClipSource(c.id)?.size ?? 0}`).join('~');
+  }
+
+  private bundleSignature(songId: string, bundle: PreparedBundle | null | undefined): string | null {
+    return bundle?.disk ? this.diskSignature(songId) : this.computePrepareSignature(songId);
+  }
+
+  /** Lê já o trecho da largada de cada faixa (a música anterior segue tocando enquanto isso). */
+  private async readStartWindows(clips: AudioClip[], readers: Map<string, RangeReader>, startOffset: number) {
+    const out = new Map<string, { start: number; channels: Int16Array[] }>();
+    await Promise.all(clips.map(async (clip) => {
+      const r = readers.get(clip.id);
+      if (!r) return;
+      const from = Math.min(r.length, Math.floor(Math.max(0, startOffset - clip.startTime) * r.sampleRate));
+      if (from >= r.length) return;
+      try {
+        out.set(clip.id, { start: from, channels: await r.read(from, START_WINDOW_FRAMES) });
+      } catch { /* o leitor antecipado tenta de novo */ }
+    }));
+    return out;
   }
 
   private unfeed(node: AudioWorkletNode) {
@@ -710,6 +757,7 @@ class AudioEngine {
         this.disposePreparedBundle(b);
         this.prepared.delete(songId);
       }
+      if (!this.isPlayingSong(songId)) this.diskSongs.delete(songId);
       return;
     }
     this.prepared.forEach((b) => this.disposePreparedBundle(b));
@@ -734,11 +782,18 @@ class AudioEngine {
     // A música no ar termina de abrir primeiro: as duas disputando o disco e o processador era
     // o que fazia a faixa no ar ficar sem dado a tempo.
     const onAir = this.isPlaying ? this.currentSongId : null;
-    if (onAir && onAir !== songId && !isSongLoaded(onAir)) {
-      await ensureSongLoaded(onAir).catch(() => { /* avisado pela música no ar */ });
+    if (onAir && onAir !== songId) {
+      const air = this.onAirDiskDone;
+      if (air && air.songId === onAir) await air.done;
+      else if (!isSongLoaded(onAir)) await ensureSongLoaded(onAir).catch(() => { /* avisado pela música no ar */ });
     }
     if (this.isPlayingSong(songId)) return;
-    if (!isSongLoaded(songId)) await ensureSongLoaded(songId);
+    if (!isSongLoaded(songId)) {
+      // Igual à música no ar: a próxima lê do disco em trechos, sem abrir e converter tudo antes.
+      const readers = await openRangeReaders(this.clipsWithSource(songId));
+      if (readers) return this.prepareFromDisk(songId, readers);
+      await ensureSongLoaded(songId);
+    }
     const sig = this.computePrepareSignature(songId);
     if (!sig) return;
     const existing = this.prepared.get(songId);
@@ -851,6 +906,81 @@ class AudioEngine {
       this.preparing.delete(songId);
     });
 
+    this.preparing.set(songId, task);
+    return task;
+  }
+
+  private prepareFromDisk(songId: string, readers: Map<string, RangeReader>): Promise<void> {
+    const sig = this.diskSignature(songId);
+    if (!sig) return Promise.resolve();
+    const existing = this.prepared.get(songId);
+    if (existing && existing.disk && existing.signature === sig) return Promise.resolve();
+    const inflight = this.preparing.get(songId);
+    if (inflight) return inflight;
+    const task = (async () => {
+      if (existing) {
+        this.disposePreparedBundle(existing);
+        this.prepared.delete(songId);
+      }
+      const ctx = this.getContext();
+      if (ctx.state === 'suspended') return;
+      try { await this.ensureWorklet(); } catch { return; }
+      const store = useStore.getState();
+      const song = store.songs.find((s) => s.id === songId);
+      if (!song) return;
+      const tracks = store.tracks;
+      const lr = store.lrMasterActive;
+      const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c) && (readers.has(c.id) || getClipPlayAudio(c)));
+      const tempo = tempoFromBpm(song.bpmAdjust ?? 0);
+      const cents = song.tuner * 100;
+      const pending: PreparedPending[] = [];
+      const snapshots = this.preparedSnapshots(songId);
+      for (const clip of clips) {
+        const track = tracks.find((t) => t.id === clip.trackId);
+        if (!track) continue;
+        const reader = readers.get(clip.id) ?? null;
+        const buffer = reader ? null : getClipPlayAudio(clip);
+        if (!reader && !buffer) continue;
+        const sampleRate = reader ? reader.sampleRate : buffer!.sampleRate;
+        const length = reader ? reader.length : buffer!.length;
+        const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+        const node = this.createPlayer(ctx, length, {
+          sampleRate,
+          offsetSamples: 0,
+          tempo,
+          pitch: isMelodicTrack(track, tracks) ? pitchFromCents(cents) : 1,
+          process: songNeedsProcessing(song),
+          primeTargetFrames: 2048,
+          fadeInFrames: 0,
+        });
+        if (reader) this.feedDisk(node, reader, 0, PRIORITY_NEXT);
+        else this.feed(node, buffer!, 0, PRIORITY_NEXT);
+        const clipGain = ctx.createGain();
+        clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
+        node.connect(clipGain);
+        let clipPanner: StereoPannerNode | null = null;
+        const channel = this.ensureChannel(target.id);
+        if (track.parentId) {
+          clipPanner = ctx.createStereoPanner();
+          clipPanner.pan.value = effectivePan(track.id, track.pan, lr);
+          clipGain.connect(clipPanner);
+          clipPanner.connect(channel.gain);
+        } else {
+          clipGain.connect(channel.gain);
+        }
+        const ready = new Promise<void>((resolve) => this.listen(node, songId, clip.id, resolve));
+        pending.push({ clipId: clip.id, node, clipStartTime: clip.startTime, clipDuration: clipPlayLength(clip), ready, sampleRate, bufferLength: length, clipGain, clipPanner, trackId: clip.trackId });
+      }
+      const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots, disk: true };
+      if (this.diskSignature(songId) !== sig || this.isPlayingSong(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
+        this.disposePreparedBundle(bundle);
+        return;
+      }
+      this.prepared.set(songId, bundle);
+      this.diskSongs.add(songId);
+    })().finally(() => {
+      this.preparing.delete(songId);
+    });
     this.preparing.set(songId, task);
     return task;
   }
@@ -997,7 +1127,23 @@ class AudioEngine {
 
   private async startSong(songId: string, startOffset = 0, options?: { fastSeek?: boolean }) {
     let heads: Map<string, HeadAudio> | null = null;
-    if (!isSongLoaded(songId)) {
+    let disk: Map<string, RangeReader> | null = null;
+    let initial: Map<string, { start: number; channels: Int16Array[] }> | null = null;
+    const ready0 = this.prepared.get(songId);
+    const diskBundleReady = !!(ready0?.disk && ready0.signature === this.diskSignature(songId));
+    if (!isSongLoaded(songId) && !diskBundleReady) {
+      const loadGen = this.playGeneration;
+      // Como nos programas de gravação: cada faixa lê do disco a partir do ponto de largada,
+      // sem abrir nem converter o arquivo inteiro. A música anterior segue até o trecho chegar.
+      const withSource = this.clipsWithSource(songId);
+      disk = await openRangeReaders(withSource);
+      if (loadGen !== this.playGeneration) return;
+      if (disk) {
+        initial = await this.readStartWindows(withSource, disk, startOffset);
+        if (loadGen !== this.playGeneration) return;
+      }
+    }
+    if (!disk && !isSongLoaded(songId) && !diskBundleReady) {
       const loadGen = this.playGeneration;
       // Começo pronto no disco: a música larga na hora e o resto abre enquanto ela toca.
       heads = await loadHeads(this.clipsWithSource(songId), startOffset);
@@ -1022,10 +1168,13 @@ class AudioEngine {
     const fastSeek = options?.fastSeek === true;
     this.stopAll();
     this.loopPasses.clear();
-    const expectedSig = this.computePrepareSignature(songId);
     const bundle = this.prepared.get(songId) ?? null;
+    const expectedSig = this.bundleSignature(songId, bundle);
     const useBundle = !!(bundle && expectedSig && bundle.signature === expectedSig
       && this.coversAllClips(songId, bundle.pending.map((p) => p.clipId)));
+    // preparo velho (a música foi editada): não fica ocupando memória ao lado dos novos reprodutores
+    if (bundle && !useBundle) this.invalidatePrepared(songId);
+    if (useBundle && bundle?.disk) this.diskSongs.add(songId);
     const myGen = ++this.playGeneration;
     const ctx = this.getContext();
     if (ctx.state === 'suspended') await ctx.resume();
@@ -1132,7 +1281,7 @@ class AudioEngine {
 
     const song = store.songs.find((s) => s.id === songId);
     const audioFor = (clip: typeof clips[number]) => heads ? heads.get(clip.id) ?? null : getClipPlayAudio(clip);
-    const playClips = clips.filter((c) => store.tracks.some((t) => t.id === c.trackId) && audioFor(c));
+    const playClips = clips.filter((c) => store.tracks.some((t) => t.id === c.trackId) && (disk?.has(c.id) || audioFor(c)));
     // Com BPM/tom alterados, o começo já ajustado evita ligar o processamento ao vivo de todas as faixas na largada.
     // Esse começo é o do arquivo: com algum clipe cortado no início (split), todas processam ao vivo juntas.
     const stretched = wantsStretchedHead(song) && !playClips.some((c) => (c.trimStart ?? 0) > 0)
@@ -1184,19 +1333,21 @@ class AudioEngine {
       pending.length = 0;
     };
 
+    if (disk) this.diskSongs.add(songId);
     for (const clip of clips) {
-      const buffer = audioFor(clip);
-      if (!buffer) continue;
+      const reader = disk?.get(clip.id) ?? null;
+      const buffer = reader ? null : audioFor(clip);
+      if (!reader && !buffer) continue;
       const track = tracks.find((t) => t.id === clip.trackId);
       if (!track) continue;
       const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
       const melodic = isMelodicTrack(track, tracks);
 
-      const sampleRate = buffer.sampleRate;
+      const sampleRate = reader ? reader.sampleRate : buffer!.sampleRate;
 
       const offsetSeconds = Math.max(0, startOffset - clip.startTime);
       const offsetSamples = Math.floor(offsetSeconds * sampleRate);
-      const bufferLength = heads ? heads.get(clip.id)!.fullFrames : buffer.length;
+      const bufferLength = reader ? reader.length : heads ? heads.get(clip.id)!.fullFrames : buffer!.length;
       const pitch = melodic ? pitchFromCents(cents) : 1;
       const ready = stretched?.get(clip.id);
 
@@ -1212,7 +1363,8 @@ class AudioEngine {
       });
       // Nenhuma cópia do áudio inteiro no Play: vai junto só o trecho da largada, o resto em
       // trechos logo em seguida. Com o começo pronto do disco, só ele por enquanto.
-      this.feed(node, buffer, offsetSamples, PRIORITY_ON_AIR, heads ? { totalFrames: bufferLength, availableFrames: buffer.length } : undefined);
+      if (reader) this.feedDisk(node, reader, offsetSamples, PRIORITY_ON_AIR, initial?.get(clip.id));
+      else this.feed(node, buffer!, offsetSamples, PRIORITY_ON_AIR, heads ? { totalFrames: bufferLength, availableFrames: buffer!.length } : undefined);
 
       const clipGain = ctx.createGain();
       clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
@@ -1291,7 +1443,36 @@ class AudioEngine {
     }
     if (stretched) this.schedulePartialHandoff(songId, myGen, pending, stretched, startOffset, tempo);
     if (heads) void this.finishHeadStart(songId, myGen);
+    else if (disk) void this.afterDiskStart(songId, myGen);
     else this.scheduleRender(songId, 0);
+  }
+
+  // A música no ar lê do disco: espera todas as faixas chegarem inteiras. Só abre a música na
+  // memória se precisar — faixa cujo disco falhou ou BPM/tom com áudio ajustado em segundo plano.
+  private async afterDiskStart(songId: string, gen: number) {
+    const handles = Array.from(this.activeClips.values()).map((a) => this.feeds.get(a.node)).filter((h): h is StreamHandle => !!h);
+    const done = Promise.all(handles.map((h) => h.done)).then(() => undefined);
+    this.onAirDiskDone = { songId, done };
+    await done;
+    if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
+    const failed = Array.from(this.activeClips.entries()).filter(([, a]) => {
+      const h = handles.find((x) => this.feeds.get(a.node) === x);
+      return !!h && 'failed' in h && (h as DiskHandle).failed;
+    });
+    const song = useStore.getState().songs.find((s) => s.id === songId);
+    const wantsRender = !!song && songNeedsProcessing(song) && !hasSliceParams(song);
+    if (failed.length === 0 && !wantsRender) return;
+    await ensureSongLoaded(songId).catch(() => { /* avisado pelo carregamento */ });
+    if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
+    const store = useStore.getState();
+    for (const [clipId, active] of failed) {
+      const clip = store.clips.find((c) => c.id === clipId);
+      const audio = clip ? getClipPlayAudio(clip) : null;
+      if (!audio || !this.ctx) continue;
+      const pos = (this.ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1);
+      this.feed(active.node, audio, Math.max(0, Math.floor((pos - active.clipStartTime) * audio.sampleRate)), PRIORITY_ON_AIR);
+    }
+    if (wantsRender) this.scheduleRender(songId, 0);
   }
 
   private clipsWithSource(songId: string) {
@@ -1746,7 +1927,11 @@ class AudioEngine {
     this.headOnly = false;
     this.partialActive = false;
     if (this.partialTimer) { window.clearTimeout(this.partialTimer); this.partialTimer = null; }
-    if (stoppedSongId && !retained) this.cancelRender(stoppedSongId);
+    if (stoppedSongId && !retained) {
+      this.cancelRender(stoppedSongId);
+      this.diskSongs.delete(stoppedSongId);
+    }
+    if (this.onAirDiskDone?.songId === stoppedSongId) this.onAirDiskDone = null;
     const toDisconnect = retained ? [] : Array.from(this.activeClips.entries());
     const gainsSnapshot = retained ? new Map<string, GainNode>() : new Map(this.clipGains);
     const pannersSnapshot = retained ? new Map<string, StereoPannerNode>() : new Map(this.clipPanners);
@@ -1771,7 +1956,9 @@ class AudioEngine {
 
   // Guarda os reprodutores parados (em silêncio) para o próximo Play não precisar recarregar o áudio.
   private retainForReuse(songId: string): boolean {
-    const sig = this.computePrepareSignature(songId);
+    const memorySig = this.computePrepareSignature(songId);
+    const fromDisk = !memorySig && this.diskSongs.has(songId);
+    const sig = memorySig ?? (fromDisk ? this.diskSignature(songId) : null);
     if (!sig || this.activeClips.size === 0 || !this.coversAllClips(songId, this.activeClips.keys())) return false;
     const old = this.prepared.get(songId);
     if (old) this.disposePreparedBundle(old);
@@ -1793,7 +1980,7 @@ class AudioEngine {
         trackId: a.trackId,
       });
     });
-    const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots: this.preparedSnapshots(songId) };
+    const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots: this.preparedSnapshots(songId), disk: fromDisk };
     this.prepared.set(songId, bundle);
     // Silencia só depois do fade-out; se um Play já reaproveitou os reprodutores, não mexe.
     window.setTimeout(() => {
@@ -2152,7 +2339,7 @@ class AudioEngine {
     const prep = this.prepared.get(songId);
     if (prep) {
       const tracks = store.tracks;
-      prep.signature = this.computePrepareSignature(songId) ?? prep.signature;
+      prep.signature = this.bundleSignature(songId, prep) ?? prep.signature;
       for (const p of prep.pending) {
         const t = tracks.find((tr) => tr.id === p.trackId);
         const melodic = t ? isMelodicTrack(t, tracks) : true;
@@ -2464,6 +2651,15 @@ class AudioEngine {
         active.bufferLength = audio.length;
         const fromFrame = Math.max(0, Math.floor(local * audio.sampleRate));
         try { this.feed(active.node, audio, fromFrame, PRIORITY_ON_AIR); } catch { /* ignore */ }
+      } else if (!audio && !endCutOnly && this.diskSongs.has(clip.songId)) {
+        // Música lida do disco: reabre o trecho do clipe com o corte novo.
+        const node = active.node;
+        void openRangeReader(clip).then((reader) => {
+          if (!reader || this.activeClips.get(clipId) !== active) return;
+          active.bufferLength = reader.length;
+          const nowLocal = this.getCurrentTime() - active.clipStartTime;
+          this.feedDisk(node, reader, Math.max(0, Math.floor(nowLocal * reader.sampleRate)), PRIORITY_ON_AIR);
+        });
       }
       const track = store.tracks.find((t) => t.id === clip.trackId);
       const target = track?.parentId ? store.tracks.find((t) => t.id === track.parentId) ?? track : track;

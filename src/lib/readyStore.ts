@@ -109,6 +109,43 @@ export async function readEntry(dir: FileSystemDirectoryHandle, name: string): P
   }
 }
 
+export interface ReadyRangeFile {
+  sampleRate: number;
+  channelCount: number;
+  frames: number;
+  fullFrames: number;
+  read(start: number, count: number): Promise<Int16Array[]>;
+}
+
+/** Abre uma cópia pronta só pelo cabeçalho; os trechos são lidos do disco quando pedidos. */
+export async function openEntryRange(dir: FileSystemDirectoryHandle, name: string): Promise<ReadyRangeFile | null> {
+  try {
+    const file = await (await dir.getFileHandle(name)).getFile();
+    if (file.size < HEADER_INTS * 4) return null;
+    const [magic, sampleRate, count, frames, fullFrames] = new Int32Array(await file.slice(0, HEADER_INTS * 4).arrayBuffer());
+    if (magic !== MAGIC || count < 1 || count > 2 || file.size !== HEADER_INTS * 4 + count * frames * 2) return null;
+    known.add(name);
+    return {
+      sampleRate,
+      channelCount: count,
+      frames,
+      fullFrames,
+      async read(start: number, n: number) {
+        const from = Math.max(0, Math.min(frames, start));
+        const to = Math.max(from, Math.min(frames, from + n));
+        const out: Int16Array[] = [];
+        for (let c = 0; c < count; c++) {
+          const base = HEADER_INTS * 4 + c * frames * 2;
+          out.push(new Int16Array(await file.slice(base + from * 2, base + to * 2).arrayBuffer()));
+        }
+        return out;
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 function loadSeen(): Record<string, number> {
   try {
     const raw = JSON.parse(localStorage.getItem(SEEN_KEY) ?? '{}');

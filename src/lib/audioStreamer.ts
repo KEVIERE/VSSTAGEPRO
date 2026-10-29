@@ -231,3 +231,176 @@ function invert(total: number, missing: Array<[number, number]>): Array<[number,
 }
 
 export const audioStreamer = new AudioStreamer();
+
+// ---------- leitura antecipada direto do disco ----------
+
+/** Fonte que lê trechos do arquivo na taxa da saída, sem abrir o arquivo inteiro. */
+export interface RangeReader {
+  sampleRate: number;
+  /** Quadros tocáveis do clipe (já com os cortes de início/fim aplicados). */
+  length: number;
+  channelCount: number;
+  read(start: number, frames: number): Promise<Int16Array[]>;
+}
+
+export interface DiskHandle extends StreamHandle {
+  /** true quando o trecho do ponto de largada já chegou ao reprodutor; false se cancelou ou falhou. */
+  readonly first: Promise<boolean>;
+  readonly failed: boolean;
+}
+
+interface DiskJob {
+  port: StreamPort;
+  reader: RangeReader;
+  priority: number;
+  queue: Array<[number, number]>;
+  inFlight: number;
+  done: boolean;
+  failed: boolean;
+  firstPending: boolean;
+  firstResolve: (ok: boolean) => void;
+  resolve: () => void;
+  retries: number;
+}
+
+/** Quantas leituras do disco ao mesmo tempo (para todas as faixas juntas). */
+const DISK_CONCURRENCY = 6;
+export const DISK_CHUNK_FRAMES = 1 << 16;
+const DISK_RETRIES = 2;
+
+/**
+ * Como os programas de gravação fazem: cada faixa lê do disco os próximos trechos a partir do
+ * ponto que está tocando, poucas leituras por vez, a música no ar na frente. Nada é convertido
+ * ou aberto inteiro antes do Play.
+ */
+export class DiskStreamer {
+  private jobs = new Set<DiskJob>();
+  private active = 0;
+  private rr = 0;
+  private concurrency: number;
+  private chunk: number;
+
+  constructor(options?: { concurrency?: number; chunkFrames?: number }) {
+    this.concurrency = options?.concurrency ?? DISK_CONCURRENCY;
+    this.chunk = options?.chunkFrames ?? DISK_CHUNK_FRAMES;
+  }
+
+  /** `initial`: trecho já lido (ex.: o da largada, lido antes de parar a música anterior). */
+  start(port: StreamPort, reader: RangeReader, options: { from: number; priority: number; initial?: { start: number; channels: Int16Array[] } }): DiskHandle {
+    const total = reader.length;
+    const left = new Int16Array(total);
+    const right = reader.channelCount > 1 ? new Int16Array(total) : left;
+    const have: Array<[number, number]> = [];
+    const init = options.initial;
+    if (init && init.channels[0]?.length) {
+      const s = Math.max(0, Math.min(total, init.start));
+      const n = Math.min(init.channels[0].length, total - s);
+      left.set(init.channels[0].subarray(0, n), s);
+      if (right !== left) right.set((init.channels[1] ?? init.channels[0]).subarray(0, n), s);
+      if (n > 0) have.push([s, s + n]);
+    }
+    port.postMessage({ type: 'stream', left, right, total, ranges: have }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
+    const from = Math.max(0, Math.min(total, options.from | 0));
+    let resolve!: () => void;
+    const done = new Promise<void>((r) => { resolve = r; });
+    let firstResolve!: (ok: boolean) => void;
+    const first = new Promise<boolean>((r) => { firstResolve = r; });
+    const job: DiskJob = {
+      port, reader, priority: options.priority,
+      queue: planChunks(total, have, from, this.chunk),
+      inFlight: 0, done: false, failed: false, firstPending: have.length === 0, firstResolve, resolve, retries: 0,
+    };
+    if (!job.firstPending) firstResolve(true);
+    if (job.queue.length === 0) {
+      this.finish(job, true);
+    } else {
+      this.jobs.add(job);
+      this.pump();
+    }
+    const finish = (ok: boolean) => this.finish(job, ok);
+    const pump = () => this.pump();
+    return {
+      done,
+      first,
+      get finished() { return job.done; },
+      get failed() { return job.failed; },
+      cancel() { finish(false); },
+      focus(frame: number, prio?: number) {
+        if (job.done) return;
+        if (typeof prio === 'number') job.priority = prio;
+        // reordena o que falta a partir do novo ponto
+        const missing = [...job.queue].sort((a, b) => a[0] - b[0]);
+        job.queue = [];
+        const start = Math.max(0, Math.min(total, frame | 0));
+        const ahead = missing.filter((r) => r[1] > start);
+        const behind = missing.filter((r) => r[1] <= start);
+        job.queue = [...ahead, ...behind];
+        pump();
+      },
+    };
+  }
+
+  pending(): number {
+    return this.jobs.size;
+  }
+
+  private finish(job: DiskJob, ok: boolean) {
+    if (job.done) return;
+    job.done = true;
+    job.queue = [];
+    this.jobs.delete(job);
+    if (job.firstPending) { job.firstPending = false; job.firstResolve(ok && !job.failed); }
+    job.resolve();
+  }
+
+  private pick(): DiskJob | null {
+    let best = Number.POSITIVE_INFINITY;
+    for (const j of this.jobs) if (j.queue.length > 0) best = Math.min(best, j.priority);
+    const same = Array.from(this.jobs).filter((j) => j.priority === best && j.queue.length > 0);
+    if (same.length === 0) return null;
+    this.rr = (this.rr + 1) % same.length;
+    return same[this.rr];
+  }
+
+  private pump() {
+    while (this.active < this.concurrency) {
+      const job = this.pick();
+      if (!job) return;
+      const range = job.queue.shift()!;
+      this.active++;
+      job.inFlight++;
+      void this.readOne(job, range).finally(() => {
+        this.active--;
+        job.inFlight--;
+        if (!job.done && job.queue.length === 0 && job.inFlight === 0) this.finish(job, true);
+        this.pump();
+      });
+    }
+  }
+
+  private async readOne(job: DiskJob, [s, e]: [number, number]) {
+    let channels: Int16Array[];
+    try {
+      channels = await job.reader.read(s, e - s);
+    } catch {
+      if (job.done) return;
+      if (job.retries++ < DISK_RETRIES) { job.queue.unshift([s, e]); return; }
+      // o disco não respondeu: quem chamou cai para o áudio aberto na memória
+      job.failed = true;
+      this.finish(job, false);
+      return;
+    }
+    if (job.done || !channels[0] || channels[0].length === 0) return;
+    const left = channels[0];
+    const right = channels[1] ?? left;
+    try {
+      job.port.postMessage({ type: 'append', offset: s, left, right }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
+    } catch {
+      this.finish(job, false);
+      return;
+    }
+    if (job.firstPending) { job.firstPending = false; job.firstResolve(true); }
+  }
+}
+
+export const diskStreamer = new DiskStreamer();
