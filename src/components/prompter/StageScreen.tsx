@@ -77,6 +77,15 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
           {notice?.layout === 'bar' && <div style={{ height: `${p.barSize}cqh` }} />}
         </div>
       </div>
+      {p.toggles.logoCorner && logoUrl && (showLyrics || !p.toggles.logo) && (
+        <img src={logoUrl} alt="" className="absolute object-contain opacity-90 pointer-events-none" style={{ left: '2cqw', bottom: notice?.layout === 'bar' ? `${p.barSize + 2}cqh` : '2.5cqh', maxWidth: '14cqw', maxHeight: '11cqh' }} draggable={false} />
+      )}
+      {p.toggles.joinQr && snap.joinQr && (
+        <div className="absolute flex flex-col items-center gap-[0.6cqh] rounded-[1cqh] bg-white p-[0.9cqh] shadow-2xl" style={{ right: '2cqw', bottom: notice?.layout === 'bar' ? `${p.barSize + 2}cqh` : '2.5cqh' }}>
+          <img src={snap.joinQr} alt="QR code para os músicos entrarem" className="[image-rendering:pixelated]" style={{ width: '16cqh', height: '16cqh' }} draggable={false} />
+          <span className="font-semibold text-black" style={{ fontSize: '1.4cqh' }}>Músicos: escaneie</span>
+        </div>
+      )}
       {notice && <NoticeView notice={notice} barSize={p.barSize} />}
       {lv.status === 'nosignal' && <span className="absolute top-[1.5cqh] right-[1.5cqh] w-[1.2cqh] h-[1.2cqh] rounded-full bg-[#ff9f0a]" title="Sem sinal do diretor" />}
     </>,

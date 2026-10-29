@@ -12,7 +12,7 @@ const NAME_LS = 'vs_local_musician_name';
 function rememberedName(): string | null {
   try { return localStorage.getItem(NAME_LS); } catch { return null; }
 }
-const POLL_MS = 1000;
+const POLL_MS = 400;
 const SHEETS_POLL_MS = 8000;
 const VERSION = localServerVersion();
 
@@ -49,9 +49,11 @@ export default function LocalMusicianArea() {
   const [sync, setSync] = useState({ lagMs: 0, receivedAt: 0 });
 
   const fetchState = useCallback(async (l: Login) => {
+    const t0 = performance.now();
     const s = await localMusicianState(l.pin, l.name);
+    const transitMs = Math.min(1500, (performance.now() - t0) / 2);
     setState(s);
-    setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at), receivedAt: Date.now() });
+    setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at) + transitMs, receivedAt: Date.now() });
     setOffline(false);
   }, []);
 

@@ -44,6 +44,10 @@ export interface ScreenToggles {
   playlist: boolean;
   notices: boolean;
   logo: boolean;
+  /** Logo pequena num canto da tela o tempo todo (também durante a letra). */
+  logoCorner: boolean;
+  /** QR code de entrada dos músicos (Rede Local) num canto da tela. */
+  joinQr: boolean;
 }
 
 export type LyricAlign = 'left' | 'center' | 'right';
@@ -91,6 +95,8 @@ export interface PrompterState {
   presets: string[];
   history: { id: string; text: string; at: number }[];
   scheduled: ScheduledNotice[];
+  /** Antecipação da letra (s): cada trecho aparece esse tempo antes da hora marcada. */
+  lyricLead: number;
 }
 
 export interface PrompterSnapshot {
@@ -99,6 +105,8 @@ export interface PrompterSnapshot {
   lyrics: SongLyrics[];
   lyricsSave: { requestedAt: string | null; savedAt: string | null };
   server_now: string;
+  /** QR code de entrada dos músicos na Rede Local (só vem quando a opção está ligada). */
+  joinQr?: string | null;
 }
 
 export const PAGE_KINDS: { id: PageKind; label: string; color: string }[] = [
@@ -115,7 +123,7 @@ export function kindInfo(kind: PageKind) {
 }
 
 export const DEFAULT_PROMPTER: PrompterState = {
-  toggles: { lyrics: true, clock: true, showTime: true, nowNext: true, playlist: true, notices: true, logo: true },
+  toggles: { lyrics: true, clock: true, showTime: true, nowNext: true, playlist: true, notices: true, logo: true, logoCorner: false, joinQr: false },
   blackout: false,
   fontScale: 1,
   lyricColor: '#ffffff',
@@ -130,6 +138,8 @@ export const DEFAULT_PROMPTER: PrompterState = {
   presets: ['Mandar um alô para a cidade', 'Agradecer a produção', 'O prefeito chegou', 'Chamar o público para cantar junto', 'Últimas 2 músicas'],
   history: [],
   scheduled: [],
+  // o cantor lê o trecho antes de cantar; cobre também a pequena demora da rede
+  lyricLead: 0.3,
 };
 
 const KIND_IDS = new Set(PAGE_KINDS.map((k) => k.id));
@@ -156,6 +166,7 @@ export function normalizePrompter(raw: unknown): PrompterState {
     presets: Array.isArray(p.presets) ? p.presets.filter((x) => typeof x === 'string') : DEFAULT_PROMPTER.presets,
     history: Array.isArray(p.history) ? p.history : [],
     scheduled: Array.isArray(p.scheduled) ? p.scheduled : [],
+    lyricLead: num(p.lyricLead, DEFAULT_PROMPTER.lyricLead, 0, 2),
   };
 }
 

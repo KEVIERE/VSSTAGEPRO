@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PrompterSnapshot } from '@/lib/prompterTypes';
 import { serverLagMs } from '@/lib/liveClock';
+import { isLocalClient } from '@/lib/localNetwork';
 
+// Na Rede Local buscar é barato: 4 vezes por segundo deixa troca de música, pulo e aviso
+// praticamente instantâneos. Online fica em 1 s.
 const POLL_MS = 1000;
+const LOCAL_POLL_MS = 250;
 const TICK_MS = 100;
 
 export type FeedError = 'invalid_code' | 'too_many_attempts' | 'offline' | null;
@@ -28,9 +32,12 @@ export function usePrompterFeed(
   const refresh = useCallback(async () => {
     if (!code) return;
     try {
+      const t0 = performance.now();
       const s = await fetcherRef.current(code);
+      // metade da ida e volta é o tempo que o dado levou para chegar: a letra não fica atrás
+      const transitMs = Math.min(1500, (performance.now() - t0) / 2);
       setSnap(s);
-      setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at), receivedAt: Date.now() });
+      setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at) + transitMs, receivedAt: Date.now() });
       setError(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
@@ -48,7 +55,7 @@ export function usePrompterFeed(
     let timer = 0;
     const loop = async () => {
       await refresh();
-      if (alive) timer = window.setTimeout(loop, POLL_MS);
+      if (alive) timer = window.setTimeout(loop, isLocalClient() ? LOCAL_POLL_MS : POLL_MS);
     };
     loop();
     return () => { alive = false; window.clearTimeout(timer); };

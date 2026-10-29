@@ -337,9 +337,16 @@ class LocalServer {
       const lyrics = Object.entries(this.mergedLyrics()).map(([song_id, pages]) => ({
         song_id, pages, updated_at: this.lyricsUpdatedAt[song_id] || this.publishedAt,
       }));
+      // QR de entrada dos músicos (com o PIN) só quando o diretor liga a opção na tela do palco
+      let joinQr = null;
+      if (this.prompter?.toggles?.joinQr && this.pins?.musician) {
+        const base = lanAddresses()[0];
+        if (base) joinQr = await this.qr(`http://${base}:${this.port}/${PATH.musician}#pin=${this.pins.musician}`);
+      }
       return this.json(res, 200, {
         show,
         prompter: this.prompter,
+        join_qr: joinQr,
         lyrics,
         lyrics_save: { requested_at: this.lyricsSave.requestedAt, saved_at: this.lyricsSave.savedAt },
         server_now: now,

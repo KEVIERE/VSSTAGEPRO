@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import {
   MonitorOff, FlipHorizontal, Image as ImageIcon, ChevronLeft, ChevronRight, RotateCcw, FileText, Clock, Timer,
-  ListMusic, Megaphone, PlayCircle,
+  ListMusic, Megaphone, PlayCircle, QrCode,
 } from 'lucide-react';
 import StageScreen from '@/components/prompter/StageScreen';
 import QuickNotices from '@/components/prompter/QuickNotices';
@@ -17,6 +17,8 @@ const TOGGLES: { id: keyof ScreenToggles; label: string; icon: typeof Clock }[] 
   { id: 'playlist', label: 'Playlist lateral', icon: ListMusic },
   { id: 'notices', label: 'Avisos', icon: Megaphone },
   { id: 'logo', label: 'Logo da banda/artista', icon: ImageIcon },
+  { id: 'logoCorner', label: 'Logo no canto (sempre)', icon: ImageIcon },
+  { id: 'joinQr', label: 'QR code dos músicos (Rede Local)', icon: QrCode },
 ];
 
 function toLocalInput(iso: string | null): string {

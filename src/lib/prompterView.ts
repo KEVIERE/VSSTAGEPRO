@@ -11,7 +11,7 @@ export function autoPageIndex(pages: LyricPage[], t: number): number {
 }
 
 export function pageIndexFor(pages: LyricPage[], t: number, songId: string | null, p: PrompterState): number {
-  const base = autoPageIndex(pages, t);
+  const base = autoPageIndex(pages, t + (p.lyricLead ?? 0));
   if (!songId || p.nudge.songId !== songId || p.nudge.delta === 0) return base;
   return Math.max(-1, Math.min(pages.length - 1, base + p.nudge.delta));
 }

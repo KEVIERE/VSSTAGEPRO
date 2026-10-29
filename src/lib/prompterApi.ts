@@ -42,6 +42,7 @@ function toSnapshot(obj: Record<string, unknown>): PrompterSnapshot {
       savedAt: typeof save.saved_at === 'string' ? save.saved_at : null,
     },
     server_now: String(obj.server_now ?? ''),
+    joinQr: typeof obj.join_qr === 'string' && obj.join_qr.startsWith('data:image/') ? obj.join_qr : null,
   };
 }
 

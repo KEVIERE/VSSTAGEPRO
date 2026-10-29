@@ -256,6 +256,12 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
             activeIdx={activeIdx}
             onSeek={(time) => { if (!useLive) seek(time); }}
             onMoveMarker={(id, time) => update(id, { time })}
+            onPlace={(time) => {
+              if (!pages.length) return;
+              const at = Math.round(time * 10) / 10;
+              setPages((ps) => ps.map((p, i) => (i === armedIdx ? { ...p, time: at } : p)));
+              setMarkIdx(Math.min(pages.length - 1, armedIdx + 1));
+            }}
           />
         </div>
 
@@ -268,7 +274,7 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
             <Flag size={16} /> Marcar página {pages.length ? armedIdx + 1 : ''}
           </button>
           <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
-            Aperte <kbd className="px-1.5 py-0.5 rounded bg-logic-bg-elevated text-logic-text">Espaço</kbd> para tocar ou pausar, e toque em Marcar na hora em que cada trecho começa. Arraste os números na onda para ajustar.
+            Aperte <kbd className="px-1.5 py-0.5 rounded bg-logic-bg-elevated text-logic-text">Espaço</kbd> para tocar ou pausar, e toque em Marcar na hora em que cada trecho começa. Sem tocar: duplo clique na onda coloca ali o trecho marcado. Arraste os números na onda ou use −0,1/+0,1 para o ajuste fino.
           </p>
         </div>
       </div>
@@ -394,6 +400,20 @@ function PageRow({ page, index, total, active, armed, onArm, onChange, onMarkNow
             className="w-24 px-2 py-1.5 rounded-md bg-logic-bg-panel border border-logic-border text-xs tabular-nums text-logic-text outline-none focus:border-logic-accent placeholder:text-logic-lcd-amber/70"
             title="Tempo de entrada (min:seg)"
           />
+          {page.time !== null && (
+            <span className="flex items-center rounded-md border border-logic-border overflow-hidden" title="Ajuste fino da entrada">
+              {[-0.1, 0.1].map((d) => (
+                <button
+                  key={d}
+                  onClick={(e) => { e.stopPropagation(); onChange({ time: Math.max(0, Math.round(((page.time ?? 0) + d) * 10) / 10) }); }}
+                  className="px-1.5 py-1.5 text-2xs font-mono text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
+                  aria-label={d < 0 ? 'Entrar 0,1 s antes' : 'Entrar 0,1 s depois'}
+                >
+                  {d < 0 ? '−0,1' : '+0,1'}
+                </button>
+              ))}
+            </span>
+          )}
           <button onClick={(e) => { e.stopPropagation(); onMarkNow(); }} className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-logic-bg-elevated hover:bg-logic-border-light text-xs transition-colors" title="Usar o tempo atual">
             <Flag size={12} /> Marcar aqui
           </button>
