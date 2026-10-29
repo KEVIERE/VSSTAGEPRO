@@ -1442,7 +1442,7 @@ export default function TimelinePanel() {
             trimEnd: Math.max(0, (c.trimEnd ?? 0) - delta),
           },
         })));
-        audioEngine.invalidatePrepared(song?.id);
+        if (song && !audioEngine.refreshPreparedAfterEndCut(song.id)) audioEngine.invalidatePrepared(song.id);
       };
       el.addEventListener("pointermove", move);
       el.addEventListener("pointerup", up);

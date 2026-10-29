@@ -536,8 +536,13 @@ function DirectorApp({ license }: { license: License }) {
             // Se o startTime ou o corte do clipe mudar (ex.: mover clipe ou Cmd+Z Desfazer),
             // reposiciona o áudio imediatamente em tempo real sem sair do ritmo
             if (p.startTime !== c.startTime || p.trimStart !== c.trimStart || p.trimEnd !== c.trimEnd) {
-              audioEngine.updateLiveClipPosition(c.id, c.startTime);
-              audioEngine.invalidatePrepared(c.songId);
+              const activeSong = state.songs.find((song) => song.id === c.songId);
+              const noProcessing = !!activeSong && (activeSong.bpmAdjust ?? 0) === 0 && activeSong.tuner === 0
+                && !activeSong.medley?.some((part) => (part.bpmAdjust ?? 0) !== 0 || (part.tuner ?? 0) !== 0);
+              const endCutOnly = noProcessing && p.startTime === c.startTime && (p.trimStart ?? 0) === (c.trimStart ?? 0)
+                && (c.trimEnd ?? 0) >= (p.trimEnd ?? 0);
+              audioEngine.updateLiveClipPosition(c.id, c.startTime, endCutOnly);
+              if (!audioEngine.refreshPreparedAfterEndCut(c.songId)) audioEngine.invalidatePrepared(c.songId);
             }
             if (
               p.gain !== c.gain ||

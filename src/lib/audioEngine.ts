@@ -287,6 +287,8 @@ interface PreparedBundle {
   songId: string;
   signature: string;
   pending: PreparedPending[];
+  /** Estado e identidade da fonte na criação do reprodutor. */
+  snapshots: Map<string, { audio: ReturnType<typeof getClipAudio>; trimStart: number; duration: number; trackId: string }>;
 }
 
 function effectivePan(trackId: string, trackPan: number, lrActive: boolean): number {
@@ -599,6 +601,40 @@ class AudioEngine {
     }, Math.min(5000, 600 + attempt * 500));
   }
 
+  private preparedSnapshots(songId: string) {
+    const snapshots = new Map<string, { audio: ReturnType<typeof getClipAudio>; trimStart: number; duration: number; trackId: string }>();
+    for (const clip of useStore.getState().clips) {
+      if (clip.songId === songId && isStemClip(clip)) {
+        snapshots.set(clip.id, { audio: getClipAudio(clip.id), trimStart: clip.trimStart ?? 0, duration: clipPlayLength(clip), trackId: clip.trackId });
+      }
+    }
+    return snapshots;
+  }
+
+  /** Reaproveita o Worklet somente quando o áudio e início continuam idênticos e o fim foi encurtado. */
+  refreshPreparedAfterEndCut(songId: string): boolean {
+    const bundle = this.prepared.get(songId);
+    const st = useStore.getState();
+    const song = st.songs.find((item) => item.id === songId);
+    if (!bundle || !song || songNeedsProcessing(song)) return false;
+    const clips = st.clips.filter((clip) => clip.songId === songId && isStemClip(clip));
+    if (clips.length !== bundle.pending.length) return false;
+    for (const clip of clips) {
+      const before = bundle.snapshots.get(clip.id);
+      if (!before || before.audio !== getClipAudio(clip.id) || before.trimStart !== (clip.trimStart ?? 0)
+        || before.trackId !== clip.trackId || clipPlayLength(clip) > before.duration + 1e-6) return false;
+    }
+    const signature = this.computePrepareSignature(songId);
+    if (!signature) return false;
+    for (const item of bundle.pending) {
+      const clip = clips.find((c) => c.id === item.clipId)!;
+      item.clipStartTime = clip.startTime;
+      item.clipDuration = clipPlayLength(clip);
+    }
+    bundle.signature = signature;
+    return true;
+  }
+
   private disposePreparedBundle(bundle: PreparedBundle) {
     for (const p of bundle.pending) {
       try { p.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
@@ -644,6 +680,7 @@ class AudioEngine {
     const inflight = this.preparing.get(songId);
     if (inflight) return inflight;
 
+    const snapshots = this.preparedSnapshots(songId);
     const task = (async () => {
       if (existing) {
         this.disposePreparedBundle(existing);
@@ -741,7 +778,7 @@ class AudioEngine {
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      const bundle: PreparedBundle = { songId, signature: sig, pending };
+      const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots };
 
       await Promise.race([
         Promise.all(pending.map((p) => p.ready)),
@@ -1702,7 +1739,7 @@ class AudioEngine {
         trackId: a.trackId,
       });
     });
-    const bundle: PreparedBundle = { songId, signature: sig, pending };
+    const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots: this.preparedSnapshots(songId) };
     this.prepared.set(songId, bundle);
     // Silencia só depois do fade-out; se um Play já reaproveitou os reprodutores, não mexe.
     window.setTimeout(() => {
@@ -2335,7 +2372,7 @@ class AudioEngine {
     }
   }
 
-  updateLiveClipPosition(clipId: string, newStartTime: number) {
+  updateLiveClipPosition(clipId: string, newStartTime: number, endCutOnly = false) {
     if (!this.isPlaying || !this.ctx) return;
     const active = this.activeClips.get(clipId);
     if (!active) return;
@@ -2350,7 +2387,7 @@ class AudioEngine {
     if (clip) {
       active.durationSeconds = clipPlayLength(clip);
       const audio = getClipPlayAudio(clip);
-      if (audio) {
+      if (audio && !endCutOnly) {
         const left = audio.channels[0].slice();
         const right = audio.channels[1] ? audio.channels[1].slice() : left;
         active.bufferLength = left.length;
