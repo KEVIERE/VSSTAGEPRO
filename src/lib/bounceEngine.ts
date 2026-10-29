@@ -454,12 +454,14 @@ function multitrackJobs(song: Song, state: ProjectState, cancelled: () => boolea
 }
 
 export async function runExport(req: ExportRequest, state: ProjectState, hooks: ExportHooks): Promise<ExportResult | null> {
-  const ordered = state.playlistOrder
-    .map((id) => state.songs.find((s) => s.id === id))
-    .filter((s): s is Song => !!s);
+  const byId = new Map(state.songs.map((song) => [song.id, song]));
+  const missingEntries = state.playlist.filter((entry) => !byId.has(entry.songId));
+  if (req.scope === 'projeto' && missingEntries.length > 0) {
+    throw new Error(`O show contém músicas que não foram encontradas no projeto: ${missingEntries.map((entry) => entry.name).join(', ')}.`);
+  }
   const songs = req.scope === 'musica'
-    ? state.songs.filter((s) => s.id === req.songId)
-    : ordered.length ? ordered : state.songs;
+    ? state.songs.filter((song) => song.id === req.songId)
+    : state.playlist.map((entry) => byId.get(entry.songId)!);
   if (songs.length === 0) {
     throw new Error(req.scope === 'musica' ? 'Música não encontrada.' : 'O projeto não tem músicas para exportar.');
   }
@@ -492,6 +494,17 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
     target = t;
     baseRel = `${projectName}/`;
   }
+
+  // Nomes iguais (inclusive após sanitização) não podem sobrescrever outra música.
+  const usedSongFolders = new Set<string>();
+  const songFolders = songs.map((song) => {
+    const base = sanitize(song.name);
+    let folder = base;
+    let suffix = 2;
+    while (usedSongFolders.has(folder.toLocaleLowerCase())) folder = `${base} (${suffix++})`;
+    usedSongFolders.add(folder.toLocaleLowerCase());
+    return folder;
+  });
 
   const estimates = songs.map((s) => estimateFiles(s, state, req.mode));
   let total = estimates.reduce((a, b) => a + b, 0);
@@ -545,8 +558,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
           songsSaved++;
         } catch (err) {
           if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; break; }
-          console.warn('[bounce] falha na música', song.name, err);
-          incomplete.push(song.name);
+          throw new Error(`Não foi possível exportar "${song.name}": ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       if (run.status === 'cancelled' || renderedBuffers.length === 0) {
@@ -598,8 +610,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
           songsSaved++;
         } catch (err) {
           if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; break; }
-          console.warn('[bounce] falha na música', song.name, err);
-          incomplete.push(song.name);
+          throw new Error(`Não foi possível exportar "${song.name}": ${err instanceof Error ? err.message : String(err)}`);
         }
         report(`${songLabel} · concluída`, 1);
       }
@@ -657,7 +668,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         }
         if (hooks.cancelled()) { run.status = 'cancelled'; break; }
         report(`${songLabel} · salvando ${job.name}`, 0.9);
-        const rel = req.scope === 'projeto' ? `${baseRel}${sanitize(song.name)}/${job.name}` : `${baseRel}${job.name}`;
+        const rel = req.scope === 'projeto' ? `${baseRel}${songFolders[si]}/${job.name}` : `${baseRel}${job.name}`;
         for (;;) {
           try {
             await target.write(rel, data);
