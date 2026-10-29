@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import {
-  Play, Square, Gauge, AudioWaveform, Loader2, Headphones,
+  Play, Square, Gauge, AudioWaveform, Headphones,
   X, Radio, Repeat, Layers, ListOrdered, Search, Music2,
 } from 'lucide-react';
 import { useStore } from '@/store';
@@ -164,10 +164,6 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   const showBpmTower = useStore((s) => s.showBpmTower);
   const showTunerTower = useStore((s) => s.showTunerTower);
   const playbackError = useStore((s) => s.playbackError);
-  const isLoading = useStore((s) => {
-    const id = s.transport.currentSongId ?? s.selectedSongId;
-    return !!id && s.loadingSongIds.includes(id);
-  });
   const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
   const { toggleBpmTower, toggleTunerTower, setPlayFlow, togglePlaylistMaximized, setPlaybackError, selectSong, setNextSong } = useStore.getState();
   const clock = useClock();
@@ -281,9 +277,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
             title={isPlaying ? 'Já está tocando. Para trocar de música, dê Stop, escolha outra e toque' : 'Tocar (Espaço)'}
             aria-label="Tocar"
           >
-            {isLoading && isPlaying
-              ? <Loader2 size={20} className="animate-spin" aria-label="Carregando" />
-              : <Play size={22} fill="currentColor" />}
+            <Play size={22} fill="currentColor" />
           </button>
           <button className={`${bigBtn} ${neutral}`} onClick={stopPlayback} title="Parar (Esc)" aria-label="Parar">
             <Square size={20} fill="currentColor" />
