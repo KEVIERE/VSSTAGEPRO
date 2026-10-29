@@ -194,3 +194,112 @@ export function linesFromLyrics(texts: string[]): NotebookLine[] {
   });
   return out;
 }
+
+// ── Colar cifra em texto ────────────────────────────────────────────────
+// Aceita o formato comum dos sites de cifra (acordes numa linha, letra na de
+// baixo), seções como [Refrão] ou "Refrão:" e acordes no meio do texto ([C]).
+
+const CHORD_WORDS = /maj|min|dim|aug|sus|add|m|M/g;
+const SEPARATORS = /^(\||\|\||-+|\/|%|\.+|\(?\d+x\)?|x\d+|:\|\|?|\|\|?:)$/i;
+
+export function isChordToken(tok: string): boolean {
+  const t = tok.replace(/^\((.*)\)$/, '$1');
+  const m = /^([A-G][#b]?)([^/]*)(?:\/([A-G][#b]?|\d{1,2}))?$/.exec(t);
+  if (!m) return false;
+  return m[2].replace(CHORD_WORDS, '').replace(/[\d#b+\-º°()]/g, '') === '';
+}
+
+export function isChordRow(line: string): boolean {
+  const toks = line.trim().split(/\s+/).filter(Boolean);
+  return toks.some(isChordToken) && toks.every((t) => isChordToken(t) || SEPARATORS.test(t));
+}
+
+function chordsInRow(line: string): { col: number; chord: string }[] {
+  const out: { col: number; chord: string }[] = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line))) if (isChordToken(m[0])) out.push({ col: m.index, chord: m[0].replace(/^\((.*)\)$/, '$1') });
+  return out;
+}
+
+/** Prende cada acorde no começo da palavra em que ele cai, sem dois na mesma palavra. */
+function snapChords(lyric: string, marks: { col: number; chord: string }[]): ChordMark[] {
+  const starts: number[] = [];
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(lyric))) starts.push(m.index);
+  const used = new Set<number>();
+  let tail = lyric.length;
+  const out: ChordMark[] = [];
+  for (const { col, chord } of marks) {
+    let i = starts.length - 1;
+    while (i >= 0 && starts[i] > col) i--;
+    if (i < 0) i = 0;
+    while (i < starts.length && used.has(starts[i])) i++;
+    let at: number;
+    if (i < starts.length && starts.length > 0 && col < lyric.length + 2) at = starts[i];
+    else at = Math.max(tail, col);
+    if (used.has(at)) at = ++tail;
+    used.add(at);
+    if (at >= lyric.length) tail = Math.max(tail, at + 1);
+    out.push({ at, chord });
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+
+function sectionOf(line: string): { label: string; rest: string } | null {
+  const br = /^\s*\[([^\]]{1,30})\]\s*(.*)$/.exec(line);
+  if (br && !isChordToken(br[1].trim())) return { label: br[1].trim(), rest: br[2] };
+  const colon = /^\s*([A-Za-zÀ-ú][A-Za-zÀ-ú0-9 -]{1,24}):\s*$/.exec(line);
+  if (colon && SECTION_LABELS.some((s) => colon[1].toLowerCase().startsWith(s.toLowerCase().slice(0, 4)))) return { label: colon[1].trim(), rest: '' };
+  return null;
+}
+
+const isTab = (line: string) => /^\s*[eBGDAE]?\s*\|[-\d|hpbr/\\~x ]{3,}/.test(line) || /-{4,}\d/.test(line);
+
+export function linesFromChordText(text: string): NotebookLine[] {
+  const rows = text.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n').map((r) => r.replace(/\s+$/, ''));
+  const out: NotebookLine[] = [];
+  const blank = () => { if (out.length && !(out[out.length - 1].kind === 'text' && (out[out.length - 1] as { text: string }).text === '')) out.push({ id: newId(), kind: 'text', text: '' }); };
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row.trim()) { blank(); continue; }
+    const sec = sectionOf(row);
+    if (sec) {
+      out.push({ id: newId(), kind: 'section', label: sec.label });
+      if (sec.rest.trim() && isChordRow(sec.rest)) {
+        out.push({ id: newId(), kind: 'chords', lyric: '', chords: chordsInRow(sec.rest).map((c, k) => ({ at: k, chord: c.chord })) });
+      } else if (sec.rest.trim()) out.push({ id: newId(), kind: 'text', text: sec.rest.trim() });
+      continue;
+    }
+    if (isTab(row)) { out.push({ id: newId(), kind: 'text', text: row }); continue; }
+    if (isChordRow(row)) {
+      const next = rows[i + 1];
+      const marks = chordsInRow(row);
+      if (next && next.trim() && !isChordRow(next) && !sectionOf(next) && !isTab(next)) {
+        const lead = next.length - next.trimStart().length;
+        const lyric = next.trim();
+        out.push({ id: newId(), kind: 'chords', lyric, chords: snapChords(lyric, marks.map((c) => ({ ...c, col: Math.max(0, c.col - lead) }))) });
+        i++;
+      } else {
+        out.push({ id: newId(), kind: 'chords', lyric: '', chords: marks.map((c, k) => ({ at: k, chord: c.chord })) });
+      }
+      continue;
+    }
+    // Acordes no meio do texto: "Eu [G]sei que [D]vais"
+    if (/\[[A-G][^\]]*\]/.test(row)) {
+      let lyric = '';
+      const marks: { col: number; chord: string }[] = [];
+      const parts = row.trim().split(/(\[[^\]]+\])/);
+      for (const p of parts) {
+        const c = /^\[([^\]]+)\]$/.exec(p);
+        if (c && isChordToken(c[1].trim())) marks.push({ col: lyric.length, chord: c[1].trim() });
+        else lyric += p;
+      }
+      if (marks.length) { out.push({ id: newId(), kind: 'chords', lyric, chords: snapChords(lyric, marks) }); continue; }
+    }
+    out.push({ id: newId(), kind: 'chords', lyric: row.trim(), chords: [] });
+  }
+  while (out.length && out[out.length - 1].kind === 'text' && (out[out.length - 1] as { text: string }).text === '') out.pop();
+  return out;
+}

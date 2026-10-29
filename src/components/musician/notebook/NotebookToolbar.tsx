@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Bold, Check, CloudOff, Eraser, Highlighter, Loader2, Lock, Minus, MoreVertical, PenTool, Plus,
-  Redo2, Share2, Sparkles, Trash2, Type, Undo2, Unlock, Brush,
+  Redo2, Share2, ClipboardPaste, Sparkles, Trash2, Type, Undo2, Unlock, Brush,
 } from 'lucide-react';
 import { FONTS, INK_COLORS, MARKER_COLORS, SIZE_MAX, SIZE_MIN, TEXT_COLORS, type NotebookDoc } from '@/lib/notebook';
 import type { DrawTool } from './DrawingLayer';
@@ -33,13 +33,13 @@ function Swatch({ color, on, onClick, title }: { color: string; on: boolean; onC
 
 export default function NotebookToolbar({
   follow, onToggleFollow, title, onTitle, placeholder, sharedFrom, status,
-  canUndo, canRedo, onUndo, onRedo, canShare, onShare, onImport, importing, onClearDrawings, onDelete, hasDrawings, hasSheet,
+  canUndo, canRedo, onUndo, onRedo, canShare, onShare, onImport, onPasteChords, importing, onClearDrawings, onDelete, hasDrawings, hasSheet,
   tool, onTool, doc, onDoc, inkColor, onInkColor, markerColor, onMarkerColor, inkWidth, onInkWidth,
 }: {
   follow: boolean; onToggleFollow: () => void;
   title: string; onTitle: (t: string) => void; placeholder: string; sharedFrom: string | null; status: SaveStatus;
   canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void;
-  canShare: boolean; onShare: () => void; onImport: () => void; importing: boolean;
+  canShare: boolean; onShare: () => void; onImport: () => void; onPasteChords: () => void; importing: boolean;
   onClearDrawings: () => void; onDelete: () => void; hasDrawings: boolean; hasSheet: boolean;
   tool: Tool; onTool: (t: Tool) => void;
   doc: NotebookDoc; onDoc: (patch: Partial<Pick<NotebookDoc, 'font' | 'size' | 'bold' | 'color'>>) => void;
@@ -97,6 +97,9 @@ export default function NotebookToolbar({
               <div className="absolute right-0 top-full mt-1 z-40 w-60 py-1 rounded-lg bg-logic-bg-elevated border border-logic-border-light shadow-2xl animate-[fadeIn_120ms_ease-out]">
                 <button onClick={() => { setMenu(false); onImport(); }} disabled={importing} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5 disabled:opacity-40">
                   <Sparkles size={14} className="text-logic-accent" /> Trazer letra do Teleprompter
+                </button>
+                <button onClick={() => { setMenu(false); onPasteChords(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5">
+                  <ClipboardPaste size={14} className="text-logic-lcd-amber" /> Colar cifra (de site ou texto)
                 </button>
                 <button onClick={() => { setMenu(false); onClearDrawings(); }} disabled={!hasDrawings} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5 disabled:opacity-40">
                   <Brush size={14} /> Limpar todos os desenhos
