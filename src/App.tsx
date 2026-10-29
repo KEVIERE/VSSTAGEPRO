@@ -51,6 +51,7 @@ import { usePendingRequests } from '@/lib/usePendingRequests';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
+import { startSongKeyWatcher } from '@/lib/songKeyWatcher';
 
 function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' {
   const { pathname, hash, search } = window.location;
@@ -417,6 +418,8 @@ function DirectorApp({ license }: { license: License }) {
   useEffect(() => startAudioOutputWatcher(), []);
   // volume igual entre os VS: mede o loudness das músicas em segundo plano quando ligado
   useEffect(() => startSongLevelWatcher(), []);
+  // IA de tom: descobre o tom das músicas do show em segundo plano
+  useEffect(() => startSongKeyWatcher(), []);
 
   useEffect(() => {
     window.addEventListener('pointerdown', beginGesture, true);

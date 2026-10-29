@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Maximize2, Minimize2, Music, PenLine, Radio, X } from 'lucide-react';
+import { Maximize2, Minimize2, MonitorPlay, Music, PenLine, Radio, X } from 'lucide-react';
 import LivePanel from '@/components/musician/LivePanel';
 import SheetPanel from '@/components/musician/SheetPanel';
+import StageView from '@/components/musician/StageView';
+import { songKeyLabel } from '@/lib/musicKey';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import type { MusicianState, SetlistSong, SheetBackend, SheetInfo } from '@/lib/musicianTypes';
 
 const SPLIT_LS = 'vs_musician_split';
+const STAGE_LS = 'vs_musician_stage';
 const HINT_LS = 'vs_musician_notebook_hint';
 const TICK_MS = 250;
 const WIDE_QUERY = '(min-width: 768px)';
@@ -80,6 +83,9 @@ export default function MusicianWorkspace({
   });
   const splitRef = useRef<HTMLDivElement>(null);
   const wide = useIsWide();
+  // Modo Palco: só tocando/próxima em cima e a cifra da música no ar embaixo
+  const [stage, setStage] = useState(() => { try { return localStorage.getItem(STAGE_LS) === '1'; } catch { return false; } });
+  const saveStage = (on: boolean) => { setStage(on); try { localStorage.setItem(STAGE_LS, on ? '1' : '0'); } catch { /* conveniência */ } };
   const { focus, enter: enterFocus, exit: exitFocus } = usePanelFocus();
 
   useEffect(() => {
@@ -169,7 +175,15 @@ export default function MusicianWorkspace({
         </div>
         <div className="min-w-0 hidden lg:block">{status}</div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {focus ? (
+          <button
+            onClick={() => { if (focus) exitFocus(); saveStage(!stage); }}
+            className={`flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs font-medium transition-colors ${stage ? 'bg-logic-lcd-green/15 border-logic-lcd-green/60 text-logic-lcd-green' : 'border-logic-border-light text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-panel-light'}`}
+            title={stage ? 'Voltar para playlist e caderno' : 'Modo palco: música tocando e próxima em cima, cifra da música no ar embaixo'}
+            aria-pressed={stage}
+          >
+            <MonitorPlay size={14} /> <span className="hidden sm:inline">Modo palco</span>
+          </button>
+          {stage ? null : focus ? (
             <button
               onClick={exitFocus}
               className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-logic-accent/15 border border-logic-accent/50 text-xs font-medium text-logic-accent hover:bg-logic-accent/25 transition-colors"
@@ -195,7 +209,14 @@ export default function MusicianWorkspace({
         </div>
       </div>
 
-      {focus ? (
+      {stage ? (
+        <StageView
+          lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
+          backend={backend} sheets={sheets} onSheetsChanged={onSheetsChanged}
+          onEdit={(id) => { saveStage(false); setPinnedSongId(id); setFollow(id === live?.currentSongId); openTab('sheet'); }}
+          keyOf={songKeyLabel}
+        />
+      ) : focus ? (
         <div key={focus} className="flex-1 min-h-0 flex flex-col overflow-hidden animate-[fadeIn_200ms_ease-out]">
           {focus === 'live' ? livePanel : sheetPanel}
         </div>

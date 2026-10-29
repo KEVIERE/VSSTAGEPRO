@@ -33,6 +33,8 @@ export interface SetlistSong {
   baseBpm?: number | null;
   bpmAdjust?: number;
   tuner?: number;
+  /** Tom original da música (cifra curta); com o tuner vira o tom que soa. */
+  musicKey?: string;
   blockId: string | null;
 }
 

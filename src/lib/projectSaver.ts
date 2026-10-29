@@ -37,6 +37,7 @@ export type SavedManifest = {
   magicRoutingActive?: boolean;
   prevOutputChannels?: Record<string, number> | null;
   songLoudness?: Record<string, import('@/types').SongLoudness>;
+  songKeys?: Record<string, { key: string; sig: string }>;
   dawMode?: boolean;
   audioInterface: string;
   lyricMaps?: ProjectState['lyricMaps'];
@@ -104,6 +105,7 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     magicRoutingActive: (state as ProjectState & { magicRoutingActive?: boolean }).magicRoutingActive ?? false,
     prevOutputChannels: (state as ProjectState & { prevOutputChannels?: Record<string, number> | null }).prevOutputChannels ?? null,
     songLoudness: state.songLoudness ?? {},
+    songKeys: state.songKeys ?? {},
     dawMode: state.dawMode,
     audioInterface: state.audioInterface,
     lyricMaps: state.lyricMaps,

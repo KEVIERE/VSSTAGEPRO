@@ -1,6 +1,7 @@
 import { PenLine, Radio, WifiOff, UserPlus } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetInfo, ShowLive, SignalStatus } from '@/lib/musicianTypes';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
+import { songKeyLabel } from '@/lib/musicKey';
 
 export function formatTime(s: number): string {
   const total = Math.max(0, Math.round(s));
@@ -9,7 +10,7 @@ export function formatTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
-function bpmText(song: SetlistSong | null | undefined): string {
+export function bpmText(song: SetlistSong | null | undefined): string {
   if (!song) return '';
   if (song.baseBpm) {
     const adj = song.bpmAdjust ?? 0;
@@ -125,7 +126,7 @@ export default function LivePanel({
                 {hasSheet && <PenLine size={12} className="text-logic-accent flex-shrink-0" />}
               </span>
               <span className="text-xs font-mono text-right text-logic-text-dim tabular-nums">{bpmText(song) || '-'}</span>
-              <span className={`text-xs font-mono text-right hidden sm:block ${song.tuner ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`}>{toneText(song.tuner)}</span>
+              <span className={`text-xs font-mono text-right hidden sm:block ${song.tuner ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`} title={song.tuner ? `Tuner ${song.tuner > 0 ? '+' : ''}${song.tuner}` : undefined}>{songKeyLabel(song) || toneText(song.tuner)}</span>
               <span className="text-xs font-mono text-right text-logic-text hidden sm:block tabular-nums">{formatTime(song.duration)}</span>
               <span className="text-xs font-mono text-right text-logic-text-muted tabular-nums">
                 {isNext && live ? formatTime(lv.nextSongCountdown) : formatTime(starts[i])}
@@ -141,7 +142,7 @@ export default function LivePanel({
   );
 }
 
-function NowNextBlock({ label, name, active, color, meta, badge, medley }: {
+export function NowNextBlock({ label, name, active, color, meta, badge, medley }: {
   label: string; name: string | undefined; active: boolean; color: string; meta: string; badge?: string; medley?: string;
 }) {
   return (
@@ -166,7 +167,7 @@ function NowNextBlock({ label, name, active, color, meta, badge, medley }: {
   );
 }
 
-function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isPlaying: boolean; paused: boolean }) {
+export function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isPlaying: boolean; paused: boolean }) {
   if (status === 'ended') {
     return (
       <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-logic-bg-panel border border-logic-border-light">

@@ -220,7 +220,7 @@ export function onlineSheetBackend(code: string): SheetBackend {
 }
 
 export function buildSetlist(
-  songs: Song[], blocks: Block[], playlistOrder: string[],
+  songs: Song[], blocks: Block[], playlistOrder: string[], songKeys?: Record<string, { key: string }>,
 ): Setlist {
   return {
     songs: songs.map((s) => ({
@@ -228,6 +228,7 @@ export function buildSetlist(
       bpm: effectiveBpm(s.bpm, s.bpmDetected, s.bpmAdjust), blockId: s.blockId,
       baseBpm: s.bpmDetected && s.bpm ? Math.round(s.bpm) : null,
       bpmAdjust: s.bpmAdjust || 0, tuner: s.tuner || 0,
+      musicKey: s.musicKey || songKeys?.[s.id]?.key || undefined,
     })),
     blocks: blocks.map((b) => ({ id: b.id, name: b.name, color: b.color })),
     order: playlistOrder,

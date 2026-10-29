@@ -76,7 +76,7 @@ function SectionLine({ label, selected, onChange }: { label: string; selected: b
 export default function NotebookPage({
   doc, update, tool, inkColor, inkWidth, markerColor,
   selectedId, onSelect, editingId, onEditing,
-  activeChord, selectedNote, onSelectNote, brush, onAdd,
+  activeChord, selectedNote, onSelectNote, brush, onAdd, readOnly = false,
 }: {
   doc: NotebookDoc;
   update: Update;
@@ -93,6 +93,8 @@ export default function NotebookPage({
   onSelectNote: (id: string | null) => void;
   brush: NoteBrush;
   onAdd: (kind: LineKind, mode?: 'notes' | 'blank') => void;
+  /** Só para ler (Modo Palco): sem seleção, controles nem botões de adicionar. */
+  readOnly?: boolean;
 }) {
   const maxY = doc.strokes.reduce((m, s) => {
     for (let i = 1; i < s.points.length; i += 2) if (s.points[i] > m) m = s.points[i];
@@ -129,9 +131,10 @@ export default function NotebookPage({
 
   return (
     <div
-      className="relative min-h-full"
-      style={{ minHeight: `max(100%, ${maxY + DRAW_ROOM}px)` }}
+      className={`relative ${readOnly ? 'pointer-events-none select-none' : 'min-h-full'}`}
+      style={readOnly ? { minHeight: maxY ? `${maxY + 40}px` : undefined } : { minHeight: `max(100%, ${maxY + DRAW_ROOM}px)` }}
       onClick={() => { onSelect(null); onEditing(null); }}
+      {...(readOnly ? { inert: '' } : {})}
     >
       <div
         className="relative px-3 sm:px-5 pt-5 pb-10 space-y-1"
@@ -143,7 +146,7 @@ export default function NotebookPage({
             <div
               key={line.id}
               onClick={(e) => { e.stopPropagation(); if (!selected) { onSelect(line.id); onSelectNote(null); } }}
-              className={`relative rounded-lg px-2 -mx-2 transition-[background-color,box-shadow] duration-150 ${
+              className={`relative break-inside-avoid rounded-lg px-2 -mx-2 transition-[background-color,box-shadow] duration-150 ${
                 selected ? 'bg-white/[0.04] ring-1 ring-logic-accent/50' : 'hover:bg-white/[0.02]'
               }`}
             >
@@ -200,7 +203,7 @@ export default function NotebookPage({
           );
         })}
 
-        <div className="pt-4 flex flex-wrap items-center gap-1.5" style={{ fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600 }}>
+        {!readOnly && <div className="pt-4 flex flex-wrap items-center gap-1.5" style={{ fontSize: 12, fontFamily: 'Inter, system-ui, sans-serif', fontWeight: 600 }}>
           <span className="text-logic-text-muted mr-1">{selectedId ? 'Adicionar abaixo da linha marcada' : 'Adicionar'}</span>
           {ADD_OPTIONS.map((o) => (
             <button
@@ -211,7 +214,7 @@ export default function NotebookPage({
               <o.icon size={13} /> {o.label}
             </button>
           ))}
-        </div>
+        </div>}
       </div>
 
       <DrawingLayer

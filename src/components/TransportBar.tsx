@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { keyName, parseKey, songKeyLabel, transposeKey } from '@/lib/musicKey';
 import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, X, Headphones, SlidersVertical } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
@@ -14,6 +15,54 @@ const FLOW_LABELS: Record<PlayFlow, string> = {
   'bloco': 'Bloco',
   'uma-uma': 'Uma a Uma',
 };
+
+// Tom da música no display (cifra curta, já com o tuner). Clique para corrigir; vazio volta ao da IA.
+function KeyBadge({ songId, tuner }: { songId: string | null | undefined; tuner: number }) {
+  const song = useStore((s) => s.songs.find((x) => x.id === songId));
+  const detected = useStore((s) => (songId ? s.songKeys?.[songId]?.key : undefined));
+  const updateSong = useStore((s) => s.updateSong);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  if (!song) return null;
+  const original = song.musicKey || detected || '';
+  const label = original ? songKeyLabel({ musicKey: original, tuner }) : '';
+  const commit = () => {
+    const text = draft.trim();
+    if (!text) updateSong(song.id, { musicKey: undefined });
+    else {
+      const k = parseKey(text);
+      // o que se digita é o tom que está soando: guarda o original (sem o tuner)
+      if (k) updateSong(song.id, { musicKey: keyName(transposeKey(k, -tuner)) });
+    }
+    setEditing(false);
+  };
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.slice(0, 6))}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+        onClick={(e) => e.stopPropagation()}
+        placeholder={label || 'Tom'}
+        className="w-12 h-3.5 px-1 rounded-sm bg-logic-bg-deep border border-logic-accent text-2xs leading-3 font-mono text-logic-text outline-none"
+        aria-label="Tom da música"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); setDraft(label); setEditing(true); }}
+      className={`text-2xs leading-3 font-mono font-semibold px-1 rounded-sm hover:bg-white/10 ${label ? (song.musicKey ? 'text-logic-lcd-amber' : 'text-logic-text-dim') : 'text-logic-text-muted'}`}
+      title={label
+        ? `Tom: ${label}${tuner ? ` (original ${original}, tuner ${tuner > 0 ? '+' : ''}${tuner})` : ''}${song.musicKey ? ' · corrigido à mão' : ' · detectado pela IA'}. Clique para corrigir.`
+        : 'Tom ainda não detectado. Clique para escrever.'}
+    >
+      {label || '--'}
+    </button>
+  );
+}
 
 const STATUS_STYLES = {
   playing: { label: 'TOCANDO', text: 'text-logic-lcd-green text-shadow-lcd', dot: 'bg-logic-lcd-green shadow-[0_0_8px_2px_rgba(48,209,88,0.55)] animate-pulse', bar: 'bg-logic-lcd-green' },
@@ -198,7 +247,8 @@ export default function TransportBar() {
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between gap-2 h-3">
             <span className="text-2xs leading-3 text-logic-text-muted uppercase tracking-wider">Tocando</span>
-            <span className="text-2xs leading-3 tabular-nums whitespace-nowrap" title="BPM lido da música e o ajuste atual">
+            <span className="flex items-center gap-1.5 text-2xs leading-3 tabular-nums whitespace-nowrap" title="BPM lido da música e o ajuste atual">
+              {showCurrent && currentSong && <KeyBadge songId={currentSong.id} tuner={paramsAt(currentSong, transport.currentTime).tuner} />}
               {showCurrent && baseBpm !== null ? (
                 <>
                   <span className="text-logic-text-dim">{baseBpm}</span>
@@ -240,11 +290,14 @@ export default function TransportBar() {
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between h-3">
             <span className="text-2xs leading-3 text-logic-text-muted uppercase tracking-wider">Próxima</span>
-            {nextIsMedleySlice && (
-              <span className="px-1 rounded-[3px] border border-logic-lcd-amber/70 text-[9px] leading-[11px] font-semibold tracking-[0.14em] text-logic-lcd-amber opacity-90">
-                MEDLEY
-              </span>
-            )}
+            <span className="flex items-center gap-1.5">
+              {nextIsMedleySlice && (
+                <span className="px-1 rounded-[3px] border border-logic-lcd-amber/70 text-[9px] leading-[11px] font-semibold tracking-[0.14em] text-logic-lcd-amber opacity-90">
+                  MEDLEY
+                </span>
+              )}
+              {hasNextSong && !nextIsMedleySlice && nextSong && <KeyBadge songId={nextSong.id} tuner={nextSong.tuner ?? 0} />}
+            </span>
           </div>
           <span className="block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ff9f0a' : '#555' }}>
             {nextDisplayName}

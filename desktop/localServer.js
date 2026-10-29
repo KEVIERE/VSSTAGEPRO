@@ -158,7 +158,9 @@ class LocalServer {
     const qr = {};
     for (const role of ROLES) {
       urls[role] = base ? `${base}/${PATH[role]}` : null;
-      qr[role] = urls[role] ? await this.qr(urls[role]) : null;
+      // O QR leva o PIN depois do # (o navegador não envia essa parte pela rede): escaneou, entrou.
+      const pin = this.pins[role];
+      qr[role] = urls[role] ? await this.qr(pin ? `${urls[role]}#pin=${pin}` : urls[role]) : null;
     }
     const now = Date.now();
     const clients = [...this.sessions.values()]

@@ -153,6 +153,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   lrMasterActive: false,
   levelMatch: false,
   songLoudness: {},
+  songKeys: {},
   dawMode: true,
   audioInterface: 'default',
   showBpmTower: false,
@@ -284,6 +285,7 @@ interface StoreActions {
   applyAntiClip: (trackId: string) => void;
   setLevelMatch: (on: boolean) => void;
   setSongLoudness: (songId: string, value: import('@/types').SongLoudness) => void;
+  setSongDetectedKey: (songId: string, value: { key: string; sig: string }) => void;
   setPreparingParams: (v: { done: number; total: number } | null) => void;
 
   setVolumeDb: (trackId: string, dbChange: number) => void;
@@ -1295,6 +1297,7 @@ export const useStore = create<Store>()(
       setMasterVolume: (volume) => set({ masterVolume: Math.max(0, Math.min(1.5, volume)) }),
       setLevelMatch: (on) => set({ levelMatch: on }),
       setSongLoudness: (songId, value) => set((s) => ({ songLoudness: { ...(s.songLoudness ?? {}), [songId]: value } })),
+      setSongDetectedKey: (songId, value) => set((s) => ({ songKeys: { ...(s.songKeys ?? {}), [songId]: value } })),
       setPreparingParams: (v) => set({ preparingParams: v }),
 
       // O pico memorizado foi medido com o fader na posição atual: baixa o fader só o necessário

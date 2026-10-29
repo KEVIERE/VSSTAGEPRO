@@ -148,6 +148,8 @@ export interface Song {
   medley?: MedleyPart[];
   /** Segmentos de andamento dinâmico (múltiplos BPMs / aceleração) */
   tempoSegments?: SongTempoSegment[];
+  /** Tom corrigido à mão (cifra curta, ex.: "G", "Em"); sem valor vale o detectado pela IA. */
+  musicKey?: string;
 }
 
 export interface Block {
@@ -275,6 +277,8 @@ export interface ProjectState {
   levelMatch?: boolean;
   /** Medida de cada música (LUFS integrado e true peak da gravação, faders em 0 dB). */
   songLoudness?: Record<string, SongLoudness>;
+  /** Tom detectado pela IA em cada música (cifra curta) e o que foi analisado. */
+  songKeys?: Record<string, { key: string; sig: string }>;
 }
 
 export interface SongLoudness {

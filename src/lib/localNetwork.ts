@@ -101,6 +101,22 @@ export interface UpdateInfo {
   required: boolean;
 }
 
+/**
+ * PIN vindo no link / QR code (`#pin=123456`). É lido uma vez e apagado do endereço, para não
+ * ficar à vista nem ir parar em favoritos.
+ */
+export function takePinFromLink(): string | null {
+  try {
+    const m = /(?:^#|[#&])pin=(\d{6})\b/.exec(window.location.hash);
+    if (!m) return null;
+    const rest = window.location.hash.replace(/[#&]?pin=\d{6}/, '').replace(/^#?&?/, '');
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ''}`);
+    return m[1];
+  } catch {
+    return null;
+  }
+}
+
 export function localBridge(): LocalBridge | null {
   return typeof window !== 'undefined' && window.vsLocal ? window.vsLocal : null;
 }

@@ -3,10 +3,15 @@ import { ArrowRight, KeyRound, Loader2, Music, User, Wifi, WifiOff } from 'lucid
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
 import { serverLagMs } from '@/lib/liveClock';
 import { localForget, localMusicianSheets, localMusicianState, localSheetBackend } from '@/lib/localClientApi';
-import { localServerVersion } from '@/lib/localNetwork';
+import { localServerVersion, takePinFromLink } from '@/lib/localNetwork';
 import type { MusicianState, SheetInfo } from '@/lib/musicianTypes';
 
 const LOGIN_LS = 'vs_local_musician';
+// nome usado da última vez neste aparelho (continua guardado mesmo depois de Sair)
+const NAME_LS = 'vs_local_musician_name';
+function rememberedName(): string | null {
+  try { return localStorage.getItem(NAME_LS); } catch { return null; }
+}
 const POLL_MS = 1000;
 const SHEETS_POLL_MS = 8000;
 const VERSION = localServerVersion();
@@ -27,7 +32,16 @@ function errorText(msg: string): string {
 }
 
 export default function LocalMusicianArea() {
-  const [login, setLogin] = useState<Login | null>(savedLogin);
+  // PIN do QR code: com um nome já usado neste aparelho, entra direto (sem tela de entrada)
+  const [linkPin] = useState(takePinFromLink);
+  const [login, setLogin] = useState<Login | null>(() => {
+    const saved = savedLogin();
+    if (linkPin) {
+      const name = saved?.name ?? rememberedName();
+      return name ? { name, pin: linkPin } : null;
+    }
+    return saved;
+  });
   const [state, setState] = useState<MusicianState | null>(null);
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +97,7 @@ export default function LocalMusicianArea() {
     try {
       await fetchState(l);
       localStorage.setItem(LOGIN_LS, JSON.stringify(l));
+      try { localStorage.setItem(NAME_LS, l.name); } catch { /* conveniência */ }
       setError(null);
       setLogin(l);
       return null;
@@ -99,7 +114,7 @@ export default function LocalMusicianArea() {
     setSheets([]);
   };
 
-  if (!login || !backend || (!state && error)) return <LocalLogin onEnter={enter} initialError={error} />;
+  if (!login || !backend || (!state && error)) return <LocalLogin onEnter={enter} initialError={error} linkPin={linkPin} />;
 
   if (!state) {
     return (
@@ -127,9 +142,9 @@ export default function LocalMusicianArea() {
   );
 }
 
-function LocalLogin({ onEnter, initialError }: { onEnter: (l: Login) => Promise<string | null>; initialError: string | null }) {
-  const [name, setName] = useState(() => savedLogin()?.name ?? '');
-  const [pin, setPin] = useState('');
+function LocalLogin({ onEnter, initialError, linkPin }: { onEnter: (l: Login) => Promise<string | null>; initialError: string | null; linkPin: string | null }) {
+  const [name, setName] = useState(() => savedLogin()?.name ?? rememberedName() ?? '');
+  const [pin, setPin] = useState(linkPin ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const cleanPin = pin.replace(/\D/g, '').slice(0, 6);
@@ -164,6 +179,9 @@ function LocalLogin({ onEnter, initialError }: { onEnter: (l: Login) => Promise<
           />
         </div>
 
+        {linkPin && !initialError ? (
+          <p className="mt-4 flex items-center gap-2 text-xs text-logic-lcd-green"><KeyRound size={14} /> PIN do QR code já preenchido — só falta o seu nome.</p>
+        ) : (<>
         <label htmlFor="local-pin" className="block text-xs font-medium text-logic-text-dim mt-4 mb-2">PIN dos músicos</label>
         <div className="relative">
           <KeyRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-logic-text-muted" />
@@ -172,6 +190,7 @@ function LocalLogin({ onEnter, initialError }: { onEnter: (l: Login) => Promise<
             className="w-full pl-9 pr-3 py-3 rounded-lg bg-logic-bg-deep border border-logic-border-light text-logic-text tracking-[0.3em] outline-none focus:border-logic-lcd-green transition-colors placeholder:tracking-normal placeholder:text-logic-text-muted"
           />
         </div>
+        </>)}
 
         {error && <p className="text-sm text-logic-lcd-red mt-3" role="alert">{error}</p>}
         <button

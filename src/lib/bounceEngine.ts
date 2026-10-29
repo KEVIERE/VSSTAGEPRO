@@ -517,6 +517,22 @@ function masterFor(state: ProjectState, songId: string): number {
   return g === 1 ? state.masterVolume : gainToFader(faderToGain(state.masterVolume) * g);
 }
 
+/**
+ * Mix só das faixas melódicas (sem bateria, percussão, click e maestro), faders em 0 dB, sem o
+ * tom/BPM ajustados: é o que a IA de tom analisa. Mono para a análise.
+ */
+export async function renderMelodicMono(song: Song, state: ProjectState): Promise<{ mono: Float32Array; sampleRate: number }> {
+  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8 }));
+  const plain: Song = { ...song, bpmAdjust: 0, tuner: 0, medley: undefined };
+  const buf = await withSongAudio(song.id, () => renderOffline(plain, unity, state.clips, false, (t) => isMelodicTrack(t, unity), false));
+  const mono = new Float32Array(buf.length);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / buf.numberOfChannels;
+  }
+  return { mono, sampleRate: buf.sampleRate };
+}
+
 /** Mix master de uma música; se falhar (memória apertada), libera o áudio dela e tenta mais uma vez. */
 async function renderSongWithRetry(song: Song, state: ProjectState, cancelled: () => boolean): Promise<AudioBuffer> {
   let last: unknown = null;
