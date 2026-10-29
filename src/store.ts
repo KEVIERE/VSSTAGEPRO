@@ -347,6 +347,11 @@ export function partializeHistory(state: Store) {
     defaultPlaylist: state.defaultPlaylist,
     timelineOrder: state.timelineOrder,
     lrMasterActive: state.lrMasterActive,
+    // também desfazem: fader master, LR mágico (com os pans de antes dele) e volume igual
+    masterVolume: state.masterVolume,
+    magicRoutingActive: state.magicRoutingActive,
+    prevOutputChannels: state.prevOutputChannels,
+    levelMatch: state.levelMatch,
   };
 }
 

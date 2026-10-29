@@ -60,10 +60,12 @@ function LevelReadout({ id, title }: { id: string; title: string }) {
   const now = performance.now();
   if (db >= hold.current.db || now - hold.current.at > 1500) hold.current = { db, at: now };
   const shown = hold.current.db;
-  const tone = shown >= 0 ? 'text-logic-lcd-red' : shown >= -6 ? 'text-logic-lcd-amber' : shown > -90 ? 'text-logic-lcd-green' : 'text-logic-text-muted opacity-40';
+  // abaixo de -60 dBFS é silêncio: o mostrador apaga (o espaço fica, sem pular o layout)
+  const live = shown > -60;
+  const tone = shown >= 0 ? 'text-logic-lcd-red' : shown >= -6 ? 'text-logic-lcd-amber' : 'text-logic-lcd-green';
   return (
-    <span className={`text-2xs font-mono tabular-nums ${tone}`} title={title}>
-      {shown > -90 ? `${shown > 0 ? '+' : ''}${shown.toFixed(1)}` : '-inf'}
+    <span className={`text-2xs font-mono tabular-nums h-3 leading-3 ${live ? tone : ''}`} title={title}>
+      {live ? `${shown > 0 ? '+' : ''}${shown.toFixed(1)}` : '\u00a0'}
     </span>
   );
 }
@@ -89,23 +91,24 @@ function Fader({
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const bottomPx = pct * travel;
 
-  const handlePointer = (clientY: number, rect: DOMRect) => {
-    const fromBottom = rect.bottom - clientY - capHeight / 2;
-    const ratio = Math.max(0, Math.min(1, fromBottom / travel));
-    const nextVal = Math.round(ratio * 1.5 * 100) / 100;
-    onChange(nextVal);
-  };
-
+  // Fader relativo, como nas mesas: clicar não pula o volume — ele só anda o quanto o mouse
+  // arrasta (encostar sem querer no palco não muda nada). Shift: ajuste fino (10× mais lento).
   const handleDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
     e.preventDefault();
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
-    const rect = target.getBoundingClientRect();
-    handlePointer(e.clientY, rect);
+    const startY = e.clientY;
+    const startValue = value;
+    let lastY = startY;
+    let acc = startValue;
 
     const move = (ev: PointerEvent) => {
-      handlePointer(ev.clientY, rect);
+      const dy = lastY - ev.clientY;
+      lastY = ev.clientY;
+      acc += (dy / travel) * 1.5 * (ev.shiftKey ? 0.1 : 1);
+      acc = Math.max(0, Math.min(1.5, acc));
+      onChange(Math.round(acc * 1000) / 1000);
     };
     const up = () => {
       target.removeEventListener('pointermove', move);
@@ -118,13 +121,16 @@ function Fader({
     target.addEventListener('pointercancel', up);
   };
 
+  const db = volumeToDb(value);
+  const dbLabel = db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
+
   return (
     <div
       className="relative bg-logic-bg-deep rounded-sm border border-logic-border-dark cursor-ns-resize select-none overflow-hidden"
       style={{ width: `${width}px`, height: `${height}px` }}
       onPointerDown={handleDown}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
-      title="Arraste para ajustar o volume. Duplo clique: 0 dB."
+      title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
     >
       {/* Pista do fader com centro rebaixado */}
       <div className="absolute left-1/2 -translate-x-1/2 top-1.5 bottom-1.5 w-1 rounded-full bg-black/60 border border-white/5 pointer-events-none" />
@@ -159,8 +165,6 @@ function MixerChannel({ trackId }: { trackId: string }) {
 
   const isSelected = selectedTrackId === track.id;
   const isClipping = track.clipIndicator;
-  const volDb = volumeToDb(track.volume);
-  const volDbLabel = volDb === -Infinity ? '-inf' : `${volDb > 0.05 ? '+' : ''}${volDb.toFixed(1)}`;
 
   return (
     <div
@@ -218,7 +222,8 @@ function MixerChannel({ trackId }: { trackId: string }) {
       </div>
 
       {/* Track name */}
-      <span className="text-2xs text-logic-text-dim truncate w-full text-center" title={track.name}>
+      {/* nome inteiro em até 2 linhas (antes cortava "Contrabaixo 1", "Percussão 2"...) */}
+      <span className="text-[9px] leading-[11px] h-[22px] text-logic-text-dim w-full text-center break-words line-clamp-2 overflow-hidden" title={track.name}>
         {track.name}
       </span>
 
@@ -257,10 +262,7 @@ function MixerChannel({ trackId }: { trackId: string }) {
         />
       </div>
 
-      <LevelReadout id={track.id} title="Nível do sinal agora (dBFS, pico das últimas 1,5 s)" />
-      <span className="text-2xs font-mono text-logic-text-muted" title="Ganho do fader">
-        {volDbLabel}
-      </span>
+      <LevelReadout id={track.id} title="Nível do sinal agora (dBFS, pico das últimas 1,5 s). Em silêncio fica apagado." />
 
       {/* Anti-clip */}
       <button
@@ -270,7 +272,7 @@ function MixerChannel({ trackId }: { trackId: string }) {
             : 'text-[8px] bg-logic-bg-deep text-logic-text-muted border-logic-border-dark opacity-60 cursor-default'
         }`}
         onClick={(e) => { e.stopPropagation(); if (isClipping) applyAntiClip(track.id); }}
-        title="Anti-Clip: baixa o fader só o necessário para o pico ficar a -0,2 dB do teto"
+        title="Anti-Clip: baixa o fader só o necessário para o pico mais alto ficar 0,3 dB abaixo do clip"
       >
         ANTI-CLIP
       </button>
@@ -375,8 +377,6 @@ export default function MixerPanel() {
             <Wand2 size={14} />
           </button>
 
-          <span className="text-2xs text-logic-text-dim">Master</span>
-
           <div className="flex gap-1 items-end">
             {/* Peak meter (dBFS), mesma escala dos canais */}
             <div
@@ -415,13 +415,6 @@ export default function MixerPanel() {
             />
           </div>
 
-          <span className="text-2xs font-mono text-logic-text-muted" title="Ganho do fader">
-            {(() => {
-              const db = volumeToDb(masterVolume);
-              return db === -Infinity ? '-inf' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
-            })()}
-          </span>
-
           <LevelReadout id="master" title="Nível de saída do master agora (dBFS, pico das últimas 1,5 s, depois do limiter)" />
           <MasterGrReadout />
           <LevelMatchButton />
@@ -434,7 +427,7 @@ export default function MixerPanel() {
                 : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark opacity-60 cursor-default'
             }`}
             onClick={() => { if (masterIsClipping) { applyAntiClipMaster(); audioEngine.setMasterVolume(useStore.getState().masterVolume); } }}
-            title="Anti-Clip: baixa o fader master só o necessário para o pico ficar a -0,2 dB do teto"
+            title="Anti-Clip: baixa o fader master só o necessário para o pico mais alto (antes do limiter) ficar 0,3 dB abaixo do clip"
           >
             ANTI-CLIP
           </button>

@@ -316,6 +316,11 @@ function songNeedsProcessing(song: Song | undefined): boolean {
   return !!song.medley?.some((p) => (p.bpmAdjust ?? 0) !== 0 || (p.tuner ?? 0) !== 0);
 }
 
+/** O que muda o som de uma música ao vivo: BPM e tom dela e de cada fatia do medley. */
+function playbackKey(song: Song): string {
+  return `${song.bpmAdjust ?? 0}|${song.tuner}|${(song.medley ?? []).map((p) => `${p.id}:${p.bpmAdjust ?? ''}:${p.tuner ?? ''}`).join(',')}`;
+}
+
 function pitchFromCents(cents: number): number {
   return Math.pow(2, cents / 1200);
 }
@@ -510,8 +515,10 @@ class AudioEngine {
       this.masterPreAnalyser = this.ctx.createAnalyser();
       this.masterPreAnalyser.fftSize = METER_FFT;
       this.masterGain.connect(this.masterPreAnalyser);
+      this.limiterSplit = false;
       this.masterGain.connect(this.masterLimiter);
       this.masterLimiter.connect(this.masterAnalyser);
+      this.applyLimiterMode();
       this.configureOutputs();
       if (this.sinkId) {
         this.applySink(this.ctx, this.sinkId)
@@ -553,6 +560,9 @@ class AudioEngine {
     this.masterLimiter = null;
     this.masterAnalyser = null;
     this.masterPreAnalyser = null;
+    this.masterLimiterR = null;
+    this.limiterNodes = [];
+    this.limiterSplit = false;
     await old.close().catch(() => { /* já fechado */ });
     await this.prewarm().catch(() => { /* reabre no próximo play */ });
     return true;
@@ -1648,8 +1658,21 @@ class AudioEngine {
       this.onAirDiskDone = null;
     });
     useStore.subscribe((s, prev) => {
+      // Desfazer/Refazer (e qualquer outra mudança no estado) chega ao som: fader master e
+      // BPM/tom de cada música — antes só os botões aplicavam, e o Ctrl+Z mudava só a tela.
+      if (s.masterVolume !== prev.masterVolume) this.setMasterVolume(s.masterVolume);
+      if (s.songs !== prev.songs) {
+        const before = new Map(prev.songs.map((sg) => [sg.id, sg]));
+        for (const sg of s.songs) {
+          const old = before.get(sg.id);
+          if (old && old !== sg && playbackKey(old) !== playbackKey(sg)) this.applySongPlaybackParams(sg.id);
+        }
+      }
       if (s.levelMatch !== prev.levelMatch || s.songLoudness !== prev.songLoudness || s.playlist !== prev.playlist || s.magicRoutingActive !== prev.magicRoutingActive) this.applySongLevel();
-      if (s.magicRoutingActive !== prev.magicRoutingActive) this.channels.forEach((_, id) => this.routeChannel(id));
+      if (s.magicRoutingActive !== prev.magicRoutingActive) {
+        this.channels.forEach((_, id) => this.routeChannel(id));
+        this.applyLimiterMode();
+      }
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();
       if (s.tracks !== prev.tracks) this.channels.forEach((_, id) => this.routeChannel(id));
@@ -2274,6 +2297,45 @@ class AudioEngine {
     return smoothed;
   }
 
+  // LR mágico: L (guia/click/maestro) e R (banda) são sinais independentes. Um limiter ligado nos
+  // dois lados baixaria a guia quando a banda pesa: aí cada lado ganha o seu limiter.
+  private limiterSplit = false;
+  private masterLimiterR: DynamicsCompressorNode | null = null;
+  private limiterNodes: AudioNode[] = [];
+
+  private applyLimiterMode() {
+    const ctx = this.ctx;
+    if (!ctx || !this.masterGain || !this.masterLimiter || !this.masterAnalyser) return;
+    const split = !!useStore.getState().magicRoutingActive;
+    if (split === this.limiterSplit) return;
+    const L = this.masterLimiter;
+    try { this.masterGain.disconnect(L); } catch { /* ignore */ }
+    try { L.disconnect(); } catch { /* ignore */ }
+    this.limiterNodes.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
+    this.limiterNodes = [];
+    if (this.masterLimiterR) { try { this.masterLimiterR.disconnect(); } catch { /* ignore */ } }
+    if (split) {
+      const splitter = ctx.createChannelSplitter(2);
+      const merger = ctx.createChannelMerger(2);
+      const R = this.masterLimiterR ?? createSafetyLimiter(ctx);
+      for (const lim of [L, R]) { lim.channelCount = 1; lim.channelCountMode = 'explicit'; }
+      this.masterGain.connect(splitter);
+      splitter.connect(L, 0);
+      splitter.connect(R, 1);
+      L.connect(merger, 0, 0);
+      R.connect(merger, 0, 1);
+      merger.connect(this.masterAnalyser);
+      this.masterLimiterR = R;
+      this.limiterNodes = [splitter, merger];
+    } else {
+      L.channelCount = 2;
+      L.channelCountMode = 'clamped-max';
+      this.masterGain.connect(L);
+      L.connect(this.masterAnalyser);
+    }
+    this.limiterSplit = split;
+  }
+
   /** Pico do master antes do limiter (linear), nos últimos ~43 ms. */
   getMasterPrePeak(): number {
     if (!this.masterPreAnalyser) return 0;
@@ -2289,7 +2351,8 @@ class AudioEngine {
 
   // Quanto o limiter de segurança do master está segurando agora, em dB (0 = sem atuação, negativo = reduzindo).
   getMasterLimiterReduction(): number {
-    return this.masterLimiter?.reduction ?? 0;
+    const l = this.masterLimiter?.reduction ?? 0;
+    return this.limiterSplit && this.masterLimiterR ? Math.min(l, this.masterLimiterR.reduction) : l;
   }
 
   applyLRMaster(active: boolean) {
@@ -2384,11 +2447,17 @@ class AudioEngine {
     return devices.filter((d) => d.kind === 'audiooutput');
   }
 
+  private appliedParams = new Map<string, string>();
+
   // Aplicação ao vivo: muda BPM/afinador sem reiniciar nem engasgar o áudio.
   applySongPlaybackParams(songId: string) {
     const store = useStore.getState();
     const song = store.songs.find((s) => s.id === songId);
     if (!song) return;
+    // o botão e o estado podem pedir a mesma troca: só uma vai para o áudio
+    const key = playbackKey(song);
+    if (this.appliedParams.get(songId) === key) return;
+    this.appliedParams.set(songId, key);
     for (const n of this.songNodes(songId)) this.nodeRenderKey.delete(n.node);
     if (this.currentSongId === songId) this.partialActive = false;
     this.scheduleRender(songId);

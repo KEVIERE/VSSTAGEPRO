@@ -268,3 +268,49 @@ export async function waitLevels(timeoutMs = 60000) {
     await new Promise((r) => setTimeout(r, 200));
   }
 }
+
+// ---------- LR mágico: L e R separados de verdade ----------
+/** Música com guia 440 Hz (vai para L) e um baixo 660 Hz numa faixa de banda (vai para R). */
+export function setupLR() {
+  const base = useStore.getState().tracks.map((t) => ({ ...t }));
+  const childId = 'track-contrabaixo-teste';
+  const parent = base.find((t) => t.id === 'track-contrabaixo')!;
+  parent.children = [...parent.children, childId];
+  base.push({ ...parent, id: childId, name: 'Contrabaixo 1', type: 'audio', isSubgroup: false, parentId: 'track-contrabaixo', children: [] });
+  const clips: AudioClip[] = [];
+  const sources = new Map<string, Blob>();
+  const mk = (id: string, trackId: string, freq: number) => {
+    sources.set(id, wav(8, freq, 0.5));
+    clips.push({ id, trackId, name: id, fileName: `${id}.wav`, filePath: '', songId: 'lr', startTime: 0, duration: 8, sampleRate: SRC_RATE, channels: 2, bpm: 120, markers: [], routingMethod: 'manual', routingConfidence: 1, waveformPeaks: [] } as AudioClip);
+  };
+  mk('lr-guia', 'track-guia', 440);
+  mk('lr-baixo', childId, 660);
+  const songs = [{ id: 'lr', name: 'Teste LR', clips: ['lr-guia', 'lr-baixo'], bpm: 120, bpmDetected: true, bpmAdjust: 0, tuner: 0, duration: 8, timelineStart: 0, blockId: null, regions: [] } as Song];
+  const playlist = [{ id: 'pl-lr', songId: 'lr', name: 'Teste LR', order: 0, bpm: 120, blockId: null, duration: 8 }];
+  useStore.getState().applyLoadedProject({ projectName: 'LR', tracks: base, songs, clips, playlist, playlistOrder: ['lr'] } as Partial<ProjectState>, sources);
+  return useStore.getState().tracks.filter((t) => t.parentId === 'track-contrabaixo').map((t) => t.id);
+}
+
+let lrTap: { l: AnalyserNode; r: AnalyserNode } | null = null;
+/** Quanto de cada tom sai em cada lado (dB). */
+export function lrSpectrum() {
+  const eng = audioEngine as unknown as { ctx: AudioContext; masterAnalyser: AnalyserNode };
+  if (!lrTap || lrTap.l.context !== eng.ctx) {
+    const split = eng.ctx.createChannelSplitter(2);
+    eng.masterAnalyser.connect(split);
+    const mk = () => { const a = eng.ctx.createAnalyser(); a.fftSize = 32768; a.smoothingTimeConstant = 0; return a; };
+    lrTap = { l: mk(), r: mk() };
+    split.connect(lrTap.l, 0);
+    split.connect(lrTap.r, 1);
+  }
+  const at = (a: AnalyserNode, f: number) => {
+    const d = new Float32Array(a.frequencyBinCount);
+    a.getFloatFrequencyData(d);
+    const bin = Math.round(f / (a.context.sampleRate / a.fftSize));
+    return Math.max(d[bin - 1], d[bin], d[bin + 1]);
+  };
+  return {
+    L440: at(lrTap.l, 440), L660: at(lrTap.l, 660),
+    R440: at(lrTap.r, 440), R660: at(lrTap.r, 660),
+  };
+}

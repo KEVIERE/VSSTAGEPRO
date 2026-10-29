@@ -312,10 +312,26 @@ async function renderSliceOffline(
   src.buffer = mixed;
   const makeup = master.createGain();
   makeup.gain.value = faderToGain(masterVolume);
-  const limiter = createSafetyLimiter(master);
-  src.connect(makeup);
-  makeup.connect(limiter);
-  limiter.connect(master.destination);
+  if (magic) {
+    // LR mágico: um limiter por lado, como na reprodução (a banda não abaixa a guia/click)
+    const split = master.createChannelSplitter(2);
+    const merge = master.createChannelMerger(2);
+    src.connect(makeup);
+    makeup.connect(split);
+    for (let c = 0; c < 2; c++) {
+      const lim = createSafetyLimiter(master);
+      lim.channelCount = 1;
+      lim.channelCountMode = 'explicit';
+      split.connect(lim, c);
+      lim.connect(merge, 0, c);
+    }
+    merge.connect(master.destination);
+  } else {
+    const limiter = createSafetyLimiter(master);
+    src.connect(makeup);
+    makeup.connect(limiter);
+    limiter.connect(master.destination);
+  }
   src.start(0);
   return await master.startRendering();
 }
