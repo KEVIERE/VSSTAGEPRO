@@ -2,7 +2,9 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import { volumeToDb } from '@/lib/audioEngine';
 import { audioEngine } from '@/lib/audioEngine';
 import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useRef, useSyncExternalStore } from 'react';
+import { levelTarget, songLevelGain } from '@/lib/songLevel';
+import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
 import MeterMask from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
@@ -19,6 +21,50 @@ function MasterGrReadout() {
         GR {active ? gr.toFixed(1) : '0.0'}
       </span>
     </div>
+  );
+}
+
+// Volume igual entre os VS: liga/desliga e mostra o alvo comum e a medição em andamento.
+function LevelMatchButton() {
+  const on = useStore((s) => !!s.levelMatch);
+  const setLevelMatch = useStore((s) => s.setLevelMatch);
+  const target = useStore((s) => levelTarget(s));
+  const current = useStore((s) => s.transport.currentSongId ?? s.selectedSongId);
+  const gainDb = useStore((s) => (current ? 20 * Math.log10(songLevelGain(s, current)) : 0));
+  const progress = useSyncExternalStore(onLevelProgress, levelProgress);
+  const label = !on ? 'IGUALAR' : progress ? `${progress.done}/${progress.total}` : target !== null ? `${target.toFixed(0)} LU` : 'IGUALAR';
+  const title = !on
+    ? 'Volume igual entre os VS: liga para todas as músicas soarem no mesmo volume, sem clipar o master.'
+    : `Volume igual ligado. Todas as músicas do show soam em ${target !== null ? target.toFixed(1) + ' LUFS' : '(medindo)'}, com pico máximo de -1 dBTP.`
+      + (progress ? ` Medindo as músicas: ${progress.done} de ${progress.total}.` : '')
+      + (current ? ` Esta música: ${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)} dB.` : '')
+      + ' Clique para desligar.';
+  return (
+    <button
+      className={`font-bold px-1 py-0.5 rounded border transition-colors text-[8px] ${on ? 'bg-logic-lcd-green/20 text-logic-lcd-green border-logic-lcd-green/70' : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark hover:text-logic-text'}`}
+      onClick={() => setLevelMatch(!on)}
+      title={title}
+      aria-pressed={on}
+    >
+      {label}
+    </button>
+  );
+}
+
+// Nível real do sinal em dBFS, em tempo real, com retenção do pico por 1,5 s (como nas mesas):
+// verde até -6, amarelo até 0, vermelho em 0 dBFS ou acima.
+function LevelReadout({ id, title }: { id: string; title: string }) {
+  const level = useMeterLevel(id);
+  const hold = useRef({ db: -Infinity, at: 0 });
+  const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
+  const now = performance.now();
+  if (db >= hold.current.db || now - hold.current.at > 1500) hold.current = { db, at: now };
+  const shown = hold.current.db;
+  const tone = shown >= 0 ? 'text-logic-lcd-red' : shown >= -6 ? 'text-logic-lcd-amber' : shown > -90 ? 'text-logic-lcd-green' : 'text-logic-text-muted opacity-40';
+  return (
+    <span className={`text-2xs font-mono tabular-nums ${tone}`} title={title}>
+      {shown > -90 ? `${shown > 0 ? '+' : ''}${shown.toFixed(1)}` : '-inf'}
+    </span>
   );
 }
 
@@ -211,6 +257,7 @@ function MixerChannel({ trackId }: { trackId: string }) {
         />
       </div>
 
+      <LevelReadout id={track.id} title="Nível do sinal agora (dBFS, pico das últimas 1,5 s)" />
       <span className="text-2xs font-mono text-logic-text-muted" title="Ganho do fader">
         {volDbLabel}
       </span>
@@ -375,7 +422,9 @@ export default function MixerPanel() {
             })()}
           </span>
 
+          <LevelReadout id="master" title="Nível de saída do master agora (dBFS, pico das últimas 1,5 s, depois do limiter)" />
           <MasterGrReadout />
+          <LevelMatchButton />
 
           {/* Anti-clip */}
           <button

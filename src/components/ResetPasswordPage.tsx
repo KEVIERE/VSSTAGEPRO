@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authRedirect } from '@/lib/authRedirect';
 import { Apple, Check, CheckCircle2, ChevronRight, Eye, EyeOff, KeyRound, Loader2, Lock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
@@ -99,7 +100,7 @@ export default function ResetPasswordPage() {
     setResendBusy(true);
     setError(null);
     try {
-      const redirectTo = `${window.location.origin}/recuperar`;
+      const redirectTo = authRedirect('/recuperar');
       const { error: err } = await supabase.auth.resetPasswordForEmail(resendEmail.trim(), { redirectTo });
       if (err) throw err;
       setResendSuccess(true);

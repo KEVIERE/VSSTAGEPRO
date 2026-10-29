@@ -6,8 +6,10 @@ import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
 } from '@/types';
-import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipSource, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
+import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
+import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
 import { normalizePages } from '@/lib/prompterTypes';
+import { antiClipFader } from '@/lib/faderScale';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
@@ -149,6 +151,8 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   trackHeaderWidth: 220,
   importProgress: null,
   lrMasterActive: false,
+  levelMatch: false,
+  songLoudness: {},
   dawMode: true,
   audioInterface: 'default',
   showBpmTower: false,
@@ -278,6 +282,8 @@ interface StoreActions {
   setMasterVolume: (volume: number) => void;
   clearClipIndicator: (trackId: string) => void;
   applyAntiClip: (trackId: string) => void;
+  setLevelMatch: (on: boolean) => void;
+  setSongLoudness: (songId: string, value: import('@/types').SongLoudness) => void;
   setPreparingParams: (v: { done: number; total: number } | null) => void;
 
   setVolumeDb: (trackId: string, dbChange: number) => void;
@@ -961,20 +967,41 @@ export const useStore = create<Store>()(
       // Mede o pico real do áudio já decodificado (sem redecodificar) e ajusta o ganho
       // do clipe para esse pico bater exatamente no dB pedido — igual ao Anti-Clip das
       // faixas, mas por clipe: nunca reescreve o áudio, só o multiplicador.
+      // Normaliza pelo pico real (entre amostras) do trecho que toca — com os cortes do clipe —
+      // e abre o áudio do disco se ele não estiver na memória (antes não fazia nada nesse caso).
       normalizeClip: (clipId, targetDb) => {
-        const audio = getClipAudio(clipId);
-        if (!audio) return;
-        let peak = 0;
-        for (const channel of audio.channels) {
-          for (let i = 0; i < channel.length; i++) {
-            const abs = Math.abs(channel[i]) / 32767;
-            if (abs > peak) peak = abs;
+        const clip = get().clips.find((c) => c.id === clipId);
+        if (!clip) return;
+        const notice = (status: 'working' | 'done' | 'error', message: string) => {
+          get().setImportProgress({ clipId: 'normalize', status, message } as ImportProgress);
+          if (status !== 'working') setTimeout(() => { if (get().importProgress?.clipId === 'normalize') get().setImportProgress(null); }, 3500);
+        };
+        notice('working', `Normalizando "${clip.name}"...`);
+        void (async () => {
+          try {
+            let audio = getClipPlayAudio(clip);
+            if (!audio) {
+              const src = getClipSource(clip.id);
+              if (!src) throw new Error('o arquivo deste clipe não foi encontrado');
+              const full = await openClipAudio(clip.songId, clip.id, src);
+              putClipAudio(clip.id, clip.songId, full);
+              audio = getClipPlayAudio(clip);
+            }
+            if (!audio) throw new Error('o áudio não pôde ser lido');
+            const peak = truePeak(audio.channels);
+            if (peak <= 0) { notice('error', `"${clip.name}" está em silêncio: não há o que normalizar.`); return; }
+            const wanted = dbToGain(targetDb) / peak;
+            const MAX_GAIN = dbToGain(24);
+            const gain = Math.min(MAX_GAIN, wanted);
+            set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+            const db = gainToDb(gain);
+            notice('done', wanted > MAX_GAIN
+              ? `"${clip.name}": ganho de +24 dB (máximo); o pico ficou em ${gainToDb(peak * gain).toFixed(1)} dBTP.`
+              : `"${clip.name}" normalizado: pico em ${targetDb.toFixed(1)} dBTP (${db >= 0 ? '+' : ''}${db.toFixed(1)} dB).`);
+          } catch (err) {
+            notice('error', `Não consegui normalizar "${clip.name}": ${err instanceof Error ? err.message : String(err)}.`);
           }
-        }
-        if (peak <= 0) return;
-        const targetLinear = Math.pow(10, targetDb / 20);
-        const gain = Math.max(0, Math.min(4, targetLinear / peak));
-        set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+        })();
       },
 
       addSong: (song) => set((s) => ({ songs: [...s.songs, song] })),
@@ -1261,23 +1288,22 @@ export const useStore = create<Store>()(
       setPlaybackError: (message) => set({ playbackError: message }),
 
       setMasterVolume: (volume) => set({ masterVolume: Math.max(0, Math.min(1.5, volume)) }),
+      setLevelMatch: (on) => set({ levelMatch: on }),
+      setSongLoudness: (songId, value) => set((s) => ({ songLoudness: { ...(s.songLoudness ?? {}), [songId]: value } })),
       setPreparingParams: (v) => set({ preparingParams: v }),
 
+      // O pico memorizado foi medido com o fader na posição atual: baixa o fader só o necessário
+      // para esse pico ficar 0,3 dB abaixo do clipping. A conta é feita no ganho real (o fader não
+      // é linear: 0 dB fica em 80% do curso), senão baixava demais ou de menos.
       applyAntiClipMaster: () => set((s) => {
         if (s.masterClipPeak < 1) return s;
-        // baixa o fader master só o necessário para o pico memorizado ficar a -0,2 dB do clipping
-        const safeCeiling = Math.pow(10, -0.2 / 20);
-        const newVol = Math.max(0, Math.min(1.5, s.masterVolume * (safeCeiling / s.masterClipPeak)));
-        return { masterVolume: newVol, masterClipPeak: 0, masterMeterLevel: 0 };
+        return { masterVolume: antiClipFader(s.masterVolume, s.masterClipPeak), masterClipPeak: 0, masterMeterLevel: 0 };
       }),
 
       applyAntiClip: (trackId) => set((s) => ({
         tracks: s.tracks.map((t) => {
           if (t.id !== trackId || t.clipPeak < 1 || t.faderLocked) return t;
-          // baixa o fader só o necessário para o pico memorizado ficar a -0,2 dB do clipping
-          const safeCeiling = Math.pow(10, -0.2 / 20);
-          const newVol = Math.max(0, Math.min(1.5, t.volume * (safeCeiling / t.clipPeak)));
-          return { ...t, volume: newVol, meterLevel: 0, clipIndicator: false, clipPeak: 0, antiClip: true };
+          return { ...t, volume: antiClipFader(t.volume, t.clipPeak), meterLevel: 0, clipIndicator: false, clipPeak: 0, antiClip: true };
         }),
       })),
 

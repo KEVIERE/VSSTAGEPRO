@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authRedirect } from '@/lib/authRedirect';
 import { Check, ChevronLeft, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, Phone, User } from 'lucide-react';
 import { maskPhone, normalizePhone } from '@/lib/authFlow';
 
@@ -93,7 +94,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           password,
           options: {
           data: { name: name.trim(), phone: normalizedPhone },
-          emailRedirectTo: `${window.location.origin}/#baixar`,
+          emailRedirectTo: authRedirect('/#baixar'),
         },
         });
         if (err) throw err;
@@ -108,7 +109,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           return;
         }
       } else if (view === 'forgot') {
-        const redirectTo = `${window.location.origin}/recuperar`;
+        const redirectTo = authRedirect('/recuperar');
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
         if (err) throw err;
         setInfo('Enviamos um e-mail com o link para criar uma nova senha.');

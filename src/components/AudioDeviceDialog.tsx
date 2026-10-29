@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { markAudioInterfaceApplied, rememberAudioInterface } from '@/lib/audioOutput';
 import { Volume2, X, Check, PlayCircle, RefreshCw, ShieldCheck, Loader2 } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
@@ -61,6 +62,8 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
   const handleUse = async (dev: MediaDeviceInfo) => {
     try {
       await audioEngine.setOutputDevice(dev.deviceId);
+      markAudioInterfaceApplied(dev.deviceId);
+      rememberAudioInterface(dev.label || dev.deviceId);
       setAudioInterface(dev.label || dev.deviceId);
     } catch (err) {
       setError('Esta placa não pôde ser definida como saída pelo navegador.');

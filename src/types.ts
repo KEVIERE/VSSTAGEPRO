@@ -271,4 +271,16 @@ export interface ProjectState {
   playbackError: string | null;
   preparingParams: { done: number; total: number } | null;
   lyricMaps: Record<string, LyricPage[]>;
+  /** Volume igual entre os VS: cada música recebe o ganho para o mesmo loudness, sem clipar. */
+  levelMatch?: boolean;
+  /** Medida de cada música (LUFS integrado e true peak da gravação, faders em 0 dB). */
+  songLoudness?: Record<string, SongLoudness>;
+}
+
+export interface SongLoudness {
+  lufs: number;
+  /** true peak linear */
+  peak: number;
+  /** o que foi medido (clipes, cortes, ganhos): mudou, mede de novo */
+  sig: string;
 }

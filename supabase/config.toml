@@ -15,6 +15,18 @@ sender_name = "VS Stage Pro"
 subject = "Confirme seu e-mail — VS Stage Pro"
 content_path = "./supabase/email-templates/confirmation.html"
 
+[auth.email.template.recovery]
+subject = "Redefinir sua senha — VS Stage Pro"
+content_path = "./supabase/email-templates/recovery.html"
+
+[auth.email.template.email_change]
+subject = "Confirme seu novo e-mail — VS Stage Pro"
+content_path = "./supabase/email-templates/email_change.html"
+
+[auth.email.template.magic_link]
+subject = "Seu link de acesso — VS Stage Pro"
+content_path = "./supabase/email-templates/magic_link.html"
+
 [functions.admin-releases]
 verify_jwt = true
 

@@ -49,6 +49,8 @@ import { useReferenceAutoSync } from '@/lib/useReferenceAutoSync';
 import { useLiveBroadcast } from '@/lib/useLiveBroadcast';
 import { usePendingRequests } from '@/lib/usePendingRequests';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
+import { startAudioOutputWatcher } from '@/lib/audioOutput';
+import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
 
 function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' {
   const { pathname, hash, search } = window.location;
@@ -411,6 +413,10 @@ function DirectorApp({ license }: { license: License }) {
   }, []);
 
   useEffect(() => startInstantStartBuilder({ isBusy: () => audioEngine.isStarting(), pitchFor: headPitchFor }), []);
+  // a placa de som escolhida volta a ser a saída ao abrir o programa, um projeto ou ao reconectar
+  useEffect(() => startAudioOutputWatcher(), []);
+  // volume igual entre os VS: mede o loudness das músicas em segundo plano quando ligado
+  useEffect(() => startSongLevelWatcher(), []);
 
   useEffect(() => {
     window.addEventListener('pointerdown', beginGesture, true);

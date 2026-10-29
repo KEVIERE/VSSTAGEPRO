@@ -10,6 +10,7 @@ import { openRangeReader, openRangeReaders } from '@/lib/diskSource';
 import type { HeadAudio, StretchedHead } from '@/lib/instantStart';
 import { entryExists, markUsed, readEntry, readyDir, renderedName, writeEntry } from '@/lib/readyStore';
 import { sortedRegions } from '@/lib/regions';
+import { songLevelGain } from '@/lib/songLevel';
 import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJumpAt, sliceParams } from '@/lib/medley';
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
@@ -20,15 +21,14 @@ import type { AudioClip, Song, SongRegion, Track } from '@/types';
 import type { ClipAudio } from '@/lib/audioLibrary';
 
 const RETIME_LEAD = 0.06;
+const METER_FFT = 2048;
+export const MAGIC_SUM_GAIN = 0.5;
 // Trecho lido do disco antes de largar (~0,7 s): pequeno para o Play sair rápido; o leitor
 // antecipado já está buscando o que vem depois enquanto ele toca.
 const START_WINDOW_FRAMES = 1 << 15;
 
-// Fader scale: 0.8 = 0 dB (unity), 1.5 = +12 dB, 0 = silence
-export function faderToGain(volume: number): number {
-  if (volume >= 0.8) return Math.pow(10, ((volume - 0.8) / 0.7) * 0.6);
-  return volume / 0.8;
-}
+import { faderToGain } from '@/lib/faderScale';
+export { faderToGain };
 
 export function volumeToDb(volume: number): number {
   if (volume <= 0.0001) return -Infinity;
@@ -261,6 +261,8 @@ function scheduleClipFade(
 interface ChannelNode {
   gain: GainNode;
   panner: StereoPannerNode;
+  /** Volume igual entre os VS: ganho da música no ar, depois do fader e antes do medidor. */
+  level: GainNode;
   analyser: AnalyserNode;
   source: AudioBufferSourceNode | null;
 }
@@ -342,7 +344,12 @@ class AudioEngine {
   private masterLimiter: DynamicsCompressorNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
   private meterSmoothed = new Map<string, number>();
-  private meterScratch = new Float32Array(256);
+  // Medidores leem 2048 amostras (~43 ms) a cada ~33 ms: nenhuma amostra fica sem ser vista.
+  // Com 256 eles enxergavam só ~16% do sinal, perdiam picos e o anti-clip baixava de menos.
+  private meterScratch = new Float32Array(METER_FFT);
+  // Pico do master ANTES do limiter de segurança: é ele que diz se o master está estourando
+  // (depois do limiter o sinal nunca passa do teto, e o clip nunca aparecia).
+  private masterPreAnalyser: AnalyserNode | null = null;
   private meterLastUpdate = new Map<string, number>();
   private channels: Map<string, ChannelNode> = new Map();
   private meterInterval: number | null = null;
@@ -499,7 +506,10 @@ class AudioEngine {
       // Limiter de segurança no bus master: protege o show de estourar/distorcer, sem alterar o volume percebido.
       this.masterLimiter = createSafetyLimiter(this.ctx);
       this.masterAnalyser = this.ctx.createAnalyser();
-      this.masterAnalyser.fftSize = 256;
+      this.masterAnalyser.fftSize = METER_FFT;
+      this.masterPreAnalyser = this.ctx.createAnalyser();
+      this.masterPreAnalyser.fftSize = METER_FFT;
+      this.masterGain.connect(this.masterPreAnalyser);
       this.masterGain.connect(this.masterLimiter);
       this.masterLimiter.connect(this.masterAnalyser);
       this.configureOutputs();
@@ -542,6 +552,7 @@ class AudioEngine {
     this.masterGain = null;
     this.masterLimiter = null;
     this.masterAnalyser = null;
+    this.masterPreAnalyser = null;
     await old.close().catch(() => { /* já fechado */ });
     await this.prewarm().catch(() => { /* reabre no próximo play */ });
     return true;
@@ -1001,11 +1012,15 @@ class AudioEngine {
     const gain = ctx.createGain();
     const panner = ctx.createStereoPanner();
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = METER_FFT;
     analyser.smoothingTimeConstant = 0.8;
+    const level = ctx.createGain();
+    // o timecode nunca muda de volume
+    level.gain.value = isTimecodeTrackId(trackId) ? 1 : this.channelLevel();
     gain.connect(panner);
-    panner.connect(analyser);
-    const node: ChannelNode = { gain, panner, analyser, source: null };
+    panner.connect(level);
+    level.connect(analyser);
+    const node: ChannelNode = { gain, panner, level, analyser, source: null };
     this.channels.set(trackId, node);
     this.routeChannel(trackId);
     return node;
@@ -1043,7 +1058,9 @@ class AudioEngine {
     if (!ch || !this.masterGain || !this.outputMerger) return;
     const track = useStore.getState().tracks.find((t) => t.id === trackId);
     const out = track?.outputChannel ?? 0;
-    const physical = out > 0 && out <= this.outputCount ? out : 0;
+    // LR mágico (placa só com 2 saídas): tudo da música vai para o Master, nas saídas 1-2
+    const magic = useStore.getState().magicRoutingActive;
+    const physical = out > 0 && out <= this.outputCount && (!magic || isTimecodeTrackId(trackId)) ? out : 0;
     // o timecode nunca cai no Master: sem uma saída física válida ele fica mudo
     const key = isTimecodeTrackId(trackId) ? (physical ? `out-${physical}` : 'none') : (physical ? `out-${physical}` : 'master');
     if (this.routedTo.get(trackId) === key) return;
@@ -1631,6 +1648,8 @@ class AudioEngine {
       this.onAirDiskDone = null;
     });
     useStore.subscribe((s, prev) => {
+      if (s.levelMatch !== prev.levelMatch || s.songLoudness !== prev.songLoudness || s.playlist !== prev.playlist || s.magicRoutingActive !== prev.magicRoutingActive) this.applySongLevel();
+      if (s.magicRoutingActive !== prev.magicRoutingActive) this.channels.forEach((_, id) => this.routeChannel(id));
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();
       if (s.tracks !== prev.tracks) this.channels.forEach((_, id) => this.routeChannel(id));
@@ -1826,7 +1845,28 @@ class AudioEngine {
   }
 
   // A tela precisa saber qual música está no ar também quando o programa passa sozinho para a próxima.
+  private songLevel = 1;
+  private appliedLevel = 1;
+
+  // No LR mágico cada canal estéreo vai todo para um lado: o pan soma L+R (+6 dB num sinal igual
+  // nos dois lados). A soma entra a -6 dB, então a faixa sai no mesmo volume, sem estourar o L.
+  private channelLevel(): number {
+    return this.songLevel * (useStore.getState().magicRoutingActive ? MAGIC_SUM_GAIN : 1);
+  }
+
+  /** Ganho do "volume igual" para a música no ar (todas as saídas, não só o Master). */
+  applySongLevel(songId: string | null = this.currentSongId) {
+    this.songLevel = songId ? songLevelGain(useStore.getState(), songId) : 1;
+    const g = this.channelLevel();
+    if (Math.abs(g - this.appliedLevel) < 1e-6) return;
+    this.appliedLevel = g;
+    this.channels.forEach((ch, id) => {
+      if (!isTimecodeTrackId(id)) this.rampParam(ch.level.gain, g, 0.08);
+    });
+  }
+
   private markOnAir(songId: string) {
+    this.applySongLevel(songId);
     useStore.setState((s) => {
       const t = s.transport;
       if (t.currentSongId === songId && t.isPlaying) return s;
@@ -2234,6 +2274,19 @@ class AudioEngine {
     return smoothed;
   }
 
+  /** Pico do master antes do limiter (linear), nos últimos ~43 ms. */
+  getMasterPrePeak(): number {
+    if (!this.masterPreAnalyser) return 0;
+    const data = this.meterScratch;
+    this.masterPreAnalyser.getFloatTimeDomainData(data);
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
+    }
+    return peak;
+  }
+
   // Quanto o limiter de segurança do master está segurando agora, em dB (0 = sem atuação, negativo = reduzindo).
   getMasterLimiterReduction(): number {
     return this.masterLimiter?.reduction ?? 0;
@@ -2294,7 +2347,8 @@ class AudioEngine {
         }
         const masterLevel = this.getMasterMeterLevel();
         levels.set('master', masterLevel);
-        if (masterLevel >= 1 && store.masterClipPeak < masterLevel) store.updateMasterMeter(masterLevel);
+        const masterPre = this.getMasterPrePeak();
+        if (masterPre >= 1 && store.masterClipPeak < masterPre) store.updateMasterMeter(masterPre);
         // Redução do limiter de segurança (dB, 0 ou negativo) — mesmo canal do meterBus, lido como valor cru (não é amplitude linear).
         levels.set('master-gr', this.getMasterLimiterReduction());
         publishMeters(levels);

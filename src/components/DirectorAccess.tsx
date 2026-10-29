@@ -1,4 +1,5 @@
 import { adminApi } from '@/components/admin/adminApi';
+import { authRedirect } from '@/lib/authRedirect';
 import { useEffect, useState } from 'react';
 import { Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
@@ -282,7 +283,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         localStorage.setItem(PENDING_PROMO_LS, code);
       }
       if (view === 'forgot') {
-        const redirectTo = `${window.location.origin}/recuperar`;
+        const redirectTo = authRedirect('/recuperar');
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
         if (err) throw err;
         setInfo('Enviamos um e-mail com as instruções para redefinir sua senha.');
@@ -298,7 +299,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           password,
           options: {
           data: { name: name.trim(), phone: normalizedPhone },
-          emailRedirectTo: `${window.location.origin}/`,
+          emailRedirectTo: authRedirect('/'),
         },
         });
         if (err) throw err;

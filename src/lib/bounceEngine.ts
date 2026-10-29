@@ -1,11 +1,15 @@
 import { encodeWavPcm24, encodePcm24, wavHeaderPcm24 } from '@/lib/wavEncoder';
-import { clipGainFor, channelGainFor, createSafetyLimiter, faderToGain, isMelodicTrack } from '@/lib/audioEngine';
+import { clipGainFor, channelGainFor, createSafetyLimiter, faderToGain, isMelodicTrack, MAGIC_SUM_GAIN } from '@/lib/audioEngine';
+import { useStore } from '@/store';
 import { processClipAudioAsync, bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { clipAudioToBuffer, clipPlayLength, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, releaseClipAudio, withSongAudio, type ClipAudio } from '@/lib/audioLibrary';
 import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } from '@/lib/exportTarget';
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
 import { evaluateFadeCurve } from '@/types';
+import { integratedLoudness, truePeak } from '@/lib/loudness';
+import { songLevelGain } from '@/lib/songLevel';
+import { gainToFader } from '@/lib/faderScale';
 import type { AudioClip, ProjectState, Song, Track } from '@/types';
 
 export type BounceMode = 'lr' | 'multipista' | 'show-continuo';
@@ -190,6 +194,7 @@ async function renderSliceOffline(
   const totalFrames = Math.max(1, Math.ceil(outDuration * sampleRate));
   const cents = tuner * 100;
   const respectMuteSolo = !trackFilter;
+  const magic = !!useStore.getState().magicRoutingActive;
 
   const songClips = clips.filter((c) => c.songId === song.id && !isTimecodeTrackId(c.trackId));
 
@@ -220,7 +225,9 @@ async function renderSliceOffline(
       if (existing) return existing;
       const gain = ctx.createGain();
       const panner = ctx.createStereoPanner();
-      gain.gain.value = respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume);
+      // LR mágico: mesma soma a -6 dB da reprodução (o canal estéreo vai todo para um lado)
+      const magicSum = magic && !isTimecodeTrackId(targetTrack.id) ? MAGIC_SUM_GAIN : 1;
+      gain.gain.value = (respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume)) * magicSum;
       panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
       gain.connect(panner);
       panner.connect(ctx.destination);
@@ -477,12 +484,29 @@ function multitrackJobs(song: Song, state: ProjectState, cancelled: () => boolea
   return jobs;
 }
 
+/**
+ * Loudness (LUFS) e pico real da gravação da música: o mix com todos os faders em 0 dB, sem
+ * fader master nem limiter. É a medida usada pelo "volume igual entre os VS".
+ */
+export async function measureSongLoudness(song: Song, state: ProjectState, cancelled: () => boolean = () => false): Promise<{ lufs: number; peak: number }> {
+  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8 }));
+  const buf = await withSongAudio(song.id, () => renderOffline(song, unity, state.clips, state.lrMasterActive, undefined, false, cancelled, 0.8));
+  const channels = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
+  return { lufs: integratedLoudness(channels, buf.sampleRate), peak: truePeak(channels) };
+}
+
+/** Fader master desta música no mix (LR/show contínuo): com o volume igual ligado, já nivelada. */
+function masterFor(state: ProjectState, songId: string): number {
+  const g = songLevelGain(state, songId);
+  return g === 1 ? state.masterVolume : gainToFader(faderToGain(state.masterVolume) * g);
+}
+
 /** Mix master de uma música; se falhar (memória apertada), libera o áudio dela e tenta mais uma vez. */
 async function renderSongWithRetry(song: Song, state: ProjectState, cancelled: () => boolean): Promise<AudioBuffer> {
   let last: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, state.masterVolume));
+      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, masterFor(state, song.id)));
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') throw err;
       last = err;
@@ -723,7 +747,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
             label: 'mix LR Master',
-            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume)),
+            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, masterFor(state, song.id))),
           }]
         : multitrackJobs(song, state, hooks.cancelled);
       total += jobs.length - estimates[si];

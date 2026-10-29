@@ -8,10 +8,12 @@ import { runExport, type ExportTargets } from '../../src/lib/bounceEngine';
 import type { ExportTarget, ExportStream } from '../../src/lib/exportTarget';
 import { startPlayback, stopPlayback } from '../../src/lib/transportControl';
 import type { AudioClip, PlaylistEntry, ProjectState, Song } from '../../src/types';
+import { validLoudness, levelTarget } from '../../src/lib/songLevel';
+export { levelTarget };
 
 const SRC_RATE = 44100;
 
-function wav(seconds: number, freq: number): File {
+function wav(seconds: number, freq: number, amp = 0.3): File {
   const frames = Math.round(SRC_RATE * seconds);
   const block = 2 * 3;
   const buf = new ArrayBuffer(44 + frames * block);
@@ -23,15 +25,16 @@ function wav(seconds: number, freq: number): File {
   w(36, 'data'); v.setUint32(40, frames * block, true);
   let p = 44;
   for (let i = 0; i < frames; i++) for (let c = 0; c < 2; c++) {
-    const s = Math.round(Math.sin((2 * Math.PI * freq * i) / SRC_RATE) * 0.3 * 8388607);
+    const s = Math.round(Math.sin((2 * Math.PI * freq * i) / SRC_RATE) * amp * 8388607);
     v.setUint8(p, s & 255); v.setUint8(p + 1, (s >> 8) & 255); v.setUint8(p + 2, (s >> 16) & 255); p += 3;
   }
-  return new File([buf], `tom-${freq}-${seconds}.wav`, { lastModified: 1000 + freq * 10 + seconds });
+  return new File([buf], `tom-${freq}-${seconds}-${amp}.wav`, { lastModified: 1000 + freq * 10 + seconds + Math.round(amp * 1000) });
 }
 
 export const SONGS = 15;
 
-export function setup() {
+/** varied: cada música gravada num volume diferente (de -26 a -4 dBFS), para o volume igual. */
+export function setup(opts: { varied?: boolean } = {}) {
   const songs: Song[] = [];
   const clips: AudioClip[] = [];
   const sources = new Map<string, Blob>();
@@ -48,7 +51,8 @@ export function setup() {
       const cid = `${id}-c${t}`;
       // num medley, o clipe do maestro termina 2 ms depois da divisa da 2ª fatia (o caso que quebrava)
       const clipDur = medley && t === 2 ? 3.002 : dur;
-      sources.set(cid, wav(clipDur, trackId === 'track-guia' ? 440 : 220 + t * 50));
+      const amp = opts.varied ? [0.05, 0.3, 0.6, 0.12, 0.2][n % 5] : 0.3;
+      sources.set(cid, wav(clipDur, trackId === 'track-guia' ? 440 : 220 + t * 50, amp));
       clips.push({
         id: cid, trackId, name: `${name} ${trackId}`, fileName: `${cid}.wav`, filePath: '', songId: id,
         startTime: 0, duration: clipDur, sampleRate: SRC_RATE, channels: 2, bpm: 120, markers: [],
@@ -243,3 +247,24 @@ export async function exportSong(songId: string, mode: 'lr' | 'multipista', prob
 
 /** O mesmo estado que a exportação e o motor leem. */
 export const store = useStore;
+
+/** RMS do master (dBFS) nos últimos ~0,7 s. */
+export function masterRmsDb(): number {
+  if (!(audioEngine as unknown as { ctx: AudioContext | null }).ctx) return -Infinity;
+  const a = tap();
+  const d = new Float32Array(a.fftSize);
+  a.getFloatTimeDomainData(d);
+  let s = 0; for (const v of d) s += v * v;
+  return 10 * Math.log10(s / d.length + 1e-20);
+}
+
+export async function waitLevels(timeoutMs = 60000) {
+  const t0 = performance.now();
+  for (;;) {
+    const st = useStore.getState();
+    const done = st.playlist.every((p) => validLoudness(st, p.songId));
+    if (done) return Math.round(performance.now() - t0);
+    if (performance.now() - t0 > timeoutMs) return -1;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}

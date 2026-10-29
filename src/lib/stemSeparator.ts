@@ -2,7 +2,8 @@ import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDe
 import { generateClickTrack } from '@/lib/clickGenerator';
 import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
 import { isolateLiveCrowdAmbience } from '@/lib/crowdIsolation';
-import { encodeWavInt16 } from '@/lib/wavEncoder';
+import { encodeWavPcm24 } from '@/lib/wavEncoder';
+import { classifyInstrumentAudio, type AiRouteResult } from '@/lib/aiRouter';
 import { audioEngine } from '@/lib/audioEngine';
 import {
   putClipAudio,
@@ -12,6 +13,42 @@ import {
 import { useStore } from '@/store';
 import type { AudioClip, Song } from '@/types';
 import { generateMarkers, decodeBlob } from '@/lib/audioDecoder';
+
+// Pastas para onde o stem "outros" pode ir quando a IA reconhece o instrumento.
+const OTHER_DESTINATIONS = new Set<string>(['track-sanfonas', 'track-percussoes', 'track-violoes', 'track-teclados', 'track-guitarras', 'track-solos']);
+
+/**
+ * Pergunta à IA de instrumentos o que tem no stem: 3 trechos de 5 s entre os mais fortes,
+ * vence o instrumento que aparecer mais (desempate pela confiança). null = não reconheceu.
+ */
+async function classifyStem(buffer: AudioBuffer, key: string): Promise<AiRouteResult | null> {
+  const sr = buffer.sampleRate;
+  const win = Math.min(buffer.length, Math.round(5 * sr));
+  if (win < sr) return null;
+  const chs = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  const step = Math.max(1, Math.floor(win / 2));
+  const energy: Array<{ at: number; e: number }> = [];
+  for (let at = 0; at + win <= buffer.length; at += step) {
+    let e = 0;
+    for (const ch of chs) for (let i = at; i < at + win; i += 32) e += ch[i] * ch[i];
+    energy.push({ at, e });
+  }
+  const picks = energy.sort((a, b) => b.e - a.e).slice(0, 3);
+  const votes = new Map<string, { n: number; conf: number; best: AiRouteResult }>();
+  for (let k = 0; k < picks.length; k++) {
+    const mono = new Float32Array(win);
+    for (const ch of chs) for (let i = 0; i < win; i++) mono[i] += ch[picks[k].at + i] / chs.length;
+    const r = await classifyInstrumentAudio(`${key}-${k}`, mono, sr);
+    if (!r) continue;
+    const v = votes.get(r.target) ?? { n: 0, conf: 0, best: r };
+    v.n++; v.conf += r.confidence;
+    if (r.confidence > v.best.confidence) v.best = r;
+    votes.set(r.target, v);
+  }
+  let winner: { n: number; conf: number; best: AiRouteResult } | null = null;
+  for (const v of votes.values()) if (!winner || v.n > winner.n || (v.n === winner.n && v.conf > winner.conf)) winner = v;
+  return winner && winner.n >= 2 ? winner.best : winner && picks.length < 2 ? winner.best : null;
+}
 
 export interface StemSeparationProgress {
   step: 'analyzing' | 'drums' | 'bass' | 'vocals' | 'other' | 'click' | 'finalizing';
@@ -206,11 +243,15 @@ export async function separateSongToVS(
   ];
 
   if (guitarBuffer) {
+    // O modelo entrega violão e guitarra no mesmo stem: a IA de instrumentos ouve os trechos
+    // mais fortes e decide a pasta (Violões ou Guitarras).
+    const heard = await classifyStem(guitarBuffer, songId + '-guitar');
+    const acoustic = heard?.target === 'track-violoes';
     stemConfigs.push({
-      name: songName + ' - Guitarras e Violões',
-      childName: 'Guitarras',
+      name: songName + (acoustic ? ' - Violões' : ' - Guitarras'),
+      childName: acoustic ? 'Violão' : 'Guitarra',
       buffer: guitarBuffer,
-      parentTrackId: 'track-guitarras',
+      parentTrackId: acoustic ? 'track-violoes' : 'track-guitarras',
       startTime: leadIn,
       duration,
     });
@@ -236,11 +277,15 @@ export async function separateSongToVS(
     duration,
   });
 
+  // O stem "outros" (sanfona, percussão, cordas...) vai para a pasta do instrumento que a IA
+  // reconhecer com segurança; se não reconhecer, fica em Outros.
+  const otherHeard = await classifyStem(otherBuffer, songId + '-other');
+  const otherTarget = otherHeard && OTHER_DESTINATIONS.has(otherHeard.target) ? otherHeard : null;
   stemConfigs.push({
-    name: songName + ' - Outros',
-    childName: 'Outros',
+    name: songName + ' - ' + (otherTarget ? otherTarget.childName : 'Outros'),
+    childName: otherTarget ? otherTarget.childName : 'Outros',
     buffer: otherBuffer,
-    parentTrackId: 'track-outros',
+    parentTrackId: otherTarget ? otherTarget.target : 'track-outros',
     startTime: leadIn,
     duration,
   });
@@ -291,7 +336,8 @@ export async function separateSongToVS(
 
     const clipId = 'clip-' + songId + '-' + i;
     const clipAudio = await toClipAudioAsync(config.buffer);
-    const wavAb = encodeWavInt16(clipAudio);
+    // a IA entrega mais resolução que 16 bits: o arquivo do stem guarda em 24 bits
+    const wavAb = encodeWavPcm24(config.buffer);
     const wavBlob = new Blob([wavAb], { type: 'audio/wav' });
     const peakResolution = Math.min(24000, Math.max(8000, Math.round(config.buffer.duration * 100)));
     const peaks = audioEngine.generateWaveformPeaks(config.buffer, peakResolution);

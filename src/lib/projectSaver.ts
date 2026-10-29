@@ -32,6 +32,11 @@ export type SavedManifest = {
   zoomH: number;
   zoomV: number;
   lrMasterActive: boolean;
+  levelMatch?: boolean;
+  /** LR mágico ligado e os pans de antes dele (para o botão poder voltar depois de reabrir). */
+  magicRoutingActive?: boolean;
+  prevOutputChannels?: Record<string, number> | null;
+  songLoudness?: Record<string, import('@/types').SongLoudness>;
   dawMode?: boolean;
   audioInterface: string;
   lyricMaps?: ProjectState['lyricMaps'];
@@ -95,6 +100,10 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     zoomH: state.zoomH,
     zoomV: state.zoomV,
     lrMasterActive: state.lrMasterActive,
+    levelMatch: state.levelMatch ?? false,
+    magicRoutingActive: (state as ProjectState & { magicRoutingActive?: boolean }).magicRoutingActive ?? false,
+    prevOutputChannels: (state as ProjectState & { prevOutputChannels?: Record<string, number> | null }).prevOutputChannels ?? null,
+    songLoudness: state.songLoudness ?? {},
     dawMode: state.dawMode,
     audioInterface: state.audioInterface,
     lyricMaps: state.lyricMaps,
