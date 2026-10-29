@@ -237,7 +237,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
         this.dropStaleRendered();
         this.jump = {
           at: d.at,
-          resumeAt: d.at,
+          resumeAt: typeof d.resumeAt === 'number' ? d.resumeAt : d.at,
           crossfade: Math.max(1, d.crossfadeFrames | 0),
           fadeIn: true,
           voice: this.makeVoice(d.offsetSamples | 0),

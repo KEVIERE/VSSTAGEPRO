@@ -321,6 +321,18 @@ const STABLE_MODE_LS = 'vs_stable_audio';
 const RENDER_CONCURRENCY = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
 const RENDER_DELAY_MS = 350;
 const RENDER_TIMEOUT_MS = 60_000;
+const AUDIO_COPY_FRAMES = 1 << 17;
+
+/** Divide cópias grandes para ceder à interface entre blocos e não bloquear um quadro inteiro. */
+async function copyAudioChannel(source: Int16Array, cancelled: () => boolean): Promise<Int16Array | null> {
+  const output = new Int16Array(source.length);
+  for (let i = 0; i < source.length; i += AUDIO_COPY_FRAMES) {
+    if (cancelled()) return null;
+    output.set(source.subarray(i, Math.min(source.length, i + AUDIO_COPY_FRAMES)), i);
+    if (i + AUDIO_COPY_FRAMES < source.length) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  return cancelled() ? null : output;
+}
 
 interface SongNode {
   clipId: string;
@@ -720,6 +732,13 @@ class AudioEngine {
         const left = buffer.channels[0];
         const right = buffer.channels[1] ?? left;
         const headFrames = Math.min(left.length, Math.floor(HEAD_SECONDS * sampleRate));
+        const cancelled = () => this.isPlayingSong(songId);
+        const fullLeft = await copyAudioChannel(left, cancelled);
+        const fullRight = fullLeft && right === left ? fullLeft : fullLeft ? await copyAudioChannel(right, cancelled) : null;
+        if (!fullLeft || !fullRight || cancelled()) {
+          this.disposePreparedBundle({ songId, signature: sig, pending, snapshots });
+          return;
+        }
 
         const node = new AudioWorkletNode(ctx, 'clip-player', {
           numberOfInputs: 0,
@@ -737,9 +756,7 @@ class AudioEngine {
             fadeInFrames: 0,
           },
         });
-        // O áudio inteiro vai sem cópia no reprodutor, para não pesar na música que está tocando.
-        const fullLeft = left.slice();
-        const fullRight = right === left ? fullLeft : right.slice();
+        // Os blocos copiados são transferidos, sem remover o áudio original da biblioteca.
         node.port.postMessage({ type: 'extend', left: fullLeft, right: fullRight }, fullRight === fullLeft ? [fullLeft.buffer] : [fullLeft.buffer, fullRight.buffer]);
 
         const clipGain = ctx.createGain();
@@ -1272,7 +1289,7 @@ class AudioEngine {
     if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
     const store = useStore.getState();
 
-    // Uma faixa por vez e sem cópia no reprodutor: o som no ar não sente a troca.
+    // Copia uma faixa por vez em blocos para reduzir pausas na interface.
     const stillMissing: string[] = [];
     for (const [clipId, active] of Array.from(this.activeClips.entries())) {
       if (gen !== this.playGeneration || this.activeClips.get(clipId) !== active) return;
@@ -1282,13 +1299,18 @@ class AudioEngine {
         if (clip) stillMissing.push(clipId);
         continue;
       }
-      const left = audio.channels[0].slice();
-      const right = audio.channels[1] ? audio.channels[1].slice() : left;
-      // a transferência zera o tamanho do array, então o tamanho é guardado antes
-      active.bufferLength = left.length;
+      const cancelled = () => gen !== this.playGeneration || this.activeClips.get(clipId) !== active;
+      const left = await copyAudioChannel(audio.channels[0], cancelled);
+      if (!left) return;
+      const right = audio.channels[1] ? await copyAudioChannel(audio.channels[1], cancelled) : left;
+      if (!right || cancelled()) return;
+      // A cópia é transferida para o Worklet; o áudio original continua disponível para buscas.
       try {
         active.node.port.postMessage({ type: 'extend', left, right }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
-      } catch { /* ignore */ }
+        active.bufferLength = audio.length;
+      } catch {
+        stillMissing.push(clipId);
+      }
       await new Promise((r) => setTimeout(r, 0));
     }
     if (gen !== this.playGeneration) return;
@@ -1830,10 +1852,11 @@ class AudioEngine {
       const melodic = track ? isMelodicTrack(track, tracks) : true;
       try {
         active.node.port.postMessage({
-          type: 'seek',
+          type: 'retime',
           offsetSamples,
-          startTime: whenWall,
-          fadeInFrames: 1024,
+          at: scheduledStart,
+          resumeAt: whenWall,
+          crossfadeFrames: 256,
           dropPartial: true,
           tempo: tempoFromBpm(params.bpmAdjust),
           pitch: melodic ? pitchFromCents(cents) : 1,
