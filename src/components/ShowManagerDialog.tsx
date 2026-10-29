@@ -185,7 +185,7 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
   };
 
   const accessMessage = (code: string, name: string) =>
-    `Olá ${name}! Área do Músico – ${showName}\nLink: ${musicianLink()}\nSenha: ${formatCode(code)}`;
+    `Olá ${name}! Área do Músico – ${showName}\n\n${musicianLink()}\n\nSenha: ${formatCode(code)}`;
 
   const handleWhatsApp = (code: string, name: string) => {
     const msg = encodeURIComponent(

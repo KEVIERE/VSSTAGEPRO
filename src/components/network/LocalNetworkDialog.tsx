@@ -179,14 +179,18 @@ function AccessCard({ role, url, qr, pin, onRegenerate }: {
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState<'access' | 'pin' | null>(null);
+  const [copied, setCopied] = useState<'access' | 'link' | 'pin' | null>(null);
   const Icon = ROLE_ICON[role];
 
-  const copy = async (what: 'access' | 'pin') => {
-    if (what === 'access' && !url) return;
+  // O endereço vai sempre sozinho na linha (sem "Link:" colado nem a senha junto): celular,
+  // WhatsApp e navegador reconhecem o link inteiro e abrem direto.
+  const copy = async (what: 'access' | 'link' | 'pin') => {
+    if (what !== 'pin' && !url) return;
     const text = what === 'pin'
       ? pin ?? ''
-      : pin ? `${ROLE_LABEL[role]} – Rede local\nLink: ${url}\nSenha: ${pin}` : url ?? '';
+      : what === 'link' || !pin
+        ? url ?? ''
+        : `${ROLE_LABEL[role]} — Rede Local (conecte no mesmo Wi-Fi do palco)\n\n${url}\n\nSenha (PIN): ${pin}`;
     try {
       await navigator.clipboard.writeText(text);
       setCopied(what);
@@ -211,14 +215,24 @@ function AccessCard({ role, url, qr, pin, onRegenerate }: {
       <div className="mt-3 mx-auto w-32 h-32 rounded-md bg-white p-1.5 flex items-center justify-center">
         {qr ? <img src={qr} alt={`QR code para ${ROLE_LABEL[role]}`} className="w-full h-full [image-rendering:pixelated]" /> : <WifiOff size={20} className="text-neutral-400" />}
       </div>
-      <p className="mt-2 text-center text-2xs text-logic-text-muted truncate">{url?.replace(/^https?:\/\//, '') ?? 'Sem rede'}</p>
+      {/* endereço completo, com http:// — sem ele alguns navegadores tentam https e não abrem */}
+      <p className="mt-2 text-center text-2xs font-mono text-logic-text-dim break-all select-all" title="Endereço para digitar no navegador do celular">{url ?? 'Sem rede'}</p>
       <button
         className="mt-1.5 flex items-center justify-center gap-1.5 h-7 rounded-md bg-logic-accent text-white text-2xs font-medium hover:bg-logic-accent-hover active:scale-[0.97] transition-all disabled:opacity-40"
-        onClick={() => copy('access')} disabled={!url}
-        title={pin ? 'Copia uma mensagem com o link e a senha escrita para a pessoa digitar' : 'Copiar o endereço'}
+        onClick={() => copy('link')} disabled={!url}
+        title="Copia só o endereço, limpo, para colar no celular"
       >
-        <Copy size={11} /> {copied === 'access' ? 'Copiado!' : pin ? 'Copiar link + senha' : 'Copiar link'}
+        <Copy size={11} /> {copied === 'link' ? 'Copiado!' : 'Copiar link'}
       </button>
+      {pin && (
+        <button
+          className="mt-1 flex items-center justify-center gap-1.5 h-6 rounded-md border border-logic-border-light text-logic-text-dim text-2xs hover:text-logic-text hover:bg-logic-bg-panel-light transition-colors disabled:opacity-40"
+          onClick={() => copy('access')} disabled={!url}
+          title="Copia uma mensagem pronta: o link numa linha sozinho e a senha separada"
+        >
+          {copied === 'access' ? 'Copiado!' : 'Copiar mensagem (link + senha)'}
+        </button>
+      )}
       <div className="mt-3 pt-3 border-t border-logic-border-dark text-center">
         {pin ? (
           <>
