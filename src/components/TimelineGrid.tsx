@@ -27,7 +27,14 @@ export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoo
   );
 }
 
-export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid: SongGrid; zoomH: number; visible: VisibleRange }) {
+export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo }: {
+  song: Song;
+  grid: SongGrid;
+  zoomH: number;
+  visible: VisibleRange;
+  /** Duplo clique numa placa de BPM: editar ou excluir a mudança de andamento daquele ponto. */
+  onEditTempo?: (point: { time: number; bpm: number; x: number; y: number }) => void;
+}) {
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
   const beatPx = grid.beat * zoomH;
   const barPx = grid.beat * grid.beatsPerBar * zoomH;
@@ -66,8 +73,16 @@ export function BarRulerLayer({ song, grid, zoomH, visible }: { song: Song; grid
             )}
             {showBpmBadge && (
               <div
-                className="absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm pointer-events-none whitespace-nowrap select-none"
-                title={`Mudança de andamento: ${l.bpmChange} BPM`}
+                className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-pointer hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
+                title={`Mudança de andamento: ${l.bpmChange} BPM. Duplo clique para editar ou excluir.`}
+                // a placa não move o cursor nem abre o menu da régua
+                onPointerDown={(e) => e.stopPropagation()}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onEditTempo?.({ time: l.time, bpm: l.bpmChange!, x: e.clientX, y: e.clientY });
+                }}
               >
                 <span>⚡ {l.bpmChange} BPM</span>
               </div>

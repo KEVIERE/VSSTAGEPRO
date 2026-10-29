@@ -42,15 +42,23 @@ function createSplash() {
     backgroundColor: '#00000000',
     center: true,
     show: false,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    // a animação roda mesmo antes da janela ganhar foco (a abertura aparece sem roubar o foco)
+    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   splash.webContents.on('will-navigate', (e) => { e.preventDefault(); finishSplash(true); });
-  splash.once('ready-to-show', () => splash?.showInactive());
+  splash.once('ready-to-show', () => {
+    if (!splash || splash.isDestroyed()) return;
+    splash.showInactive();
+    // A animação começa só agora, com a janela na tela, e o tempo mínimo conta a partir daqui:
+    // antes ela já tinha tocado escondida e a abertura aparecia parada no último quadro.
+    splashShownAt = Date.now();
+    splash.webContents.executeJavaScript("window.postMessage('vs:go', '*')").catch(() => {});
+  });
   splash.on('closed', () => { splash = null; });
   splash.loadFile(path.join(__dirname, 'splash.html'), { query: { v: app.getVersion() } });
 }
 
-const splashStarted = Date.now();
+let splashShownAt = 0;
 let appReady = false;
 let splashLeaving = false;
 
@@ -62,7 +70,8 @@ function showMain() {
 function finishSplash(force) {
   if (splashLeaving) return;
   if (!force && !appReady) return;
-  const wait = force ? 0 : Math.max(0, SPLASH_MIN_MS - (Date.now() - splashStarted));
+  const shownFor = splashShownAt ? Date.now() - splashShownAt : 0;
+  const wait = force ? 0 : Math.max(0, SPLASH_MIN_MS - shownFor);
   splashLeaving = true;
   setTimeout(() => {
     if (!splash || splash.isDestroyed()) { showMain(); return; }

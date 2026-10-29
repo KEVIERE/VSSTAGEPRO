@@ -1210,7 +1210,7 @@ export default function TimelinePanel() {
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
   // não conseguir sincronizar um trecho (ex.: medley com transições muito sutis ou sem click).
-  const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number } | null>(null);
+  const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number; editing?: boolean } | null>(null);
   const setTempoAt = useStore((s) => s.setTempoAt);
   const removeTempoAt = useStore((s) => s.removeTempoAt);
   const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
@@ -1945,7 +1945,19 @@ export default function TimelinePanel() {
               }}
               title="Clique para posicionar cursor. Botão direito: cravar o andamento neste ponto (último recurso). Shift + botão direito: cravar início de compasso."
             >
-              {grid && song && <BarRulerLayer song={song} grid={grid} zoomH={zoomH} visible={visible} />}
+              {grid && song && (
+                <BarRulerLayer
+                  song={song}
+                  grid={grid}
+                  zoomH={zoomH}
+                  visible={visible}
+                  onEditTempo={({ time, bpm, x, y }) => {
+                    // a mudança fica exatamente no início do trecho com esse andamento
+                    const seg = grid.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
+                    setManualTempoPoint({ time: seg?.startTime ?? time, x, y, existingBpm: bpm, editing: true });
+                  }}
+                />
+              )}
               {visibleTicks.map((tick) => (
                 <div
                   key={tick}
@@ -2157,7 +2169,7 @@ export default function TimelinePanel() {
 // Último recurso manual: define/corrige o andamento (BPM) a partir de um ponto exato da régua,
 // para medleys ou trocas de andamento que a detecção automática do click não conseguiu identificar.
 function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
-  point: { time: number; x: number; y: number; existingBpm?: number };
+  point: { time: number; x: number; y: number; existingBpm?: number; editing?: boolean };
   onClose: () => void;
   onApply: (bpm: number) => void;
   onRemove: () => void;
@@ -2191,7 +2203,7 @@ function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="text-2xs font-semibold text-logic-text-dim uppercase tracking-wider mb-2">
-        Cravar andamento neste ponto
+        {point.editing ? 'Editar mudança de andamento' : 'Cravar andamento neste ponto'}
       </div>
       <div className="flex items-center gap-2">
         <input
@@ -2206,21 +2218,23 @@ function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
         <span className="text-2xs text-logic-text-muted">BPM</span>
       </div>
       <p className="text-2xs text-logic-text-muted mt-2 leading-snug">
-        Último recurso: use só quando a sincronização automática não acertar este trecho (ex.: medley).
+        {point.editing
+          ? 'Digite o novo BPM a partir deste ponto, ou exclua a mudança (o trecho volta a seguir o andamento anterior).'
+          : 'Último recurso: use só quando a sincronização automática não acertar este trecho (ex.: medley).'}
       </p>
       <div className="flex gap-2 mt-3">
         <button
           onClick={submit}
           className="flex-1 h-8 rounded-md bg-logic-accent text-white text-xs font-semibold hover:brightness-110 transition"
         >
-          Cravar aqui
+          {point.editing ? 'Salvar' : 'Cravar aqui'}
         </button>
         <button
           onClick={onRemove}
           className="h-8 px-3 rounded-md border border-logic-border-light text-logic-text-dim text-xs font-semibold hover:text-logic-text hover:bg-logic-bg-elevated transition"
-          title="Remove a mudança de andamento manual mais próxima"
+          title={point.editing ? 'Exclui esta mudança de andamento' : 'Remove a mudança de andamento manual mais próxima'}
         >
-          Remover
+          {point.editing ? 'Excluir' : 'Remover'}
         </button>
       </div>
     </div>

@@ -93,20 +93,79 @@ async function exportAudioFor(clip: AudioClip): Promise<ClipAudio> {
   throw new Error(`Não foi possível abrir o áudio "${clip.name}" para exportar (memória insuficiente ou arquivo ilegível). Feche outros programas e tente de novo.`);
 }
 
-/** Converte e libera o original imediatamente; o grafo offline conserva só o buffer processado do clipe atual. */
+// Antes do trecho usado, o processamento de BPM/tom recebe um pouco de áudio a mais para já
+// estar estável na borda da fatia (sem ataque esquisito no começo).
+const STRETCH_PREROLL_SECONDS = 0.25;
+
+/**
+ * Converte só o pedaço do clipe que cai na fatia [localStart, localEnd) (segundos do clipe) e
+ * libera o original. Antes, cada fatia de um medley convertia o clipe INTEIRO de novo: com
+ * várias fatias e dezenas de faixas, a memória estourava e a música falhava na exportação.
+ * Devolve o buffer e quanto do começo dele (em segundos de saída) é só aquecimento.
+ */
 async function processExportClip(
   ctx: BaseAudioContext,
   clip: AudioClip,
   alpha: number,
   cents: number,
-): Promise<AudioBuffer> {
+  localStart: number,
+  localEnd: number,
+): Promise<{ buffer: AudioBuffer; lead: number }> {
   const audio = await exportAudioFor(clip);
   try {
-    return await processClipAudioAsync(ctx, audio, alpha, cents);
+    const sr = audio.sampleRate;
+    const processing = Math.abs(alpha - 1) >= 1e-3 || Math.abs(cents) >= 1;
+    const from = Math.max(0, Math.floor((localStart - (processing ? STRETCH_PREROLL_SECONDS : 0)) * sr));
+    const to = Math.min(audio.length, Math.max(from + 1, Math.ceil(localEnd * sr)));
+    const part: ClipAudio = from === 0 && to === audio.length
+      ? audio
+      : { sampleRate: sr, length: to - from, channels: audio.channels.map((ch) => ch.subarray(from, to)) };
+    const buffer = await processClipAudioAsync(ctx, part, alpha, cents);
+    return { buffer, lead: Math.max(0, localStart - from / sr) * alpha };
   } finally {
     releaseClipAudio(clip.id);
     await yieldToUi();
   }
+}
+
+/**
+ * Envelope de ganho do clipe (fade in, platô, fade out) num contexto que começa em 0, mesmo
+ * quando o clipe começou antes da fatia (clipStart negativo): o ponto de partida é calculado
+ * no instante 0 e o resto da curva segue no tempo certo.
+ */
+function scheduleClipEnvelope(param: AudioParam, clip: AudioClip, baseGain: number, clipStart: number, playDuration: number, alpha: number) {
+  const fadeIn = Math.max(0, (clip.fadeIn ?? 0) * alpha);
+  const fadeOut = Math.max(0, (clip.fadeOut ?? 0) * alpha);
+  if (fadeIn <= 0 && fadeOut <= 0) {
+    param.value = baseGain;
+    return;
+  }
+  const points: Array<[number, number]> = [];
+  const steps = (curve: string) => (curve === 'linear' ? 1 : 8);
+  if (fadeIn > 0) {
+    const curve = clip.fadeCurveIn ?? 'linear';
+    points.push([clipStart, 0]);
+    for (let i = 1, n = steps(curve); i <= n; i++) points.push([clipStart + (i / n) * fadeIn, evaluateFadeCurve(curve, i / n, true) * baseGain]);
+  } else {
+    points.push([clipStart, baseGain]);
+  }
+  if (fadeOut > 0) {
+    const curve = clip.fadeCurveOut ?? 'linear';
+    const outStart = clipStart + Math.max(fadeIn, playDuration - fadeOut);
+    points.push([outStart, baseGain]);
+    for (let i = 1, n = steps(curve); i <= n; i++) points.push([outStart + (i / n) * fadeOut, evaluateFadeCurve(curve, i / n, false) * baseGain]);
+  }
+  // valor no instante 0 (interpolado se o fade já estava em andamento)
+  let v0 = points[0][1];
+  for (let i = 0; i < points.length; i++) {
+    const [t, v] = points[i];
+    if (t <= 0) { v0 = v; continue; }
+    const prev = points[i - 1];
+    if (prev && prev[0] < 0) v0 = prev[1] + (v - prev[1]) * ((0 - prev[0]) / (t - prev[0]));
+    break;
+  }
+  param.setValueAtTime(v0, 0);
+  for (const [t, v] of points) if (t > 0) param.linearRampToValueAtTime(v, t);
 }
 
 // Renderiza um trecho isolado [sliceStart, sliceEnd] com BPM e Tom específicos daquele trecho
@@ -174,7 +233,12 @@ async function renderSliceOffline(
     for (const { clip, track } of batch) {
       const clipPlayLen = clipPlayLength(clip);
       const melodic = isMelodicTrack(track, tracks);
-      const processed = await processExportClip(ctx, clip, alpha, melodic ? cents : 0);
+      // trecho do clipe (em segundos do clipe) que cai nesta fatia
+      const localStart = Math.max(0, sliceStart - clip.startTime);
+      const localEnd = Math.min(clipPlayLen, sliceEnd - clip.startTime);
+      // clipe que só encosta na borda da fatia não tem o que tocar nela: fica de fora (não é erro)
+      if (localEnd - localStart <= 0.0005) continue;
+      const { buffer: processed, lead } = await processExportClip(ctx, clip, alpha, melodic ? cents : 0, localStart, localEnd);
       if (cancelled()) throw new DOMException('Exportação cancelada', 'AbortError');
 
       const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
@@ -190,42 +254,7 @@ async function renderSliceOffline(
       const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
 
       const playDuration = clipPlayLen * alpha;
-      const startWall = Math.max(0, clip.startTime - sliceStart) * alpha;
-      const fadeIn = (clip.fadeIn ?? 0) * alpha;
-      const fadeOut = (clip.fadeOut ?? 0) * alpha;
-      if (fadeIn > 0 || fadeOut > 0) {
-        const fadeOutStart = Math.max(fadeIn, playDuration - fadeOut);
-        if (fadeIn > 0) {
-          const curveIn = clip.fadeCurveIn ?? 'linear';
-          clipGain.gain.setValueAtTime(0, startWall);
-          if (curveIn === 'linear') {
-            clipGain.gain.linearRampToValueAtTime(baseGain, startWall + fadeIn);
-          } else {
-            const STEPS = 8;
-            for (let i = 1; i <= STEPS; i++) {
-              const frac = i / STEPS;
-              clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveIn, frac, true) * baseGain, startWall + frac * fadeIn);
-            }
-          }
-        } else {
-          clipGain.gain.setValueAtTime(baseGain, startWall);
-        }
-        if (fadeOut > 0) {
-          const curveOut = clip.fadeCurveOut ?? 'linear';
-          clipGain.gain.setValueAtTime(baseGain, startWall + fadeOutStart);
-          if (curveOut === 'linear') {
-            clipGain.gain.linearRampToValueAtTime(0, startWall + playDuration);
-          } else {
-            const STEPS = 8;
-            for (let i = 1; i <= STEPS; i++) {
-              const frac = i / STEPS;
-              clipGain.gain.linearRampToValueAtTime(evaluateFadeCurve(curveOut, frac, false) * baseGain, startWall + fadeOutStart + frac * fadeOut);
-            }
-          }
-        }
-      } else {
-        clipGain.gain.value = baseGain;
-      }
+      scheduleClipEnvelope(clipGain.gain, clip, baseGain, (clip.startTime - sliceStart) * alpha, playDuration, alpha);
 
       source.connect(clipGain);
 
@@ -238,15 +267,10 @@ async function renderSliceOffline(
         clipGain.connect(channel.gain);
       }
 
-      const localStart = clip.startTime - sliceStart;
-      const when = Math.max(0, localStart * alpha);
-      const offset = localStart < 0 ? Math.max(0, -localStart * alpha) : 0;
-      const bufDur = source.buffer?.duration ?? 0;
-      if (offset >= bufDur - 0.005) {
-        throw new Error(`O clipe "${clip.name}" termina antes da fatia "${song.name}" (${sliceStart.toFixed(2)}s). Confira os cortes e a posição do clipe.`);
-      }
+      const when = Math.max(0, (clip.startTime - sliceStart) * alpha);
+      const offset = Math.min(lead, Math.max(0, (source.buffer?.duration ?? 0) - 1 / sampleRate));
       try {
-        if (offset > 0.001) source.start(when, offset);
+        if (offset > 0) source.start(when, offset);
         else source.start(when);
         scheduled++;
       } catch (err) {
@@ -453,16 +477,75 @@ function multitrackJobs(song: Song, state: ProjectState, cancelled: () => boolea
   return jobs;
 }
 
-export async function runExport(req: ExportRequest, state: ProjectState, hooks: ExportHooks): Promise<ExportResult | null> {
-  const ordered = state.playlistOrder
-    .map((id) => state.songs.find((s) => s.id === id))
-    .filter((s): s is Song => !!s);
-  const songs = req.scope === 'musica'
-    ? state.songs.filter((s) => s.id === req.songId)
-    : ordered.length ? ordered : state.songs;
+/** Mix master de uma música; se falhar (memória apertada), libera o áudio dela e tenta mais uma vez. */
+async function renderSongWithRetry(song: Song, state: ProjectState, cancelled: () => boolean): Promise<AudioBuffer> {
+  let last: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, state.masterVolume));
+    } catch (err) {
+      if ((err as DOMException)?.name === 'AbortError') throw err;
+      last = err;
+      console.warn(`[bounce] tentativa ${attempt + 1} de mixar "${song.name}" falhou`, err);
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+  throw last;
+}
+
+/** Garante exatamente `frames` quadros (completa com silêncio ou corta o arredondamento). */
+function fitFrames(buf: AudioBuffer, frames: number): AudioBuffer {
+  if (buf.length === frames) return buf;
+  const out = createBufferFallback(frames, 2, buf.sampleRate);
+  for (let c = 0; c < 2; c++) {
+    const src = buf.getChannelData(Math.min(c, buf.numberOfChannels - 1));
+    out.copyToChannel(src.length > frames ? src.subarray(0, frames) : src, c);
+  }
+  return out;
+}
+
+/** Onde gravar: os seletores do sistema por padrão; os testes passam destinos na memória. */
+export interface ExportTargets {
+  openFileTarget: typeof openFileTarget;
+  openFolderTarget: typeof openFolderTarget;
+}
+
+const SYSTEM_TARGETS: ExportTargets = { openFileTarget, openFolderTarget };
+
+/** Músicas a exportar: as da sequência do show ativo, na ordem dele (todas, inclusive repetidas). */
+export function exportSongs(req: Pick<ExportRequest, 'scope' | 'songId'>, state: Pick<ProjectState, 'songs' | 'playlist' | 'playlistOrder'>): Song[] {
+  if (req.scope === 'musica') return state.songs.filter((s) => s.id === req.songId);
+  const byId = new Map(state.songs.map((song) => [song.id, song]));
+  const fromEntries = state.playlist.map((e) => byId.get(e.songId)).filter((s): s is Song => !!s);
+  if (fromEntries.length > 0) return fromEntries;
+  const fromOrder = state.playlistOrder.map((id) => byId.get(id)).filter((s): s is Song => !!s);
+  return fromOrder.length > 0 ? fromOrder : state.songs;
+}
+
+/** Pasta de cada música: nomes iguais (ou que ficam iguais sem os caracteres proibidos) não se sobrescrevem. */
+export function songFolderNames(songs: Song[]): string[] {
+  const used = new Set<string>();
+  return songs.map((song) => {
+    const base = sanitize(song.name);
+    let folder = base;
+    let n = 2;
+    while (used.has(folder.toLocaleLowerCase())) folder = `${base} (${n++})`;
+    used.add(folder.toLocaleLowerCase());
+    return folder;
+  });
+}
+
+function reasonOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export async function runExport(req: ExportRequest, state: ProjectState, hooks: ExportHooks, targets: ExportTargets = SYSTEM_TARGETS): Promise<ExportResult | null> {
+  const { openFileTarget, openFolderTarget } = targets;
+  const songs = exportSongs(req, state);
   if (songs.length === 0) {
     throw new Error(req.scope === 'musica' ? 'Música não encontrada.' : 'O projeto não tem músicas para exportar.');
   }
+  const folders = songFolderNames(songs);
 
   const projectName = sanitize(state.projectName);
   const suffix = req.mode === 'lr' ? 'LR MASTER' : req.mode === 'show-continuo' ? 'SHOW CONTINUO' : 'MULTIPISTA';
@@ -537,16 +620,14 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         const song = songs[si];
         report(`Música ${si + 1} de ${songs.length} – ${song.name} · mixando`, 0);
         try {
-          await withSongAudio(song.id, async () => {
-            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume);
-            renderedBuffers.push(buf);
-          });
+          const buf = await renderSongWithRetry(song, state, hooks.cancelled);
+          renderedBuffers.push(buf);
           saved++;
           songsSaved++;
         } catch (err) {
           if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; break; }
-          console.warn('[bounce] falha na música', song.name, err);
-          incomplete.push(song.name);
+          // pular uma música deixaria o show contínuo com um buraco de tempo: para e diz qual
+          throw new Error(`O show contínuo parou em "${song.name}" (música ${si + 1} de ${songs.length}): ${reasonOf(err)}`);
         }
       }
       if (run.status === 'cancelled' || renderedBuffers.length === 0) {
@@ -586,21 +667,21 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         const song = songs[si];
         const songLabel = `Música ${si + 1} de ${songs.length} – ${song.name}`;
         report(`${songLabel} · mixando faixa`, 0);
+        let buf: AudioBuffer;
         try {
-          await withSongAudio(song.id, async () => {
-            const buf = await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume);
-            report(`${songLabel} · gravando no disco`, 0.5);
-            // PCM dessa música vai direto pro arquivo; o buffer sai de escopo e pode ser liberado
-            // pelo coletor de lixo antes da próxima música começar a renderizar.
-            await stream.append(encodePcm24(buf));
-          });
-          saved++;
-          songsSaved++;
+          buf = await renderSongWithRetry(song, state, hooks.cancelled);
         } catch (err) {
           if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; break; }
-          console.warn('[bounce] falha na música', song.name, err);
-          incomplete.push(song.name);
+          // O cabeçalho do WAV já declarou a duração do show inteiro: pular uma música deixaria o
+          // arquivo corrompido e fora de tempo. Para e diz exatamente qual música e por quê.
+          throw new Error(`O show contínuo parou em "${song.name}" (música ${si + 1} de ${songs.length}): ${reasonOf(err)}`);
         }
+        report(`${songLabel} · gravando no disco`, 0.5);
+        // exatamente o tamanho declarado no cabeçalho para esta música
+        const pcm = encodePcm24(fitFrames(buf, songFrames[si]));
+        await stream.append(pcm);
+        saved++;
+        songsSaved++;
         report(`${songLabel} · concluída`, 1);
       }
 
@@ -635,7 +716,9 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
     const songLabel = songs.length > 1 ? `Música ${si + 1} de ${songs.length} – ${song.name}` : song.name;
     if (run.status !== 'done') { incomplete.push(song.name); continue; }
     report(`${songLabel} · carregando áudio`, 0);
-    const songSaved = await withSongAudio(song.id, async () => {
+    let songSaved = 0;
+    try {
+    songSaved = await withSongAudio(song.id, async () => {
       const jobs: FileJob[] = req.mode === 'lr'
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
@@ -657,7 +740,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         }
         if (hooks.cancelled()) { run.status = 'cancelled'; break; }
         report(`${songLabel} · salvando ${job.name}`, 0.9);
-        const rel = req.scope === 'projeto' ? `${baseRel}${sanitize(song.name)}/${job.name}` : `${baseRel}${job.name}`;
+        const rel = req.scope === 'projeto' ? `${baseRel}${folders[si]}/${job.name}` : `${baseRel}${job.name}`;
         for (;;) {
           try {
             await target.write(rel, data);
@@ -676,6 +759,14 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
       else if (count < jobs.length) incomplete.push(song.name);
       return count;
     });
+    } catch (err) {
+      if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; incomplete.push(song.name); continue; }
+      if (err instanceof DiskFullError) throw err;
+      // Uma música com problema não derruba a exportação das outras: segue e avisa no fim, com o motivo.
+      console.warn('[bounce] falha na música', song.name, err);
+      incomplete.push(`${song.name} — ${reasonOf(err)}`);
+      continue;
+    }
     if (songSaved > 0) songsSaved++;
   }
 

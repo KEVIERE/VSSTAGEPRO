@@ -226,7 +226,16 @@ function classifyFailure(err: unknown): LoadFailure {
   return 'memory';
 }
 
+const clearListeners = new Set<() => void>();
+
+/** Avisado quando a biblioteca é esvaziada (projeto aberto ou novo): quem guarda áudio solta o seu. */
+export function onAudioLibraryCleared(fn: () => void): () => void {
+  clearListeners.add(fn);
+  return () => clearListeners.delete(fn);
+}
+
 export function clearAudioLibrary() {
+  clearListeners.forEach((fn) => { try { fn(); } catch (err) { console.warn('[audioLibrary] limpeza', err); } });
   entries.clear();
   songLoads.clear();
   loading.clear();

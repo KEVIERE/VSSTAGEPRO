@@ -2,7 +2,7 @@ import { useStore } from '@/store';
 import { bpmAdjustToAlpha, stretchClipAudio, tempoFromBpm } from '@/lib/timeStretch';
 import { computeNextSongId } from '@/lib/playFlow';
 import { getClipPlayerWorkletUrl } from '@/lib/clipPlayerWorklet';
-import { clipPlayLength, ensureSongLoaded, getClipAudio, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
+import { clipPlayLength, ensureSongLoaded, getClipAudio, onAudioLibraryCleared, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
 import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
 import { audioStreamer, diskStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
 import type { DiskHandle, RangeReader, StreamHandle } from '@/lib/audioStreamer';
@@ -1621,6 +1621,15 @@ class AudioEngine {
   private loopTimer: number | null = null;
 
   constructor() {
+    // Outro projeto (ou o mesmo reaberto, com os mesmos IDs): nenhum reprodutor guardado do
+    // anterior pode ser reaproveitado com áudio, tom ou BPM antigos, nem continuar soando.
+    onAudioLibraryCleared(() => {
+      this.stopAll();
+      this.invalidatePrepared();
+      this.cancelAllRenders();
+      this.diskSongs.clear();
+      this.onAirDiskDone = null;
+    });
     useStore.subscribe((s, prev) => {
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();

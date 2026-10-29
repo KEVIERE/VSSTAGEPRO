@@ -24,9 +24,19 @@ export function SongAdjuster({ songId, kind, value, partId, inherited }: SongAdj
     const part = partId ? song?.medley?.find((p) => p.id === partId) : undefined;
     const cur = part ? (kind === 'bpm' ? part.bpmAdjust : part.tuner) ?? songValue : songValue;
     const next = Math.max(-LIMITS[kind], Math.min(LIMITS[kind], cur + delta));
-    if (partId) st.updateMedleyPart(songId, partId, kind === 'bpm' ? { bpmAdjust: next } : { tuner: next });
-    else if (kind === 'bpm') st.setSongBpmAdjust(songId, next);
-    else st.setSongTuner(songId, next);
+    const field = kind === 'bpm' ? 'bpmAdjust' : 'tuner';
+    if (partId) {
+      // igual ao da música = volta a seguir a música (senão a fatia ficava presa e o ajuste
+      // da música deixava de valer nela, parecendo que o tuner/BPM não funcionava)
+      st.updateMedleyPart(songId, partId, { [field]: next === songValue ? undefined : next });
+    } else {
+      // fatias que estavam iguais à música continuam acompanhando a música
+      for (const p of song?.medley ?? []) {
+        if (p[field] !== undefined && p[field] === songValue) st.updateMedleyPart(songId, p.id, { [field]: undefined });
+      }
+      if (kind === 'bpm') st.setSongBpmAdjust(songId, next);
+      else st.setSongTuner(songId, next);
+    }
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       timer.current = null;

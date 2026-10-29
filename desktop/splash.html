@@ -63,6 +63,9 @@
   @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
   @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+  /* A janela nasce escondida e só aparece depois do primeiro desenho: até lá a animação fica
+     parada no primeiro quadro, senão ela já teria passado quando a abertura surge na tela. */
+  body:not(.go) *, body:not(.go) *::before, body:not(.go) *::after { animation-play-state: paused !important; }
 </style>
 </head>
 <body>
@@ -387,21 +390,38 @@
   if (version) document.getElementById('version').textContent = 'v' + version + ' PRO';
   const status = document.getElementById('status');
   const bar = document.getElementById('bar');
+  const startSteps = () => STEPS.forEach((s) => {
+    setTimeout(() => {
+      if (status) status.textContent = s.text;
+      if (bar) bar.style.transform = 'scaleX(' + s.progress + ')';
+    }, s.at);
+  });
   const STEPS = [
     { at: 0, progress: 0.18, text: 'Carregando motor de áudio...' },
     { at: 900, progress: 0.52, text: 'Preparando timecode e periféricos...' },
     { at: 1800, progress: 0.84, text: 'Abrindo o show...' },
     { at: 2600, progress: 1, text: 'Pronto' },
   ];
-  STEPS.forEach((s) => {
-    setTimeout(() => {
-      if (status) status.textContent = s.text;
-      if (bar) bar.style.transform = 'scaleX(' + s.progress + ')';
-    }, s.at);
-  });
+  let started = false;
+  const go = () => {
+    if (started) return;
+    started = true;
+    const start = () => {
+      if (document.body.classList.contains('go')) return;
+      document.body.classList.add('go');
+      startSteps();
+    };
+    // dois quadros garantem que a janela já está na tela quando o primeiro quadro anima; o
+    // tempo é a garantia caso a janela não desenhe quadros (coberta): nunca fica parada
+    requestAnimationFrame(() => requestAnimationFrame(start));
+    setTimeout(start, 80);
+  };
   window.addEventListener('message', (e) => {
-    if (e.data === 'vs:leave') document.body.classList.add('leaving');
+    if (e.data === 'vs:go') go();
+    if (e.data === 'vs:leave') { go(); document.body.classList.add('leaving'); }
   });
+  // aberto fora do app (pré-visualização), ou se o aviso do app não chegar
+  setTimeout(go, 2500);
 </script>
 </body>
 </html>
