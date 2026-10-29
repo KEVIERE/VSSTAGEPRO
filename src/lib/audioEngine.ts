@@ -321,6 +321,17 @@ const STABLE_MODE_LS = 'vs_stable_audio';
 const RENDER_CONCURRENCY = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
 const RENDER_DELAY_MS = 350;
 const RENDER_TIMEOUT_MS = 60_000;
+const PREPARE_COPY_FRAMES = 1 << 17;
+
+async function copyForPreparedPlayer(source: Int16Array, cancelled: () => boolean): Promise<Int16Array | null> {
+  const copy = new Int16Array(source.length);
+  for (let offset = 0; offset < source.length; offset += PREPARE_COPY_FRAMES) {
+    if (cancelled()) return null;
+    copy.set(source.subarray(offset, Math.min(source.length, offset + PREPARE_COPY_FRAMES)), offset);
+    if (offset + PREPARE_COPY_FRAMES < source.length) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
+  return cancelled() ? null : copy;
+}
 
 interface SongNode {
   clipId: string;
@@ -720,6 +731,13 @@ class AudioEngine {
         const left = buffer.channels[0];
         const right = buffer.channels[1] ?? left;
         const headFrames = Math.min(left.length, Math.floor(HEAD_SECONDS * sampleRate));
+        const cancelled = () => this.isPlayingSong(songId) || this.computePrepareSignature(songId) !== sig;
+        const fullLeft = await copyForPreparedPlayer(left, cancelled);
+        const fullRight = fullLeft && right === left ? fullLeft : fullLeft ? await copyForPreparedPlayer(right, cancelled) : null;
+        if (!fullLeft || !fullRight || cancelled()) {
+          this.disposePreparedBundle({ songId, signature: sig, pending, snapshots });
+          return;
+        }
 
         const node = new AudioWorkletNode(ctx, 'clip-player', {
           numberOfInputs: 0,
@@ -737,9 +755,7 @@ class AudioEngine {
             fadeInFrames: 0,
           },
         });
-        // O áudio inteiro vai sem cópia no reprodutor, para não pesar na música que está tocando.
-        const fullLeft = left.slice();
-        const fullRight = right === left ? fullLeft : right.slice();
+        // Transfere a cópia em blocos sem remover o áudio original da biblioteca.
         node.port.postMessage({ type: 'extend', left: fullLeft, right: fullRight }, fullRight === fullLeft ? [fullLeft.buffer] : [fullLeft.buffer, fullRight.buffer]);
 
         const clipGain = ctx.createGain();
@@ -1282,13 +1298,17 @@ class AudioEngine {
         if (clip) stillMissing.push(clipId);
         continue;
       }
-      const left = audio.channels[0].slice();
-      const right = audio.channels[1] ? audio.channels[1].slice() : left;
-      // a transferência zera o tamanho do array, então o tamanho é guardado antes
-      active.bufferLength = left.length;
+      const cancelled = () => gen !== this.playGeneration || this.activeClips.get(clipId) !== active;
+      const left = await copyForPreparedPlayer(audio.channels[0], cancelled);
+      if (!left) return;
+      const right = audio.channels[1] ? await copyForPreparedPlayer(audio.channels[1], cancelled) : left;
+      if (!right || cancelled()) return;
       try {
         active.node.port.postMessage({ type: 'extend', left, right }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
-      } catch { /* ignore */ }
+        active.bufferLength = audio.length;
+      } catch {
+        stillMissing.push(clipId);
+      }
       await new Promise((r) => setTimeout(r, 0));
     }
     if (gen !== this.playGeneration) return;
