@@ -3,7 +3,9 @@ import { bpmAdjustToAlpha, stretchClipAudio, tempoFromBpm } from '@/lib/timeStre
 import { computeNextSongId } from '@/lib/playFlow';
 import { getClipPlayerWorkletUrl } from '@/lib/clipPlayerWorklet';
 import { clipPlayLength, ensureSongLoaded, getClipAudio, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
-import { HEAD_SECONDS, headsFromOpenAudio, loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
+import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
+import { audioStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
+import type { StreamHandle } from '@/lib/audioStreamer';
 import type { HeadAudio, StretchedHead } from '@/lib/instantStart';
 import { entryExists, markUsed, readEntry, readyDir, renderedName, writeEntry } from '@/lib/readyStore';
 import { sortedRegions } from '@/lib/regions';
@@ -14,6 +16,7 @@ import { TimecodePlayer } from '@/lib/timecodePlayer';
 import { isUserInteracting } from '@/lib/interactionTracker';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
+import type { ClipAudio } from '@/lib/audioLibrary';
 
 const RETIME_LEAD = 0.06;
 
@@ -321,18 +324,6 @@ const STABLE_MODE_LS = 'vs_stable_audio';
 const RENDER_CONCURRENCY = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
 const RENDER_DELAY_MS = 350;
 const RENDER_TIMEOUT_MS = 60_000;
-const PREPARE_COPY_FRAMES = 1 << 17;
-
-async function copyForPreparedPlayer(source: Int16Array, cancelled: () => boolean): Promise<Int16Array | null> {
-  const copy = new Int16Array(source.length);
-  for (let offset = 0; offset < source.length; offset += PREPARE_COPY_FRAMES) {
-    if (cancelled()) return null;
-    copy.set(source.subarray(offset, Math.min(source.length, offset + PREPARE_COPY_FRAMES)), offset);
-    if (offset + PREPARE_COPY_FRAMES < source.length) await new Promise<void>((resolve) => setTimeout(resolve, 0));
-  }
-  return cancelled() ? null : copy;
-}
-
 interface SongNode {
   clipId: string;
   node: AudioWorkletNode;
@@ -386,6 +377,71 @@ class AudioEngine {
   private routedTo = new Map<string, string>();
   private timecode: TimecodePlayer | null = null;
   private timecodeClipId: string | null = null;
+  // Entrega em andamento do áudio de cada reprodutor (ver audioStreamer).
+  private feeds = new Map<AudioWorkletNode, StreamHandle>();
+  // Reprodutores que largaram pelo começo pronto e já receberam o áudio inteiro.
+  private headFed = new WeakMap<AudioWorkletNode, ClipAudio>();
+  // Faixas no ar que ficaram sem dado a tempo (o áudio chegou atrasado do disco).
+  private starvedClips = new Set<string>();
+  private starvedNotice: string | null = null;
+
+  private createPlayer(ctx: AudioContext, totalFrames: number, options: Record<string, unknown>): AudioWorkletNode {
+    return new AudioWorkletNode(ctx, 'clip-player', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: { totalFrames, ...options },
+    });
+  }
+
+  /** Passa a entregar o áudio ao reprodutor em trechos, começando por `fromFrame`. */
+  private feed(node: AudioWorkletNode, audio: ClipAudio, fromFrame: number, priority: number, options?: { totalFrames?: number; availableFrames?: number }): StreamHandle {
+    this.feeds.get(node)?.cancel();
+    const target = options?.totalFrames !== undefined ? { channels: audio.channels, length: options.totalFrames } : audio;
+    const handle = audioStreamer.start(node.port, target, { from: fromFrame, priority, availableFrames: options?.availableFrames });
+    this.feeds.set(node, handle);
+    void handle.done.then(() => { if (this.feeds.get(node) === handle) this.feeds.delete(node); });
+    return handle;
+  }
+
+  private unfeed(node: AudioWorkletNode) {
+    this.feeds.get(node)?.cancel();
+    this.feeds.delete(node);
+  }
+
+  private focusFeed(node: AudioWorkletNode, fromFrame: number, priority?: number) {
+    this.feeds.get(node)?.focus(fromFrame, priority);
+  }
+
+  private listen(node: AudioWorkletNode, songId: string, clipId: string, onReady?: () => void) {
+    node.port.onmessage = (ev) => {
+      const type = ev.data?.type;
+      if (type === 'ready') onReady?.();
+      else if (type === 'ended') this.handleClipEnded(songId, clipId);
+      else if (type === 'underrun') this.noteStarved(songId, clipId, true);
+      else if (type === 'recovered') this.noteStarved(songId, clipId, false);
+    };
+  }
+
+  // Nada fica mudo sem aviso: se o áudio de uma faixa chega atrasado, a faixa segue no tempo
+  // certo em silêncio e o display diz qual faixa está esperando o disco.
+  private noteStarved(songId: string, clipId: string, starved: boolean) {
+    if (!this.isPlaying || this.currentSongId !== songId || !this.activeClips.has(clipId)) return;
+    if (starved) this.starvedClips.add(clipId);
+    else this.starvedClips.delete(clipId);
+    const store = useStore.getState();
+    if (this.starvedClips.size === 0) {
+      if (this.starvedNotice && store.playbackError === this.starvedNotice) store.setPlaybackError(null);
+      this.starvedNotice = null;
+      return;
+    }
+    const names = store.clips.filter((c) => this.starvedClips.has(c.id)).map((c) => c.name);
+    const list = names.slice(0, 3).join(', ') + (names.length > 3 ? ` e mais ${names.length - 3}` : '');
+    const msg = `Áudio chegando atrasado do disco em: ${list}. A música segue no tempo certo e ${names.length === 1 ? 'a faixa volta' : 'as faixas voltam'} a soar assim que o áudio chegar.`;
+    if (store.playbackError && store.playbackError !== this.starvedNotice) return;
+    this.starvedNotice = msg;
+    store.setPlaybackError(msg);
+  }
 
   getContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
@@ -547,26 +603,20 @@ class AudioEngine {
         const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
         const melodic = isMelodicTrack(track, tracks);
         const sampleRate = buffer.sampleRate;
-        const left = buffer.channels[0];
-        const right = buffer.channels[1] ?? left;
         const pitch = melodic ? pitchFromCents(cents) : 1;
         const local = Math.max(0, nowPos - clip.startTime);
         const offsetSamples = Math.floor(local * sampleRate);
         const whenWall = ctx.currentTime + Math.max(0, clip.startTime - nowPos) * alpha;
 
-        const node = new AudioWorkletNode(ctx, 'clip-player', {
-          numberOfInputs: 0,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          processorOptions: {
-            left, right, sampleRate,
-            offsetSamples,
-            tempo, pitch,
-            process: songNeedsProcessing(song),
-            primeTargetFrames: 1024,
-            fadeInFrames: 512,
-          },
+        const node = this.createPlayer(ctx, buffer.length, {
+          sampleRate,
+          offsetSamples,
+          tempo, pitch,
+          process: songNeedsProcessing(song),
+          primeTargetFrames: 1024,
+          fadeInFrames: 512,
         });
+        this.feed(node, buffer, offsetSamples, PRIORITY_ON_AIR);
         const clipGain = ctx.createGain();
         const gTarget = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
         node.connect(clipGain);
@@ -585,11 +635,7 @@ class AudioEngine {
         try { node.port.postMessage({ startTime: whenWall }); } catch { /* ignore */ }
         this.clipGains.set(clip.id, clipGain);
         if (clipPan) this.clipPanners.set(clip.id, clipPan);
-        node.port.onmessage = (ev) => {
-          if (ev.data?.type === 'ended') {
-            this.handleClipEnded(songId, clip.id);
-          }
-        };
+        this.listen(node, songId, clip.id);
         this.activeClips.set(clip.id, {
           node,
           clipStartTime: clip.startTime,
@@ -649,6 +695,7 @@ class AudioEngine {
 
   private disposePreparedBundle(bundle: PreparedBundle) {
     for (const p of bundle.pending) {
+      this.unfeed(p.node);
       try { p.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
       try { p.node.disconnect(); } catch { /* ignore */ }
       try { p.clipGain.disconnect(); } catch { /* ignore */ }
@@ -683,6 +730,13 @@ class AudioEngine {
 
   async prepareSong(songId: string): Promise<void> {
     // A música no ar já tem os reprodutores dela; ao parar eles são guardados para o próximo Play.
+    if (this.isPlayingSong(songId)) return;
+    // A música no ar termina de abrir primeiro: as duas disputando o disco e o processador era
+    // o que fazia a faixa no ar ficar sem dado a tempo.
+    const onAir = this.isPlaying ? this.currentSongId : null;
+    if (onAir && onAir !== songId && !isSongLoaded(onAir)) {
+      await ensureSongLoaded(onAir).catch(() => { /* avisado pela música no ar */ });
+    }
     if (this.isPlayingSong(songId)) return;
     if (!isSongLoaded(songId)) await ensureSongLoaded(songId);
     const sig = this.computePrepareSignature(songId);
@@ -728,35 +782,22 @@ class AudioEngine {
         const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
         const melodic = isMelodicTrack(track, tracks);
         const sampleRate = buffer.sampleRate;
-        const left = buffer.channels[0];
-        const right = buffer.channels[1] ?? left;
-        const headFrames = Math.min(left.length, Math.floor(HEAD_SECONDS * sampleRate));
-        const cancelled = () => this.isPlayingSong(songId) || this.computePrepareSignature(songId) !== sig;
-        const fullLeft = await copyForPreparedPlayer(left, cancelled);
-        const fullRight = fullLeft && right === left ? fullLeft : fullLeft ? await copyForPreparedPlayer(right, cancelled) : null;
-        if (!fullLeft || !fullRight || cancelled()) {
+        if (this.isPlayingSong(songId) || this.computePrepareSignature(songId) !== sig) {
           this.disposePreparedBundle({ songId, signature: sig, pending, snapshots });
           return;
         }
 
-        const node = new AudioWorkletNode(ctx, 'clip-player', {
-          numberOfInputs: 0,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          processorOptions: {
-            left: left.slice(0, headFrames),
-            right: right.slice(0, headFrames),
-            sampleRate,
-            offsetSamples: 0,
-            tempo,
-            pitch: melodic ? pitchFromCents(cents) : 1,
-            process: songNeedsProcessing(song),
-            primeTargetFrames: 2048,
-            fadeInFrames: 0,
-          },
+        const node = this.createPlayer(ctx, buffer.length, {
+          sampleRate,
+          offsetSamples: 0,
+          tempo,
+          pitch: melodic ? pitchFromCents(cents) : 1,
+          process: songNeedsProcessing(song),
+          primeTargetFrames: 2048,
+          fadeInFrames: 0,
         });
-        // Transfere a cópia em blocos sem remover o áudio original da biblioteca.
-        node.port.postMessage({ type: 'extend', left: fullLeft, right: fullRight }, fullRight === fullLeft ? [fullLeft.buffer] : [fullLeft.buffer, fullRight.buffer]);
+        // O áudio vai em trechos, atrás da música no ar, sem cópia grande na thread principal.
+        this.feed(node, buffer, 0, PRIORITY_NEXT);
 
         const clipGain = ctx.createGain();
         clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
@@ -774,11 +815,7 @@ class AudioEngine {
           clipGain.connect(channel.gain);
         }
 
-        const ready = new Promise<void>((resolve) => {
-          node.port.onmessage = (ev) => {
-            if (ev.data?.type === 'ready') resolve();
-          };
-        });
+        const ready = new Promise<void>((resolve) => this.listen(node, songId, clip.id, resolve));
 
         pending.push({
           clipId: clip.id,
@@ -787,7 +824,7 @@ class AudioEngine {
           clipDuration: clipPlayLength(clip),
           ready,
           sampleRate,
-          bufferLength: left.length,
+          bufferLength: buffer.length,
           clipGain,
           clipPanner,
           trackId: clip.trackId,
@@ -989,10 +1026,6 @@ class AudioEngine {
     const bundle = this.prepared.get(songId) ?? null;
     const useBundle = !!(bundle && expectedSig && bundle.signature === expectedSig
       && this.coversAllClips(songId, bundle.pending.map((p) => p.clipId)));
-    if (!useBundle && !heads && isSongLoaded(songId)) {
-      const st = useStore.getState();
-      heads = headsFromOpenAudio(st.clips.filter((c) => c.songId === songId && isStemClip(c) && getClipAudio(c.id) && st.tracks.some((t) => t.id === c.trackId)), startOffset);
-    }
     const myGen = ++this.playGeneration;
     const ctx = this.getContext();
     if (ctx.state === 'suspended') await ctx.resume();
@@ -1065,11 +1098,9 @@ class AudioEngine {
             process: songNeedsProcessing(song), dropPartial: true });
         } catch { /* ignore */ }
 
-        p.node.port.onmessage = (ev) => {
-          if (ev.data?.type === 'ended') {
-            this.handleClipEnded(songId, p.clipId);
-          }
-        };
+        // o que ainda falta chegar deste reprodutor passa na frente, a partir do ponto de largada
+        this.focusFeed(p.node, offsetSamples, PRIORITY_ON_AIR);
+        this.listen(p.node, songId, p.clipId);
 
         this.activeClips.set(p.clipId, {
           node: p.node,
@@ -1103,7 +1134,8 @@ class AudioEngine {
     const audioFor = (clip: typeof clips[number]) => heads ? heads.get(clip.id) ?? null : getClipPlayAudio(clip);
     const playClips = clips.filter((c) => store.tracks.some((t) => t.id === c.trackId) && audioFor(c));
     // Com BPM/tom alterados, o começo já ajustado evita ligar o processamento ao vivo de todas as faixas na largada.
-    const stretched = wantsStretchedHead(song)
+    // Esse começo é o do arquivo: com algum clipe cortado no início (split), todas processam ao vivo juntas.
+    const stretched = wantsStretchedHead(song) && !playClips.some((c) => (c.trimStart ?? 0) > 0)
       ? await loadStretchedHeads(song, playClips, headPitchFor, 0)
       : null;
     if (myGen !== this.playGeneration) return;
@@ -1141,6 +1173,7 @@ class AudioEngine {
     const pending: Pending[] = [];
     const purgePending = () => {
       for (const p of pending) {
+        this.unfeed(p.node);
         try { p.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
         try { p.node.disconnect(); } catch { /* ignore */ }
         try { p.clipGain.disconnect(); } catch { /* ignore */ }
@@ -1160,45 +1193,32 @@ class AudioEngine {
       const melodic = isMelodicTrack(track, tracks);
 
       const sampleRate = buffer.sampleRate;
-      const left = buffer.channels[0];
-      const right = buffer.channels[1] ?? left;
 
       const offsetSeconds = Math.max(0, startOffset - clip.startTime);
       const offsetSamples = Math.floor(offsetSeconds * sampleRate);
-      const bufferLength = heads ? heads.get(clip.id)!.fullFrames : left.length;
+      const bufferLength = heads ? heads.get(clip.id)!.fullFrames : buffer.length;
       const pitch = melodic ? pitchFromCents(cents) : 1;
       const ready = stretched?.get(clip.id);
 
-      const node = new AudioWorkletNode(ctx, 'clip-player', {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-        processorOptions: {
-          left,
-          right,
-          sampleRate,
-          offsetSamples,
-          tempo,
-          pitch,
-          process: songNeedsProcessing(song),
-          primeTargetFrames: fastSeek ? 1024 : 2048,
-          fadeInFrames: fastSeek ? 1024 : 512,
-          ...(ready ? { renderedLeft: ready.left, renderedRight: ready.right, renderedTempo: tempo, renderedPitch: pitch, renderedValidFrames: ready.validFrames } : {}),
-        },
+      const node = this.createPlayer(ctx, bufferLength, {
+        sampleRate,
+        offsetSamples,
+        tempo,
+        pitch,
+        process: songNeedsProcessing(song),
+        primeTargetFrames: fastSeek ? 1024 : 2048,
+        fadeInFrames: fastSeek ? 1024 : 512,
+        ...(ready ? { renderedLeft: ready.left, renderedRight: ready.right, renderedTempo: tempo, renderedPitch: pitch, renderedValidFrames: ready.validFrames } : {}),
       });
+      // Nenhuma cópia do áudio inteiro no Play: vai junto só o trecho da largada, o resto em
+      // trechos logo em seguida. Com o começo pronto do disco, só ele por enquanto.
+      this.feed(node, buffer, offsetSamples, PRIORITY_ON_AIR, heads ? { totalFrames: bufferLength, availableFrames: buffer.length } : undefined);
 
       const clipGain = ctx.createGain();
       clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
       node.connect(clipGain);
 
-      const readyFor = (nodeRef: AudioWorkletNode, clipId: string) => new Promise<void>((resolve) => {
-        nodeRef.port.onmessage = (ev) => {
-          if (ev.data?.type === 'ready') resolve();
-          if (ev.data?.type === 'ended') {
-            this.handleClipEnded(songId, clipId);
-          }
-        };
-      });
+      const readyFor = (nodeRef: AudioWorkletNode, clipId: string) => new Promise<void>((resolve) => this.listen(nodeRef, songId, clipId, resolve));
 
       if (track.parentId) {
         const clipPan = ctx.createStereoPanner();
@@ -1288,8 +1308,10 @@ class AudioEngine {
     if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
     const store = useStore.getState();
 
-    // Uma faixa por vez e sem cópia no reprodutor: o som no ar não sente a troca.
+    // O áudio inteiro abriu: cada faixa recebe o resto em trechos a partir de onde a música
+    // está agora (o que já tocou vem por último), sem parar nem copiar tudo de uma vez.
     const stillMissing: string[] = [];
+    const ctx = this.ctx;
     for (const [clipId, active] of Array.from(this.activeClips.entries())) {
       if (gen !== this.playGeneration || this.activeClips.get(clipId) !== active) return;
       const clip = store.clips.find((c) => c.id === clipId);
@@ -1298,18 +1320,16 @@ class AudioEngine {
         if (clip) stillMissing.push(clipId);
         continue;
       }
-      const cancelled = () => gen !== this.playGeneration || this.activeClips.get(clipId) !== active;
-      const left = await copyForPreparedPlayer(audio.channels[0], cancelled);
-      if (!left) return;
-      const right = audio.channels[1] ? await copyForPreparedPlayer(audio.channels[1], cancelled) : left;
-      if (!right || cancelled()) return;
+      if (this.headFed.get(active.node) === audio) continue;
+      const pos = ctx ? (ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1) : this.playbackOffset;
+      const fromFrame = Math.max(0, Math.floor((pos - active.clipStartTime) * audio.sampleRate));
       try {
-        active.node.port.postMessage({ type: 'extend', left, right }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
+        this.feed(active.node, audio, fromFrame, PRIORITY_ON_AIR);
+        this.headFed.set(active.node, audio);
         active.bufferLength = audio.length;
       } catch {
         stillMissing.push(clipId);
       }
-      await new Promise((r) => setTimeout(r, 0));
     }
     if (gen !== this.playGeneration) return;
 
@@ -1703,6 +1723,9 @@ class AudioEngine {
     this.isPlaying = false;
     this.currentSongId = null;
     this.playGeneration++;
+    this.starvedClips.clear();
+    if (this.starvedNotice && useStore.getState().playbackError === this.starvedNotice) useStore.getState().setPlaybackError(null);
+    this.starvedNotice = null;
     this.seekRequest++;
     this.timecode?.stop();
     this.timecodeClipId = null;
@@ -1732,6 +1755,7 @@ class AudioEngine {
     this.clipPanners.clear();
     const disconnect = () => {
       toDisconnect.forEach(([, active]) => {
+        this.unfeed(active.node);
         try { active.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
         try { active.node.disconnect(); } catch { /* ignore */ }
       });
@@ -1754,6 +1778,8 @@ class AudioEngine {
     const fadeEnd = (this.ctx?.currentTime ?? 0) + 0.015;
     const pending: PreparedPending[] = [];
     this.activeClips.forEach((a, clipId) => {
+      // o que ainda faltava chegar deste reprodutor sai da frente da próxima música no ar
+      this.focusFeed(a.node, 0, PRIORITY_NEXT);
       pending.push({
         clipId,
         node: a.node,
@@ -1861,6 +1887,7 @@ class AudioEngine {
         });
       } catch { /* ignore */ }
       active.scheduledStartWall = whenWall;
+      this.focusFeed(active.node, offsetSamples);
 
       // Reagenda automação do fade para a nova posição do cursor em tempo real
       const target = track?.parentId ? tracks.find((tr) => tr.id === track.parentId) ?? track : track;
@@ -2408,6 +2435,7 @@ class AudioEngine {
     for (const clipId of clipIds) {
       const active = this.activeClips.get(clipId);
       if (!active) continue;
+      this.unfeed(active.node);
       try { active.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
       try { active.node.disconnect(); } catch { /* ignore */ }
       try { active.clipGain.disconnect(); } catch { /* ignore */ }
@@ -2432,15 +2460,10 @@ class AudioEngine {
       active.durationSeconds = clipPlayLength(clip);
       const audio = getClipPlayAudio(clip);
       if (audio && !endCutOnly) {
-        const left = audio.channels[0].slice();
-        const right = audio.channels[1] ? audio.channels[1].slice() : left;
-        active.bufferLength = left.length;
-        try {
-          active.node.port.postMessage(
-            { type: 'extend', left, right },
-            right === left ? [left.buffer] : [left.buffer, right.buffer]
-          );
-        } catch { /* ignore */ }
+        // Áudio do clipe mudou (corte no início, colagem): troca em trechos a partir do cursor.
+        active.bufferLength = audio.length;
+        const fromFrame = Math.max(0, Math.floor(local * audio.sampleRate));
+        try { this.feed(active.node, audio, fromFrame, PRIORITY_ON_AIR); } catch { /* ignore */ }
       }
       const track = store.tracks.find((t) => t.id === clip.trackId);
       const target = track?.parentId ? store.tracks.find((t) => t.id === track.parentId) ?? track : track;

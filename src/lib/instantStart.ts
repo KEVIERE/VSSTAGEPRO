@@ -64,11 +64,14 @@ export async function loadHeads(clips: AudioClip[], startOffset: number): Promis
     if (!source) return null;
     const entry = await readEntry(dir, headName(clip, source, rate));
     if (!entry || entry.sampleRate !== rate) return null;
-    const full = playFrames(clip, entry.sampleRate, entry.fullFrames);
-    const frames = Math.min(entry.channels[0].length, full);
+    // O começo guardado é o do arquivo; um clipe cortado no início (ex.: lado direito de um
+    // split) toca a partir do corte, igual a getClipPlayAudio.
+    const trimFrames = Math.floor(Math.max(0, clip.trimStart ?? 0) * entry.sampleRate);
+    const full = Math.min(playFrames(clip, entry.sampleRate, entry.fullFrames), Math.max(1, entry.fullFrames - trimFrames));
+    const frames = Math.min(Math.max(0, entry.channels[0].length - trimFrames), full);
     const local = (startOffset - clip.startTime) * entry.sampleRate;
-    if (frames < full && local > frames - START_MARGIN_SECONDS * entry.sampleRate) return null;
-    const channels = entry.channels.map((ch) => ch.subarray(0, frames));
+    if (frames <= 0 || (frames < full && local > frames - START_MARGIN_SECONDS * entry.sampleRate)) return null;
+    const channels = entry.channels.map((ch) => ch.subarray(trimFrames, trimFrames + frames));
     return { clip, audio: { channels, sampleRate: entry.sampleRate, length: frames, fullFrames: full } };
   }));
   const out = new Map<string, HeadAudio>();

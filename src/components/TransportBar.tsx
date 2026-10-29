@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, Loader2, X, Headphones, SlidersVertical } from 'lucide-react';
+import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, X, Headphones, SlidersVertical } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
@@ -159,7 +159,8 @@ export default function TransportBar() {
           title={transport.isPlaying ? 'Pausar (Espaço)' : 'Tocar (Espaço)'}
           aria-label={transport.isPlaying ? 'Pausar' : 'Tocar'}
         >
-          {isLoading && transport.isPlaying ? <Loader2 size={14} className="animate-spin" /> : transport.isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+          {/* o carregamento já aparece no display de status (CARREGANDO); o botão mostra só o comando */}
+          {transport.isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
         </button>
         <button
           className="logic-btn-transport"
