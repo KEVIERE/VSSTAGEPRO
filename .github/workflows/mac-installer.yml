@@ -143,7 +143,8 @@ jobs:
             for P in $(ls "$WORK" | sort); do
               NAME="$FOLDER/$ARCH/$P.bin"
               upload "$WORK/$P" "$NAME"
-              supa_upload "$WORK/$P" "$NAME" "application/octet-stream"
+              # As partes do instalador (≈750 MB por versão) ficam só na VPS, de onde o programa e a
+              # página de download baixam. Copiá-las para o Supabase passava do storage do plano gratuito.
               PARTS="$PARTS\"$NAME\","
             done
             rm -rf "$WORK"
