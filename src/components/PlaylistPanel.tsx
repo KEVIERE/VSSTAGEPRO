@@ -329,10 +329,10 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
       {instantPrep?.ready && (
         <div
           className="flex items-center gap-2 px-3 h-6 bg-logic-bg-deep border-b border-logic-border-dark text-2xs whitespace-nowrap overflow-hidden animate-[fadeIn_200ms_ease-out]"
-          title={instantPrep.failed ? 'Essas músicas tocam normalmente, só levam um instante a mais para começar' : 'Todas as músicas começam na hora'}
+          title="Preparação dos trechos iniciais concluída; o carregamento integral ainda pode ser necessário."
         >
           <CheckCircle2 size={11} className="flex-shrink-0 text-logic-lcd-green" />
-          <span className="flex-shrink-0 text-logic-lcd-green">Pronto para o show</span>
+          <span className="flex-shrink-0 text-logic-lcd-green">Trechos iniciais preparados</span>
           {!!instantPrep.failed && (
             <span className="min-w-0 truncate text-logic-lcd-amber">
               {instantPrep.failed === 1 ? '1 música abre no Play' : `${instantPrep.failed} músicas abrem no Play`}
