@@ -46,13 +46,16 @@ jobs:
           npm run background
           node scripts/patchDmgBuilder.cjs
 
-          # 1. Empacota versão Apple Silicon (arm64) com motor de IA embutido
+          # Cada rodada gera SÓ o instalador do seu processador (-c.mac.target=dmg tira a lista
+          # arm64+x64 da configuração). Antes, a rodada do Intel gerava os dois de novo e o
+          # instalador de Apple Silicon saía com o motor de IA Intel (versão 1.2.8).
+          # 1. Apple Silicon (arm64) com motor de IA embutido
           ./scripts/prepareAiEngine.sh arm64
-          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --arm64 --publish never
+          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --arm64 -c.mac.target=dmg --publish never
 
-          # 2. Empacota versão Intel (x64) com motor de IA embutido
+          # 2. Intel (x64) com motor de IA embutido
           ./scripts/prepareAiEngine.sh x64
-          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --x64 --publish never
+          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --x64 -c.mac.target=dmg --publish never
 
       - uses: actions/upload-artifact@v4
         with:
@@ -74,6 +77,14 @@ jobs:
             MNT=$(mktemp -d)
             hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT"
             codesign --verify --deep --strict "$MNT/VS Stage.app"
+            # o motor de IA dentro do instalador é do mesmo processador e tem as versões travadas
+            if [ "$ARCH" = arm64 ]; then WANT=arm64; else WANT=x86_64; fi
+            ENGINE="$MNT/VS Stage.app/Contents/Resources/ai-engine/python"
+            file "$ENGINE/bin/python3.11" | grep -q "$WANT" || { echo "::error::$ARCH: o motor de IA não é $WANT"; hdiutil detach "$MNT" -quiet; exit 1; }
+            ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^numpy-1\.26\.4\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem o NumPy 1.26.4"; hdiutil detach "$MNT" -quiet; exit 1; }
+            ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^torch-2\.2\.2\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem o PyTorch 2.2.2"; hdiutil detach "$MNT" -quiet; exit 1; }
+            ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^soundfile-0\.12\.1\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem a soundfile (leitura/gravação de áudio)"; hdiutil detach "$MNT" -quiet; exit 1; }
+            [ -s "$MNT/VS Stage.app/Contents/Resources/ai-engine/torch-cache/hub/checkpoints/5c90dfd2-34c22ccb.th" ] || { echo "::error::$ARCH: o modelo de IA htdemucs_6s não está embutido"; hdiutil detach "$MNT" -quiet; exit 1; }
             hdiutil detach "$MNT" -quiet
 
             SHA_ORIG=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
@@ -85,7 +96,7 @@ jobs:
             if [ "$SHA_ORIG" != "$SHA_NEW" ]; then
               echo "::error::$ARCH: SHA-256 da reconstrução não bate com o original"; exit 1
             fi
-            echo "$ARCH ok: assinatura válida e reconstrução das partes confere"
+            echo "$ARCH ok: assinatura válida, motor de IA $WANT com versões travadas e reconstrução das partes confere"
           done
 
       # Publica os instaladores em partes de 45 MB na VPS e, em espelho, no bucket Supabase

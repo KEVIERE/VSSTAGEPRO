@@ -1738,20 +1738,26 @@ export default function TimelinePanel() {
     updateVisible();
   }, [updateVisible]);
 
+  // A coluna das faixas só existe com uma música aberta: o rolar com dois dedos é ligado sempre
+  // que ela aparece (antes era ligado uma vez só, na abertura — sem música ainda, nunca ligava).
+  const hasSong = !!song;
   useEffect(() => {
     const el = trackHeadersRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      // pinça / Ctrl + rolar é zoom (tratado no painel inteiro)
+      if (e.ctrlKey) return;
       e.preventDefault();
       if (scrollRef.current) {
         // Ao rolar em cima das tracks, rola estritamente na vertical (nunca na horizontal)
-        const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const raw = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const delta = e.deltaMode === 1 ? raw * 16 : e.deltaMode === 2 ? raw * el.clientHeight : raw;
         scrollRef.current.scrollTop += delta;
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [hasSong]);
 
   useEffect(() => {
     const el = scrollRef.current;
