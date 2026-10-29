@@ -197,6 +197,11 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
         return;
       }
       if (d.type === 'seek') {
+        // A busca deve aplicar o andamento e tom do ponto de destino antes de criar a voz.
+        if (typeof d.tempo === 'number') this.tempo = d.tempo;
+        if (typeof d.pitch === 'number') this.pitch = d.pitch;
+        if (typeof d.process === 'boolean') this.processAll = d.process;
+        this.dropStaleRendered();
         this.voice = this.makeVoice(d.offsetSamples | 0);
         this.jump = null;
         this.fadeOutVoice = null;

@@ -351,6 +351,7 @@ class AudioEngine {
   private playGeneration = 0;
   private workletReady: Promise<void> | null = null;
   private seekLock: { active: boolean; targetTime: number } = { active: false, targetTime: 0 };
+  private seekRequest = 0;
   private prepared: Map<string, PreparedBundle> = new Map();
   private preparing: Map<string, Promise<void>> = new Map();
   private stableMode = localStorage.getItem(STABLE_MODE_LS) !== '0';
@@ -994,9 +995,10 @@ class AudioEngine {
 
       const song = store.songs.find((s) => s.id === songId);
       const songDuration = song?.duration ?? Math.max(...clipsNow.map((c) => c.duration));
-      const bpmAdjust = song?.bpmAdjust ?? 0;
+      const params = song ? paramsAt(song, startOffset) : { bpmAdjust: 0, tuner: 0 };
+      const bpmAdjust = params.bpmAdjust;
       const alpha = bpmAdjustToAlpha(bpmAdjust);
-      const cents = song ? song.tuner * 100 : 0;
+      const cents = params.tuner * 100;
       const tracks = store.tracks;
       const lr = store.lrMasterActive;
 
@@ -1042,7 +1044,9 @@ class AudioEngine {
         else { try { p.clipGain.gain.cancelScheduledValues(ctx.currentTime); } catch { /* ignore */ } try { p.clipGain.gain.setValueAtTime(gTarget, ctx.currentTime); } catch { p.clipGain.gain.value = gTarget; } }
         const offsetSamples = local > 0 ? Math.min(p.bufferLength, Math.floor(local * p.sampleRate)) : 0;
         try {
-          p.node.port.postMessage({ type: 'seek', offsetSamples, startTime: whenWall, fadeInFrames: offsetSamples > 0 ? 512 : 1 });
+          p.node.port.postMessage({ type: 'seek', offsetSamples, startTime: whenWall, fadeInFrames: offsetSamples > 0 ? 512 : 1,
+            tempo: tempoFromBpm(bpmAdjust), pitch: isMelodicTrack(track, tracks) ? pitchFromCents(cents) : 1,
+            process: songNeedsProcessing(song), dropPartial: true });
         } catch { /* ignore */ }
 
         p.node.port.onmessage = (ev) => {
@@ -1090,15 +1094,17 @@ class AudioEngine {
 
     this.isPlaying = true;
     this.currentSongId = songId;
+    this.endedClips.clear();
     this.markOnAir(songId);
     this.playbackOffset = startOffset;
     this.headOnly = !!heads;
 
     const songDuration = song?.duration ?? Math.max(...clips.map((c) => c.duration));
-    const bpmAdjust = song?.bpmAdjust ?? 0;
+    const params = song ? paramsAt(song, startOffset) : { bpmAdjust: 0, tuner: 0 };
+    const bpmAdjust = params.bpmAdjust;
     const alpha = bpmAdjustToAlpha(bpmAdjust);
     const tempo = tempoFromBpm(bpmAdjust);
-    const cents = song ? song.tuner * 100 : 0;
+    const cents = params.tuner * 100;
     const tracks = store.tracks;
     const lr = store.lrMasterActive;
     this.playbackAlpha = alpha;
@@ -1312,8 +1318,9 @@ class AudioEngine {
       }
     }
 
-    this.headOnly = false;
-    this.scheduleRender(songId, 0);
+    // Não declare o reprodutor completo se ainda houver faixa sem dados.
+    this.headOnly = stillMissing.length > 0;
+    if (!this.headOnly) this.scheduleRender(songId, 0);
   }
 
   // O começo ajustado cobre só os primeiros segundos: antes dele acabar, todas as faixas passam juntas para o áudio inteiro.
@@ -1676,6 +1683,7 @@ class AudioEngine {
     this.isPlaying = false;
     this.currentSongId = null;
     this.playGeneration++;
+    this.seekRequest++;
     this.timecode?.stop();
     this.timecodeClipId = null;
     if (this.songEndTimeout) { clearTimeout(this.songEndTimeout); this.songEndTimeout = null; }
@@ -1770,24 +1778,39 @@ class AudioEngine {
 
     if (!canSeekInPlace) {
       this.seekLock = { active: true, targetTime: time };
-      this.playSong(songId, time, { fastSeek: true }).catch((err) => {
-        console.error('[seekTo] falha', err);
-        this.seekLock.active = false;
+      const request = ++this.seekRequest;
+      const generation = this.playGeneration;
+      // Não derruba a música enquanto a faixa inteira ainda abre. Apenas o último clique vale.
+      void ensureSongLoaded(songId).catch((err) => console.warn('[seekTo] falha ao carregar', err)).then(() => {
+        if (request !== this.seekRequest || generation !== this.playGeneration || !this.isPlayingSong(songId)) return;
+        if (!isSongLoaded(songId)) {
+          this.seekLock.active = false;
+          this.warnIncompleteSong(songId);
+          return;
+        }
+        this.playSong(songId, time, { fastSeek: true }).catch((err) => {
+          console.error('[seekTo] falha', err);
+          this.seekLock.active = false;
+        });
       });
       return;
     }
 
+    this.seekRequest++;
+    this.endedClips.clear();
     this.seekLock = { active: true, targetTime: time };
-    const alpha = this.playbackAlpha || 1;
+    const tracks = store.tracks;
+    const song = store.songs.find((s) => s.id === songId);
+    const params = song ? paramsAt(song, time) : { bpmAdjust: 0, tuner: 0 };
+    const alpha = bpmAdjustToAlpha(params.bpmAdjust);
+    const cents = params.tuner * 100;
     const headroom = 0.03;
     const scheduledStart = ctx!.currentTime + headroom;
+    this.playbackAlpha = alpha;
+    this.playbackCents = cents;
     this.playbackStartTime = scheduledStart - time * alpha;
     this.playbackOffset = time;
     this.startTimecode(songId, time, scheduledStart, false);
-
-    const tracks = store.tracks;
-    const song = store.songs.find((s) => s.id === songId);
-    const cents = song ? song.tuner * 100 : 0;
 
     for (const clip of clips) {
       const active = this.activeClips.get(clip.id);
@@ -1812,8 +1835,9 @@ class AudioEngine {
           startTime: whenWall,
           fadeInFrames: 1024,
           dropPartial: true,
-          tempo: tempoFromBpm(song?.bpmAdjust ?? 0),
+          tempo: tempoFromBpm(params.bpmAdjust),
           pitch: melodic ? pitchFromCents(cents) : 1,
+          process: songNeedsProcessing(song),
         });
       } catch { /* ignore */ }
       active.scheduledStartWall = whenWall;

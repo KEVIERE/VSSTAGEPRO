@@ -339,7 +339,7 @@ function DirectorApp({ license }: { license: License }) {
         const st = useStore.getState();
         if (st.playlistMaximized) st.togglePlaylistMaximized();
         else stopPlayback();
-      } else if (e.key === 'm' && !ctrl) {
+      } else if (key === 'm' && !ctrl) {
         e.preventDefault();
         toggleMixer();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
