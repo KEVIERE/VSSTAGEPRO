@@ -15,6 +15,8 @@ function checkCancelled(signal?: AbortSignal) {
 export type SavedManifest = {
   version: number;
   projectName: string;
+  /** Placa de som desejada: ao abrir, o programa volta para ela e reaplica o roteamento abaixo. */
+  audioInterface?: string;
   tracks: Track[];
   clips: AudioClip[];
   songs: ProjectState['songs'];
@@ -39,7 +41,6 @@ export type SavedManifest = {
   songLoudness?: Record<string, import('@/types').SongLoudness>;
   songKeys?: Record<string, { key: string; sig: string }>;
   dawMode?: boolean;
-  audioInterface: string;
   lyricMaps?: ProjectState['lyricMaps'];
   assets?: Array<{ clipId: string; path: string; offset: number; size: number }>;
 };
@@ -530,6 +531,17 @@ export async function openProjectFile(onProgress: ProgressFn): Promise<LoadedPro
   }
   const loaded = await readPackage(file, onProgress);
   return handle ? { ...loaded, target: { kind: 'package', handle } } : loaded;
+}
+/** Projeto aberto pelo Finder (duplo clique no arquivo): lê do disco pelo app, sem carregar o arquivo todo. */
+export async function openProjectFromPath(name: string, filePath: string, onProgress: ProgressFn): Promise<LoadedProject> {
+  if (!/\.(vss|vsc)$/i.test(name)) throw new Error('Escolha um arquivo de projeto .vss ou .vsc.');
+  const url = window.vsDesktop?.projectFileUrl?.(filePath);
+  if (!url) throw new Error('Abra o projeto pelo app do VS Stage para Mac.');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Não foi possível ler o arquivo do projeto.');
+  // O protocolo do app entrega os pedaços (Range) direto do disco: projetos acima de 2 GiB abrem igual.
+  const blob = await res.blob();
+  return readPackage(new File([blob], name), onProgress);
 }
 
 type ReadPermissionHandle = FileSystemHandle & {

@@ -211,11 +211,24 @@ function hasLocalDemucs() {
   return true; // Sempre suportado localmente (se não estiver pré-instalado, o ensureAiEngine configura no primeiro uso)
 }
 
+const running = new Set();
+let cancelRequested = false;
+function killTree(proc) {
+  if (!proc || proc.exitCode !== null) return;
+  try { process.kill(-proc.pid, 'SIGTERM'); } catch { try { proc.kill('SIGTERM'); } catch {} }
+}
+function cancelStemSeparation() {
+  cancelRequested = true;
+  for (const proc of running) killTree(proc);
+  return true;
+}
+
 /**
  * Motor Local de Separação de Stems via Demucs v4 (Meta AI).
  * Roda 100% nativo no Mac (Universal: Intel e Apple Silicon).
  */
 async function separateStemsLocal(win, filename, audioData, onProgress) {
+  cancelRequested = false;
   let runner = findDemucsRunner();
 
   if (!runner) {
@@ -263,12 +276,15 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
       : ['-m', 'demucs.separate', '-n', 'htdemucs_6s', '-o', outDir, inputPath];
 
     const proc = spawn(spawnCmd, spawnArgs, {
+      detached: true,
       env: {
         ...process.env,
         PATH: `${path.dirname(runner.path)}:${extendedPath}`,
         ...(runner.torchHome ? { TORCH_HOME: runner.torchHome } : {})
       }
     });
+    running.add(proc);
+    if (cancelRequested) killTree(proc);
 
     let lastProgress = 0;
     const stderrLogs = [];
@@ -299,11 +315,18 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
     proc.stderr.on('data', parseProgress);
 
     proc.on('error', (err) => {
+      running.delete(proc);
       cleanup();
-      reject(new Error(`Falha ao iniciar o motor de IA (${spawnCmd}): ${err.message}`));
+      reject(new Error(cancelRequested ? 'separation_cancelled' : `Falha ao iniciar o motor de IA (${spawnCmd}): ${err.message}`));
     });
 
     proc.on('close', (code) => {
+      running.delete(proc);
+      if (cancelRequested) {
+        cleanup();
+        reject(new Error('separation_cancelled'));
+        return;
+      }
       if (code !== 0) {
         const lastErr = stderrLogs.slice(-10).join('\n').trim();
         cleanup();
@@ -358,5 +381,6 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
 
 module.exports = {
   separateStemsLocal,
+  cancelStemSeparation,
   hasLocalDemucs,
 };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   AudioWaveform,
@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import { decodeFile } from '@/lib/audioDecoder';
 import {
+  SEPARATION_CANCELLED,
+  cancelStemSeparation,
   separateSongToVS,
   type StemSeparationProgress,
 } from '@/lib/stemSeparator';
@@ -35,6 +37,10 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<StemSeparationProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Cancelado pela pessoa: o resultado da separação que estava rodando é descartado.
+  const cancelRef = useRef(false);
+  const [cancelling, setCancelling] = useState(false);
+  const closeTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if (!open) {
@@ -43,16 +49,30 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
       setBusy(false);
       setProgress(null);
       setError(null);
+      setCancelling(false);
+      cancelRef.current = true;
     }
   }, [open]);
 
+  useEffect(() => () => {
+    if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+  }, []);
+
+  // Cancelar vale em qualquer momento: antes de começar, durante a IA ou na montagem do VS.
+  const handleCancel = useCallback(() => {
+    cancelRef.current = true;
+    if (!busy) { onClose(); return; }
+    setCancelling(true);
+    void cancelStemSeparation();
+  }, [busy, onClose]);
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !busy) onClose();
+      if (e.key === 'Escape') { e.preventDefault(); handleCancel(); }
     };
     if (open) window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, busy, onClose]);
+  }, [open, handleCancel]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -77,6 +97,8 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
 
   const handleStartSeparation = async () => {
     if (!file) return;
+    cancelRef.current = false;
+    setCancelling(false);
     setBusy(true);
     setError(null);
 
@@ -89,6 +111,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
       });
 
       const decoded = await decodeFile(file);
+      if (cancelRef.current) return;
 
       // 2. Separa stems e cria o VS via Demucs v4
       await separateSongToVS(
@@ -99,17 +122,29 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
           beatsPerBar,
           songName: songName.trim() || undefined,
         },
-        (p) => setProgress(p)
+        (p) => { if (!cancelRef.current) setProgress(p); },
+        () => cancelRef.current
       );
+      if (cancelRef.current) return;
 
       // Finaliza e fecha modal
-      setTimeout(() => {
+      closeTimer.current = window.setTimeout(() => {
         onClose();
       }, 700);
     } catch (err) {
+      const cancelled = cancelRef.current || (err instanceof Error && err.message === SEPARATION_CANCELLED);
+      if (cancelled) {
+        // Cancelou de propósito: fecha sem mensagem de erro nem VS pela metade.
+        setBusy(false);
+        setProgress(null);
+        setCancelling(false);
+        onClose();
+        return;
+      }
       console.error('[AiStemSeparator] erro', err);
       setError(err instanceof Error ? err.message : 'Falha ao processar o áudio.');
       setBusy(false);
+      setCancelling(false);
     }
   };
 
@@ -136,15 +171,14 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
             <span className="font-bold text-sm text-white">Criar VS com IA a partir de Música</span>
           </div>
 
-          {!busy && (
-            <button
-              onClick={onClose}
-              className="text-logic-text-muted hover:text-white p-1 rounded-lg transition"
-              title="Fechar"
-            >
-              <X size={16} />
-            </button>
-          )}
+          <button
+            onClick={handleCancel}
+            disabled={cancelling}
+            className="text-logic-text-muted hover:text-white p-1 rounded-lg transition disabled:opacity-40"
+            title={busy ? 'Cancelar e parar a IA' : 'Fechar'}
+          >
+            <X size={16} />
+          </button>
         </div>
 
         {/* Conteúdo */}
@@ -295,24 +329,34 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
           )}
 
           {/* Barra de Progresso Durante Processamento */}
-          {busy && progress && (
+          {busy && (progress || cancelling) && (
             <div className="py-4 space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-white flex items-center gap-2">
-                  <Loader2 size={14} className="animate-spin text-logic-lcd-green" />
-                  <span>{progress.message}</span>
-                </span>
-                <span className="font-mono text-logic-lcd-green font-bold tabular-nums">
-                  {progress.percent}%
-                </span>
-              </div>
+              {cancelling && (
+                <div className="p-3 rounded-xl bg-logic-lcd-amber/10 border border-logic-lcd-amber/40 text-xs text-logic-lcd-amber flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin shrink-0" />
+                  <span>Cancelando... a inteligência artificial está sendo encerrada.</span>
+                </div>
+              )}
+              {progress && (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-white flex items-center gap-2">
+                      <Loader2 size={14} className="animate-spin text-logic-lcd-green" />
+                      <span>{progress.message}</span>
+                    </span>
+                    <span className="font-mono text-logic-lcd-green font-bold tabular-nums">
+                      {progress.percent}%
+                    </span>
+                  </div>
 
-              <div className="w-full bg-black/60 h-2.5 rounded-full overflow-hidden border border-white/10">
-                <div
-                  className="h-full bg-logic-lcd-green rounded-full transition-all duration-300"
-                  style={{ width: `${progress.percent}%` }}
-                />
-              </div>
+                  <div className="w-full bg-black/60 h-2.5 rounded-full overflow-hidden border border-white/10">
+                    <div
+                      className="h-full bg-logic-lcd-green rounded-full transition-all duration-300"
+                      style={{ width: `${progress.percent}%` }}
+                    />
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -321,11 +365,17 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
         <div className="px-5 py-3.5 border-t border-white/10 bg-white/[0.02] flex items-center justify-between">
           <button
             type="button"
-            onClick={onClose}
-            disabled={busy}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-logic-text-dim hover:text-white transition disabled:opacity-40"
+            onClick={handleCancel}
+            disabled={cancelling}
+            title={busy ? 'Cancelar e parar a inteligência artificial' : 'Fechar sem criar o VS'}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 disabled:opacity-50 ${
+              busy
+                ? 'text-logic-lcd-red bg-logic-lcd-red/15 border border-logic-lcd-red/40 hover:bg-logic-lcd-red/25'
+                : 'text-logic-text-dim hover:text-white'
+            }`}
           >
-            Cancelar
+            {cancelling && <Loader2 size={12} className="animate-spin" />}
+            {cancelling ? 'Cancelando...' : 'Cancelar'}
           </button>
 
           <button

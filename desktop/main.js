@@ -1,4 +1,5 @@
-const { app, BrowserWindow, ipcMain, protocol, net, shell, session, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, shell, session, Menu, dialog } = require('electron');
+const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { resolveStatic } = require('./staticFiles');
@@ -6,10 +7,11 @@ const { LocalServer } = require('./localServer');
 const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const selfUpdate = require('./selfUpdate');
-const { separateStemsLocal, hasLocalDemucs } = require('./stemSeparatorLocal');
+const { separateStemsLocal, cancelStemSeparation, hasLocalDemucs } = require('./stemSeparatorLocal');
 const { initAntiTamper } = require('./antiTamper');
 
 const SCHEME = 'vsstage';
+const hasSingleInstance = app.requestSingleInstanceLock();
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '..', 'dist');
 
 // Origem fixa para o app guardar preferências e sessão entre aberturas.
@@ -20,6 +22,107 @@ protocol.registerSchemesAsPrivileged([
 let win = null;
 let server = null;
 let splash = null;
+
+// Projeto aberto no Finder (duplo clique no .vss): fica guardado até a janela escutar o canal.
+const PROJECT_EXT = /\.(vss|vsc)$/i;
+let pendingProjectPath = null;
+let webReady = false;
+let lastQueuedPath = null;
+let queueCheckTimer = null;
+// Projetos que a tela pode ler pelo protocolo (o caminho vem da janela, não da página).
+const openedProjects = new Set();
+// Menu principal desabilitado durante a troca de projeto.
+let menuLocked = false;
+let menuTemplate = null;
+
+function lockMenu() {
+  if (menuLocked) return;
+  menuLocked = true;
+  Menu.setApplicationMenu(null);
+}
+
+function unlockMenu() {
+  if (!menuLocked) return;
+  menuLocked = false;
+  if (menuTemplate && win && !win.isDestroyed()) Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+}
+
+/** A tela anotou a troca e já escuta de novo "project:open-file" (vem depois do project:taken). */
+ipcMain.on('project:listenerReady', (event) => {
+  if (!fromDirector(event)) return;
+  if (queueCheckTimer) { clearTimeout(queueCheckTimer); queueCheckTimer = null; }
+  deliverPendingProject();
+});
+
+// A tela respondeu (abriu, cancelou ou falhou): o menu volta e o mesmo arquivo pode ser pedido de novo.
+ipcMain.on('project:taken', (event) => {
+  if (!fromDirector(event)) return;
+  if (queueCheckTimer) { clearTimeout(queueCheckTimer); queueCheckTimer = null; }
+  pendingProjectPath = null;
+  lastQueuedPath = null;
+  unlockMenu();
+});
+
+// Projetos grandes (passam de 2 GiB) não podem ir pelo IPC: manda só o caminho e a tela lê pelo
+// protocolo vsstage://project, que entrega o arquivo em pedaços para os áudios.
+function sendProjectToWindow(filePath) {
+  if (!win || win.isDestroyed()) return false;
+  try {
+    // macOS manda às vezes /private/var/... e às vezes /var/...: guarda o caminho real.
+    const resolved = (() => { try { return fs.realpathSync(filePath); } catch { return path.resolve(filePath); } })();
+    openedProjects.add(resolved);
+    win.webContents.send('project:open-file', { name: path.basename(resolved), path: resolved });
+    return true;
+  } catch (err) {
+    dialog.showErrorBox('Não foi possível abrir o projeto', err.message || String(err));
+    return false;
+  }
+}
+
+/**
+ * Entrega o projeto guardado: na abertura, espera a splash sair para não avisar por cima do menu
+ * principal; com o app aberto, a própria tela mostra o aviso "abrir mesmo assim?".
+ */
+function deliverPendingProject(force) {
+  if (!pendingProjectPath || !webReady || !win || win.isDestroyed()) return;
+  if (splash && !force) return;
+  const filePath = pendingProjectPath;
+  pendingProjectPath = null;
+  if (!sendProjectToWindow(filePath)) {
+    lastQueuedPath = null;
+    unlockMenu();
+  }
+}
+
+// "Arquivo --pasta/file.vss": no Mac o Finder costuma passar o caminho antes do segundo "--".
+function takeProjectArg(argv) {
+  const hit = (argv || []).find((a) => typeof a === 'string' && PROJECT_EXT.test(a) && fs.existsSync(a));
+  return hit ? path.resolve(hit) : null;
+}
+
+function queueProjectPath(filePath) {
+  if (!filePath) return;
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible() && !splash) win.show();
+    win.focus();
+  }
+  // Pedir e já abrir o mesmo arquivo (menu "Abrir com" + aviso de instância): abre uma vez só.
+  if (lastQueuedPath === filePath && (webReady || pendingProjectPath)) return;
+  lastQueuedPath = filePath;
+  pendingProjectPath = filePath;
+  if (!webReady) return;
+  lockMenu();
+  if (queueCheckTimer) clearTimeout(queueCheckTimer);
+  // Rede de segurança: tela que não responde não deixa o menu travado.
+  queueCheckTimer = setTimeout(() => {
+    queueCheckTimer = null;
+    pendingProjectPath = null;
+    lastQueuedPath = null;
+    unlockMenu();
+  }, 8000);
+  deliverPendingProject();
+}
 
 const SPLASH_MIN_MS = 3800;
 const SPLASH_EXIT_MS = 600;
@@ -64,6 +167,7 @@ let splashLeaving = false;
 
 function showMain() {
   if (win && !win.isDestroyed() && !win.isVisible()) { win.show(); win.focus(); }
+  deliverPendingProject();
 }
 
 // A janela principal só aparece pronta; a abertura sai em fade por cima dela.
@@ -128,7 +232,9 @@ function handle(name, fn) {
 ipcMain.on('app:ready', (event) => {
   if (!fromDirector(event)) return;
   appReady = true;
+  webReady = true;
   finishSplash(false);
+  deliverPendingProject();
 });
 
 handle('getInfo', () => server.info());
@@ -159,6 +265,7 @@ handle('exportStreamClose', (streamId) => exportFiles.streamClose(streamId));
 handle('exportStreamAbort', (streamId) => exportFiles.streamAbort(streamId));
 handle('hasLocalDemucs', () => hasLocalDemucs());
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
+handle('cancelStemSeparation', () => cancelStemSeparation());
 
 // Atualização silenciosa: confere, baixa, instala por cima do app atual e reabre —
 // o cliente só vê uma barra de progresso dentro do próprio programa.
@@ -241,10 +348,11 @@ function buildMenu() {
     },
     { role: 'help', label: 'Ajuda', submenu: [{ label: 'Site do VS Stage Pro', click: () => shell.openExternal('https://vsstagepro.com.br') }] },
   ];
+  menuTemplate = template;
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-app.whenReady().then(() => {
+if (hasSingleInstance) app.whenReady().then(() => {
   buildMenu();
   server = new LocalServer({
     webRoot,
@@ -256,7 +364,15 @@ app.whenReady().then(() => {
   });
 
   protocol.handle(SCHEME, (request) => {
-    const { file } = resolveStatic(webRoot, new URL(request.url).pathname);
+    const url = new URL(request.url);
+    if (url.hostname === 'project') {
+      const asked = decodeURIComponent(url.pathname.slice(1));
+      let filePath = null;
+      try { filePath = fs.realpathSync(asked); } catch { /* sem acesso */ }
+      if (!filePath || !openedProjects.has(filePath)) return new Response('not_found', { status: 404 });
+      return net.fetch(pathToFileURL(filePath).toString(), { headers: request.headers });
+    }
+    const { file } = resolveStatic(webRoot, url.pathname);
     return net.fetch(pathToFileURL(file).toString());
   });
 
@@ -270,8 +386,29 @@ app.whenReady().then(() => {
   createSplash();
   createWindow();
   setTimeout(() => finishSplash(true), SPLASH_MAX_MS);
+  deliverPendingProject();
   app.on('activate', () => { if (!win) createWindow(); });
 });
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  queueProjectPath(path.resolve(filePath));
+});
+
+app.on('second-instance', (_event, argv) => {
+  const filePath = takeProjectArg(argv);
+  if (filePath) queueProjectPath(filePath);
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  }
+});
+
+const initialProject = takeProjectArg(process.argv);
+if (initialProject) pendingProjectPath = initialProject;
+
+if (!hasSingleInstance) app.quit();
 
 app.on('window-all-closed', () => { app.quit(); });
 app.on('before-quit', () => { server?.stop(); });

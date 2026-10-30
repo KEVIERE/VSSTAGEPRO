@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   installUpdate: call('installUpdate'),
   hasLocalDemucs: call('hasLocalDemucs'),
   separateStemsLocal: call('separateStemsLocal'),
+  cancelStemSeparation: call('cancelStemSeparation'),
+  projectFileUrl: (filePath) => `vsstage://project/${encodeURIComponent(filePath)}`,
   onSeparationProgress: (cb) => {
     const listener = (_event, data) => cb(data);
     ipcRenderer.on('separation:progress', listener);
@@ -49,6 +51,13 @@ contextBridge.exposeInMainWorld('vsDesktop', {
     ipcRenderer.on('menu:showMode', listener);
     return () => ipcRenderer.removeListener('menu:showMode', listener);
   },
+  onOpenProjectFile: (cb) => {
+    const listener = (_event, file) => cb(file);
+    ipcRenderer.on('project:open-file', listener);
+    ipcRenderer.send('project:listenerReady');
+    return () => ipcRenderer.removeListener('project:open-file', listener);
+  },
+  projectTaken: () => ipcRenderer.send('project:taken'),
   onRemoteTransport: (cb) => {
     const listener = (_event, cmd) => cb(cmd);
     ipcRenderer.on('remote:transport', listener);

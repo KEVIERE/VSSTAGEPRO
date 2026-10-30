@@ -12,6 +12,7 @@ interface Props {
 
 export default function AudioDeviceDialog({ open, onClose }: Props) {
   const activeIface = useStore((s) => s.audioInterface);
+  const ifaceConnected = useStore((s) => s.audioInterfaceConnected);
   const outputCount = useStore((s) => s.outputChannelCount);
   const setAudioInterface = useStore((s) => s.setAudioInterface);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -86,8 +87,9 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
     }
   };
 
+  // Com a placa escolhida desconectada nada aparece como "Em uso": o som está no LR padrão.
   const isActive = (dev: MediaDeviceInfo) =>
-    (dev.label && dev.label === activeIface) || dev.deviceId === activeIface;
+    ifaceConnected && ((dev.label && dev.label === activeIface) || dev.deviceId === activeIface);
 
   return (
     <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/60">

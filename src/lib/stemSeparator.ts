@@ -53,6 +53,14 @@ export interface StemSeparationProgress {
   percent: number;
 }
 
+/** Erro do botão Cancelar do diálogo de IA (não é falha: nada é mostrado como erro). */
+export const SEPARATION_CANCELLED = 'separation_cancelled';
+
+/** Pede ao app do Mac para parar o Demucs em andamento. */
+export function cancelStemSeparation(): Promise<boolean> {
+  return window.vsDesktop?.cancelStemSeparation?.().catch(() => false) ?? Promise.resolve(false);
+}
+
 export interface StemSeparationOptions {
   includeClick: boolean;
   beatsPerBar?: 4 | 3 | 6;
@@ -75,8 +83,11 @@ export async function separateSongToVS(
   audioBuffer: AudioBuffer,
   file: File,
   options: StemSeparationOptions,
-  onProgress?: (p: StemSeparationProgress) => void
+  onProgress?: (p: StemSeparationProgress) => void,
+  shouldCancel?: () => boolean
 ): Promise<StemResult> {
+  const stopped = () => shouldCancel?.() ?? false;
+  const checkCancelled = () => { if (stopped()) throw new Error(SEPARATION_CANCELLED); };
   const sampleRate = audioBuffer.sampleRate;
   const duration = audioBuffer.duration;
   const numChannels = audioBuffer.numberOfChannels;
@@ -118,7 +129,12 @@ export async function separateSongToVS(
 
     try {
       const arrayBuf = await file.arrayBuffer();
-      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf);
+      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf).catch((err) => {
+        // Cancelado no meio da IA: não é erro de verdade, só encerra sem criar o VS.
+        if (stopped() || /separation_cancelled/.test(String((err as Error)?.message ?? err))) throw new Error(SEPARATION_CANCELLED);
+        throw err;
+      });
+      checkCancelled();
       onProgress?.({
         step: 'other',
         message: 'Decodificando faixas de alta fidelidade para a timeline...',
@@ -181,6 +197,7 @@ export async function separateSongToVS(
   }
 
   // 3. MONTAGEM DO PROJETO E ROTEAMENTO OFICIAL
+  checkCancelled();
   onProgress?.({
     step: 'finalizing',
     message: 'Roteando stems para as pastas oficiais do programa...',
@@ -242,6 +259,7 @@ export async function separateSongToVS(
   if (guitarBuffer) {
     // O modelo entrega violão e guitarra no mesmo stem: a IA de instrumentos ouve os trechos
     // mais fortes e decide a pasta (Violões ou Guitarras).
+    checkCancelled();
     const heard = await classifyStem(guitarBuffer, songId + '-guitar');
     const acoustic = heard?.target === 'track-violoes';
     stemConfigs.push({

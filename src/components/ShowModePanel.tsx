@@ -35,8 +35,9 @@ function interfaceName(label: string): string {
 // Acesso discreto ao Dispositivo de Áudio sem sair do Modo Show.
 function AudioDeviceButton() {
   const iface = useStore((s) => s.audioInterface);
+  const connected = useStore((s) => s.audioInterfaceConnected);
   const outputs = useStore((s) => s.outputChannelCount);
-  const name = interfaceName(iface ?? '');
+  const name = connected ? interfaceName(iface ?? '') : 'Saída padrão';
   return (
     <button
       onClick={() => useStore.getState().setAudioDeviceDialogOpen(true)}

@@ -266,6 +266,8 @@ export interface ProjectState {
    * fica escondida. */
   dawMode: boolean;
   audioInterface: string;
+  /** Indica se a interface desejada está conectada agora; não é salvo no .vss. */
+  audioInterfaceConnected: boolean;
   showBpmTower: boolean;
   showTunerTower: boolean;
   exportProgress: { active: boolean; message: string } | null;

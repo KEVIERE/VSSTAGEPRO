@@ -76,6 +76,7 @@ interface ProjectStateExt {
   queuedRegion: { songId: string; regionId: string } | null;
   sectionKeys: boolean;
   saveTarget: SaveTarget | null;
+  audioInterfaceConnected: boolean;
   saveStatus: { kind: 'saving' | 'saved' | 'error'; message: string } | null;
   snapStep: SnapStep;
   /** Trava da timeline (cadeado): impede mover ou cortar clipes acidentalmente */
@@ -157,6 +158,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   songKeys: {},
   dawMode: true,
   audioInterface: 'default',
+  audioInterfaceConnected: false,
   showBpmTower: false,
   showTunerTower: false,
   exportProgress: null,
@@ -277,6 +279,8 @@ interface StoreActions {
   toggleMagicRouting: () => void;
   toggleDawMode: () => void;
   setAudioInterface: (iface: string) => void;
+  /** A placa desejada está plugada agora? (só estado da tela, não vai para o .vss) */
+  setAudioInterfaceConnected: (connected: boolean) => void;
   updateMeter: (trackId: string, level: number) => void;
   updateMasterMeter: (level: number) => void;
   clearMasterClipIndicator: () => void;
@@ -703,7 +707,20 @@ export const useStore = create<Store>()(
           if (patch?.playlist) set({ ...patch, ...withBlocks(get(), patch.playlist) });
           else if (patch) set(patch);
         }
-        get().reconcileTracks();
+        // Não reconcilia ao abrir: a reconciliação reconstrói as faixas filhas e recria as saídas
+        // (outputChannel) a partir do padrão, apagando o roteamento salvo do projeto.
+        // Abrir um projeto com roteamento salvo também sai do "LR mágico", que manda tudo para o Master.
+        if (get().magicRoutingActive) {
+          const prevPans = get().prevOutputChannels;
+          set({
+            magicRoutingActive: false,
+            prevOutputChannels: null,
+            tracks: get().tracks.map((t) => {
+              const prevPan = prevPans?.[t.id];
+              return prevPan === undefined ? t : { ...t, pan: prevPan };
+            }),
+          });
+        }
       },
 
       addToPlaylist: (songId, name, duration, bpm) => set((s) => ({
@@ -1303,7 +1320,8 @@ export const useStore = create<Store>()(
           })),
         };
       }),
-      setAudioInterface: (iface) => set({ audioInterface: iface }),
+      setAudioInterface: (iface) => set({ audioInterface: iface, audioInterfaceConnected: iface !== 'default' }),
+      setAudioInterfaceConnected: (connected) => set((s) => (s.audioInterfaceConnected === connected ? s : { audioInterfaceConnected: connected })),
 
       updateMeter: (trackId, level) => set((s) => ({
         tracks: s.tracks.map((t) => {

@@ -82,8 +82,15 @@ declare global {
         guitar?: ArrayBuffer | null;
         piano?: ArrayBuffer | null;
       }>;
+      /** Para a separação por IA em andamento (botão Cancelar do diálogo). */
+      cancelStemSeparation?: () => Promise<boolean>;
       onSeparationProgress?: (cb: (data: { percent: number; message: string }) => void) => () => void;
       onRemoteTransport?: (cb: (cmd: { action: string; songId?: string }) => void) => () => void;
+      /** Projeto aberto no Finder: caminho no disco (a tela lê por projectFileUrl). */
+      onOpenProjectFile?: (cb: (file: { name: string; path: string }) => void) => () => void;
+      projectFileUrl?: (filePath: string) => string;
+      /** Avisa o app do Mac que o pedido de abrir projeto foi atendido (abriu, cancelou ou falhou). */
+      projectTaken?: () => void;
       notifySessionState?: (active: boolean) => void;
     };
     __VS_LOCAL__?: number;

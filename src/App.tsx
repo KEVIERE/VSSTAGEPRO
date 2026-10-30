@@ -14,7 +14,9 @@ import TransportBar from '@/components/TransportBar';
 import PlaylistPanel from '@/components/PlaylistPanel';
 import TimelinePanel from '@/components/TimelinePanel';
 import ShowModePanel from '@/components/ShowModePanel';
-import { saveCurrentProject } from '@/lib/projectQuickSave';
+import { loadOpenedProject, saveCurrentProject } from '@/lib/projectQuickSave';
+import { openProjectFromPath } from '@/lib/projectSaver';
+import { friendlyError } from '@/lib/friendlyError';
 import BounceDialog from '@/components/BounceDialog';
 import MixerPanel from '@/components/MixerPanel';
 import ContextMenu from '@/components/ContextMenu';
@@ -390,6 +392,39 @@ function DirectorApp({ license }: { license: License }) {
 
   // ⌘M pelo menu Visualizar → Modo Show do app do Mac
   useEffect(() => window.vsDesktop?.onMenuShowMode?.(toggleShowMode), []);
+  // Duplo clique no arquivo do projeto no Finder: o app do Mac manda o arquivo e ele abre aqui.
+  useEffect(() => {
+    if (!window.vsDesktop?.onOpenProjectFile) return;
+    return window.vsDesktop.onOpenProjectFile(({ name, path: filePath }) => {
+      const st = useStore.getState();
+      // Com um projeto já carregado, confirma antes de trocar o que está na tela.
+      const hasProject = Boolean(st.saveTarget) || st.songs.length > 0;
+      if (hasProject && !window.confirm(`Abrir "${name}"?\n\nO projeto que está aberto agora será fechado. Se tiver mudanças não salvas, salve antes.`)) {
+        window.vsDesktop?.projectTaken?.();
+        return;
+      }
+      const finish = () => window.vsDesktop?.projectTaken?.();
+      window.vsDesktop?.projectTaken?.();
+      st.setExportProgress({ active: true, message: `Abrindo "${name}"...` });
+      openProjectFromPath(name, filePath, (message) => useStore.getState().setExportProgress({ active: true, message }))
+        .then((loaded) => {
+          const done = loadOpenedProject(loaded);
+          useStore.getState().setExportProgress({ active: false, message: done });
+          window.setTimeout(() => {
+            if (useStore.getState().exportProgress?.message === done) useStore.getState().setExportProgress(null);
+          }, 4000);
+        })
+        .catch((err) => {
+          useStore.getState().setExportProgress(null);
+          const message = friendlyError(err, 'Não foi possível abrir este projeto.');
+          useStore.getState().setSaveStatus({ kind: 'error', message });
+          window.setTimeout(() => {
+            if (useStore.getState().saveStatus?.message === message) useStore.getState().setSaveStatus(null);
+          }, 8000);
+        })
+        .finally(finish);
+    });
+  }, []);
 
   useEffect(() => {
     useStore.getState().reconcileTracks();
@@ -409,7 +444,7 @@ function DirectorApp({ license }: { license: License }) {
       if (cmd.action === 'play') {
         startPlayback();
       } else if (cmd.action === 'pause') {
-        st.pause();
+        st.pause(audioEngine.getCurrentTime());
       } else if (cmd.action === 'stop') {
         stopPlayback();
       } else if (cmd.action === 'next') {
