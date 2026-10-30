@@ -23,6 +23,7 @@ export interface InstantPrep {
   failed?: number;
 }
 import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switchShow, syncedShows } from '@/lib/shows';
+import { applyHeaders, autoBlockName, blockHeaders, orderBlocks, resolveBlocks } from '@/lib/blocks';
 import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
@@ -335,6 +336,35 @@ function normalizePlaylist(playlist: PlaylistEntry[], order: string[]): { playli
   return { playlist: fixed, playlistOrder: fixed.map((p) => p.songId) };
 }
 
+// A playlist na ordem em que aparece na tela.
+function orderedPlaylist(s: Pick<ProjectState, 'playlist' | 'playlistOrder'>): PlaylistEntry[] {
+  const rank = new Map(s.playlistOrder.map((id, i) => [id, i]));
+  return [...s.playlist].sort((a, b) => (rank.get(a.songId) ?? a.order) - (rank.get(b.songId) ?? b.order));
+}
+
+// Cada música guarda também o bloco a que pertence (usado pela área do músico).
+function songsWithBlocks(songs: Song[], playlist: PlaylistEntry[]): Song[] {
+  const blockOf = new Map(playlist.map((p) => [p.songId, p.blockId]));
+  const differs = (sg: Song) => blockOf.has(sg.id) && (sg.blockId ?? null) !== (blockOf.get(sg.id) ?? null);
+  return songs.some(differs) ? songs.map((sg) => (differs(sg) ? { ...sg, blockId: blockOf.get(sg.id) ?? null } : sg)) : songs;
+}
+
+// Depois de mexer na playlist ou nos blocos: cada música fica no bloco do cabeçalho logo acima,
+// e os blocos ficam na ordem da lista, renumerados ("Bloco 01", "Bloco 02"...) pela posição.
+function withBlocks(
+  s: Pick<ProjectState, 'songs' | 'blocks'>,
+  playlist: PlaylistEntry[],
+  headers?: Map<string, string>,
+): Pick<ProjectState, 'playlist' | 'playlistOrder' | 'songs' | 'blocks'> {
+  const resolved = headers ? applyHeaders(playlist, headers) : resolveBlocks(playlist);
+  return {
+    playlist: resolved,
+    playlistOrder: resolved.map((p) => p.songId),
+    songs: songsWithBlocks(s.songs, resolved),
+    blocks: orderBlocks(s.blocks, resolved),
+  };
+}
+
 // Só o que o usuário edita entra no Desfazer; cursor, medidores e preferências de tela ficam de fora.
 export function partializeHistory(state: Store) {
   return {
@@ -531,8 +561,8 @@ export const useStore = create<Store>()(
           // o sinal de timecode é mono, nunca vai para o Master nem divide saída com a música
           if (pair) return s;
           if (channel !== NO_OUTPUT && (channel <= 0 || usedOutputs(s.tracks, trackId).has(channel))) return s;
-        } else if (channel === NO_OUTPUT || (pair && !isPairStart(channel))) {
-          // pares estéreo só 1/2, 3/4, 5/6…
+        } else if (pair && !isPairStart(channel)) {
+          // pares estéreo só 1/2, 3/4, 5/6… (NO_OUTPUT = faixa desligada, não sai em lugar nenhum)
           return s;
         } else if (tc && tc.outputChannel > 0 && trackOutputs({ outputChannel: channel, outputStereo: pair }).includes(tc.outputChannel)) {
           return s;
@@ -638,17 +668,25 @@ export const useStore = create<Store>()(
 
       newProject: () => {
         clearAudioLibrary();
-        set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })) });
+        // as saídas são da placa conectada, não do projeto
+        set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })), outputChannelCount: get().outputChannelCount });
       },
 
       loadProject: (data) => {
         clearAudioLibrary();
         const tracks = data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t }));
-        const songs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
+        const loadedSongs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
+        // projetos antigos podiam ter uma música no meio de um bloco apontando para o bloco de cima
+        const { playlist: loadedPlaylist, playlistOrder: loadedOrder, songs, blocks } = withBlocks(
+          { songs: loadedSongs, blocks: data.blocks ?? [] },
+          normalizePlaylist(data.playlist ?? [], data.playlistOrder ?? []).playlist,
+        );
         set({
           ...INITIAL_STATE,
           ...data,
-          ...normalizePlaylist(data.playlist ?? [], data.playlistOrder ?? []),
+          playlist: loadedPlaylist,
+          playlistOrder: loadedOrder,
+          blocks,
           songs,
           tracks,
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
@@ -657,10 +695,13 @@ export const useStore = create<Store>()(
           defaultPlaylist: null,
           queuedRegion: null,
           transport: { ...INITIAL_STATE.transport },
+          // as saídas são da placa conectada, não do projeto
+          outputChannelCount: get().outputChannelCount,
         });
         if (data.activeShowId) {
           const patch = switchShow(get(), data.activeShowId);
-          if (patch) set(patch);
+          if (patch?.playlist) set({ ...patch, ...withBlocks(get(), patch.playlist) });
+          else if (patch) set(patch);
         }
         get().reconcileTracks();
       },
@@ -673,10 +714,11 @@ export const useStore = create<Store>()(
         } : {}),
       })),
 
-      removeFromPlaylist: (songId) => set((s) => ({
-        playlist: s.playlist.filter((p) => p.songId !== songId).map((p, i) => ({ ...p, order: i })),
-        playlistOrder: s.playlistOrder.filter((id) => id !== songId),
-      })),
+      // se a música removida era a primeira do bloco, a de baixo vira o cabeçalho
+      removeFromPlaylist: (songId) => set((s) => {
+        const { playlist, playlistOrder, blocks } = withBlocks(s, resolveBlocks(orderedPlaylist(s)).filter((p) => p.songId !== songId));
+        return { playlist, playlistOrder, blocks };
+      }),
 
       duplicatePlaylistEntry: (songId) => {
         const state = get();
@@ -694,12 +736,11 @@ export const useStore = create<Store>()(
       },
 
       reorderPlaylist: (fromIndex, toIndex) => set((s) => {
-        const arr = [...s.playlist];
+        const arr = resolveBlocks(orderedPlaylist(s));
         const [moved] = arr.splice(fromIndex, 1);
         if (!moved) return s;
         arr.splice(toIndex, 0, moved);
-        const playlist = arr.map((p, i) => ({ ...p, order: i }));
-        return { playlist, playlistOrder: playlist.map((p) => p.songId) };
+        return withBlocks(s, arr);
       }),
 
       createShow: (name, songIds) => {
@@ -732,7 +773,11 @@ export const useStore = create<Store>()(
         return { ...patch, shows: (patch?.shows ?? s.shows).filter((sh) => sh.id !== id) };
       }),
 
-      activateShow: (id) => set((s) => switchShow(s, id) ?? s),
+      activateShow: (id) => set((s) => {
+        const patch = switchShow(s, id);
+        if (!patch?.playlist) return s;
+        return { ...patch, ...withBlocks({ songs: s.songs, blocks: s.blocks }, patch.playlist) };
+      }),
 
       addClip: (clip) => set((s) => {
         const target = s.tracks.find((t) => t.id === clip.trackId);
@@ -1162,33 +1207,30 @@ export const useStore = create<Store>()(
         return { incompleteSongIds: incomplete ? [...s.incompleteSongIds, songId] : s.incompleteSongIds.filter((id) => id !== songId) };
       }),
 
-      createBlock: (afterSongId) => {
-        if (!afterSongId) return;
-        const existing = get().blocks;
-        const used = new Set<number>();
-        for (const b of existing) {
-          const m = b.name.match(/Bloco\s+0*(\d+)/i);
-          if (m) used.add(parseInt(m[1], 10));
-        }
-        let blockNum = 1;
-        while (used.has(blockNum)) blockNum++;
-        const id = `block-${Date.now()}`;
-        const name = `Bloco ${blockNum.toString().padStart(2, '0')}`;
-        set((s) => {
-          const blocks = [...s.blocks, { id, name, color: '#ffffff', order: s.blocks.length }];
-          const songs = s.songs.map((sg) => sg.id === afterSongId ? { ...sg, blockId: id } : sg);
-          const playlist = s.playlist.map((p) => p.songId === afterSongId ? { ...p, blockId: id } : p);
-          return { blocks, songs, playlist };
-        });
-      },
+      // O bloco novo começa na música escolhida e vale para as de baixo até o próximo bloco.
+      createBlock: (afterSongId) => set((s) => {
+        if (!afterSongId) return s;
+        const playlist = resolveBlocks(orderedPlaylist(s));
+        if (!playlist.some((p) => p.songId === afterSongId)) return s;
+        const headers = blockHeaders(playlist);
+        // um clique repetido (comum em Mac mais lento) não cria um segundo bloco na mesma música
+        for (const songId of headers.values()) if (songId === afterSongId) return s;
+        const id = `block-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        headers.set(id, afterSongId);
+        const blocks = [...s.blocks, { id, name: autoBlockName(s.blocks.length + 1), color: '#ffffff', order: s.blocks.length }];
+        return withBlocks({ songs: s.songs, blocks }, playlist, headers);
+      }),
 
       renameBlock: (blockId, name) => set((s) => ({ blocks: s.blocks.map((b) => b.id === blockId ? { ...b, name } : b) })),
       setBlockColor: (blockId, color) => set((s) => ({ blocks: s.blocks.map((b) => b.id === blockId ? { ...b, color } : b) })),
-      deleteBlock: (blockId) => set((s) => ({
-        blocks: s.blocks.filter((b) => b.id !== blockId),
-        playlist: s.playlist.map((p) => p.blockId === blockId ? { ...p, blockId: null } : p),
-        songs: s.songs.map((sg) => sg.blockId === blockId ? { ...sg, blockId: null } : sg),
-      })),
+      // Sem o cabeçalho, as músicas dele passam a fazer parte do bloco de cima.
+      deleteBlock: (blockId) => set((s) => {
+        const playlist = resolveBlocks(orderedPlaylist(s));
+        const headers = blockHeaders(playlist);
+        headers.delete(blockId);
+        const out = withBlocks({ songs: s.songs, blocks: s.blocks.filter((b) => b.id !== blockId) }, playlist, headers);
+        return { ...out, songs: out.songs.map((sg) => (sg.blockId === blockId ? { ...sg, blockId: null } : sg)) };
+      }),
       moveBlock: (blockId, toIndex) => set((s) => {
         const arr = [...s.blocks];
         const idx = arr.findIndex((b) => b.id === blockId);
@@ -1197,48 +1239,36 @@ export const useStore = create<Store>()(
         arr.splice(toIndex, 0, moved);
         return { blocks: arr.map((b, i) => ({ ...b, order: i })) };
       }),
-      // move a marcação (cabeçalho) de um bloco para antes de uma música qualquer —
-      // modelo divisória: o bloco rege as músicas abaixo dele até o próximo cabeçalho
+      // Move o cabeçalho de um bloco para antes de uma música qualquer (modelo divisória):
+      // o bloco passa a valer dali para baixo e os tempos e números dos blocos se ajustam.
       moveBlockTo: (blockId, beforeSongId) => set((s) => {
-        const blockForSong = new Map<string, string>();
-        for (const id of s.playlistOrder) {
-          const e = s.playlist.find((p) => p.songId === id);
-          if (e?.blockId && !blockForSong.has(e.blockId)) blockForSong.set(e.blockId, id);
+        const playlist = resolveBlocks(orderedPlaylist(s));
+        // soltar depois da última música deixaria o bloco vazio: não muda nada
+        if (!beforeSongId || !playlist.some((p) => p.songId === beforeSongId)) return s;
+        const headers = blockHeaders(playlist);
+        const from = headers.get(blockId);
+        if (from === beforeSongId) return s;
+        // outro bloco já começa nessa música: os dois trocam de lugar
+        for (const [otherId, songId] of headers) {
+          if (otherId === blockId || songId !== beforeSongId) continue;
+          if (!from) return s;
+          headers.set(otherId, from);
         }
-        blockForSong.delete(blockId);
-        if (beforeSongId && s.playlistOrder.includes(beforeSongId)) {
-          blockForSong.set(blockId, beforeSongId);
-        }
-        const songToBlock = new Map<string, string>();
-        blockForSong.forEach((songId, blkId) => songToBlock.set(songId, blkId));
-        let active: string | null = null;
-        const resolved: Record<string, string | null> = {};
-        for (const sid of s.playlistOrder) {
-          if (songToBlock.has(sid)) active = songToBlock.get(sid)!;
-          resolved[sid] = active;
-        }
-        const playlist = s.playlist
-          .map((p) => ({ ...p, blockId: resolved[p.songId] ?? null }))
-          .sort((a, b) => s.playlistOrder.indexOf(a.songId) - s.playlistOrder.indexOf(b.songId))
-          .map((p, i) => ({ ...p, order: i }));
-        const songs2 = s.songs.map((sg) => (resolved[sg.id] !== undefined ? { ...sg, blockId: resolved[sg.id] ?? null } : sg));
-        return { playlist, songs: songs2 };
+        headers.set(blockId, beforeSongId);
+        return withBlocks(s, playlist, headers);
       }),
 
       // insere uma música em qualquer posição da playlist, atribuindo (ou removendo) o bloco
       moveSongTo: (songId, beforeSongId, blockId) => set((s) => {
-        const order = s.playlistOrder.filter((id) => id !== songId);
-        let idx = beforeSongId ? order.indexOf(beforeSongId) : order.length;
-        if (idx === -1) idx = order.length;
-        order.splice(idx, 0, songId);
-        const playlist = order
-          .map((sid, i) => {
-            const entry = s.playlist.find((p) => p.songId === sid);
-            if (!entry) return null;
-            return { ...entry, order: i, blockId: sid === songId ? blockId : entry.blockId };
-          })
-          .filter(Boolean) as typeof s.playlist;
-        return { playlistOrder: order, playlist };
+        const current = resolveBlocks(orderedPlaylist(s));
+        const moving = current.find((p) => p.songId === songId);
+        if (!moving) return s;
+        // se a música que saiu era a primeira do bloco, a de baixo vira o cabeçalho
+        const rest = current.filter((p) => p.songId !== songId);
+        let idx = beforeSongId ? rest.findIndex((p) => p.songId === beforeSongId) : rest.length;
+        if (idx === -1) idx = rest.length;
+        rest.splice(idx, 0, { ...moving, blockId });
+        return withBlocks(s, rest);
       }),
 
       assignSongToBlock: (songId, blockId) => set((s) => ({

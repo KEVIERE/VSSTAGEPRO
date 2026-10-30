@@ -201,6 +201,9 @@ export const adminApi = {
     call<{ total: number; rows: AdminUser[] }>('admin_users', { p_search: search, p_state: state, p_limit: limit, p_offset: offset }),
   extendTrial: (user: string, hours: number) => call<void>('admin_extend_trial', { p_user: user, p_hours: hours }),
   setComp: (user: string, days: number) => call<void>('admin_set_comp', { p_user: user, p_days: days }),
+  // Parceiro / Endorse: acesso completo sem cobrança, fora da receita
+  setPartner: (user: string, partner: boolean) => call<void>('admin_set_partner', { p_user: user, p_partner: partner }),
+  partners: () => call<Array<{ user_id: string; partner_since: string | null }>>('admin_partners'),
   setSubscription: (user: string, subscription: 'active' | 'canceled' | 'trial', plan: 'monthly' | 'yearly' | null = null) =>
     call<void>('admin_set_subscription', { p_user: user, p_subscription: subscription, p_plan: plan }),
   block: (user: string, blocked: boolean, reason?: string) =>

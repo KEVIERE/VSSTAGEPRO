@@ -217,6 +217,13 @@ function buildMenu() {
     {
       label: 'Visualizar',
       submenu: [
+        {
+          label: 'Modo Show',
+          // ⌘M abre e fecha o Modo Show (Esc também fecha); Minimizar foi para ⌥⌘M
+          accelerator: 'CmdOrCtrl+M',
+          click: () => { if (win && !win.isDestroyed()) win.webContents.send('menu:showMode'); },
+        },
+        { type: 'separator' },
         { role: 'resetZoom', label: 'Tamanho Real' },
         { role: 'zoomIn', label: 'Ampliar' },
         { role: 'zoomOut', label: 'Reduzir' },
@@ -227,7 +234,7 @@ function buildMenu() {
     {
       label: 'Janela',
       submenu: [
-        { role: 'minimize', label: 'Minimizar' },
+        { role: 'minimize', label: 'Minimizar', accelerator: 'Alt+CmdOrCtrl+M' },
         { role: 'zoom', label: 'Zoom' },
         ...(isMac ? [{ type: 'separator' }, { role: 'front', label: 'Trazer Todas para a Frente' }] : []),
       ],

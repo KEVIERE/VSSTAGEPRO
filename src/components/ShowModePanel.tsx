@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Headphones,
-  X, Radio, Repeat, Layers, ListOrdered, Search, Music2,
+  X, Radio, Repeat, Layers, ListOrdered, Search, Music2, Speaker,
 } from 'lucide-react';
 import { useStore } from '@/store';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
@@ -24,6 +24,29 @@ function useClock() {
     return () => window.clearInterval(id);
   }, []);
   return now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Nome curto da placa em uso: sem o "Default - " e sem o código USB do fim (ex.: "(1235:821d)").
+function interfaceName(label: string): string {
+  const name = label.replace(/^Default\s*-\s*/i, '').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').trim();
+  return !name || name === 'default' ? 'Saída padrão' : name;
+}
+
+// Acesso discreto ao Dispositivo de Áudio sem sair do Modo Show.
+function AudioDeviceButton() {
+  const iface = useStore((s) => s.audioInterface);
+  const outputs = useStore((s) => s.outputChannelCount);
+  const name = interfaceName(iface ?? '');
+  return (
+    <button
+      onClick={() => useStore.getState().setAudioDeviceDialogOpen(true)}
+      className="ml-auto flex items-center gap-1.5 min-w-0 max-w-[150px] h-7 px-2 rounded-md text-2xs text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
+      title={`Dispositivo de Áudio: ${name} · ${outputs} saídas`}
+    >
+      <Speaker size={12} className="shrink-0" />
+      <span className="truncate">{name}</span>
+    </button>
+  );
 }
 
 function ShowTotalsSummary({ playlist, songs }: { playlist: Array<any>; songs: Song[] }) {
@@ -201,12 +224,13 @@ export default function ShowModePanel({ showName }: { showName: string }) {
     <aside className="relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full bg-logic-bg-panel border-l border-logic-border-dark overflow-hidden animate-[fadeIn_200ms_ease-out]">
       <div className="flex items-center gap-2 px-5 h-12 border-b border-logic-border-dark bg-logic-bg-deep shrink-0">
         <Radio size={14} className={isPlaying ? 'text-logic-lcd-green animate-pulse' : 'text-logic-text-muted'} />
-        <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-logic-text-dim">Modo show</span>
-        <span className="ml-auto text-sm font-semibold tabular-nums text-logic-text-dim">{clock}</span>
+        <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-logic-text-dim shrink-0">Modo show</span>
+        <AudioDeviceButton />
+        <span className="ml-2 text-sm font-semibold tabular-nums text-logic-text-dim shrink-0">{clock}</span>
         <button
           onClick={togglePlaylistMaximized}
-          className="ml-3 flex items-center gap-1.5 h-8 px-3 rounded-md border border-logic-border-light bg-logic-bg-elevated text-xs font-semibold text-logic-text hover:bg-logic-lcd-red hover:border-logic-lcd-red hover:text-white transition-colors"
-          title="Sair do modo show (Esc)"
+          className="ml-3 flex items-center gap-1.5 h-8 px-3 rounded-md border border-logic-border-light bg-logic-bg-elevated text-xs font-semibold text-logic-text hover:bg-logic-lcd-red hover:border-logic-lcd-red hover:text-white transition-colors shrink-0"
+          title="Sair do modo show (Esc ou ⌘M)"
         >
           <X size={14} /> Sair
         </button>

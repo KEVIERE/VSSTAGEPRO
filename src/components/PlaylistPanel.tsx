@@ -195,17 +195,14 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
 
   if (!playlistVisible && !playlistMaximized) return null;
 
-  // a duração do bloco é a soma das músicas entre o cabeçalho dele e o próximo bloco
+  // a duração do bloco é a soma do que toca das músicas entre o cabeçalho dele e o próximo bloco
   const getBlockDuration = (blockId: string): number => {
-    let active: string | null = null;
-    const totals: Record<string, number> = {};
+    let total = 0;
     for (const p of playlist) {
-      if (p.blockId) active = p.blockId;
-      if (!active) continue;
-      const song = songs.find((sg) => sg.id === p.songId);
-      totals[active] = (totals[active] ?? 0) + (song?.duration ?? p.duration);
+      if (p.blockId !== blockId) continue;
+      total += playedDuration(songs.find((sg) => sg.id === p.songId), p.duration);
     }
-    return totals[blockId] ?? 0;
+    return total;
   };
 
   const starts: number[] = [];

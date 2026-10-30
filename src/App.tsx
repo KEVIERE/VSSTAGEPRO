@@ -9,6 +9,7 @@ import { computeNextSongId } from '@/lib/playFlow';
 import { togglePlayPause, stopPlayback, startPlayback, watchPlaylistForNextSong } from '@/lib/transportControl';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
 import MenuBar from '@/components/MenuBar';
+import AudioDeviceDialog from '@/components/AudioDeviceDialog';
 import TransportBar from '@/components/TransportBar';
 import PlaylistPanel from '@/components/PlaylistPanel';
 import TimelinePanel from '@/components/TimelinePanel';
@@ -263,6 +264,15 @@ function App() {
   );
 }
 
+// O ⌘M pode chegar pelo menu do app do Mac e pelo teclado ao mesmo tempo: um aperto troca uma vez só.
+let lastShowToggle = 0;
+function toggleShowMode() {
+  const now = Date.now();
+  if (now - lastShowToggle < 300) return;
+  lastShowToggle = now;
+  useStore.getState().togglePlaylistMaximized();
+}
+
 function DirectorApp({ license }: { license: License }) {
   const [showManagerOpen, setShowManagerOpen] = useState(false);
   const [prompterOpen, setPrompterOpen] = useState(false);
@@ -276,6 +286,7 @@ function DirectorApp({ license }: { license: License }) {
   const toggleMixer = useStore((s) => s.toggleMixer);
   const playlistMaximized = useStore((s) => s.playlistMaximized);
   const playlistVisible = useStore((s) => s.playlistVisible || s.showBpmTower || s.showTunerTower);
+  const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
 
   useFeatureTracking();
   useEffect(() => { if (showManagerOpen) trackFeature('show_manager'); }, [showManagerOpen]);
@@ -338,10 +349,16 @@ function DirectorApp({ license }: { license: License }) {
         e.preventDefault();
         temporal.redo();
       } else if (e.key === 'Escape') {
+        // uma janela ou menu aberto por cima já tratou o Esc: fecha só ele, não sai do Modo Show
+        if (e.defaultPrevented) return;
         e.preventDefault();
         const st = useStore.getState();
         if (st.playlistMaximized) st.togglePlaylistMaximized();
         else stopPlayback();
+      } else if (ctrl && key === 'm' && !e.shiftKey && !e.altKey) {
+        // ⌘M abre e fecha o Modo Show (no Mac, Minimizar passou para ⌥⌘M)
+        e.preventDefault();
+        if (!e.repeat) toggleShowMode();
       } else if (key === 'm' && !ctrl) {
         e.preventDefault();
         toggleMixer();
@@ -370,6 +387,9 @@ function DirectorApp({ license }: { license: License }) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [toggleMixer]);
+
+  // ⌘M pelo menu Visualizar → Modo Show do app do Mac
+  useEffect(() => window.vsDesktop?.onMenuShowMode?.(toggleShowMode), []);
 
   useEffect(() => {
     useStore.getState().reconcileTracks();
@@ -706,6 +726,8 @@ function DirectorApp({ license }: { license: License }) {
         <ContextMenu />
         <BounceDialog />
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
+        {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}
+        <AudioDeviceDialog open={audioDeviceDialogOpen} onClose={() => useStore.getState().setAudioDeviceDialogOpen(false)} />
         {localOpen && <LocalNetworkDialog local={local} onClose={() => setLocalOpen(false)} />}
         {prompterOpen && (
           <PrompterDialog

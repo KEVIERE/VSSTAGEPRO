@@ -68,6 +68,8 @@ declare global {
       installUpdate: (info: UpdateInfo) => Promise<void>;
       onUpdateProgress: (cb: (pct: number) => void) => () => void;
       onManualUpdateCheck?: (cb: () => void) => () => void;
+      /** Menu Visualizar → Modo Show (⌘M) do app do Mac */
+      onMenuShowMode?: (cb: () => void) => () => void;
       hasLocalDemucs?: () => Promise<boolean>;
       separateStemsLocal?: (
         filename: string,

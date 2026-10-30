@@ -377,7 +377,10 @@ class AudioEngine {
   private prepared: Map<string, PreparedBundle> = new Map();
   private preparing: Map<string, Promise<void>> = new Map();
   private stableMode = localStorage.getItem(STABLE_MODE_LS) !== '0';
+  // placa escolhida pelo usuário; null = segue a saída padrão do Mac
   private sinkId: string | null = null;
+  // placa padrão do Mac em que o áudio foi fixado enquanto não há placa escolhida
+  private defaultSinkId: string | null = null;
   private nodeRenderKey = new WeakMap<AudioWorkletNode, string>();
   private renderTimers = new Map<string, number>();
   private renderRuns = new Map<string, number>();
@@ -558,6 +561,7 @@ class AudioEngine {
     this.masterSplitter = null;
     this.workletReady = null;
     this.ctx = null;
+    this.defaultSinkId = null;
     this.masterGain = null;
     this.masterLimiter = null;
     this.masterAnalyser = null;
@@ -1051,6 +1055,8 @@ class AudioEngine {
       dest.channelInterpretation = 'discrete';
     } catch { /* a saída não aceita mais canais: fica no estéreo */ }
     const actual = Math.max(2, dest.channelCount);
+    // a tela sempre mostra as saídas da placa em uso (abrir um projeto não pode voltar para 2)
+    useStore.getState().setOutputChannelCount(actual);
     if (this.outputMerger && this.outputCount === actual) return;
     try { this.masterAnalyser.disconnect(); } catch { /* ignore */ }
     if (this.outputMerger) { try { this.outputMerger.disconnect(); } catch { /* ignore */ } }
@@ -1063,7 +1069,6 @@ class AudioEngine {
     this.outputMerger.connect(dest);
     this.routedTo.clear();
     this.channels.forEach((_, id) => this.routeChannel(id));
-    useStore.getState().setOutputChannelCount(actual);
   }
 
   private routeChannel(trackId: string) {
@@ -1079,7 +1084,8 @@ class AudioEngine {
     // par ou saída que a interface atual não tem: volta para o Master (o timecode fica mudo)
     const physical = out > 0 && out + (stereo ? 1 : 0) <= this.outputCount && (!magic || isTc) ? out : 0;
     const direct = physical ? `${stereo ? 'pair' : 'out'}-${physical}` : null;
-    const key = direct ?? (isTc ? 'none' : 'master');
+    // "Desligado" (sem saída): a faixa não toca em lugar nenhum, nem com o LR mágico
+    const key = direct ?? (isTc || out === NO_OUTPUT ? 'none' : 'master');
     if (this.routedTo.get(trackId) === key) return;
     try { ch.analyser.disconnect(); } catch { /* ignore */ }
     if (ch.splitter) { try { ch.splitter.disconnect(); } catch { /* ignore */ } }
@@ -1977,11 +1983,15 @@ class AudioEngine {
     const endedId = this.currentSongId;
     store.stop();
     this.stopAll();
-    // Fim do bloco: a primeira música do bloco seguinte fica só selecionada, esperando o Play.
+    // Fim do bloco: a primeira música do bloco seguinte fica armada (selecionada, marcada como
+    // próxima e com o áudio já preparado), esperando só o Play.
     if (transport.playFlow === 'bloco' && endedId) {
-      const order = useStore.getState().playlistOrder;
-      const following = order[order.indexOf(endedId) + 1];
-      if (following) useStore.getState().selectSong(following);
+      const st = useStore.getState();
+      const following = st.playlistOrder[st.playlistOrder.indexOf(endedId) + 1];
+      if (following) {
+        st.selectSong(following);
+        st.setNextSong(following);
+      }
     }
   }
 
@@ -2726,11 +2736,53 @@ class AudioEngine {
     }, SWAP_LEAD * 1000 + 30);
   }
 
-  async setOutputDevice(deviceId: string) {
-    await this.applySink(this.getContext(), deviceId);
-    this.sinkId = deviceId;
-    // cada interface tem um número diferente de saídas físicas
-    this.configureOutputs();
+  private sinkQueue: Promise<unknown> = Promise.resolve();
+
+  // Trocas de placa uma de cada vez, na ordem pedida (a última sempre vale).
+  private queueSink<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.sinkQueue.then(job, job);
+    this.sinkQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  setOutputDevice(deviceId: string): Promise<void> {
+    return this.queueSink(async () => {
+      const id = await this.resolveSinkId(deviceId);
+      await this.applySink(this.getContext(), id);
+      this.sinkId = id;
+      // cada interface tem um número diferente de saídas físicas
+      this.configureOutputs();
+    });
+  }
+
+  /**
+   * Relê quantas saídas a placa atual tem (ao abrir o programa e ao conectar/desconectar placas).
+   * Sem placa escolhida, acompanha a placa padrão do Mac: conectar uma interface nova já libera as saídas dela.
+   */
+  refreshOutputs(): Promise<void> {
+    return this.queueSink(async () => {
+      const ctx = this.getContext();
+      if (!this.sinkId) {
+        const id = await this.resolveSinkId('default');
+        if (id !== this.defaultSinkId) {
+          try {
+            await this.applySink(ctx, id);
+            this.defaultSinkId = id;
+          } catch { /* fica na saída atual */ }
+        }
+      }
+      this.configureOutputs();
+    });
+  }
+
+  // O item "Default - ..." da lista não é aceito como saída no app do Mac: usa a placa real por trás dele.
+  private async resolveSinkId(deviceId: string): Promise<string> {
+    if (deviceId !== 'default') return deviceId;
+    const devices = await this.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+    const def = devices.find((d) => d.deviceId === 'default');
+    const real = def && devices.find((d) => d.deviceId !== 'default' && d.deviceId !== 'communications' && d.groupId === def.groupId);
+    // '' = saída padrão do sistema
+    return real?.deviceId ?? '';
   }
 
   private async applySink(ctx: AudioContext, deviceId: string) {

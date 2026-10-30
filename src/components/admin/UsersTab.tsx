@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime, num, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
 import type { AdminUser, UserState } from '@/components/admin/adminApi';
@@ -42,7 +42,23 @@ function StateBadge({ state }: { state: UserState }) {
   return <span className={`px-1.5 h-5 rounded text-2xs font-bold inline-flex items-center whitespace-nowrap ${STATE_CLS[state]}`}>{STATE_LABEL[state]}</span>;
 }
 
-function accessUntil(u: AdminUser) {
+// A função do Parceiro ainda não existe no banco: a atualização do servidor não foi aplicada.
+function partnerError(message: string): string {
+  return /admin_set_partner|admin_partners|could not find the function|does not exist/i.test(message)
+    ? 'A opção Parceiro ainda não está ativa no servidor: falta aplicar a atualização do banco (migração "director_partner_endorse").'
+    : friendlyError(message);
+}
+
+function PartnerBadge() {
+  return (
+    <span title="Parceiro / Endorse: acesso completo sem cobrança" className="inline-flex items-center gap-0.5 px-1.5 h-4 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-[10px] font-bold">
+      <BadgeCheck size={10} /> Parceiro
+    </span>
+  );
+}
+
+function accessUntil(u: AdminUser, partner = false) {
+  if (partner && !u.blocked_reason && u.state !== 'blocked') return 'parceiro, sem prazo';
   if (u.state === 'active') return u.current_period_end ? `renova ${dateTime(u.current_period_end)}` : 'assinatura manual';
   if (u.state === 'promo') return `bônus até ${dateTime(u.comp_until)}`;
   if (u.state === 'trial') return `teste até ${dateTime(u.trial_ends_at)}`;
@@ -106,8 +122,8 @@ function TrialCountdown({ user }: { user: AdminUser }) {
 }
 
 /** Bônus de acesso completo: mesma lógica, pra quem já recebeu dias de cortesia. */
-function CompCountdown({ user }: { user: AdminUser }) {
-  if (!user.comp_until) return null;
+function CompCountdown({ user, partner }: { user: AdminUser; partner: boolean }) {
+  if (!user.comp_until || partner) return null;
   const t = timeLeftParts(user.comp_until);
   if (!t) return null;
   const cls = t.expired ? 'bg-logic-text-muted/15 text-logic-text-muted border-logic-border' : 'bg-logic-lcd-yellow/15 text-logic-lcd-yellow border-logic-lcd-yellow/30';
@@ -129,6 +145,15 @@ export default function UsersTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AdminUser | null>(null);
+  const [partners, setPartners] = useState<Set<string>>(new Set());
+
+  // quem é Parceiro (endorse); sem a atualização do banco, a lista só fica vazia
+  const loadPartners = async () => {
+    try {
+      const list = await adminApi.partners();
+      setPartners(new Set(list.map((p) => p.user_id)));
+    } catch { setPartners(new Set()); }
+  };
 
   useEffect(() => {
     const t = window.setTimeout(() => { setQuery(search.trim()); setPage(0); }, 300);
@@ -151,6 +176,7 @@ export default function UsersTab() {
   };
 
   useEffect(() => { load(); }, [query, state, page]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadPartners(); }, []);
 
   const pages = Math.max(1, Math.ceil(total / PAGE));
 
@@ -158,7 +184,7 @@ export default function UsersTab() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold">Usuários e assinaturas</h2>
-        <p className="text-xs text-logic-text-dim">Aumente o prazo de teste, dê bônus, ative assinaturas manuais ou derrube contas.</p>
+        <p className="text-xs text-logic-text-dim">Aumente o prazo de teste, dê bônus, marque parceiros, ative assinaturas manuais ou derrube contas.</p>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -208,13 +234,14 @@ export default function UsersTab() {
                       <div className="font-medium flex items-center gap-1.5">
                         {u.name || <span className="text-logic-text-muted">Sem nome</span>}
                         {u.is_admin && <ShieldCheck size={12} className="text-logic-accent" aria-label="Administrador" />}
+                        {partners.has(u.id) && <PartnerBadge />}
                       </div>
                       <div className="text-logic-text-dim">{u.email}</div>
                       <EmailBadge confirmedAt={u.email_confirmed_at} />
                     </td>
                     <td className="px-3 py-2.5"><StateBadge state={u.state} /></td>
                     <td className="px-3 py-2.5 text-logic-text-dim">{u.state === 'active' ? (u.plan === 'yearly' ? 'Anual' : u.plan === 'monthly' ? 'Mensal' : 'Manual') : '—'}</td>
-                    <td className="px-3 py-2.5 text-logic-text-dim whitespace-nowrap">{accessUntil(u)}</td>
+                    <td className="px-3 py-2.5 text-logic-text-dim whitespace-nowrap">{accessUntil(u, partners.has(u.id))}</td>
                     <td className="px-3 py-2.5 text-logic-text-dim whitespace-nowrap">{relative(u.last_seen_at ?? u.last_sign_in_at)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{num(u.uses_30d)}</td>
                     <td className="px-4 py-2.5 text-logic-text-muted whitespace-nowrap">{dateTime(u.created_at)}</td>
@@ -234,12 +261,17 @@ export default function UsersTab() {
         </footer>
       </Panel>
 
-      {selected && <UserDrawer user={selected} onClose={() => setSelected(null)} onChanged={load} />}
+      {selected && (
+        <UserDrawer
+          user={selected} partner={partners.has(selected.id)} onClose={() => setSelected(null)}
+          onChanged={async () => { await Promise.all([load(), loadPartners()]); }}
+        />
+      )}
     </div>
   );
 }
 
-function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: () => void; onChanged: () => Promise<void> }) {
+function UserDrawer({ user, partner, onClose, onChanged }: { user: AdminUser; partner: boolean; onClose: () => void; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [hours, setHours] = useState('');
@@ -256,7 +288,7 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
       await onChanged();
       setMsg({ ok: true, text: done });
     } catch (e) {
-      setMsg({ ok: false, text: friendlyError((e as Error).message) });
+      setMsg({ ok: false, text: key.startsWith('p') ? partnerError((e as Error).message) : friendlyError((e as Error).message) });
     } finally {
       setBusy(null);
     }
@@ -284,13 +316,14 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
             <div className="flex items-center gap-2">
               <h3 className="text-base font-semibold">{user.name || 'Sem nome'}</h3>
               <StateBadge state={user.state} />
+              {partner && <PartnerBadge />}
             </div>
             <p className="text-xs text-logic-text-dim">{user.email}</p>
             <div className="mt-1">
               <EmailBadge confirmedAt={user.email_confirmed_at} />
             </div>
             <TrialCountdown user={user} />
-            <CompCountdown user={user} />
+            <CompCountdown user={user} partner={partner} />
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4 text-xs">
               <dt className="text-logic-text-muted">Cadastro</dt><dd>{dateTime(user.created_at)}</dd>
               <dt className="text-logic-text-muted">Confirmação de e-mail</dt><dd className={user.email_confirmed_at ? 'text-logic-lcd-green font-medium' : 'text-logic-lcd-amber font-medium'}>{user.email_confirmed_at ? dateTime(user.email_confirmed_at) : 'Não confirmado'}</dd>
@@ -329,6 +362,26 @@ function UserDrawer({ user, onClose, onChanged }: { user: AdminUser; onClose: ()
               <input className={input} type="number" value={hours} onChange={(e) => setHours(e.target.value)} placeholder="Horas (use negativo para reduzir)" />
               <button className={btnPrimary} disabled={!!busy || !parseInt(hours, 10)}>Aplicar</button>
             </form>
+          </Section>
+
+          <Section icon={BadgeCheck} title="Parceiro / Endorse"
+            hint="Acesso completo como um assinante, sem prazo e sem cobrança. Não entra na receita nem conta como assinatura. O usuário vê o selo Parceiro · Endorse; se estiver na tela de assinatura, é só clicar em Já assinei."
+          >
+            {partner ? (
+              <button
+                className={btnDanger} disabled={!!busy}
+                onClick={() => {
+                  if (!window.confirm(`Tirar ${user.email} dos parceiros? O acesso completo que veio da parceria acaba na hora.`)) return;
+                  run('p0', () => adminApi.setPartner(user.id, false), 'Parceria removida.');
+                }}
+              >
+                Remover parceiro
+              </button>
+            ) : (
+              <button className={btnPrimary} disabled={!!busy || user.state === 'blocked'} onClick={() => run('p1', () => adminApi.setPartner(user.id, true), 'Marcado como Parceiro / Endorse.')}>
+                <BadgeCheck size={13} /> Tornar parceiro
+              </button>
+            )}
           </Section>
 
           <Section icon={Gift} title="Bônus de acesso completo" hint="Libera o programa como se fosse assinante, sem cobrança.">

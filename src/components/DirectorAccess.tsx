@@ -1,7 +1,7 @@
 import { adminApi } from '@/components/admin/adminApi';
 import { authRedirect } from '@/lib/authRedirect';
 import { useEffect, useState } from 'react';
-import { Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
+import { BadgeCheck, Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
@@ -20,11 +20,15 @@ export type License = {
   subscription?: string;
   plan?: 'monthly' | 'yearly' | 'promo' | null;
   current_period_end?: string | null;
+  /** Parceiro / Endorse: acesso completo dado pelo admin, sem pagamento */
+  partner?: boolean;
 };
 
 // Código digitado na tela de entrada: é resgatado assim que a conta entra
 // (fica guardado caso o cadastro peça confirmação de e-mail antes).
 const PENDING_PROMO_LS = 'vs-pending-promo';
+// maior espera que setTimeout aceita (~24,8 dias); acima disso o timer dispara na hora
+const MAX_TIMER_MS = 2 ** 31 - 1;
 
 // A cada abertura do programa a pessoa passa pela janela de entrada e escolhe o que quer
 // (entrar, teste grátis ou assinar) antes do editor abrir. Vale até fechar o programa.
@@ -162,14 +166,23 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const isWebEnvironment = !window.vsDesktop;
   const [isAdmin, setIsAdmin] = useState<boolean | null>(isWebEnvironment ? null : true);
 
-  const loadLicense = async () => {
+  const loadLicense = async (): Promise<License> => {
     const { data, error: err } = await supabase.rpc('license_status');
     if (err) throw err;
-    setLicense(data as License);
+    const lic = { ...(data as License) };
+    if (lic.status === 'active') {
+      // parceiro (endorse): o acesso já vem liberado pelo servidor; aqui só descobre o selo
+      try {
+        const { data: p } = await supabase.rpc('my_partner_status');
+        if ((p as { partner?: boolean } | null)?.partner) lic.partner = true;
+      } catch { /* sem o selo, o acesso continua igual */ }
+    }
+    setLicense(lic);
 
     // Registra presença e IP do computador silenciosamente para antifraude e contagem de versões
     const appVersion = window.__VS_VERSION__ || (window.vsDesktop ? 'Desktop App' : 'Navegador Web');
     adminApi.pingPresence(appVersion).catch(() => {});
+    return lic;
   };
 
   const checkAdmin = async () => {
@@ -257,13 +270,20 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     return () => window.clearTimeout(t);
   }, [promoNotice]);
 
-  // Bloqueia na hora em que as 48h acabam, mesmo com o programa aberto.
+  // Bloqueia na hora em que o teste acaba, mesmo com o programa aberto.
+  // O navegador dispara na hora qualquer timer acima de ~24,8 dias: um teste estendido para
+  // 32 dias aparecia como encerrado. Por isso o timer é dividido em etapas.
   useEffect(() => {
     if (license?.status !== 'trial' || !license.ends_at) return;
-    const ms = new Date(license.ends_at).getTime() - Date.now();
+    const end = new Date(license.ends_at).getTime();
     const expire = () => setLicense((l) => (l?.status === 'trial' ? { status: 'expired' } : l));
-    if (ms <= 0) { expire(); return; }
-    const timer = window.setTimeout(expire, ms);
+    let timer = 0;
+    const check = () => {
+      const ms = end - Date.now();
+      if (ms <= 0) { expire(); return; }
+      timer = window.setTimeout(check, Math.min(ms, MAX_TIMER_MS));
+    };
+    check();
     return () => window.clearTimeout(timer);
   }, [license?.status, license?.ends_at]);
 
@@ -601,7 +621,13 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             <PromoRedeem onRedeemed={() => { loadLicense().catch(() => {}); }} />
             <div className="flex border-t border-logic-border">
               <button
-                onClick={() => { loadLicense().catch(() => {}); }}
+                onClick={async () => {
+                  // assinatura paga, bônus ou parceiro adicionado pelo admin: libera na hora
+                  const lic = await loadLicense().catch(() => null);
+                  if (lic?.status !== 'active') {
+                    setPromoNotice({ ok: false, text: 'Ainda não encontramos assinatura ativa nesta conta. Se acabou de assinar, aguarde um instante e tente de novo.' });
+                  }
+                }}
                 className="flex-1 h-10 text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
               >
                 <RefreshCw size={13} /> Já assinei
@@ -695,7 +721,8 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             <p className="text-xs text-logic-text-dim mt-3 min-h-4">
               {loading ? 'Conferindo sua conta…'
                 : license.status === 'active'
-                  ? (license.plan === 'promo' ? 'Seu bônus de acesso está ativo.' : 'Sua assinatura está ativa.')
+                  ? (license.partner ? 'Você é Parceiro VS Stage Pro (Endorse). Acesso completo liberado.'
+                    : license.plan === 'promo' ? 'Seu bônus de acesso está ativo.' : 'Sua assinatura está ativa.')
                   : isTrial ? 'Você está no teste grátis.' : null}
             </p>
 
@@ -711,7 +738,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           <div className="grid grid-cols-2 border-t border-logic-border">
             {license?.status === 'active' ? (
               <span className="h-12 text-xs font-semibold text-logic-lcd-green flex items-center justify-center gap-1.5">
-                <CheckCircle2 size={14} /> Assinante
+                <CheckCircle2 size={14} /> {license.partner ? 'Parceiro · Endorse' : 'Assinante'}
               </span>
             ) : (
               <button
@@ -762,6 +789,16 @@ export function TrialBadge({ license }: { license: License | null }) {
     return () => window.clearInterval(t);
   }, []);
 
+  if (license?.status === 'active' && license.partner) {
+    return (
+      <span
+        title="Parceiro VS Stage Pro (Endorse): acesso completo liberado"
+        className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold"
+      >
+        <BadgeCheck size={11} /> Parceiro · Endorse
+      </span>
+    );
+  }
   if (!license || license.status !== 'trial') return null;
   const endsAt = license.ends_at
     ? new Date(license.ends_at).getTime()

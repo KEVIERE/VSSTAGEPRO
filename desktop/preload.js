@@ -44,6 +44,11 @@ contextBridge.exposeInMainWorld('vsDesktop', {
     ipcRenderer.on('update:manualCheck', listener);
     return () => ipcRenderer.removeListener('update:manualCheck', listener);
   },
+  onMenuShowMode: (cb) => {
+    const listener = () => cb();
+    ipcRenderer.on('menu:showMode', listener);
+    return () => ipcRenderer.removeListener('menu:showMode', listener);
+  },
   onRemoteTransport: (cb) => {
     const listener = (_event, cmd) => cb(cmd);
     ipcRenderer.on('remote:transport', listener);

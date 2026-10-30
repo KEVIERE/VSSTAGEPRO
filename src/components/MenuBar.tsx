@@ -3,7 +3,6 @@ import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/store';
 import { useHoverDismiss } from '@/lib/useHoverDismiss';
 import ImportVSDialog from '@/components/ImportVSDialog';
-import AudioDeviceDialog from '@/components/AudioDeviceDialog';
 import ProjectDialogs from '@/components/ProjectDialogs';
 import ProjectBackupsDialog from '@/components/ProjectBackupsDialog';
 import ShowsMenu from '@/components/ShowsMenu';
@@ -55,7 +54,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const selectedSongId = useStore((s) => s.selectedSongId);
   const saveDialogOpen = useStore((s) => s.saveDialogOpen);
   const openDialogOpen = useStore((s) => s.openDialogOpen);
-  const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
   const setSaveDialogOpen = useStore((s) => s.setSaveDialogOpen);
   const setOpenDialogOpen = useStore((s) => s.setOpenDialogOpen);
   const setAudioDeviceDialogOpen = useStore((s) => s.setAudioDeviceDialogOpen);
@@ -378,10 +376,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
 
       <ProjectBackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
 
-      <AudioDeviceDialog
-        open={audioDeviceDialogOpen}
-        onClose={() => setAudioDeviceDialogOpen(false)}
-      />
 
       {confirmNew && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60">

@@ -12,6 +12,7 @@ interface Props {
 
 export default function AudioDeviceDialog({ open, onClose }: Props) {
   const activeIface = useStore((s) => s.audioInterface);
+  const outputCount = useStore((s) => s.outputChannelCount);
   const setAudioInterface = useStore((s) => s.setAudioInterface);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,7 +52,8 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // fecha só esta janela: o Esc não sai do Modo Show junto
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -107,6 +109,10 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
         <div className="px-4 py-3 border-b border-logic-border-dark text-xs text-logic-text-dim leading-relaxed">
           Escolha a placa de som que o programa deve usar para tocar.
           O botão <span className="text-logic-text">Testar</span> toca um bipe curto em todas as saídas da placa ao mesmo tempo, para você confirmar onde o som sai.
+          <div className="mt-2 text-logic-text">
+            Saídas reconhecidas: <span className="font-mono text-logic-lcd-green">{outputCount}</span> mono
+            {' · '}<span className="font-mono text-logic-lcd-green">{Math.floor(outputCount / 2)}</span> {Math.floor(outputCount / 2) === 1 ? 'par' : 'pares'} estéreo
+          </div>
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto logic-scroll">

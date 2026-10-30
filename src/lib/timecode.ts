@@ -31,6 +31,9 @@ export function withTimecodeFirst(tracks: Track[]): Track[] {
   return [tc, ...rest];
 }
 
+/** Nome da saída "nenhuma" numa faixa de música (o timecode chama de "Sem Saída"). */
+export const OFF_LABEL = 'Desligado';
+
 export function outputLabel(channel: number, stereo = false): string {
   if (channel === NO_OUTPUT) return 'Sem Saída';
   if (channel === 0) return 'Master L/R';
@@ -74,7 +77,7 @@ export interface OutputOption {
 
 /**
  * Saídas que a faixa pode escolher numa interface com `count` canais.
- * Música: Master L/R + saídas mono 1..N, ou pares estéreo 1/2, 3/4, 5/6…
+ * Música: Master L/R, Desligado (não sai em lugar nenhum) + saídas mono 1..N, ou pares estéreo 1/2, 3/4, 5/6…
  * Timecode: sempre mono, nunca no Master nem numa saída já usada pela música.
  */
 export function outputOptions(track: Track, tracks: Track[], count: number, stereo: boolean): OutputOption[] {
@@ -95,6 +98,7 @@ export function outputOptions(track: Track, tracks: Track[], count: number, ster
   const tcOut = tracks.find((t) => t.id === TIMECODE_TRACK_ID)?.outputChannel ?? NO_OUTPUT;
   return [
     { value: 0, stereo: false, label: outputLabel(0), disabled: false },
+    { value: NO_OUTPUT, stereo: false, label: OFF_LABEL, disabled: false },
     ...(stereo ? outs(count - 1).filter(isPairStart) : outs(count)).map((n) => {
       const hitsTc = tcOut > 0 && trackOutputs({ outputChannel: n, outputStereo: stereo }).includes(tcOut);
       return { value: n, stereo, label: outputLabel(n, stereo), disabled: hitsTc, hint: hitsTc ? 'timecode' : undefined };

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -31,6 +31,30 @@ const DAW_COLORS = [
   '#8e8e93', // Cinza Estúdio
 ];
 
+// Submenu sempre dentro da janela: sobe o que passaria da borda de baixo, abre para a
+// esquerda perto da borda direita e rola por dentro quando a lista é grande (ex.: 26 saídas).
+// A altura fica travada enquanto ele está aberto: trocar Mono ↔ Estéreo não muda o tamanho
+// (encolher tirava o mouse de cima do submenu e ele fechava).
+function useFitInWindow(active: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const anchor = el?.parentElement;
+    if (!active || !el || !anchor) { setStyle({}); return; }
+    const box = anchor.getBoundingClientRect();
+    const maxHeight = window.innerHeight - 16;
+    const height = Math.min(el.scrollHeight, maxHeight);
+    const top = Math.max(8 - box.top, Math.min(0, window.innerHeight - 8 - box.top - height));
+    const flip = box.right + 4 + el.offsetWidth > window.innerWidth - 8;
+    setStyle({
+      top, maxHeight, height, overflowY: 'auto',
+      ...(flip ? { left: 'auto', right: '100%', marginLeft: 0, marginRight: 4 } : {}),
+    });
+  }, [active]);
+  return { ref, style };
+}
+
 interface TrackContextMenuProps {
   track: Track;
   x: number;
@@ -55,6 +79,9 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const isTc = isTimecodeTrackId(track.id);
   // Lista mostrada no submenu de saída: mono ou pares estéreo
   const [stereoView, setStereoView] = useState(!isTc && !!track.outputStereo);
+  const colorFit = useFitInWindow(activeSubmenu === 'color');
+  const folderFit = useFitInWindow(activeSubmenu === 'folder');
+  const outputFit = useFitInWindow(activeSubmenu === 'output');
 
   useEffect(() => {
     const handleDown = (e: MouseEvent) => {
@@ -63,7 +90,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
       }
     };
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
     };
     document.addEventListener('mousedown', handleDown);
     document.addEventListener('keydown', handleKey);
@@ -160,7 +187,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
         </button>
 
         {activeSubmenu === 'color' && (
-          <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-2.5 z-[360] w-48">
+          <div ref={colorFit.ref} style={colorFit.style} className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-2.5 z-[360] w-48">
             <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-2 px-1">
               Escolher Cor
             </div>
@@ -205,7 +232,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           </button>
 
           {activeSubmenu === 'folder' && (
-            <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
+            <div ref={folderFit.ref} style={folderFit.style} className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
               <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
                 Escolha a Pasta de Destino:
               </div>
@@ -257,7 +284,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           </button>
 
           {activeSubmenu === 'output' && (
-            <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
+            <div ref={outputFit.ref} style={outputFit.style} onWheel={(e) => e.stopPropagation()} className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] overflow-y-auto overscroll-contain logic-scroll">
               <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
                 Roteamento de Saída
               </div>

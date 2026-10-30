@@ -48,9 +48,20 @@ export function markAudioInterfaceApplied(deviceId: string) {
   applied = deviceId;
 }
 
+// Depois de voltar para a placa escolhida, relê quantas saídas a placa em uso tem.
+// Sem placa escolhida, segue a padrão do Mac (ex.: uma interface que acabou de ser conectada).
+async function syncOutputs(reason: 'inicio' | 'conexao') {
+  await restoreAudioInterface(reason);
+  try {
+    await audioEngine.refreshOutputs();
+  } catch (err) {
+    console.warn('[audioOutput] não consegui ler as saídas da placa', err);
+  }
+}
+
 export function startAudioOutputWatcher(): () => void {
-  void restoreAudioInterface('inicio');
-  const onChange = () => { applied = null; void restoreAudioInterface('conexao'); };
+  void syncOutputs('inicio');
+  const onChange = () => { applied = null; void syncOutputs('conexao'); };
   navigator.mediaDevices?.addEventListener?.('devicechange', onChange);
   const unsub = useStore.subscribe((s, prev) => {
     if (s.audioInterface !== prev.audioInterface && s.audioInterface !== 'default') void restoreAudioInterface('projeto');
