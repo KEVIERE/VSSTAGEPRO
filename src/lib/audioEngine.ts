@@ -265,6 +265,8 @@ interface ChannelNode {
   level: GainNode;
   analyser: AnalyserNode;
   source: AudioBufferSourceNode | null;
+  /** Separa L/R do canal quando ele sai num par estéreo da interface */
+  splitter?: ChannelSplitterNode;
 }
 
 interface ActiveClip {
@@ -1036,7 +1038,8 @@ class AudioEngine {
     return node;
   }
 
-  // Saídas físicas: o Master ocupa as saídas 1 e 2; cada canal pode ir direto para outra saída da interface.
+  // Saídas físicas: o Master ocupa as saídas 1 e 2; cada canal pode ir direto para outra saída
+  // da interface, em mono (N) ou num par estéreo (N/N+1).
   private configureOutputs() {
     const ctx = this.ctx;
     if (!ctx || !this.masterAnalyser) return;
@@ -1065,18 +1068,32 @@ class AudioEngine {
 
   private routeChannel(trackId: string) {
     const ch = this.channels.get(trackId);
-    if (!ch || !this.masterGain || !this.outputMerger) return;
+    if (!ch || !this.ctx || !this.masterGain || !this.outputMerger) return;
     const track = useStore.getState().tracks.find((t) => t.id === trackId);
+    const isTc = isTimecodeTrackId(trackId);
     const out = track?.outputChannel ?? 0;
     // LR mágico (placa só com 2 saídas): tudo da música vai para o Master, nas saídas 1-2
     const magic = useStore.getState().magicRoutingActive;
-    const physical = out > 0 && out <= this.outputCount && (!magic || isTimecodeTrackId(trackId)) ? out : 0;
-    // o timecode nunca cai no Master: sem uma saída física válida ele fica mudo
-    const key = isTimecodeTrackId(trackId) ? (physical ? `out-${physical}` : 'none') : (physical ? `out-${physical}` : 'master');
+    // o timecode (LTC) é sempre mono
+    const stereo = !isTc && !!track?.outputStereo;
+    // par ou saída que a interface atual não tem: volta para o Master (o timecode fica mudo)
+    const physical = out > 0 && out + (stereo ? 1 : 0) <= this.outputCount && (!magic || isTc) ? out : 0;
+    const direct = physical ? `${stereo ? 'pair' : 'out'}-${physical}` : null;
+    const key = direct ?? (isTc ? 'none' : 'master');
     if (this.routedTo.get(trackId) === key) return;
     try { ch.analyser.disconnect(); } catch { /* ignore */ }
-    if (key === 'master') ch.analyser.connect(this.masterGain);
-    else if (key !== 'none') ch.analyser.connect(this.outputMerger, 0, physical - 1);
+    if (ch.splitter) { try { ch.splitter.disconnect(); } catch { /* ignore */ } }
+    if (key === 'master') {
+      ch.analyser.connect(this.masterGain);
+    } else if (direct && stereo) {
+      const splitter = ch.splitter ?? (ch.splitter = this.ctx.createChannelSplitter(2));
+      ch.analyser.connect(splitter);
+      splitter.connect(this.outputMerger, 0, physical - 1);
+      splitter.connect(this.outputMerger, 1, physical);
+    } else if (direct) {
+      // mono: L e R somados na saída escolhida
+      ch.analyser.connect(this.outputMerger, 0, physical - 1);
+    }
     this.routedTo.set(trackId, key);
   }
 

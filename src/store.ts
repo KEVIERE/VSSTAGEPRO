@@ -23,7 +23,7 @@ export interface InstantPrep {
   failed?: number;
 }
 import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switchShow, syncedShows } from '@/lib/shows';
-import { isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
+import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
   if (song.regions) return song.markers ? { ...song, markers: undefined } : song;
@@ -187,7 +187,8 @@ interface StoreActions {
   setTrackColor: (trackId: string, color: string) => void;
   renameTrack: (trackId: string, name: string) => void;
   moveTrackToFolder: (trackId: string, targetFolderId: string | null) => void;
-  setOutputChannel: (trackId: string, channel: number) => void;
+  /** stereo = usa o par N/N+1 da interface em vez da saída mono N */
+  setOutputChannel: (trackId: string, channel: number, stereo?: boolean) => void;
   toggleFaderLock: (trackId: string) => void;
   setTrackHeight: (trackId: string, height: number) => void;
   setOutputChannelCount: (count: number) => void;
@@ -522,15 +523,21 @@ export const useStore = create<Store>()(
           }),
         };
       }),
-      setOutputChannel: (trackId, channel) => set((s) => {
+      setOutputChannel: (trackId, channel, stereo = false) => set((s) => {
         const tc = s.tracks.find((t) => t.id === TIMECODE_TRACK_ID);
+        // Master e "Sem Saída" não têm par estéreo
+        const pair = stereo && channel > 0;
         if (isTimecodeTrackId(trackId)) {
-          // o sinal de timecode nunca vai para o Master nem divide saída com a música
+          // o sinal de timecode é mono, nunca vai para o Master nem divide saída com a música
+          if (pair) return s;
           if (channel !== NO_OUTPUT && (channel <= 0 || usedOutputs(s.tracks, trackId).has(channel))) return s;
-        } else if (channel === NO_OUTPUT || (tc && channel > 0 && tc.outputChannel === channel)) {
+        } else if (channel === NO_OUTPUT || (pair && !isPairStart(channel))) {
+          // pares estéreo só 1/2, 3/4, 5/6…
+          return s;
+        } else if (tc && tc.outputChannel > 0 && trackOutputs({ outputChannel: channel, outputStereo: pair }).includes(tc.outputChannel)) {
           return s;
         }
-        return { tracks: s.tracks.map((t) => t.id === trackId ? { ...t, outputChannel: channel } : t) };
+        return { tracks: s.tracks.map((t) => t.id === trackId ? { ...t, outputChannel: channel, outputStereo: pair } : t) };
       }),
       toggleFaderLock: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, faderLocked: !t.faderLocked } : t) })),
       // Altura individual da faixa (base 40px, antes do zoom vertical global ser aplicado).
@@ -1448,6 +1455,7 @@ export const useStore = create<Store>()(
               height: prev?.height ?? 40,
               visible: true,
               outputChannel: prev?.outputChannel ?? 0,
+              outputStereo: prev?.outputStereo,
               meterLevel: 0,
               clipIndicator: false,
               clipPeak: 0,

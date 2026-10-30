@@ -19,6 +19,8 @@ export interface Track {
   visible: boolean;
   /** -1 = sem saída, 0 = Master L/R, N = saída física N da interface */
   outputChannel: number;
+  /** Com saída física N: true usa o par estéreo N/N+1 (L em N, R em N+1); ausente = mono */
+  outputStereo?: boolean;
   faderLocked?: boolean;
   meterLevel: number;
   clipIndicator: boolean;

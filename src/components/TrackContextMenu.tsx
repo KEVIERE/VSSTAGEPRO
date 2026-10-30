@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { useStore } from '@/store';
-import { isTimecodeTrackId, NO_OUTPUT, outputLabel, TIMECODE_TRACK_ID, usedOutputs } from '@/lib/timecode';
+import { isCurrentOutput, isTimecodeTrackId, outputOptions, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import type { Track } from '@/types';
 
 const DAW_COLORS = [
@@ -52,6 +52,9 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const [renaming, setRenaming] = useState(false);
   const [nameValue, setNameValue] = useState(track.name);
   const [activeSubmenu, setActiveSubmenu] = useState<'color' | 'folder' | 'output' | null>(null);
+  const isTc = isTimecodeTrackId(track.id);
+  // Lista mostrada no submenu de saída: mono ou pares estéreo
+  const [stereoView, setStereoView] = useState(!isTc && !!track.outputStereo);
 
   useEffect(() => {
     const handleDown = (e: MouseEvent) => {
@@ -84,29 +87,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const currentParent = track.parentId ? tracks.find((t) => t.id === track.parentId) : null;
 
   // Opções de saída de áudio
-  const physical = Array.from({ length: count }, (_, i) => i + 1);
-  const isTc = isTimecodeTrackId(track.id);
-  const outputOptions = isTc
-    ? [
-        { value: NO_OUTPUT, label: 'Sem Saída', disabled: false },
-        ...physical.map((n) => ({
-          value: n,
-          label: outputLabel(n),
-          disabled: usedOutputs(tracks, track.id).has(n),
-        })),
-      ]
-    : [
-        { value: 0, label: outputLabel(0) + ' (Master)', disabled: false },
-        ...physical.map((n) => {
-          const tcOut = tracks.find((t) => t.id === TIMECODE_TRACK_ID)?.outputChannel ?? NO_OUTPUT;
-          return {
-            value: n,
-            label: outputLabel(n),
-            disabled: n === tcOut,
-          };
-        }),
-        { value: NO_OUTPUT, label: 'Sem Saída', disabled: false },
-      ];
+  const outputs = outputOptions(track, tracks, count, stereoView);
 
   // Ajusta posição do menu na tela para não vazar da borda
   const menuWidth = 230;
@@ -281,29 +262,49 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
                 Roteamento de Saída
               </div>
 
-              {outputOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  disabled={opt.disabled}
-                  onClick={() => {
-                    if (!opt.disabled) {
-                      setOutputChannel(track.id, opt.value);
-                      setActiveSubmenu(null);
-                      onClose();
-                    }
-                  }}
-                  className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition ${
-                    opt.disabled
-                      ? 'opacity-30 cursor-not-allowed'
-                      : track.outputChannel === opt.value
-                        ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
-                        : 'hover:bg-white/10 text-white'
-                  }`}
-                >
-                  <span>{opt.label}</span>
-                  {track.outputChannel === opt.value && <Check size={12} className="text-logic-lcd-green shrink-0" />}
-                </button>
-              ))}
+              {!isTc && (
+                <div className="flex gap-1 px-1 pb-1.5 mb-1 border-b border-white/10">
+                  {[false, true].map((st) => (
+                    <button
+                      key={st ? 'stereo' : 'mono'}
+                      type="button"
+                      onClick={() => setStereoView(st)}
+                      className={`flex-1 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition ${
+                        stereoView === st ? 'bg-logic-accent text-white' : 'bg-white/[0.04] text-logic-text-dim hover:text-white'
+                      }`}
+                    >
+                      {st ? 'Estéreo' : 'Mono'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {outputs.map((opt) => {
+                const selected = isCurrentOutput(track, opt);
+                return (
+                  <button
+                    key={`${opt.value}-${opt.stereo}`}
+                    disabled={opt.disabled}
+                    onClick={() => {
+                      if (!opt.disabled) {
+                        setOutputChannel(track.id, opt.value, opt.stereo);
+                        setActiveSubmenu(null);
+                        onClose();
+                      }
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition ${
+                      opt.disabled
+                        ? 'opacity-30 cursor-not-allowed'
+                        : selected
+                          ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
+                          : 'hover:bg-white/10 text-white'
+                    }`}
+                  >
+                    <span>{opt.value === 0 ? `${opt.label} (Master)` : opt.label}</span>
+                    {selected && <Check size={12} className="text-logic-lcd-green shrink-0" />}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
