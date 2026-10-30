@@ -4,7 +4,20 @@
     "ANTHROPIC_AUTH_TOKEN": "sk-decf3d8fdda58098-0355f5-6c516f17"
   },
   "permissions": {
-    "defaultMode": "acceptEdits"
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git fetch *)",
+      "Bash(git push origin *)",
+      "Bash(npm test)",
+      "Bash(npm run build)",
+      "Bash(npm run typecheck)",
+      "Bash(gh auth status)",
+      "Bash(gh workflow run promote-production.yml *)",
+      "Bash(gh workflow run mac-installer.yml *)",
+      "Bash(gh run *)",
+      "Bash(curl -s https://download.vsstagepro.com.br/*)"
+    ]
   },
   "enabledPlugins": {
     "frontend-design@anthropic-plugin-directory": true,

@@ -42,5 +42,5 @@ Se só a parte do Mac falhar, dá para rodar só ela: `gh workflow run mac-insta
 - `gh auth status` precisa mostrar a conta `KEVIERE` (ou um colaborador com permissão Write no repositório) com as autorizações `repo` e `workflow`.
   - Sem login: `gh auth login`.
   - Sem `workflow`: `gh auth refresh -s workflow`.
-- Para o Claude não pedir confirmação a cada passo, esses comandos podem ser liberados na lista `permissions.allow` de `.claude/settings.json`.
+- Os comandos acima já estão liberados na lista `permissions.allow` de `.claude/settings.json`, então o Claude não pede confirmação a cada passo.
 - O upgrade precisa rodar numa sessão local no Mac, não na nuvem: é lá que estão o `gh` e o login do GitHub.
