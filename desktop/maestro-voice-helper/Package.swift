@@ -7,6 +7,9 @@ import PackageDescription
 let package = Package(
     name: "VSMaestroVoz",
     platforms: [.macOS(.v14)],
+    products: [
+        .executable(name: "vs-maestro-voz", targets: ["vs-maestro-voz"]),
+    ],
     dependencies: [
         // versão fixa: a mesma que foi conferida (som e velocidade) antes de ir para o app
         .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", revision: "6fd938669e45412f5c35e011e7086ecd20397dbd"), // v0.1.7

@@ -37,17 +37,32 @@ echo "== Programa de voz do Maestro IA ($(xcodebuild -version | head -1), Swift 
 DD="build/dd"
 OUT="build/out"
 rm -rf "$OUT"
-mkdir -p "$OUT"
+mkdir -p "$OUT" build
+
+# esquemas que o Xcode gerou para o pacote (o nome varia entre versões do Xcode)
+SCHEMES="$(xcodebuild -list -json 2>/dev/null | /usr/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); w=d.get("workspace") or d.get("project") or {}; print("\n".join(w.get("schemes", [])))' || true)"
+echo "   esquemas: $(echo "$SCHEMES" | tr '\n' ' ')"
+SCHEME=""
+for s in vs-maestro-voz VSMaestroVoz-Package VSMaestroVoz; do
+  if echo "$SCHEMES" | grep -qx "$s"; then SCHEME="$s"; break; fi
+done
+[ -n "$SCHEME" ] || { echo "::error::O Xcode não gerou um esquema para o programa de voz"; exit 1; }
 
 xcodebuild \
-  -scheme vs-maestro-voz \
+  -scheme "$SCHEME" \
   -configuration Release \
   -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath "$DD" \
   -skipPackagePluginValidation \
   -skipMacroValidation \
   ONLY_ACTIVE_ARCH=YES \
-  build | tail -n 25
+  build > build/xcodebuild.log 2>&1 || {
+    echo "::error::A compilação do programa de voz falhou"
+    grep -E "error:|fatal" build/xcodebuild.log | sort -u | head -60
+    tail -n 30 build/xcodebuild.log
+    exit 1
+  }
+tail -n 5 build/xcodebuild.log
 
 PROD="$DD/Build/Products/Release"
 cp "$PROD/vs-maestro-voz" "$OUT/"
