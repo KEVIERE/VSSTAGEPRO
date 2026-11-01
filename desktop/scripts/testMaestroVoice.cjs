@@ -22,7 +22,8 @@ function firstSound(buf) {
   const n = (buf.length - 44) / 2;
   let peak = 0;
   for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(buf.readInt16LE(44 + i * 2)));
-  for (let i = 0; i < n; i++) if (Math.abs(buf.readInt16LE(44 + i * 2)) > peak * 0.05) return i / 24000;
+  // mesmo limite do corte de silêncio do app (36 dB abaixo do pico): ali o som já começou
+  for (let i = 0; i < n; i++) if (Math.abs(buf.readInt16LE(44 + i * 2)) > peak * 0.015) return i / 24000;
   return -1;
 }
 
@@ -30,7 +31,7 @@ function check(r, text, maxSeconds) {
   if (!(r.natural > 0.15)) throw new Error(`"${text}" saiu vazia (${r.natural.toFixed(2)} s)`);
   if (r.natural > maxSeconds) throw new Error(`"${text}" saiu com ${r.natural.toFixed(2)} s (esperado até ${maxSeconds} s): o modelo inventou fala a mais`);
   const t = firstSound(r.buf);
-  if (t < 0 || t > 0.02) throw new Error(`"${text}": o som começa em ${(t * 1000).toFixed(0)} ms, deveria ser logo no início`);
+  if (t < 0 || t > 0.005) throw new Error(`"${text}": o som começa em ${(t * 1000).toFixed(1)} ms, deveria ser logo no início`);
 }
 
 (async () => {
@@ -50,16 +51,16 @@ function check(r, text, maxSeconds) {
     for (const [i, text] of FRASES.entries()) {
       const t0 = Date.now();
       const r = await qwen.render({ text, voice, span: 0 });
-      check(r, text, 1.5 + text.length * 0.12);
       fs.writeFileSync(path.join(out, `${voice.ref}-frase${i + 1}.wav`), r.buf);
+      check(r, text, 1.5 + text.length * 0.12);
       report.push(`${voice.ref.padEnd(9)} ${text.padEnd(44)} ${r.natural.toFixed(2)} s de fala em ${((Date.now() - t0) / 1000).toFixed(1)} s`);
       console.log(report[report.length - 1]);
     }
     for (const [i, text] of CONTA.entries()) {
       const t0 = Date.now();
       const r = await qwen.render({ text, voice, span: 0.5, pace: 1.15 });
-      check(r, text, 1.2);
       fs.writeFileSync(path.join(out, `${voice.ref}-conta${i + 1}.wav`), r.buf);
+      check(r, text, 1.2);
       report.push(`${voice.ref.padEnd(9)} ${text.padEnd(44)} ${r.natural.toFixed(2)} s, velocidade ${r.tempo}×, em ${((Date.now() - t0) / 1000).toFixed(1)} s`);
       console.log(report[report.length - 1]);
     }
