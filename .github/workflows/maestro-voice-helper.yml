@@ -1,6 +1,7 @@
 name: Programa de voz do Maestro IA
 
-# Compila o programa de voz (vs-maestro-voz: Qwen3-TTS pela mlx-audio-swift) com o Xcode 26.3,
+# Compila o programa de voz (vs-maestro-voz: Qwen3-TTS pela mlx-audio-swift) com o Swift 6.3
+# (Xcode 26.4 ou mais novo, só na máquina macos-26),
 # baixa o modelo com o mesmo código do app e gera as falas de teste com as duas vozes de IA.
 # Publica o programa (artefato "vs-maestro-voz", que o prepareMaestroVoice.sh --from-ci usa para
 # testar num Mac sem Xcode) e as falas (artefato "falas-de-teste", para ouvir).
@@ -24,7 +25,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +34,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Compilar o programa de voz (Xcode 26.3)
+      - name: Compilar o programa de voz
         working-directory: desktop
         run: ./scripts/buildMaestroVoiceHelper.sh
 

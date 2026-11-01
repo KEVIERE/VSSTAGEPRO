@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Compila o programa de voz do Maestro IA (vs-maestro-voz, Qwen3-TTS pela mlx-audio-swift).
 #
-# Precisa do Xcode 26.3 (Swift 6.2): só o xcodebuild compila os shaders da placa de vídeo que o
-# MLX usa; o `swift build` das ferramentas básicas não compila. No GitHub roda em macos-15, que
-# tem o Xcode 26.3 em /Applications/Xcode_26.3.app. Só existe para Mac com chip Apple (arm64):
-# o MLX não roda em Mac Intel.
+# Precisa do Swift 6.3 (Xcode 26.4 ou mais novo): o MLX 0.32 exige essa versão, e só o
+# xcodebuild compila os shaders da placa de vídeo que o MLX usa (o `swift build` das ferramentas
+# básicas não compila). No GitHub roda na máquina macos-26 (Xcode 26.6). Só existe para Mac com
+# chip Apple (arm64): o MLX não roda em Mac Intel.
 #
 # Resultado em desktop/maestro-voice-helper/build/out:
 #   vs-maestro-voz           o programa
@@ -14,15 +14,25 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/../maestro-voice-helper"
-XCODE_APP="${XCODE_APP:-/Applications/Xcode_26.3.app}"
-if [ -d "$XCODE_APP" ]; then
+# o Xcode mais novo que houver (XCODE_APP escolhe um específico)
+if [ -z "${XCODE_APP:-}" ]; then
+  for x in /Applications/Xcode_26.6.app /Applications/Xcode_26.5.app /Applications/Xcode_26.4.1.app /Applications/Xcode.app; do
+    [ -d "$x" ] && { XCODE_APP="$x"; break; }
+  done
+fi
+if [ -n "${XCODE_APP:-}" ] && [ -d "$XCODE_APP" ]; then
   export DEVELOPER_DIR="$XCODE_APP/Contents/Developer"
 fi
 if ! xcodebuild -version >/dev/null 2>&1; then
-  echo "::error::O programa de voz precisa do Xcode 26.3 (xcodebuild). Este Mac só tem as ferramentas básicas."
+  echo "::error::O programa de voz precisa do Xcode 26.4 ou mais novo (xcodebuild). Este Mac só tem as ferramentas básicas."
   exit 1
 fi
-echo "== Programa de voz do Maestro IA ($(xcodebuild -version | head -1))"
+SWIFT_VER="$(xcrun swift --version 2>/dev/null | sed -nE 's/.*Swift version ([0-9]+\.[0-9]+).*/\1/p' | head -1)"
+case "$SWIFT_VER" in
+  6.[3-9]*|[7-9].*) ;;
+  *) echo "::error::O programa de voz precisa do Swift 6.3 ou mais novo (este Xcode tem o Swift ${SWIFT_VER:-?})"; exit 1 ;;
+esac
+echo "== Programa de voz do Maestro IA ($(xcodebuild -version | head -1), Swift $SWIFT_VER)"
 
 DD="build/dd"
 OUT="build/out"
