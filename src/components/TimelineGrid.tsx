@@ -51,7 +51,7 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo }: {
       {lines.map((l) => {
         const showLabel = l.kind === 'bar'
           ? (barLabelStride <= 1 || (l.bar - 1) % barLabelStride === 0)
-          : beatPx >= 40;
+          : l.kind === 'beat' && beatPx >= 40; // meio tempo: só o traço, senão repete o número do tempo
 
         const linePx = l.time * zoomH;
         let showBpmBadge = false;

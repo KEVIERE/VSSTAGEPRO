@@ -25,8 +25,9 @@ export function songGrid(
   if (!song?.bpm || song.bpm <= 0) return null;
   const beat = 60 / song.bpm;
   const beatsPerBar = song.beatsPerBar ?? 4;
-  // A timeline de cada música inicia cravada no compasso 1 e não quebrada, sincada na grade de acordo com o click
-  const downbeat = 0;
+  // O compasso 1 começa no primeiro tempo do click (medido na importação ou cravado com
+  // Shift + botão direito na régua). Antes dele a grade fica vazia, sem compasso quebrado.
+  const downbeat = song.downbeat !== undefined && Number.isFinite(song.downbeat) ? Math.max(0, song.downbeat) : 0;
 
   return {
     beat,
@@ -34,6 +35,22 @@ export function songGrid(
     downbeat,
     tempoSegments: song.tempoSegments,
   };
+}
+
+/**
+ * Posição na linha do tempo do primeiro tempo medido no arquivo do click. O clipe pode ter sido
+ * movido ou cortado no início; se o tempo cair antes do zero, avança compassos inteiros.
+ */
+export function clickDownbeatOnTimeline(
+  fileDownbeat: number,
+  clip: Pick<AudioClip, 'startTime' | 'trimStart'> | null | undefined,
+  bpm: number,
+  beatsPerBar: number,
+): number {
+  let t = fileDownbeat + (clip?.startTime ?? 0) - (clip?.trimStart ?? 0);
+  const bar = (60 / bpm) * beatsPerBar;
+  if (t < 0 && bar > 0) t += Math.ceil(-t / bar - 1e-9) * bar;
+  return Number.isFinite(t) ? Math.max(0, t) : 0;
 }
 
 function stepSeconds(grid: SongGrid, step: SnapStep): number | null {
@@ -78,7 +95,10 @@ export function gridLines(grid: SongGrid, from: number, to: number, pxPerSecond:
       const seg = grid.tempoSegments[sIdx];
       const segBeat = 60 / seg.bpm;
       const segBarDur = segBeat * grid.beatsPerBar;
-      const segStart = seg.startTime;
+      // Primeiro trecho: começa no primeiro tempo do click. Os outros: no ponto da mudança de BPM.
+      const segStart = sIdx === 0
+        ? Math.max(seg.startTime, grid.downbeat)
+        : Math.max(seg.startTime, seg.downbeat ?? seg.startTime);
       const segEnd = seg.endTime;
 
       if (segEnd < from || segStart > to) {
@@ -136,13 +156,13 @@ export function gridLines(grid: SongGrid, from: number, to: number, pxPerSecond:
     const barsPerLine = Math.max(1, 2 ** Math.ceil(Math.log2(40 / Math.max(barPx, 1e-3))));
     unit = grid.beat * grid.beatsPerBar * barsPerLine;
   }
-  const first = Math.ceil((from - grid.downbeat) / unit - 1e-6);
+  // Nenhuma linha antes do compasso 1: o trecho antes do primeiro click fica sem grade.
+  const first = Math.max(0, Math.ceil((from - grid.downbeat) / unit - 1e-6));
   const last = Math.floor((to - grid.downbeat) / unit + 1e-6);
   const lines: GridLine[] = [];
   if (last - first > 4000) return lines;
   for (let i = first; i <= last; i++) {
     const time = grid.downbeat + i * unit;
-    if (time < 0) continue;
     const beats = Math.round((time - grid.downbeat) / grid.beat * 2) / 2;
     const isBar = Number.isInteger(beats) && ((beats % grid.beatsPerBar) + grid.beatsPerBar) % grid.beatsPerBar === 0;
     const kind: GridLine['kind'] = isBar ? 'bar' : Number.isInteger(beats) ? 'beat' : 'sub';
