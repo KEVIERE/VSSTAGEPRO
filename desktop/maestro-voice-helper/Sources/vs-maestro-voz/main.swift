@@ -6,7 +6,7 @@
 // Conversa: uma linha JSON por pedido na entrada; cada resposta sai numa linha que começa com
 // "@@VS " (o resto do que a biblioteca imprimir é ignorado pelo app).
 //   {"id":"1","cmd":"speak","text":"Um!","ref":"/…/feminina.wav","refText":"…","seed":7,
-//    "maxTokens":120,"out":"/tmp/…/fala.f32"}
+//    "maxTokens":120,"temperature":0.6,"topK":50,"out":"/tmp/…/fala.f32"}
 //     → grava as amostras (float 32 bits, mono) em `out` e responde
 //       {"id":"1","ok":true,"samples":…,"sampleRate":24000,"elapsed":…}
 //   {"id":"2","cmd":"ping"} → {"id":"2","ok":true}
@@ -26,6 +26,8 @@ struct Request: Decodable {
     var refText: String?
     var seed: UInt64?
     var maxTokens: Int?
+    var temperature: Float?
+    var topK: Int?
     var out: String?
     var language: String?
 }
@@ -55,6 +57,9 @@ func argument(_ name: String) -> String? {
 if CommandLine.arguments.contains("--cpu") {
     Device.setDefault(device: .cpu)
 }
+
+// Mac de 8 GB: o MLX não guarda os pedaços de memória soltos entre uma fala e outra.
+Memory.cacheLimit = 64 * 1024 * 1024
 
 guard let modelDir = argument("--model") else {
     send(Reply(id: "ready", ok: false, error: "Falta --model <pasta do modelo>"))
@@ -107,6 +112,8 @@ while let line = readLine() {
             let refAudio = try req.ref.map { try reference($0) }
             var params = model.defaultGenerationParameters
             if let maxTokens = req.maxTokens { params.maxTokens = maxTokens }
+            if let temperature = req.temperature { params.temperature = temperature }
+            if let topK = req.topK { params.topK = topK }
             let audio = try await model.generate(
                 text: text,
                 voice: nil,
@@ -116,6 +123,7 @@ while let line = readLine() {
                 generationParameters: params
             )
             let samples = audio.asArray(Float.self)
+            Memory.clearCache()
             try writeFloats(samples, to: out)
             send(Reply(id: req.id, ok: true, samples: samples.count, sampleRate: model.sampleRate,
                        elapsed: Date().timeIntervalSince(started)))

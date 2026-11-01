@@ -71,10 +71,13 @@ test('limite de áudio: palavra solta tem pouco espaço para o modelo inventar; 
   assert.equal(qwen.maxTokensFor('x'.repeat(5000)), Math.ceil(150 * 12.5));
 });
 
-test('a mesma fala com a mesma voz usa a mesma semente (sai igual se gerar de novo)', () => {
-  assert.equal(qwen.seedFor('Um!', 'qwen:feminina'), qwen.seedFor('Um!', 'qwen:feminina'));
-  assert.notEqual(qwen.seedFor('Um!', 'qwen:feminina'), qwen.seedFor('Um!', 'qwen:masculina'));
-  assert.notEqual(qwen.seedFor('Um!', 'qwen:feminina'), qwen.seedFor('Dois!', 'qwen:feminina'));
+test('cada voz tem a sua semente fixa: todas as falas da voz saem do mesmo jeito', () => {
+  assert.equal(qwen.seedFor('qwen:feminina'), qwen.seedFor('qwen:feminina'));
+  assert.notEqual(qwen.seedFor('qwen:feminina'), qwen.seedFor('qwen:masculina'));
+});
+
+test('a contagem é falada de uma vez: "Um, dois, três, quatro."', () => {
+  assert.equal(qwen.countUtterance(['Um!', 'Dois!', 'Três!', 'Quatro!']), 'Um, dois, três, quatro.');
 });
 
 test('sem o programa de voz no app: a voz de IA não fala e diz por quê (cai na voz do Mac)', () => {
@@ -105,10 +108,16 @@ send({'id': 'ready', 'ok': True, 'sampleRate': 24000})
 for line in sys.stdin:
     r = json.loads(line)
     if r['cmd'] != 'speak': send({'id': r['id'], 'ok': True}); continue
-    if not r.get('refText') or not r.get('ref') or r.get('language') != 'portuguese' or not r.get('maxTokens'):
+    if not r.get('refText') or not r.get('ref') or r.get('language') != 'portuguese' or not r.get('maxTokens') or not r.get('temperature'):
         send({'id': r['id'], 'ok': False, 'error': 'pedido incompleto'}); continue
     sr = 24000; n = int(sr * 0.3)
-    s = [0.0] * int(sr * 0.15) + [0.022 + 0.3 * math.sin(i / 7) for i in range(n)] + [0.0] * int(sr * 0.2)
+    if ',' in r['text']:
+        palavras = r['text'].count(',') + 1
+        s = [0.0] * int(sr * 0.15)
+        for k in range(palavras):
+            s += [0.022 + 0.3 * math.sin(i / (6 + k)) for i in range(int(sr * (0.25 + 0.05 * k)))] + [0.0] * int(sr * 0.2)
+    else:
+        s = [0.0] * int(sr * 0.15) + [0.022 + 0.3 * math.sin(i / 7) for i in range(n)] + [0.0] * int(sr * 0.2)
     open(r['out'], 'wb').write(struct.pack('<%df' % len(s), *s))
     send({'id': r['id'], 'ok': True, 'samples': len(s), 'sampleRate': sr, 'elapsed': 0.01})
 `;
@@ -147,6 +156,19 @@ test('fala pelo programa de voz: começa justo no primeiro som e devolve a veloc
     assert.equal(r3.cached, true);
     assert.ok(r3.buf.equals(r2.buf));
     assert.equal(r3.tempo, 1.35);
+    // contagem: falada de uma vez e cortada; todos os números na mesma velocidade (a do mais longo)
+    const grupo = ['Um!', 'Dois!', 'Três!', 'Quatro!'];
+    const fem = m.qwen.qwenVoiceFor('feminina');
+    const dois = await m.qwen.render({ text: 'Dois!', voice: fem, span: 0.3, pace: 1.0, group: grupo });
+    assert.equal(dois.group, true, 'veio da contagem falada de uma vez');
+    assert.equal(dois.cached, false);
+    const um = await m.qwen.render({ text: 'Um!', voice: fem, span: 0.3, pace: 1.0, group: grupo });
+    assert.equal(um.cached, true, 'os outros números já saíram da mesma fala');
+    assert.ok(um.natural < dois.natural, 'cada número é o seu pedaço (o segundo é mais longo)');
+    assert.equal(um.tempo, dois.tempo, 'mesma velocidade em todos os números');
+    const quatro = await m.qwen.render({ text: 'Quatro!', voice: fem, span: 0.3, pace: 1.0, group: grupo });
+    assert.equal(quatro.tempo, um.tempo);
+    assert.ok(quatro.tempo > 1, 'o mais longo não cabe em 0,3 s: todos aceleram juntos');
   } finally {
     m.qwen.stopHelper();
     m.restore();

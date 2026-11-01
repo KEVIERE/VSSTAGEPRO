@@ -58,10 +58,12 @@ function check(r, text, maxSeconds) {
     }
     for (const [i, text] of CONTA.entries()) {
       const t0 = Date.now();
-      const r = await qwen.render({ text, voice, span: 0.5, pace: 1.15 });
+      // como o app faz: a contagem inteira é falada de uma vez e cortada (mesmo tom em todos)
+      const r = await qwen.render({ text, voice, span: 0.5, pace: 1.15, group: CONTA });
       fs.writeFileSync(path.join(out, `${voice.ref}-conta${i + 1}.wav`), r.buf);
       check(r, text, 1.2);
-      report.push(`${voice.ref.padEnd(9)} ${text.padEnd(44)} ${r.natural.toFixed(2)} s, velocidade ${r.tempo}×, em ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+      if (!r.group) console.log(`::warning::${voice.ref}: a contagem não pôde ser cortada; "${text}" saiu sozinho`);
+      report.push(`${voice.ref.padEnd(9)} ${text.padEnd(44)} ${r.natural.toFixed(2)} s, velocidade ${r.tempo}×${r.group ? ' (contagem de uma vez)' : ''}, em ${((Date.now() - t0) / 1000).toFixed(1)} s`);
       console.log(report[report.length - 1]);
     }
   }

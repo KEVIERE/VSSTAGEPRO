@@ -158,6 +158,79 @@ function withoutTrailingBlips(first, last, rate, peak, threshold, level) {
   return segments.length ? segments[segments.length - 1].end : last;
 }
 
+/**
+ * Corta uma contagem falada de uma vez ("Um, dois, três, quatro.") em `n` palavras. Falada assim,
+ * como uma pessoa contando, todas saem no mesmo tom e no mesmo ritmo, o que não acontece gerando
+ * cada número sozinho.
+ * Os cortes caem nas pausas entre as palavras: cada trecho quieto é UM ponto de corte (no meio
+ * dele), e valem os mais longos. Se faltarem pausas, entram os vales mais fundos da energia.
+ * Devolve [[início, fim], ...] em amostras, ou null se não der para separar com segurança (aí cada
+ * número é gerado sozinho).
+ */
+function splitWords(samples, rate, n) {
+  if (n < 2) return null;
+  const win = Math.max(1, Math.round(rate * 0.01));
+  const raw = [];
+  for (let i = 0; i + win <= samples.length; i += win) {
+    let s = 0;
+    for (let j = i; j < i + win; j++) s += samples[j] * samples[j];
+    raw.push(Math.sqrt(s / win));
+  }
+  const env = raw.map((_, i) => (raw[Math.max(0, i - 1)] + raw[i] + raw[Math.min(raw.length - 1, i + 1)]) / 3);
+  const peak = Math.max(0, ...env);
+  if (peak <= 0) return null;
+  let a = env.findIndex((v) => v > peak * 0.05);
+  let z = env.length - 1;
+  while (z > a && env[z] <= peak * 0.05) z--;
+  if (a < 0 || z - a < n * 10) return null;
+  const EDGE = 8; // 80 ms: nada de corte colado no começo ou no fim
+  const MIN_APART = 12; // 120 ms entre dois cortes
+
+  // 1. pausas: trechos seguidos abaixo de 8% do pico
+  const gaps = [];
+  for (let i = a + EDGE; i <= z - EDGE; i++) {
+    if (env[i] >= peak * 0.08) continue;
+    let j = i;
+    while (j + 1 <= z - EDGE && env[j + 1] < peak * 0.08) j++;
+    let low = Infinity;
+    for (let k = i; k <= j; k++) low = Math.min(low, env[k]);
+    gaps.push({ at: Math.round((i + j) / 2), len: j - i + 1, low });
+    i = j;
+  }
+  gaps.sort((p, q) => q.len - p.len || p.low - q.low);
+  const cuts = [];
+  for (const g of gaps) {
+    if (cuts.length === n - 1) break;
+    if (cuts.every((c) => Math.abs(c - g.at) >= MIN_APART)) cuts.push(g.at);
+  }
+  // 2. faltou: vales mais fundos (palavras emendadas)
+  if (cuts.length < n - 1) {
+    const valleys = [];
+    for (let i = a + EDGE; i <= z - EDGE; i++) {
+      if (env[i] < peak * 0.3 && env[i] <= env[i - 1] && env[i] <= env[i + 1]) valleys.push(i);
+    }
+    valleys.sort((p, q) => env[p] - env[q]);
+    for (const v of valleys) {
+      if (cuts.length === n - 1) break;
+      if (cuts.every((c) => Math.abs(c - v) >= MIN_APART)) cuts.push(v);
+    }
+  }
+  if (cuts.length !== n - 1) return null;
+  cuts.sort((p, q) => p - q);
+  const bounds = [a, ...cuts, z + 1];
+  const out = [];
+  for (let k = 0; k < n; k++) {
+    const s = bounds[k];
+    const e = bounds[k + 1];
+    let segPeak = 0;
+    for (let i = s; i < e; i++) segPeak = Math.max(segPeak, env[i]);
+    // cada pedaço tem de ter uma palavra de verdade e um tamanho de palavra
+    if (segPeak < peak * 0.2 || e - s < 10 || e - s > 150) return null;
+    out.push([s * win, Math.min(samples.length, e * win)]);
+  }
+  return out;
+}
+
 /** WAV PCM 16 bits com cabeçalho padrão de 44 bytes. */
 function wavFile(pcm, { channels, byteRate }) {
   const header = Buffer.alloc(44);
@@ -213,4 +286,4 @@ function floatToWav(samples, sampleRate) {
   return wavFile(pcm, { channels: 1, byteRate: sampleRate * 2 });
 }
 
-module.exports = { fitPace, wavLayout, wavSeconds, trimSilence, wavFile, floatToWav, removeDcOffset };
+module.exports = { fitPace, wavLayout, wavSeconds, trimSilence, wavFile, floatToWav, removeDcOffset, splitWords };

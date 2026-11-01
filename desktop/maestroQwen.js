@@ -16,7 +16,7 @@ const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
 const path = require('path');
-const { floatToWav, trimSilence, wavSeconds } = require('./maestroAudio');
+const { floatToWav, removeDcOffset, splitWords, trimSilence, wavSeconds } = require('./maestroAudio');
 const download = require('./maestroVoiceDownload');
 
 const HELPER = 'vs-maestro-voz';
@@ -32,14 +32,23 @@ const MAX_FIT_TEMPO = 1.35;
 /** Contagem: faixa da velocidade escolhida e o máximo para caber no tempo do click. */
 const COUNT_TEMPO_MIN = 0.85;
 const COUNT_TEMPO_MAX = 1.8;
-/** O programa fecha depois deste tempo sem falas (devolve a memória). */
-const IDLE_RELEASE_MS = 10 * 60 * 1000;
+/**
+ * O programa fecha logo depois da última fala e devolve a memória (~2 GB): num Mac de 8 GB, segurar
+ * isso deixava o Mac inteiro lento. Abrir de novo leva ~2 s.
+ */
+const IDLE_RELEASE_MS = 60 * 1000;
+/**
+ * Geração mais estável: menos variação de tom de uma fala para outra (0,9 é o padrão do modelo e
+ * muda bastante a entonação). Medido: 0,6 diminui a variação sem deixar a voz robótica.
+ */
+const TEMPERATURE = 0.6;
+const TOP_K = 50;
 /** Tempo máximo para abrir o programa e carregar o modelo. */
 const LOAD_TIMEOUT_MS = 180_000;
 /** Quantas falas prontas ficam guardadas (as mais antigas saem). */
 const CACHE_MAX_FILES = 400;
 /** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4;
 
 /** A voz pedida: 'feminina'/'masculina' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
@@ -132,10 +141,10 @@ function maxTokensFor(text) {
   return Math.ceil(Math.min(150, seconds) * 12.5);
 }
 
-/** Semente estável por fala: a mesma fala gerada de novo sai igual. */
-function seedFor(text, voiceId) {
+/** Semente fixa por voz: toda fala da mesma voz sai do mesmo jeito (tom mais parecido) e a mesma fala gerada de novo sai igual. */
+function seedFor(voiceId) {
   let h = 2166136261;
-  for (const ch of `${voiceId}|${text}`) {
+  for (const ch of `vs-maestro|${voiceId}`) {
     h ^= ch.codePointAt(0);
     h = Math.imul(h, 16777619) >>> 0;
   }
@@ -316,45 +325,119 @@ function referenceOf(voice) {
   };
 }
 
+/** Chave do cache com tudo o que muda o som da voz. */
+function voiceKey(voice) {
+  const { ref, refText } = referenceOf(voice);
+  return [CACHE_VERSION, download.MANIFEST.revision, refHash(ref), refText, seedFor(voice.id), TEMPERATURE, TOP_K];
+}
+
+/** Pede uma fala ao programa de voz e devolve as amostras cruas. */
+async function generate(text, voice, maxTokens) {
+  const h = await getHelper();
+  touch();
+  const { ref, refText } = referenceOf(voice);
+  const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'vs-maestro-ia-'));
+  try {
+    const out = path.join(tmp, 'fala.f32');
+    const reply = await ask(h, {
+      cmd: 'speak', text, ref, refText, language: 'portuguese',
+      seed: seedFor(voice.id), maxTokens, temperature: TEMPERATURE, topK: TOP_K, out,
+    }, Math.max(60_000, text.length * 1500));
+    const raw = await fsp.readFile(out);
+    const samples = new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + Math.floor(raw.length / 4) * 4));
+    if (samples.length === 0) throw new Error('A voz de IA não gerou áudio.');
+    touch();
+    return { samples, rate: reply.sampleRate || h.sampleRate, elapsed: reply.elapsed };
+  } finally {
+    await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+/** Uma fala sozinha (o caso comum). */
+async function renderSingle(clean, voice, span, pace) {
+  const maxTokens = maxTokensFor(clean);
+  const key = cacheKey([...voiceKey(voice), clean, maxTokens]);
+  const cached = await cacheGet(key);
+  if (cached) {
+    const natural = wavSeconds(cached);
+    return { buf: cached, natural, ...fitTempo(natural, span, pace), elapsed: 0, cached: true };
+  }
+  const { samples, rate, elapsed } = await generate(clean, voice, maxTokens);
+  const buf = trimSilence(floatToWav(samples, rate), { dropTrailingBlips: true });
+  const natural = wavSeconds(buf);
+  await cachePut(key, buf);
+  return { buf, natural, ...fitTempo(natural, span, pace), elapsed, cached: false };
+}
+
+/** A palavra sem pontuação e em minúsculas, para achar o número dentro da contagem. */
+function wordKey(w) {
+  return cleanText(w).replace(/[.!?,;:…]+/g, '').trim().toLowerCase();
+}
+
+/** Texto da contagem falada de uma vez: "Um, dois, três, quatro." */
+function countUtterance(words) {
+  return `${words.map((w, i) => {
+    const bare = cleanText(w).replace(/[.!?,;:…]+$/g, '').trim();
+    return i === 0 ? bare : bare.toLowerCase();
+  }).join(', ')}.`;
+}
+
+/** Contagens que não deu para cortar (nesta sessão): vão número a número, sem tentar de novo. */
+const splitFailed = new Set();
+
+/**
+ * Os números de uma contagem, falados de uma vez e cortados (mesmo tom e ritmo em todos), ou null
+ * se não deu para separar com segurança.
+ */
+async function countPieces(words, voice) {
+  const text = countUtterance(words);
+  const maxTokens = maxTokensFor(text);
+  const keys = words.map((_, k) => cacheKey([...voiceKey(voice), 'contagem', text, maxTokens, k]));
+  const cached = await Promise.all(keys.map(cacheGet));
+  if (cached.every(Boolean)) return { pieces: cached, cached: true };
+  const failKey = keys[0];
+  if (splitFailed.has(failKey)) return null;
+  const { samples, rate } = await generate(text, voice, maxTokens);
+  const full = removeDcOffset(samples, rate);
+  const parts = splitWords(full, rate, words.length);
+  if (!parts) { splitFailed.add(failKey); return null; }
+  const pieces = parts.map(([s, e]) => trimSilence(floatToWav(full.subarray(s, e), rate), { dropTrailingBlips: true }));
+  await Promise.all(pieces.map((b, k) => cachePut(keys[k], b)));
+  return { pieces, cached: false };
+}
+
 /**
  * Gera a fala com a voz de IA. Devolve o WAV natural (sem silêncio nas pontas, começando justo no
  * primeiro som) e o fator de velocidade que a tela aplica para caber na marcação.
+ * `group`: as palavras da contagem a que esta fala pertence ("Um!", "Dois!"...). Aí a contagem é
+ * falada de uma vez e cortada, e todos os números recebem a mesma velocidade (a do mais longo).
  */
-function render({ text, voice, span, pace }) {
+function render({ text, voice, span, pace, group }) {
   return serial(async () => {
     const why = unavailableReason();
     if (why) throw new Error(why);
     const clean = cleanText(text);
     if (!clean) throw new Error('O texto não tem palavras para falar.');
-    const { ref, refText } = referenceOf(voice);
-    const seed = seedFor(clean, voice.id);
-    const maxTokens = maxTokensFor(clean);
-    const key = cacheKey([CACHE_VERSION, download.MANIFEST.revision, refHash(ref), refText, clean, seed, maxTokens]);
-    const cached = await cacheGet(key);
-    if (cached) {
-      const natural = wavSeconds(cached);
-      return { buf: cached, natural, ...fitTempo(natural, span, pace), elapsed: 0, cached: true };
+
+    if (Array.isArray(group) && group.length >= 2) {
+      const words = [];
+      for (const w of group) if (wordKey(w) && !words.some((x) => wordKey(x) === wordKey(w))) words.push(w);
+      const idx = words.findIndex((w) => wordKey(w) === wordKey(clean));
+      if (idx >= 0 && words.length >= 2 && words.length <= 16) {
+        const got = await countPieces(words, voice);
+        if (got) {
+          const naturals = got.pieces.map(wavSeconds);
+          const tempo = Math.max(...naturals.map((n) => fitTempo(n, span, pace).tempo));
+          const natural = naturals[idx];
+          const seconds = natural / tempo;
+          return {
+            buf: got.pieces[idx], natural, tempo, seconds,
+            overflow: Number(span) > 0 && seconds > Number(span) * 1.02, elapsed: 0, cached: got.cached, group: true,
+          };
+        }
+      }
     }
-    const h = await getHelper();
-    touch();
-    const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'vs-maestro-ia-'));
-    try {
-      const out = path.join(tmp, 'fala.f32');
-      const reply = await ask(h, {
-        cmd: 'speak', text: clean, ref, refText, language: 'portuguese', seed, maxTokens, out,
-      }, Math.max(60_000, clean.length * 1500));
-      const raw = await fsp.readFile(out);
-      const samples = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
-      if (samples.length === 0) throw new Error('A voz de IA não gerou áudio.');
-      const buf = trimSilence(floatToWav(samples, reply.sampleRate || h.sampleRate), { dropTrailingBlips: true });
-      const natural = wavSeconds(buf);
-      const fit = fitTempo(natural, span, pace);
-      touch();
-      await cachePut(key, buf);
-      return { buf, natural, ...fit, elapsed: reply.elapsed, cached: false };
-    } finally {
-      await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
-    }
+    return renderSingle(clean, voice, span, pace);
   });
 }
 
@@ -374,4 +457,5 @@ module.exports = {
   stripCompassLabel,
   maxTokensFor,
   seedFor,
+  countUtterance,
 };
