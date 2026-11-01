@@ -191,6 +191,8 @@ async function downloadAll() {
 
 /** Começa (ou retoma) o download em segundo plano, se ainda não estiver pronto. */
 function start() {
+  // em desenvolvimento, apontando para um modelo já baixado, não baixa outro
+  if (process.env.VS_MAESTRO_MODEL_DIR) return;
   if (running || isReady()) return;
   if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
   running = downloadAll()

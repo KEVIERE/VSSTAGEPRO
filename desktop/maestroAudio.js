@@ -84,9 +84,16 @@ function wavSeconds(buf) {
  * para não estalar. No fim fica 60 ms de respiro. O limiar acompanha o volume da fala (36 dB
  * abaixo do pico), para não confundir o começo baixinho de um "s" ou de um "m" com silêncio.
  * O silêncio precisa chegar aqui no zero: veja `removeDcOffset`.
+ *
+ * `dropTrailingBlips` (voz de IA): o modelo às vezes solta uma respiração ou um ruído fraquinho
+ * depois de uma pausa no fim ("Um!" ... "hh"). Isso esticava a fala e obrigava a acelerar à toa.
+ * Sai o pedaço do fim que vem depois de uma pausa e é:
+ *  - fraco e curto: pausa de 180 ms, abaixo de 1/4 do pico e menos de 350 ms; ou
+ *  - um estalo isolado: pausa de 300 ms, abaixo da metade do pico e menos de 250 ms.
+ * Uma frase de verdade depois da pausa ("... ponte. Segura!") é forte e longa, e fica.
  * Devolve um WAV com cabeçalho simples de 44 bytes.
  */
-function trimSilence(buf) {
+function trimSilence(buf, { dropTrailingBlips = false } = {}) {
   const { start, end, frameBytes, byteRate } = wavLayout(buf);
   const frames = Math.floor((end - start) / frameBytes);
   if (frames <= 0) return buf;
@@ -104,6 +111,11 @@ function trimSilence(buf) {
   while (first < frames && !loud(first)) first++;
   let last = frames - 1;
   while (last > first && !loud(last)) last--;
+  if (dropTrailingBlips) last = withoutTrailingBlips(first, last, rate, peak, THRESHOLD, (i) => {
+    let m = 0;
+    for (let c = 0; c < frameBytes; c += 2) m = Math.max(m, Math.abs(sample(i, c)));
+    return m;
+  });
   const from = Math.max(0, first - Math.round(0.002 * rate));
   const to = Math.min(frames, last + 1 + Math.round(0.06 * rate));
   const body = Buffer.from(buf.subarray(start + from * frameBytes, start + to * frameBytes));
@@ -116,6 +128,34 @@ function trimSilence(buf) {
     }
   }
   return wavFile(body, { channels: frameBytes / 2, byteRate });
+}
+
+/** Onde a fala termina sem os ruídos fracos e curtos que vêm depois de uma pausa (ver trimSilence). */
+function withoutTrailingBlips(first, last, rate, peak, threshold, level) {
+  const win = Math.max(1, Math.round(0.01 * rate));
+  const segments = [];
+  let cur = null;
+  let quiet = 0;
+  for (let w = first; w <= last; w += win) {
+    let m = 0;
+    for (let i = w; i < Math.min(last + 1, w + win); i++) m = Math.max(m, level(i));
+    if (m > threshold) {
+      if (cur && quiet * win < 0.18 * rate) { cur.end = Math.min(last, w + win - 1); cur.peak = Math.max(cur.peak, m); }
+      else { cur = { start: w, end: Math.min(last, w + win - 1), peak: m, gap: cur ? quiet * win : 0 }; segments.push(cur); }
+      quiet = 0;
+    } else {
+      quiet++;
+    }
+  }
+  while (segments.length > 1) {
+    const tail = segments[segments.length - 1];
+    const len = tail.end - tail.start;
+    const faint = tail.peak < peak * 0.25 && len < 0.35 * rate;
+    const click = tail.gap >= 0.3 * rate && tail.peak < peak * 0.5 && len < 0.25 * rate;
+    if (!faint && !click) break;
+    segments.pop();
+  }
+  return segments.length ? segments[segments.length - 1].end : last;
 }
 
 /** WAV PCM 16 bits com cabeçalho padrão de 44 bytes. */

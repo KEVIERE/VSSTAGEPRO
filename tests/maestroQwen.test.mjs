@@ -130,7 +130,7 @@ const canRunFake = process.platform === 'darwin' && process.arch === 'arm64' && 
 
 test('fala pelo programa de voz: começa justo no primeiro som e devolve a velocidade da contagem', { skip: !canRunFake && 'só em Mac com chip Apple' }, async () => {
   const { engine, model } = fakeEngine();
-  const m = fresh({ VS_MAESTRO_ENGINE_DIR: engine, VS_MAESTRO_MODEL_DIR: model });
+  const m = fresh({ VS_MAESTRO_ENGINE_DIR: engine, VS_MAESTRO_MODEL_DIR: model, VS_MAESTRO_MODEL_HOME: tmpDir('casa') });
   try {
     assert.equal(m.qwen.status().ready, true);
     const r = await m.qwen.render({ text: 'A1', voice: m.qwen.qwenVoiceFor('feminina'), span: 0.5, pace: 1.15 });
@@ -141,6 +141,12 @@ test('fala pelo programa de voz: começa justo no primeiro som e devolve a veloc
     // segunda fala usa o mesmo programa já aberto
     const r2 = await m.qwen.render({ text: 'Atenção, banda!', voice: m.qwen.qwenVoiceFor('masculina'), span: 2 });
     assert.equal(r2.tempo, 1);
+    assert.equal(r2.cached, false);
+    // a mesma fala de novo vem pronta (sem esperar o modelo), já com a velocidade da nova marcação
+    const r3 = await m.qwen.render({ text: 'Atenção, banda!', voice: m.qwen.qwenVoiceFor('masculina'), span: 0.2 });
+    assert.equal(r3.cached, true);
+    assert.ok(r3.buf.equals(r2.buf));
+    assert.equal(r3.tempo, 1.35);
   } finally {
     m.qwen.stopHelper();
     m.restore();

@@ -11,6 +11,7 @@
 // - O Qwen3-TTS não tem controle de velocidade: aqui se calcula o fator (`tempo`) e a tela estica
 //   o áudio com o SoundTouch que o app já usa.
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
 const os = require('os');
@@ -35,6 +36,10 @@ const COUNT_TEMPO_MAX = 1.8;
 const IDLE_RELEASE_MS = 10 * 60 * 1000;
 /** Tempo máximo para abrir o programa e carregar o modelo. */
 const LOAD_TIMEOUT_MS = 180_000;
+/** Quantas falas prontas ficam guardadas (as mais antigas saem). */
+const CACHE_MAX_FILES = 400;
+/** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
+const CACHE_VERSION = 3;
 
 /** A voz pedida: 'feminina'/'masculina' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
@@ -263,6 +268,45 @@ function serial(job) {
   return run;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Falas já geradas ficam guardadas: a mesma fala com a mesma voz (mesma semente) sai igual, então
+// gerar de novo não precisa esperar o modelo. Ajuda muito na contagem ("Um!", "Dois!"... são sempre
+// as mesmas palavras). Trocar o modelo ou a voz muda a chave.
+
+function cacheDir() {
+  return path.join(path.dirname(download.modelDir()), 'falas-prontas');
+}
+
+const refHashes = new Map();
+function refHash(file) {
+  const st = fs.statSync(file);
+  const id = `${file}|${st.size}|${st.mtimeMs}`;
+  if (!refHashes.has(id)) refHashes.set(id, crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'));
+  return refHashes.get(id);
+}
+
+function cacheKey(parts) {
+  return crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 40);
+}
+
+async function cacheGet(key) {
+  try { return await fsp.readFile(path.join(cacheDir(), `${key}.wav`)); } catch { return null; }
+}
+
+async function cachePut(key, buf) {
+  try {
+    const dir = cacheDir();
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(path.join(dir, `${key}.wav`), buf);
+    const files = (await fsp.readdir(dir)).filter((f) => f.endsWith('.wav'));
+    if (files.length > CACHE_MAX_FILES) {
+      const dated = await Promise.all(files.map(async (f) => ({ f, t: (await fsp.stat(path.join(dir, f))).mtimeMs })));
+      dated.sort((a, b) => a.t - b.t);
+      await Promise.all(dated.slice(0, files.length - CACHE_MAX_FILES).map((d) => fsp.rm(path.join(dir, d.f), { force: true })));
+    }
+  } catch { /* sem cache: só fica mais lento da próxima vez */ }
+}
+
 /** Lê o trecho de referência e o texto dele. */
 function referenceOf(voice) {
   const dir = path.join(engineDir(), 'voices');
@@ -282,24 +326,32 @@ function render({ text, voice, span, pace }) {
     if (why) throw new Error(why);
     const clean = cleanText(text);
     if (!clean) throw new Error('O texto não tem palavras para falar.');
+    const { ref, refText } = referenceOf(voice);
+    const seed = seedFor(clean, voice.id);
+    const maxTokens = maxTokensFor(clean);
+    const key = cacheKey([CACHE_VERSION, download.MANIFEST.revision, refHash(ref), refText, clean, seed, maxTokens]);
+    const cached = await cacheGet(key);
+    if (cached) {
+      const natural = wavSeconds(cached);
+      return { buf: cached, natural, ...fitTempo(natural, span, pace), elapsed: 0, cached: true };
+    }
     const h = await getHelper();
     touch();
     const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'vs-maestro-ia-'));
     try {
       const out = path.join(tmp, 'fala.f32');
-      const { ref, refText } = referenceOf(voice);
       const reply = await ask(h, {
-        cmd: 'speak', text: clean, ref, refText, language: 'portuguese',
-        seed: seedFor(clean, voice.id), maxTokens: maxTokensFor(clean), out,
+        cmd: 'speak', text: clean, ref, refText, language: 'portuguese', seed, maxTokens, out,
       }, Math.max(60_000, clean.length * 1500));
       const raw = await fsp.readFile(out);
       const samples = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
       if (samples.length === 0) throw new Error('A voz de IA não gerou áudio.');
-      const buf = trimSilence(floatToWav(samples, reply.sampleRate || h.sampleRate));
+      const buf = trimSilence(floatToWav(samples, reply.sampleRate || h.sampleRate), { dropTrailingBlips: true });
       const natural = wavSeconds(buf);
       const fit = fitTempo(natural, span, pace);
       touch();
-      return { buf, natural, ...fit, elapsed: reply.elapsed };
+      await cachePut(key, buf);
+      return { buf, natural, ...fit, elapsed: reply.elapsed, cached: false };
     } finally {
       await fsp.rm(tmp, { recursive: true, force: true }).catch(() => {});
     }
