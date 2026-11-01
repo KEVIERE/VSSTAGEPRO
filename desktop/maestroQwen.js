@@ -48,7 +48,7 @@ const LOAD_TIMEOUT_MS = 180_000;
 /** Quantas falas prontas ficam guardadas (as mais antigas saem). */
 const CACHE_MAX_FILES = 400;
 /** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
-const CACHE_VERSION = 5;
+const CACHE_VERSION = 6;
 
 /** A voz pedida: 'feminina'/'masculina' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
@@ -363,7 +363,7 @@ async function renderSingle(clean, voice, span, pace) {
     return { buf: cached, natural, ...fitTempo(natural, span, pace), elapsed: 0, cached: true };
   }
   const { samples, rate, elapsed } = await generate(clean, voice, maxTokens);
-  const buf = trimSilence(floatToWav(samples, rate), { dropTrailingBlips: true });
+  const buf = trimSilence(floatToWav(samples, rate), { dropTrailingBlips: true, tightStart: true });
   const natural = wavSeconds(buf);
   await cachePut(key, buf);
   return { buf, natural, ...fitTempo(natural, span, pace), elapsed, cached: false };
@@ -402,7 +402,7 @@ async function countPieces(words, voice) {
   // tamanho esperado de cada número: pelas letras ("quatro" é mais longo que "um")
   const parts = splitWords(full, rate, words.length, words.map((w) => wordKey(w).replace(/\s+/g, '').length));
   if (!parts) { splitFailed.add(failKey); return null; }
-  const pieces = parts.map(([s, e]) => trimSilence(floatToWav(full.subarray(s, e), rate), { dropTrailingBlips: true }));
+  const pieces = parts.map(([s, e]) => trimSilence(floatToWav(full.subarray(s, e), rate), { dropTrailingBlips: true, tightStart: true }));
   await Promise.all(pieces.map((b, k) => cachePut(keys[k], b)));
   return { pieces, cached: false };
 }

@@ -91,9 +91,15 @@ function wavSeconds(buf) {
  *  - fraco e curto: pausa de 180 ms, abaixo de 1/4 do pico e menos de 350 ms; ou
  *  - um estalo isolado: pausa de 300 ms, abaixo da metade do pico e menos de 250 ms.
  * Uma frase de verdade depois da pausa ("... ponte. Segura!") é forte e longa, e fica.
+ *
+ * `tightStart` (voz de IA): o modelo às vezes começa com 50 a 110 ms de respiração ou ruído fraco
+ * antes da palavra, o que soava como espaço depois da linha da grade. O começo passa a ser onde a
+ * voz ganha força (12% do nível máximo) e só volta enquanto ainda é voz (6% ou mais) ou consoante
+ * chiada, como o "v" de "Vamos" ou o "s" de "Segura" (fraca, mas com muitos cruzamentos por zero),
+ * no máximo 80 ms. Respiração é fraca e "lisa": fica de fora.
  * Devolve um WAV com cabeçalho simples de 44 bytes.
  */
-function trimSilence(buf, { dropTrailingBlips = false } = {}) {
+function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}) {
   const { start, end, frameBytes, byteRate } = wavLayout(buf);
   const frames = Math.floor((end - start) / frameBytes);
   if (frames <= 0) return buf;
@@ -109,6 +115,7 @@ function trimSilence(buf, { dropTrailingBlips = false } = {}) {
   };
   let first = 0;
   while (first < frames && !loud(first)) first++;
+  if (tightStart && first < frames) first = voiceOnset(first, frames, rate, (i) => sample(i, 0));
   let last = frames - 1;
   while (last > first && !loud(last)) last--;
   if (dropTrailingBlips) last = withoutTrailingBlips(first, last, rate, peak, THRESHOLD, (i) => {
@@ -128,6 +135,44 @@ function trimSilence(buf, { dropTrailingBlips = false } = {}) {
     }
   }
   return wavFile(body, { channels: frameBytes / 2, byteRate });
+}
+
+/** Onde a voz começa de verdade, sem a respiração da frente (ver `tightStart` em trimSilence). */
+function voiceOnset(first, frames, rate, sampleAt) {
+  const win = Math.max(1, Math.round(rate * 0.005));
+  const count = Math.floor((frames - first) / win);
+  if (count < 2) return first;
+  const level = new Float64Array(count);
+  const crossings = new Float64Array(count);
+  let max = 0;
+  for (let w = 0; w < count; w++) {
+    let sum = 0;
+    let zc = 0;
+    let prev = sampleAt(first + w * win);
+    for (let i = 0; i < win; i++) {
+      const v = sampleAt(first + w * win + i);
+      sum += v * v;
+      if ((v >= 0) !== (prev >= 0)) zc++;
+      prev = v;
+    }
+    level[w] = Math.sqrt(sum / win);
+    crossings[w] = zc / win;
+    if (level[w] > max) max = level[w];
+  }
+  if (max <= 0) return first;
+  let m = 0;
+  while (m < count && level[m] < max * 0.12) m++;
+  if (m >= count) return first;
+  const maxBack = Math.round(0.08 / 0.005);
+  let start = m;
+  while (start > 0 && m - start < maxBack) {
+    const w = start - 1;
+    const voiced = level[w] >= max * 0.06;
+    const fricative = level[w] >= max * 0.025 && crossings[w] >= 0.1;
+    if (!voiced && !fricative) break;
+    start = w;
+  }
+  return first + start * win;
 }
 
 /** Onde a fala termina sem os ruídos fracos e curtos que vêm depois de uma pausa (ver trimSilence). */
