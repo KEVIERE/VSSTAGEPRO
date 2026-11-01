@@ -305,7 +305,6 @@ interface StoreActions {
   applyAntiClipMaster: () => void;
   setMasterVolume: (volume: number) => void;
   clearClipIndicator: (trackId: string) => void;
-  applyAntiClip: (trackId: string) => void;
   setLevelMatch: (on: boolean) => void;
   /** Alvo do "volume igual" em LUFS, escolhido pelo usuário. */
   setLevelMatchDb: (db: number) => void;
@@ -548,7 +547,14 @@ export const useStore = create<Store>()(
 
       toggleMute: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, mute: !t.mute } : t) })),
       toggleSolo: (trackId) => set((s) => isTimecodeTrackId(trackId) ? s : ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, solo: !t.solo } : t) })),
-      toggleAntiClip: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, antiClip: !t.antiClip } : t) })),
+      // Anti-clip do canal: liga/desliga o limitador de pico em -0,1 dBFS (audioEngine). Ao ligar,
+      // apaga o indicador de clip: dali em diante o canal não passa do teto.
+      toggleAntiClip: (trackId) => set((s) => isTimecodeTrackId(trackId) ? s : ({
+        tracks: s.tracks.map((t) => {
+          if (t.id !== trackId) return t;
+          return t.antiClip ? { ...t, antiClip: false } : { ...t, antiClip: true, clipIndicator: false, clipPeak: 0 };
+        }),
+      })),
 
       setVolume: (trackId, volume) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked ? { ...t, volume: Math.max(0, Math.min(1.5, volume)) } : t) })),
       setPan: (trackId, pan) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, pan: Math.max(-1, Math.min(1, pan)) } : t) })),
@@ -1552,13 +1558,6 @@ export const useStore = create<Store>()(
         if (s.masterClipPeak < 1) return s;
         return { masterVolume: antiClipFader(s.masterVolume, s.masterClipPeak), masterClipPeak: 0, masterMeterLevel: 0 };
       }),
-
-      applyAntiClip: (trackId) => set((s) => ({
-        tracks: s.tracks.map((t) => {
-          if (t.id !== trackId || t.clipPeak < 1 || t.faderLocked) return t;
-          return { ...t, volume: antiClipFader(t.volume, t.clipPeak), meterLevel: 0, clipIndicator: false, clipPeak: 0, antiClip: true };
-        }),
-      })),
 
       setVolumeDb: (trackId, dbChange) => set((s) => ({
         tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked

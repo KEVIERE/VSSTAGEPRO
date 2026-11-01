@@ -203,7 +203,7 @@ function MixerChannel({ trackId }: { trackId: string }) {
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
   const selectTrack = useStore((s) => s.selectTrack);
-  const applyAntiClip = useStore((s) => s.applyAntiClip);
+  const toggleAntiClip = useStore((s) => s.toggleAntiClip);
   const clearClipIndicator = useStore((s) => s.clearClipIndicator);
   const selectedTrackId = useStore((s) => s.selectedTrackId);
 
@@ -310,15 +310,20 @@ function MixerChannel({ trackId }: { trackId: string }) {
 
       <LevelReadout id={track.id} title="Nível do sinal agora (dBFS, pico das últimas 1,5 s). Em silêncio fica apagado." />
 
-      {/* Anti-clip */}
+      {/* Anti-clip: liga/desliga o limitador de pico do canal em -0,1 dBFS */}
       <button
-        className={`font-bold px-1 py-0.5 rounded border transition-colors duration-75 ${
-          isClipping
-            ? 'text-[8px] bg-logic-lcd-red text-black border-logic-lcd-red hover:bg-logic-lcd-amber hover:border-logic-lcd-amber animate-pulse'
-            : 'text-[8px] bg-logic-bg-deep text-logic-text-muted border-logic-border-dark opacity-60 cursor-default'
+        className={`text-[8px] font-bold px-1 py-0.5 rounded border transition-colors duration-75 ${
+          track.antiClip
+            ? 'bg-logic-lcd-green text-black border-logic-lcd-green hover:brightness-110'
+            : isClipping
+              ? 'bg-logic-lcd-red text-black border-logic-lcd-red hover:bg-logic-lcd-amber hover:border-logic-lcd-amber animate-pulse'
+              : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark hover:text-logic-text-dim'
         }`}
-        onClick={(e) => { e.stopPropagation(); if (isClipping) applyAntiClip(track.id); }}
-        title="Anti-Clip: baixa o fader só o necessário para o pico mais alto ficar 0,3 dB abaixo do clip"
+        onClick={(e) => { e.stopPropagation(); toggleAntiClip(track.id); }}
+        aria-pressed={track.antiClip}
+        title={track.antiClip
+          ? 'Anti-Clip ligado: a saída deste canal não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+          : 'Anti-Clip desligado: clique para limitar a saída deste canal em -0,1 dBFS, sem mudar o volume do resto.'}
       >
         ANTI-CLIP
       </button>

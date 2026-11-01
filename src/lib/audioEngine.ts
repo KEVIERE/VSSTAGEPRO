@@ -15,6 +15,7 @@ import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJu
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import { TimecodePlayer } from '@/lib/timecodePlayer';
+import { AntiClipInsert, antiClipActive, loadPeakLimiter } from '@/lib/antiClip';
 import { isUserInteracting } from '@/lib/interactionTracker';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
@@ -263,6 +264,8 @@ interface ChannelNode {
   panner: StereoPannerNode;
   /** Volume igual entre os VS: ganho da música no ar, depois do fader e antes do medidor. */
   level: GainNode;
+  /** Anti-clip: limitador de pico (-0,1 dBFS) entre o nível e o medidor, liga e desliga por canal. */
+  antiClip: AntiClipInsert;
   analyser: AnalyserNode;
   source: AudioBufferSourceNode | null;
   /** Separa L/R do canal quando ele sai num par estéreo da interface */
@@ -525,6 +528,8 @@ class AudioEngine {
       this.masterLimiter.connect(this.masterAnalyser);
       this.applyLimiterMode();
       this.configureOutputs();
+      // o limitador do anti-clip já fica carregado: ligar o botão age na hora
+      loadPeakLimiter(this.ctx).catch((err) => console.warn('[anti-clip] limitador indisponível', err));
       if (this.sinkId) {
         this.applySink(this.ctx, this.sinkId)
           .then(() => this.configureOutputs())
@@ -1035,8 +1040,9 @@ class AudioEngine {
     level.gain.value = isTimecodeTrackId(trackId) ? 1 : this.channelLevel();
     gain.connect(panner);
     panner.connect(level);
-    level.connect(analyser);
-    const node: ChannelNode = { gain, panner, level, analyser, source: null };
+    const antiClip = new AntiClipInsert(ctx, level, analyser);
+    antiClip.set(antiClipActive(useStore.getState().tracks.find((t) => t.id === trackId)), true);
+    const node: ChannelNode = { gain, panner, level, antiClip, analyser, source: null };
     this.channels.set(trackId, node);
     this.routeChannel(trackId);
     return node;
@@ -1105,6 +1111,11 @@ class AudioEngine {
 
   getOutputCount(): number {
     return this.outputCount;
+  }
+
+  // Botão ANTI-CLIP do mixer (e desfazer/refazer): liga ou desliga o limitador de cada canal.
+  private syncAntiClip(tracks: Track[]) {
+    this.channels.forEach((ch, id) => ch.antiClip.set(antiClipActive(tracks.find((t) => t.id === id))));
   }
 
   /** O timecode desta música só sai se tiver uma saída física escolhida que a interface oferece. */
@@ -1699,6 +1710,7 @@ class AudioEngine {
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();
       if (s.tracks !== prev.tracks) this.channels.forEach((_, id) => this.routeChannel(id));
+      if (s.tracks !== prev.tracks) this.syncAntiClip(s.tracks);
       // Se clipes foram apagados, divididos ou cortados enquanto toca, recalcula o fim da música
       if (s.clips !== prev.clips && this.isPlaying && this.currentSongId) {
         this.scheduleSongEnd();

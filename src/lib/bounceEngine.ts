@@ -10,6 +10,9 @@ import { evaluateFadeCurve } from '@/types';
 import { integratedLoudness, truePeak } from '@/lib/loudness';
 import { songLevelGain } from '@/lib/songLevel';
 import { gainToFader } from '@/lib/faderScale';
+import { ANTI_CLIP_CEILING, limitInPlace } from '@/lib/peakLimiter.js';
+import { antiClipActive } from '@/lib/antiClip';
+import { splitByAntiClip } from '@/lib/antiClipMix';
 import type { AudioClip, ProjectState, Song, Track } from '@/types';
 
 export type BounceMode = 'lr' | 'multipista' | 'show-continuo';
@@ -185,7 +188,8 @@ async function renderSliceOffline(
   trackFilter?: (t: Track) => boolean,
   applyMasterLimiter = false,
   cancelled: () => boolean = () => false,
-  masterVolume = 0.8
+  masterVolume = 0.8,
+  channelLevel = 1
 ): Promise<AudioBuffer> {
   const alpha = bpmAdjustToAlpha(bpmAdjust);
   const sliceDurSec = Math.max(0.05, sliceEnd - sliceStart);
@@ -214,91 +218,121 @@ async function renderSliceOffline(
   const accL = new Float32Array(totalFrames);
   const accR = new Float32Array(totalFrames);
 
-  for (let from = 0; from < wanted.length; from += EXPORT_BATCH) {
-    if (cancelled()) throw new DOMException('Exportação cancelada', 'AbortError');
-    const batch = wanted.slice(from, from + EXPORT_BATCH);
-    const ctx = new OfflineAudioContext(2, totalFrames, sampleRate);
-
-    const trackChannels = new Map<string, { gain: GainNode; panner: StereoPannerNode }>();
-    const ensureChannel = (targetTrack: Track) => {
-      const existing = trackChannels.get(targetTrack.id);
-      if (existing) return existing;
-      const gain = ctx.createGain();
-      const panner = ctx.createStereoPanner();
-      // LR mágico: mesma soma a -6 dB da reprodução (o canal estéreo vai todo para um lado)
-      const magicSum = magic && !isTimecodeTrackId(targetTrack.id) ? MAGIC_SUM_GAIN : 1;
-      gain.gain.value = (respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume)) * magicSum;
-      panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
-      gain.connect(panner);
-      panner.connect(ctx.destination);
-      const node = { gain, panner };
-      trackChannels.set(targetTrack.id, node);
-      return node;
-    };
-
-    let scheduled = 0;
-    for (const { clip, track } of batch) {
-      const clipPlayLen = clipPlayLength(clip);
-      const melodic = isMelodicTrack(track, tracks);
-      // trecho do clipe (em segundos do clipe) que cai nesta fatia
-      const localStart = Math.max(0, sliceStart - clip.startTime);
-      const localEnd = Math.min(clipPlayLen, sliceEnd - clip.startTime);
-      // clipe que só encosta na borda da fatia não tem o que tocar nela: fica de fora (não é erro)
-      if (localEnd - localStart <= 0.0005) continue;
-      const { buffer: processed, lead } = await processExportClip(ctx, clip, alpha, melodic ? cents : 0, localStart, localEnd);
+  const renderInto = async (items: typeof wanted, dstL: Float32Array, dstR: Float32Array) => {
+    for (let from = 0; from < items.length; from += EXPORT_BATCH) {
       if (cancelled()) throw new DOMException('Exportação cancelada', 'AbortError');
+      const batch = items.slice(from, from + EXPORT_BATCH);
+      const ctx = new OfflineAudioContext(2, totalFrames, sampleRate);
 
-      const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
-      const channel = ensureChannel(target);
-      const source = ctx.createBufferSource();
-      source.buffer = processed;
-      source.playbackRate.value = 1;
+      const trackChannels = new Map<string, { gain: GainNode; panner: StereoPannerNode }>();
+      const ensureChannel = (targetTrack: Track) => {
+        const existing = trackChannels.get(targetTrack.id);
+        if (existing) return existing;
+        const gain = ctx.createGain();
+        const panner = ctx.createStereoPanner();
+        // LR mágico: mesma soma a -6 dB da reprodução (o canal estéreo vai todo para um lado)
+        const magicSum = magic && !isTimecodeTrackId(targetTrack.id) ? MAGIC_SUM_GAIN : 1;
+        gain.gain.value = (respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume)) * magicSum;
+        panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
+        gain.connect(panner);
+        panner.connect(ctx.destination);
+        const node = { gain, panner };
+        trackChannels.set(targetTrack.id, node);
+        return node;
+      };
 
-      const clipGain = ctx.createGain();
-      const trackVolumeGain = track.parentId
-        ? (respectMuteSolo ? channelGainFor(track, tracks, track.volume) : faderToGain(track.volume))
-        : 1;
-      const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
+      let scheduled = 0;
+      for (const { clip, track } of batch) {
+        const clipPlayLen = clipPlayLength(clip);
+        const melodic = isMelodicTrack(track, tracks);
+        // trecho do clipe (em segundos do clipe) que cai nesta fatia
+        const localStart = Math.max(0, sliceStart - clip.startTime);
+        const localEnd = Math.min(clipPlayLen, sliceEnd - clip.startTime);
+        // clipe que só encosta na borda da fatia não tem o que tocar nela: fica de fora (não é erro)
+        if (localEnd - localStart <= 0.0005) continue;
+        const { buffer: processed, lead } = await processExportClip(ctx, clip, alpha, melodic ? cents : 0, localStart, localEnd);
+        if (cancelled()) throw new DOMException('Exportação cancelada', 'AbortError');
 
-      const playDuration = clipPlayLen * alpha;
-      scheduleClipEnvelope(clipGain.gain, clip, baseGain, (clip.startTime - sliceStart) * alpha, playDuration, alpha);
+        const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+        const channel = ensureChannel(target);
+        const source = ctx.createBufferSource();
+        source.buffer = processed;
+        source.playbackRate.value = 1;
 
-      source.connect(clipGain);
+        const clipGain = ctx.createGain();
+        const trackVolumeGain = track.parentId
+          ? (respectMuteSolo ? channelGainFor(track, tracks, track.volume) : faderToGain(track.volume))
+          : 1;
+        const baseGain = trackVolumeGain * clipGainFor(clip, songClips);
 
-      if (track.parentId) {
-        const clipPan = ctx.createStereoPanner();
-        clipPan.pan.value = effectivePan(track.id, track.pan, lrMasterActive);
-        clipGain.connect(clipPan);
-        clipPan.connect(channel.gain);
-      } else {
-        clipGain.connect(channel.gain);
+        const playDuration = clipPlayLen * alpha;
+        scheduleClipEnvelope(clipGain.gain, clip, baseGain, (clip.startTime - sliceStart) * alpha, playDuration, alpha);
+
+        source.connect(clipGain);
+
+        if (track.parentId) {
+          const clipPan = ctx.createStereoPanner();
+          clipPan.pan.value = effectivePan(track.id, track.pan, lrMasterActive);
+          clipGain.connect(clipPan);
+          clipPan.connect(channel.gain);
+        } else {
+          clipGain.connect(channel.gain);
+        }
+
+        const when = Math.max(0, (clip.startTime - sliceStart) * alpha);
+        const offset = Math.min(lead, Math.max(0, (source.buffer?.duration ?? 0) - 1 / sampleRate));
+        try {
+          if (offset > 0) source.start(when, offset);
+          else source.start(when);
+          scheduled++;
+        } catch (err) {
+          console.error('[bounce] agendamento falhou:', clip.name, err);
+          throw new Error(`Não foi possível agendar o clipe "${clip.name}" na exportação.`);
+        }
+        await yieldToUi();
       }
 
-      const when = Math.max(0, (clip.startTime - sliceStart) * alpha);
-      const offset = Math.min(lead, Math.max(0, (source.buffer?.duration ?? 0) - 1 / sampleRate));
-      try {
-        if (offset > 0) source.start(when, offset);
-        else source.start(when);
-        scheduled++;
-      } catch (err) {
-        console.error('[bounce] agendamento falhou:', clip.name, err);
-        throw new Error(`Não foi possível agendar o clipe "${clip.name}" na exportação.`);
+      if (scheduled > 0) {
+        const rendered = await ctx.startRendering();
+        if (cancelled()) throw new DOMException('Exportação cancelada', 'AbortError');
+        const l = rendered.getChannelData(0);
+        const r = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : l;
+        const n = Math.min(totalFrames, rendered.length);
+        for (let i = 0; i < n; i++) {
+          dstL[i] += l[i];
+          dstR[i] += r[i];
+        }
       }
       await yieldToUi();
     }
+  };
 
-    if (scheduled > 0) {
-      const rendered = await ctx.startRendering();
+  // Canais com anti-clip: o limitador age na soma do canal inteiro (como na reprodução), então
+  // os clipes de cada um são somados à parte, limitados juntos e só então entram no mix.
+  // Sem nenhum anti-clip ligado, tudo segue o caminho (e a ordem) de sempre.
+  const { plain, groups } = splitByAntiClip(wanted, ({ track }) => {
+    const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+    return antiClipActive(target) ? target.id : null;
+  });
+  await renderInto(plain, accL, accR);
+  if (groups.length > 0) {
+    const chL = new Float32Array(totalFrames);
+    const chR = new Float32Array(totalFrames);
+    // Na reprodução o "volume igual" entra antes do limitador; aqui ele vem depois, no master
+    // (channelLevel): o teto é ajustado para o resultado ficar igual.
+    const ceiling = ANTI_CLIP_CEILING / (channelLevel > 0 ? channelLevel : 1);
+    for (const group of groups) {
+      chL.fill(0);
+      chR.fill(0);
+      await renderInto(group, chL, chR);
       if (cancelled()) throw new DOMException('Exportação cancelada', 'AbortError');
-      const l = rendered.getChannelData(0);
-      const r = rendered.numberOfChannels > 1 ? rendered.getChannelData(1) : l;
-      const n = Math.min(totalFrames, rendered.length);
-      for (let i = 0; i < n; i++) {
-        accL[i] += l[i];
-        accR[i] += r[i];
+      limitInPlace([chL, chR], sampleRate, { ceiling });
+      for (let i = 0; i < totalFrames; i++) {
+        accL[i] += chL[i];
+        accR[i] += chR[i];
       }
+      await yieldToUi();
     }
-    await yieldToUi();
   }
 
   const mixed = createBufferFallback(totalFrames, 2, sampleRate);
@@ -344,7 +378,8 @@ async function renderOffline(
   trackFilter?: (t: Track) => boolean,
   applyMasterLimiter = false,
   cancelled: () => boolean = () => false,
-  masterVolume = 0.8
+  masterVolume = 0.8,
+  channelLevel = 1
 ): Promise<AudioBuffer> {
   // Se for um Medley com fatias:
   // - Renderiza apenas as fatias marcadas (enabled !== false), pulando as desmarcadas!
@@ -370,7 +405,8 @@ async function renderOffline(
         trackFilter,
         applyMasterLimiter,
         cancelled,
-        masterVolume
+        masterVolume,
+        channelLevel
       );
       buffers.push(buf);
     }
@@ -391,7 +427,8 @@ async function renderOffline(
     trackFilter,
     applyMasterLimiter,
     cancelled,
-    masterVolume
+    masterVolume,
+    channelLevel
   );
 }
 
@@ -505,7 +542,7 @@ function multitrackJobs(song: Song, state: ProjectState, cancelled: () => boolea
  * fader master nem limiter. É a medida usada pelo "volume igual entre os VS".
  */
 export async function measureSongLoudness(song: Song, state: ProjectState, cancelled: () => boolean = () => false): Promise<{ lufs: number; peak: number }> {
-  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8 }));
+  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8, antiClip: false }));
   const buf = await withSongAudio(song.id, () => renderOffline(song, unity, state.clips, state.lrMasterActive, undefined, false, cancelled, 0.8));
   const channels = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
   return { lufs: integratedLoudness(channels, buf.sampleRate), peak: truePeak(channels) };
@@ -522,7 +559,7 @@ function masterFor(state: ProjectState, songId: string): number {
  * tom/BPM ajustados: é o que a IA de tom analisa. Mono para a análise.
  */
 export async function renderMelodicMono(song: Song, state: ProjectState): Promise<{ mono: Float32Array; sampleRate: number }> {
-  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8 }));
+  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8, antiClip: false }));
   const plain: Song = { ...song, bpmAdjust: 0, tuner: 0, medley: undefined };
   const buf = await withSongAudio(song.id, () => renderOffline(plain, unity, state.clips, false, (t) => isMelodicTrack(t, unity), false));
   const mono = new Float32Array(buf.length);
@@ -538,7 +575,7 @@ async function renderSongWithRetry(song: Song, state: ProjectState, cancelled: (
   let last: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, masterFor(state, song.id)));
+      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, masterFor(state, song.id), songLevelGain(state, song.id)));
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') throw err;
       last = err;
@@ -779,7 +816,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
             label: 'mix LR Master',
-            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, masterFor(state, song.id))),
+            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, masterFor(state, song.id), songLevelGain(state, song.id))),
           }]
         : multitrackJobs(song, state, hooks.cancelled);
       total += jobs.length - estimates[si];
