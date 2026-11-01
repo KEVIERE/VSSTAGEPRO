@@ -162,12 +162,16 @@ function withoutTrailingBlips(first, last, rate, peak, threshold, level) {
  * Corta uma contagem falada de uma vez ("Um, dois, três, quatro.") em `n` palavras. Falada assim,
  * como uma pessoa contando, todas saem no mesmo tom e no mesmo ritmo, o que não acontece gerando
  * cada número sozinho.
- * Os cortes caem nas pausas entre as palavras: cada trecho quieto é UM ponto de corte (no meio
- * dele), e valem os mais longos. Se faltarem pausas, entram os vales mais fundos da energia.
+ *
+ * Os cortes caem nas pausas entre as palavras (cada trecho quieto conta como UM ponto de corte, no
+ * meio dele; vales fundos da energia entram como pontos fracos). Entre todas as combinações, vale
+ * a de pausas mais longas E pedaços do tamanho esperado de cada palavra (`weights`, ex.: letras):
+ * assim o silêncio do "t" no meio de "qua-tro" não vira corte, porque deixaria "quatro" curto
+ * demais e o número anterior comprido demais.
  * Devolve [[início, fim], ...] em amostras, ou null se não der para separar com segurança (aí cada
  * número é gerado sozinho).
  */
-function splitWords(samples, rate, n) {
+function splitWords(samples, rate, n, weights = null) {
   if (n < 2) return null;
   const win = Math.max(1, Math.round(rate * 0.01));
   const raw = [];
@@ -179,56 +183,76 @@ function splitWords(samples, rate, n) {
   const env = raw.map((_, i) => (raw[Math.max(0, i - 1)] + raw[i] + raw[Math.min(raw.length - 1, i + 1)]) / 3);
   const peak = Math.max(0, ...env);
   if (peak <= 0) return null;
-  let a = env.findIndex((v) => v > peak * 0.05);
+  const a = env.findIndex((v) => v > peak * 0.05);
   let z = env.length - 1;
   while (z > a && env[z] <= peak * 0.05) z--;
   if (a < 0 || z - a < n * 10) return null;
   const EDGE = 8; // 80 ms: nada de corte colado no começo ou no fim
-  const MIN_APART = 12; // 120 ms entre dois cortes
+  const MIN_LEN = 10; // pedaço de 100 ms a 1,5 s
+  const MAX_LEN = 150;
 
-  // 1. pausas: trechos seguidos abaixo de 8% do pico
-  const gaps = [];
+  // pontos de corte possíveis: pausas (força = duração) e vales fundos (força pequena)
+  const cands = [];
   for (let i = a + EDGE; i <= z - EDGE; i++) {
-    if (env[i] >= peak * 0.08) continue;
-    let j = i;
-    while (j + 1 <= z - EDGE && env[j + 1] < peak * 0.08) j++;
-    let low = Infinity;
-    for (let k = i; k <= j; k++) low = Math.min(low, env[k]);
-    gaps.push({ at: Math.round((i + j) / 2), len: j - i + 1, low });
-    i = j;
-  }
-  gaps.sort((p, q) => q.len - p.len || p.low - q.low);
-  const cuts = [];
-  for (const g of gaps) {
-    if (cuts.length === n - 1) break;
-    if (cuts.every((c) => Math.abs(c - g.at) >= MIN_APART)) cuts.push(g.at);
-  }
-  // 2. faltou: vales mais fundos (palavras emendadas)
-  if (cuts.length < n - 1) {
-    const valleys = [];
-    for (let i = a + EDGE; i <= z - EDGE; i++) {
-      if (env[i] < peak * 0.3 && env[i] <= env[i - 1] && env[i] <= env[i + 1]) valleys.push(i);
-    }
-    valleys.sort((p, q) => env[p] - env[q]);
-    for (const v of valleys) {
-      if (cuts.length === n - 1) break;
-      if (cuts.every((c) => Math.abs(c - v) >= MIN_APART)) cuts.push(v);
+    if (env[i] < peak * 0.08) {
+      let j = i;
+      while (j + 1 <= z - EDGE && env[j + 1] < peak * 0.08) j++;
+      cands.push({ at: Math.round((i + j) / 2), strength: j - i + 1 });
+      i = j;
+    } else if (env[i] < peak * 0.3 && env[i] <= env[i - 1] && env[i] <= env[i + 1]) {
+      cands.push({ at: i, strength: 1 });
     }
   }
-  if (cuts.length !== n - 1) return null;
-  cuts.sort((p, q) => p - q);
-  const bounds = [a, ...cuts, z + 1];
-  const out = [];
-  for (let k = 0; k < n; k++) {
-    const s = bounds[k];
-    const e = bounds[k + 1];
+  if (cands.length < n - 1) return null;
+
+  // tamanho esperado de cada palavra (proporcional ao peso, ex.: número de letras)
+  const w = Array.from({ length: n }, (_, k) => Math.max(1, Number(weights?.[k]) || 1));
+  const wSum = w.reduce((x, y) => x + y, 0);
+  const total = z + 1 - a;
+  const expected = w.map((x) => (total * x) / wSum);
+  const LEN_COST = 0.6; // cada 10 ms fora do esperado custa 0,6 de "pausa"
+  const pieceCost = (k, from, to) => {
+    const len = to - from;
+    if (len < MIN_LEN || len > MAX_LEN) return -Infinity;
     let segPeak = 0;
-    for (let i = s; i < e; i++) segPeak = Math.max(segPeak, env[i]);
-    // cada pedaço tem de ter uma palavra de verdade e um tamanho de palavra
-    if (segPeak < peak * 0.2 || e - s < 10 || e - s > 150) return null;
-    out.push([s * win, Math.min(samples.length, e * win)]);
+    for (let i = from; i < to; i++) segPeak = Math.max(segPeak, env[i]);
+    if (segPeak < peak * 0.2) return -Infinity; // cada pedaço precisa de uma palavra de verdade
+    return -LEN_COST * Math.abs(len - expected[k]);
+  };
+
+  // melhor escolha de n-1 cortes (programação dinâmica): best[j][c] = melhor nota com j+1 cortes,
+  // o último no candidato c
+  const m = cands.length;
+  const best = Array.from({ length: n - 1 }, () => new Array(m).fill(-Infinity));
+  const from = Array.from({ length: n - 1 }, () => new Array(m).fill(-1));
+  for (let c = 0; c < m; c++) {
+    const v = pieceCost(0, a, cands[c].at);
+    if (v > -Infinity) best[0][c] = v + cands[c].strength;
   }
-  return out;
+  for (let j = 1; j < n - 1; j++) {
+    for (let c = 0; c < m; c++) {
+      for (let p = 0; p < c; p++) {
+        if (best[j - 1][p] === -Infinity) continue;
+        const v = pieceCost(j, cands[p].at, cands[c].at);
+        if (v === -Infinity) continue;
+        const score = best[j - 1][p] + v + cands[c].strength;
+        if (score > best[j][c]) { best[j][c] = score; from[j][c] = p; }
+      }
+    }
+  }
+  let bestScore = -Infinity;
+  let last = -1;
+  for (let c = 0; c < m; c++) {
+    if (best[n - 2][c] === -Infinity) continue;
+    const v = pieceCost(n - 1, cands[c].at, z + 1);
+    if (v === -Infinity) continue;
+    if (best[n - 2][c] + v > bestScore) { bestScore = best[n - 2][c] + v; last = c; }
+  }
+  if (last < 0) return null;
+  const cuts = [];
+  for (let j = n - 2, c = last; j >= 0; c = from[j][c], j--) cuts.unshift(cands[c].at);
+  const bounds = [a, ...cuts, z + 1];
+  return bounds.slice(0, -1).map((s, k) => [s * win, Math.min(samples.length, bounds[k + 1] * win)]);
 }
 
 /** WAV PCM 16 bits com cabeçalho padrão de 44 bytes. */

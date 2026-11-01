@@ -38,17 +38,17 @@ const COUNT_TEMPO_MAX = 1.8;
  */
 const IDLE_RELEASE_MS = 60 * 1000;
 /**
- * Geração mais estável: menos variação de tom de uma fala para outra (0,9 é o padrão do modelo e
- * muda bastante a entonação). Medido: 0,6 diminui a variação sem deixar a voz robótica.
+ * Temperatura do modelo: a padrão (0,9). Testado: 0,6 varia um pouco menos o tom, mas às vezes o
+ * modelo empaca em silêncio e larga palavras ("Vamos pra ponte." sem o "Segura!").
  */
-const TEMPERATURE = 0.6;
+const TEMPERATURE = 0.9;
 const TOP_K = 50;
 /** Tempo máximo para abrir o programa e carregar o modelo. */
 const LOAD_TIMEOUT_MS = 180_000;
 /** Quantas falas prontas ficam guardadas (as mais antigas saem). */
 const CACHE_MAX_FILES = 400;
 /** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
-const CACHE_VERSION = 4;
+const CACHE_VERSION = 5;
 
 /** A voz pedida: 'feminina'/'masculina' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
@@ -399,7 +399,8 @@ async function countPieces(words, voice) {
   if (splitFailed.has(failKey)) return null;
   const { samples, rate } = await generate(text, voice, maxTokens);
   const full = removeDcOffset(samples, rate);
-  const parts = splitWords(full, rate, words.length);
+  // tamanho esperado de cada número: pelas letras ("quatro" é mais longo que "um")
+  const parts = splitWords(full, rate, words.length, words.map((w) => wordKey(w).replace(/\s+/g, '').length));
   if (!parts) { splitFailed.add(failKey); return null; }
   const pieces = parts.map(([s, e]) => trimSilence(floatToWav(full.subarray(s, e), rate), { dropTrailingBlips: true }));
   await Promise.all(pieces.map((b, k) => cachePut(keys[k], b)));
