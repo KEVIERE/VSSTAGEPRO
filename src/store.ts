@@ -15,7 +15,7 @@ import { antiClipFader } from '@/lib/faderScale';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
-import type { SnapStep } from '@/lib/grid';
+import { moveTempoChange, tempoChangeIndex, type SnapStep } from '@/lib/grid';
 import { MAESTRO_IA_TRACK_ID, sortedNarrations } from '@/lib/narrations';
 
 export interface InstantPrep {
@@ -261,6 +261,8 @@ interface StoreActions {
   setTempoAt: (songId: string, atTime: number, bpm: number) => void;
   /** Remove a mudança de andamento manual mais próxima deste ponto, voltando o trecho ao segmento anterior. */
   removeTempoAt: (songId: string, atTime: number) => void;
+  /** Leva a mudança de andamento mais perto de `fromTime` para `toTime` (arrastar a plaquinha amarela). */
+  moveTempoAt: (songId: string, fromTime: number, toTime: number) => void;
   addSongRegion: (songId: string, region: SongRegion) => boolean;
   updateSongRegion: (songId: string, regionId: string, updates: Partial<Omit<SongRegion, 'id'>>) => void;
   removeSongRegion: (songId: string, regionId: string) => void;
@@ -1276,6 +1278,14 @@ export const useStore = create<Store>()(
             ? { ...sg, tempoSegments: finalSegments, bpm: finalSegments?.[0]?.bpm ?? merged[0]?.bpm ?? sg.bpm }
             : sg),
         };
+      }),
+
+      moveTempoAt: (songId, fromTime, toTime) => set((s) => {
+        const song = s.songs.find((sg) => sg.id === songId);
+        const index = tempoChangeIndex(song?.tempoSegments, fromTime);
+        if (!song?.tempoSegments || index < 1) return s;
+        const tempoSegments = moveTempoChange(song.tempoSegments, index, toTime);
+        return { songs: s.songs.map((sg) => (sg.id === songId ? { ...sg, tempoSegments } : sg)) };
       }),
 
       addSongRegion: (songId, region) => {

@@ -20,7 +20,7 @@ import CountInDialog, { type CountInTarget } from '@/components/CountInDialog';
 import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
 import { ClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
-import { barBeatLabel, snapTime, songGrid } from '@/lib/grid';
+import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
@@ -1324,6 +1324,7 @@ export default function TimelinePanel() {
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
   // não conseguir sincronizar um trecho (ex.: medley com transições muito sutis ou sem click).
   const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number; editing?: boolean } | null>(null);
+  const [tempoDrag, setTempoDrag] = useState<{ from: number; to: number } | null>(null);
   const setTempoAt = useStore((s) => s.setTempoAt);
   const removeTempoAt = useStore((s) => s.removeTempoAt);
   const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
@@ -1381,6 +1382,12 @@ export default function TimelinePanel() {
     );
   }, [songClips]);
   const grid = useMemo(() => songGrid(song, clickClip), [song, clickClip]);
+  // enquanto a plaquinha amarela é arrastada, a grade mostra a mudança de andamento no lugar novo
+  const shownGrid = useMemo(() => {
+    if (!grid?.tempoSegments || !tempoDrag) return grid;
+    const index = tempoChangeIndex(grid.tempoSegments, tempoDrag.from);
+    return index < 1 ? grid : { ...grid, tempoSegments: moveTempoChange(grid.tempoSegments, index, tempoDrag.to) };
+  }, [grid, tempoDrag]);
   const selectedSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
 
   const allVisibleTracks = useMemo(() => {
@@ -2101,15 +2108,16 @@ export default function TimelinePanel() {
               }}
               title="Clique para posicionar cursor. Botão direito: cravar o andamento neste ponto (último recurso). Shift + botão direito: cravar início de compasso."
             >
-              {grid && song && (
+              {shownGrid && song && (
                 <BarRulerLayer
                   song={song}
-                  grid={grid}
+                  grid={shownGrid}
                   zoomH={zoomH}
                   visible={visible}
+                  onTempoDrag={setTempoDrag}
                   onEditTempo={({ time, bpm, x, y }) => {
                     // a mudança fica exatamente no início do trecho com esse andamento
-                    const seg = grid.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
+                    const seg = grid?.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
                     setManualTempoPoint({ time: seg?.startTime ?? time, x, y, existingBpm: bpm, editing: true });
                   }}
                 />
@@ -2255,7 +2263,7 @@ export default function TimelinePanel() {
                   );
                 })}
 
-                {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
+                {shownGrid && <GridLinesOverlay grid={shownGrid} zoomH={zoomH} visible={visible} />}
 
                 <RegionGuides song={song} zoomH={zoomH} drag={regionDrag} />
 

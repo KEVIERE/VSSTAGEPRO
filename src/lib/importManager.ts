@@ -7,7 +7,6 @@ import type { ClipAudio } from '@/lib/audioLibrary';
 import type { AudioClip, PlaylistEntry, RoutingTarget, Song, SongTempoSegment } from '@/types';
 import { detectBpm, detectClickTempo, type TempoResult } from '@/lib/beatDetector';
 import { parseWavMetadata } from '@/lib/reaperMetadata';
-import { clickDownbeatOnTimeline } from '@/lib/grid';
 
 const AUDIO_EXTENSIONS = /\.(wav|mp3|aac|ogg|flac|m4a|aif|aiff|wma|opus)$/i;
 const DECODE_CONCURRENCY = 4;
@@ -220,8 +219,8 @@ function reportSummary(results: SongImportResult[], brokenSongs: string[]) {
   setTimeout(() => useStore.getState().setImportProgress(null), hasProblem ? 8000 : 3000);
 }
 
-// Todo VS tem click: ancora o BPM e o início do compasso (downbeat) na primeira música do VS,
-// sincronizando o click na grade com precisão milimétrica.
+// Todo VS tem click e ele começa no compasso 1 (0:00), como na DAW de onde o VS saiu.
+// O BPM é medido pulso a pulso no começo do click (num medley, a primeira música).
 // Não adiciona outros tempos automaticamente na régua: caso o andamento mude lá na frente
 // (ex.: medley), o próprio usuário clica com o botão direito na régua no ponto exato e insere o novo BPM.
 async function applyBpm(songId: string): Promise<boolean> {
@@ -229,47 +228,39 @@ async function applyBpm(songId: string): Promise<boolean> {
   const song = useStore.getState().songs.find((s) => s.id === songId);
   const beatsPerBar = song?.beatsPerBar ?? 4;
   let result: TempoResult | null = null;
-  let sourceId: string | null = null;
-  const onTimeline = (fileDownbeat: number, id: string, bpm: number) =>
-    clickDownbeatOnTimeline(fileDownbeat, useStore.getState().clips.find((c) => c.id === id), bpm, beatsPerBar);
 
-  // 1. Confere se o arquivo (especialmente o click) trouxe metadados de BPM gravados no Reaper/DAWs
-  let fileBpm: number | null = null;
-  for (const id of clickFirst) {
-    const src = getClipSource(id);
-    if (src) {
-      const wavMeta = await parseWavMetadata(src);
-      if (wavMeta?.bpm) { fileBpm = wavMeta.bpm; break; }
-    }
-  }
-
-  // 2. Análise exata dos pulsos sonoros do Click: dá o BPM e o primeiro tempo, onde a grade começa
+  // 1. Pulsos do click: é a referência
   for (const id of clickFirst) {
     const audio = getClipAudio(id);
     if (!audio) continue;
     result = detectClickTempo(audio, beatsPerBar);
-    if (result) { sourceId = id; break; }
+    if (result) break;
   }
 
-  // O BPM gravado no arquivo vale mais; o primeiro tempo continua vindo dos pulsos do click
-  if (fileBpm) {
-    setSongBpm(songId, fileBpm, 'click', result && sourceId ? onTimeline(result.downbeat, sourceId, fileBpm) : 0);
-    return true;
+  // 2. BPM gravado no arquivo (Reaper/DAWs): só vale se o click não deu para medir ou se bate com
+  // ele (aí traz as casas decimais exatas). Um loop, por exemplo, traz o andamento do loop, não da música.
+  for (const id of clickFirst) {
+    const src = getClipSource(id);
+    if (!src) continue;
+    const wavMeta = await parseWavMetadata(src);
+    if (!wavMeta?.bpm) continue;
+    if (!result || Math.abs(wavMeta.bpm - result.bpm) / result.bpm < 0.005) {
+      setSongBpm(songId, wavMeta.bpm, 'click', 0);
+      return true;
+    }
   }
 
   // 3. Fallback pela bateria/mix se não houver click audível
   if (!result && audioFallback) {
     const audio = getClipAudio(audioFallback);
-    if (audio) {
-      result = await detectBpm(clipAudioToBuffer(audio));
-      sourceId = audioFallback;
-    }
+    if (audio) result = await detectBpm(clipAudioToBuffer(audio));
   }
-  if (!result || !sourceId) {
+  if (!result) {
     useStore.getState().updateSong(songId, { bpmMissing: true });
     return false;
   }
-  setSongBpm(songId, result.bpm, result.fromClick ? 'click' : 'audio', onTimeline(result.downbeat, sourceId, result.bpm));
+  // A timeline inicia cravada no compasso 1, no 0:00
+  setSongBpm(songId, result.bpm, result.fromClick ? 'click' : 'audio', 0);
   return true;
 }
 

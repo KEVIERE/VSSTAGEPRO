@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Magnet, RefreshCw, Loader2, CheckCheck } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
-import { barBeatLabel, gridLines, SNAP_LABELS, type SnapStep, type SongGrid } from '@/lib/grid';
+import { barBeatLabel, gridLines, moveTempoChange, SNAP_LABELS, snapTempoChange, tempoChangeIndex, type SnapStep, type SongGrid } from '@/lib/grid';
 import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
 import type { VisibleRange } from '@/components/ClipWaveform';
 
@@ -27,15 +28,55 @@ export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoo
   );
 }
 
-export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo }: {
+export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempoDrag }: {
   song: Song;
   grid: SongGrid;
   zoomH: number;
   visible: VisibleRange;
-  /** Duplo clique numa placa de BPM: editar ou excluir a mudança de andamento daquele ponto. */
+  /** Duplo clique numa placa de BPM (ou "Editar BPM" no menu): editar a mudança de andamento daquele ponto. */
   onEditTempo?: (point: { time: number; bpm: number; x: number; y: number }) => void;
+  /** Enquanto a placa é arrastada: de onde saiu e onde está (null ao soltar), para a grade acompanhar. */
+  onTempoDrag?: (drag: { from: number; to: number } | null) => void;
 }) {
+  const moveTempoAt = useStore((s) => s.moveTempoAt);
+  const snapStep = useStore((s) => s.snapStep);
+  const [menu, setMenu] = useState<{ x: number; y: number; time: number; bpm: number } | null>(null);
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
+
+  // Arrastar a placa leva a mudança de andamento junto. Com o imã ligado ela gruda na grade do
+  // trecho de antes (Alt solta). Só grava ao soltar, então o Desfazer volta tudo de uma vez.
+  const startTempoDrag = (e: React.PointerEvent, time: number) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    const segs = grid.tempoSegments;
+    const index = tempoChangeIndex(segs, time);
+    if (!segs || index < 1) return;
+    const startX = e.clientX;
+    let moved = false;
+    let to = time;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) < 3) return;
+      moved = true;
+      const raw = time + dx / zoomH;
+      const snapped = ev.altKey || snapStep === 'off' ? raw : snapTempoChange(segs, index, raw, grid.beatsPerBar, snapStep);
+      to = moveTempoChange(segs, index, snapped)[index].startTime;
+      onTempoDrag?.({ from: time, to });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      document.body.style.cursor = '';
+      onTempoDrag?.(null);
+      if (moved && Math.abs(to - time) > 1e-4) moveTempoAt(song.id, time, to);
+    };
+    // na janela: a placa é redesenhada no lugar novo enquanto arrasta
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    document.body.style.cursor = 'grabbing';
+  };
   const beatPx = grid.beat * zoomH;
   const barPx = grid.beat * grid.beatsPerBar * zoomH;
   // Com pouco espaço por compasso, mostra o número só a cada N compassos (potência de 2) para
@@ -73,11 +114,15 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo }: {
             )}
             {showBpmBadge && (
               <div
-                className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-pointer hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
-                title={`Mudança de andamento: ${l.bpmChange} BPM. Duplo clique para editar ou excluir.`}
+                className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-grab active:cursor-grabbing hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
+                title={`Mudança de andamento: ${l.bpmChange} BPM. Arraste para mover (Alt: sem imã). Botão direito: editar, ajustar no beat ou excluir.`}
                 // a placa não move o cursor nem abre o menu da régua
-                onPointerDown={(e) => e.stopPropagation()}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onPointerDown={(e) => startTempoDrag(e, l.time)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setMenu({ x: e.clientX, y: e.clientY, time: l.time, bpm: l.bpmChange! });
+                }}
                 onDoubleClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -90,7 +135,79 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo }: {
           </div>
         );
       })}
+      {menu && (
+        <TempoChangeMenu
+          song={song}
+          grid={grid}
+          {...menu}
+          onEdit={() => onEditTempo?.({ time: menu.time, bpm: menu.bpm, x: menu.x, y: menu.y })}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </>
+  );
+}
+
+/** Menu do botão direito na placa amarela de mudança de andamento. */
+function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
+  song: Song;
+  grid: SongGrid;
+  x: number;
+  y: number;
+  time: number;
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  const moveTempoAt = useStore((s) => s.moveTempoAt);
+  const removeTempoAt = useStore((s) => s.removeTempoAt);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+
+  const segs = grid.tempoSegments ?? [];
+  const index = tempoChangeIndex(segs, time);
+  const onBeat = index > 0 ? moveTempoChange(segs, index, snapTempoChange(segs, index, time, grid.beatsPerBar, 'beat'))[index].startTime : time;
+  const offMs = Math.round((onBeat - time) * 1000);
+
+  const item = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-40 disabled:pointer-events-none';
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[300] min-w-52 py-1 bg-logic-bg-panel border border-logic-border-light shadow-2xl rounded text-xs text-logic-text"
+      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.min(y, window.innerHeight - 120) }}
+      onContextMenu={(e) => e.preventDefault()}
+      // o menu fica fora da régua na tela, mas os eventos do React sobem até ela: sem isto o
+      // clique num item viraria "mover o cursor" na régua
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <button className={item} onClick={() => { onClose(); onEdit(); }}>
+        <span>Editar BPM…</span>
+      </button>
+      <button
+        className={item}
+        disabled={index < 1 || offMs === 0}
+        onClick={() => { onClose(); moveTempoAt(song.id, time, onBeat); }}
+        title="Leva a mudança de andamento para o tempo (beat) mais perto da grade de antes dela"
+      >
+        <span>Ajustar no beat da grade</span>
+        <span className="text-[10px] opacity-60 font-mono">{offMs === 0 ? 'já está' : `${offMs > 0 ? '+' : ''}${offMs} ms`}</span>
+      </button>
+      <div className="h-px bg-logic-border-dark my-1" />
+      <button className={`${item} text-logic-lcd-red`} onClick={() => { onClose(); removeTempoAt(song.id, time); }}>
+        <span>Excluir mudança</span>
+      </button>
+    </div>,
+    document.body,
   );
 }
 
