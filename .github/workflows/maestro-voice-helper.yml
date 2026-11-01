@@ -1,0 +1,74 @@
+name: Programa de voz do Maestro IA
+
+# Compila o programa de voz (vs-maestro-voz: Qwen3-TTS pela mlx-audio-swift) com o Xcode 26.3,
+# baixa o modelo com o mesmo código do app e gera as falas de teste com as duas vozes de IA.
+# Publica o programa (artefato "vs-maestro-voz", que o prepareMaestroVoice.sh --from-ci usa para
+# testar num Mac sem Xcode) e as falas (artefato "falas-de-teste", para ouvir).
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/maestro-voice-helper/**'
+      - 'desktop/maestro-voices/**'
+      - 'desktop/maestro-voice-model.json'
+      - 'desktop/maestroQwen.js'
+      - 'desktop/maestroAudio.js'
+      - 'desktop/maestroVoiceDownload.js'
+      - 'desktop/scripts/buildMaestroVoiceHelper.sh'
+      - 'desktop/scripts/prepareMaestroVoice.sh'
+      - 'desktop/scripts/testMaestroVoice.cjs'
+      - '.github/workflows/maestro-voice-helper.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Compilar o programa de voz (Xcode 26.3)
+        working-directory: desktop
+        run: ./scripts/buildMaestroVoiceHelper.sh
+
+      - name: Publicar o programa de voz
+        uses: actions/upload-artifact@v4
+        with:
+          name: vs-maestro-voz
+          path: desktop/maestro-voice-helper/build/out
+          retention-days: 30
+
+      - name: Montar a pasta do motor (programa + vozes)
+        working-directory: desktop
+        run: ./scripts/prepareMaestroVoice.sh arm64
+
+      - name: Guardar o modelo entre execuções (1,8 GB)
+        uses: actions/cache@v4
+        with:
+          path: ~/.vs-maestro-voice-ci
+          key: maestro-voice-model-${{ hashFiles('desktop/maestro-voice-model.json') }}
+
+      - name: Baixar o modelo e gerar as falas de teste
+        working-directory: desktop
+        run: |
+          export VS_MAESTRO_MODEL_HOME="$HOME/.vs-maestro-voice-ci"
+          # primeiro na placa de vídeo; se a máquina virtual não tiver, no processador
+          if ! node scripts/testMaestroVoice.cjs "$RUNNER_TEMP/falas"; then
+            echo "::warning::Sem a placa de vídeo nesta máquina virtual: testando no processador"
+            VS_MAESTRO_CPU=1 node scripts/testMaestroVoice.cjs "$RUNNER_TEMP/falas"
+          fi
+
+      - name: Publicar as falas de teste
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: falas-de-teste
+          path: ${{ runner.temp }}/falas
+          if-no-files-found: ignore
+          retention-days: 30
