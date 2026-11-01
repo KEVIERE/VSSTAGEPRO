@@ -61,6 +61,48 @@ export interface MedleyPart {
   tuner?: number;
 }
 
+/**
+ * Narração do Maestro por IA: uma marcação de texto na faixa Maestro. O usuário escreve o que
+ * quer que seja falado, escolhe a voz, e o app gera o áudio. A marcação vai de `start` a `end`
+ * e o texto é falado nesse espaço; o tamanho define a velocidade.
+ */
+export interface MaestroNarration {
+  id: string;
+  text: string;
+  /** Voz escolhida: 'feminina' | 'masculina' ou o nome exato de uma voz do sistema. */
+  voice: string;
+  /** Segundos, no tempo da música */
+  start: number;
+  /** Segundos, no tempo da música — o fim da marcação */
+  end: number;
+  status: 'pending' | 'generating' | 'ready' | 'error';
+  error?: string;
+  /** Clipe de áudio gerado na faixa "Maestro IA" (quando pronto) */
+  clipId?: string;
+  /** Assinatura do que foi gerado (texto + voz + tamanho); mudou, gera de novo */
+  sig?: string;
+  /** Duração (s) do áudio gerado, para conferir se coube na marcação */
+  audioDuration?: number;
+  /** Voz do sistema que falou de verdade (ex.: "Luciana"), para mostrar na tela. */
+  voiceName?: string;
+  /** Palavras por minuto que o motor usou para caber na marcação. */
+  rate?: number;
+  /** Aviso da última geração (ex.: a voz pedida não está instalada e outra foi usada). */
+  note?: string;
+  /**
+   * Velocidade fixa da voz (1 = natural), usada na contagem: a fala não estica para preencher a
+   * marcação, só acelera se não couber. Sem valor, o tamanho da marcação define a velocidade.
+   */
+  pace?: number;
+  /** Contagem (1, 2, 3, 4...) a que esta marcação pertence: um número por tempo da grade. */
+  countGroup?: string;
+  /** Tom da voz: mais grave ou mais agudo que o natural (sem valor = padrão). */
+  pitch?: VoicePitch;
+}
+
+/** Tom da voz do Maestro por IA (o padrão é o natural da voz). */
+export type VoicePitch = 'grave' | 'agudo';
+
 /** Formato antigo (pontos), lido apenas para converter projetos salvos antes das regiões */
 export interface LegacySongMarker {
   id: string;
@@ -152,6 +194,8 @@ export interface Song {
   tempoSegments?: SongTempoSegment[];
   /** Tom corrigido à mão (cifra curta, ex.: "G", "Em"); sem valor vale o detectado pela IA. */
   musicKey?: string;
+  /** Marcações de texto do Maestro por IA (réguas de fala na faixa Maestro). */
+  narrations?: MaestroNarration[];
 }
 
 export interface Block {
@@ -279,6 +323,8 @@ export interface ProjectState {
   lyricMaps: Record<string, LyricPage[]>;
   /** Volume igual entre os VS: cada música recebe o ganho para o mesmo loudness, sem clipar. */
   levelMatch?: boolean;
+  /** Alvo em LUFS do "volume igual" escolhido pelo usuário (as músicas sobem ou descem até ele). */
+  levelMatchDb?: number;
   /** Medida de cada música (LUFS integrado e true peak da gravação, faders em 0 dB). */
   songLoudness?: Record<string, SongLoudness>;
   /** Tom detectado pela IA em cada música (cifra curta) e o que foi analisado. */

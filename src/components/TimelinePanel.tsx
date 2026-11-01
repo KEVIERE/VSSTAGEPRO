@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
@@ -12,6 +12,11 @@ import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import Playhead from '@/components/Playhead';
 import { formatRegionTime, freeSlotAt, suggestRegionStyle } from '@/lib/regions';
 import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
+import { NarrationLane, NARRATION_LANE_HEIGHT } from '@/components/NarrationLane';
+import { cursorTime, lastPitch, lastVoice } from '@/lib/maestroVoice';
+import { MAESTRO_IA_TRACK_ID, NARRATION_MIN_LENGTH, beatStartAt, placeNarration } from '@/lib/narrations';
+import NarrationDialog from '@/components/NarrationDialog';
+import CountInDialog, { type CountInTarget } from '@/components/CountInDialog';
 import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
 import { ClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
@@ -168,6 +173,53 @@ function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | '
       title="Arraste para ajustar a altura de todas as faixas. ⌘+arraste: só esta faixa. Duplo clique: tamanho padrão (⌘ para só esta)."
     >
       <div className={`absolute left-0 right-0 h-px ${edge === 'top' ? 'top-0.5' : 'bottom-0.5'} bg-logic-border-dark opacity-0 group-hover/trackHeightHandle:opacity-100 group-hover/trackHeightHandle:bg-logic-accent transition-opacity`} />
+    </div>
+  );
+}
+
+/**
+ * Nome da régua do Maestro por IA na coluna das faixas (mesma altura da régua, para tudo ficar
+ * alinhado). Tem o mudo das falas e o botão de criar uma fala no beat do cursor.
+ */
+function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: () => void; onCount: () => void }) {
+  const count = useStore((s) => s.songs.find((sg) => sg.id === songId)?.narrations?.length ?? 0);
+  const iaTrack = useStore((s) => s.tracks.find((t) => t.id === MAESTRO_IA_TRACK_ID));
+  const toggleMute = useStore((s) => s.toggleMute);
+  return (
+    <div
+      className="flex items-center gap-1.5 border-b border-logic-border-dark bg-[#161b22] pr-2 text-2xs select-none"
+      style={{ height: `${NARRATION_LANE_HEIGHT}px`, paddingLeft: '16px' }}
+      title={`Maestro por IA: falas escritas por você e geradas por voz (${count} nesta música). O som sai pela faixa Maestro (mesma saída e volume).`}
+    >
+      <Sparkles size={11} className="text-sky-300 shrink-0" />
+      <span className="font-semibold text-sky-200 whitespace-nowrap">Maestro IA</span>
+      <div className="flex-1" />
+      <button
+        className="h-5 w-5 rounded border border-sky-400/50 text-sky-200 hover:bg-sky-500/20 shrink-0 flex items-center justify-center"
+        onClick={(e) => { e.stopPropagation(); onCount(); }}
+        title="Contagem no click: 1, 2, 3, 4... a partir do tempo do cursor, um número em cada click da grade"
+        aria-label="Contagem no click a partir do cursor"
+      >
+        <ListOrdered size={11} />
+      </button>
+      <button
+        className="h-5 w-5 rounded border border-sky-400/50 text-sky-200 hover:bg-sky-500/20 shrink-0 flex items-center justify-center"
+        onClick={(e) => { e.stopPropagation(); onAdd(); }}
+        title="Nova fala começando no beat do cursor"
+        aria-label="Nova fala no beat do cursor"
+      >
+        <Plus size={11} />
+      </button>
+      {iaTrack && (
+        <button
+          className={`h-5 w-5 rounded border text-[9px] font-bold shrink-0 ${iaTrack.mute ? 'bg-logic-lcd-amber/30 border-logic-lcd-amber text-logic-lcd-amber' : 'border-logic-border-light text-logic-text-muted hover:text-logic-text'}`}
+          onClick={(e) => { e.stopPropagation(); toggleMute(iaTrack.id); }}
+          title={iaTrack.mute ? 'Falas do Maestro IA mudas: clique para ligar' : 'Deixar as falas do Maestro IA mudas'}
+          aria-pressed={iaTrack.mute}
+        >
+          M
+        </button>
+      )}
     </div>
   );
 }
@@ -1264,6 +1316,11 @@ export default function TimelinePanel() {
   const timelinePanelRef = useRef<HTMLDivElement>(null);
   const [regionDrag, setRegionDrag] = useState<RegionDrag>(null);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
+  // Editor da marcação de fala do Maestro por IA (texto, voz e ritmo)
+  const [readingNarrationId, setReadingNarrationId] = useState<string | null>(null);
+  // Contagem do Maestro IA (1, 2, 3, 4... nos clicks da grade): nova ou editando uma existente
+  const [countTarget, setCountTarget] = useState<CountInTarget | null>(null);
+  const addNarration = useStore((s) => s.addNarration);
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
   // não conseguir sincronizar um trecho (ex.: medley com transições muito sutis ou sem click).
   const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number; editing?: boolean } | null>(null);
@@ -1298,6 +1355,21 @@ export default function TimelinePanel() {
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
+  const createNarration = useCallback((start: number, end: number) => {
+    if (!song) return;
+    const id = `narracao-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+    const pitch = lastPitch();
+    addNarration(song.id, { id, text: '', voice: lastVoice(), start, end, status: 'pending', ...(pitch ? { pitch } : {}) });
+    setReadingNarrationId(id);
+  }, [song, addNarration]);
+  // "+ Fala": nasce no começo do beat em que o cursor está (ou no espaço livre mais perto)
+  const addNarrationAtCursor = useCallback(() => {
+    if (!song) return;
+    const at = beatStartAt(song, cursorTime(song.id) ?? 0);
+    const length = Math.min(2, Math.max(NARRATION_MIN_LENGTH, song.duration - at));
+    const start = placeNarration(song, '', at, length);
+    if (start !== null) createNarration(start, start + length);
+  }, [song, createNarration]);
   const isSongLoading = !!song && loadingSongIds.includes(song.id);
   const songClips = useMemo(() =>
     song ? clips.filter((c) => c.songId === song.id) : [],
@@ -2069,6 +2141,8 @@ export default function TimelinePanel() {
               className="bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden overflow-y-hidden select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]"
               style={{ width: `${HEADER_W}px` }}
             >
+              {/* A primeira linha é a de timecode, alinhada com a primeira linha de áudios à direita.
+                  A MedleyLane e a RegionLane ficam no cabeçalho fixo de cima, não aqui. */}
               <TimecodeTrackRow songId={song.id} />
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
@@ -2082,6 +2156,14 @@ export default function TimelinePanel() {
                       onToggle={() => toggleFolder(track.id)}
                       onContextMenu={handleOpenTrackMenu}
                     />
+                  );
+                }
+                if (track.id === 'track-maestro') {
+                  return (
+                    <div key={track.id}>
+                      <TrackRow track={track} depth={0} onContextMenu={handleOpenTrackMenu} />
+                      <MaestroIaHeader songId={song.id} onAdd={addNarrationAtCursor} onCount={() => setCountTarget({ kind: 'new', start: cursorTime(song.id) ?? 0 })} />
+                    </div>
                   );
                 }
                 return <TrackRow key={track.id} track={track} depth={0} onContextMenu={handleOpenTrackMenu} />;
@@ -2131,9 +2213,11 @@ export default function TimelinePanel() {
                   const isTc = track.id === TIMECODE_TRACK_ID;
                   const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
                   const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
+                  // Logo abaixo da faixa Maestro fica a régua do Maestro por IA (falas geradas por voz)
+                  const isMaestroRow = track.id === 'track-maestro';
                   return (
+                    <div key={track.id}>
                     <div
-                      key={track.id}
                       className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
                       style={{ height: `${rowHeight}px` }}
                     >
@@ -2156,6 +2240,17 @@ export default function TimelinePanel() {
                       {track.id === 'track-maestro' && recordingMaestro?.isRecording && recordingMaestro.songId === song.id && (
                         <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} zoomH={zoomH} />
                       )}
+                    </div>
+                    {isMaestroRow && (
+                      <NarrationLane
+                        song={song}
+                        zoomH={zoomH}
+                        visible={visible}
+                        onEdit={(n) => setReadingNarrationId(n.id)}
+                        onCreate={createNarration}
+                        onEditCount={(group) => setCountTarget({ kind: 'edit', group })}
+                      />
+                    )}
                     </div>
                   );
                 })}
@@ -2247,6 +2342,15 @@ export default function TimelinePanel() {
           onRemove={() => { removeTempoAt(song.id, manualTempoPoint.time); setManualTempoPoint(null); }}
         />
       )}
+
+      {/* Editor da fala do Maestro por IA */}
+      {song && countTarget && (
+        <CountInDialog song={song} target={countTarget} onClose={() => setCountTarget(null)} />
+      )}
+      {song && readingNarrationId && (() => {
+        const n = (song.narrations ?? []).find((x) => x.id === readingNarrationId);
+        return n ? <NarrationDialog song={song} narration={n} onClose={() => setReadingNarrationId(null)} /> : null;
+      })()}
 
     </div>
   );

@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Headphones,
   Palette,
+  SlidersHorizontal,
   Volume2,
   VolumeX,
   X,
@@ -72,9 +73,27 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const setOutputChannel = useStore((s) => s.setOutputChannel);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
+  const normalizeTrack = useStore((s) => s.normalizeTrack);
+  // A pasta normaliza os clipes das subfaixas de dentro; a faixa normaliza os próprios.
+  const clipCount = useStore((s) => {
+    if (!s.tracks.some((t) => t.id === track.id)) return 0;
+    const ids = new Set<string>([track.id]);
+    const collect = (id: string) => {
+      const t = s.tracks.find((x) => x.id === id);
+      for (const childId of t?.children ?? []) {
+        if (ids.has(childId)) continue;
+        ids.add(childId);
+        collect(childId);
+      }
+    };
+    collect(track.id);
+    return s.clips.filter((c) => ids.has(c.trackId)).length;
+  });
 
   const [renaming, setRenaming] = useState(false);
   const [nameValue, setNameValue] = useState(track.name);
+  const [normalizeTrackOpen, setNormalizeTrackOpen] = useState(false);
+  const [normalizeTrackDb, setNormalizeTrackDb] = useState('-2');
   const [activeSubmenu, setActiveSubmenu] = useState<'color' | 'folder' | 'output' | null>(null);
   const isTc = isTimecodeTrackId(track.id);
   // Lista mostrada no submenu de saída: mono ou pares estéreo
@@ -342,6 +361,50 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
             Saída: segue a pasta <strong className="text-white">{currentParent?.name || 'Mãe'}</strong>
           </span>
         </div>
+      )}
+
+      <div className="h-px bg-white/10 my-1" />
+
+      {/* 5. NORMALIZAR A FAIXA INTEIRA (todos os clipes dela, em todas as músicas) */}
+      {!isTc && (
+        normalizeTrackOpen ? (
+          <form
+            className="px-3 py-2 flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const db = parseFloat(normalizeTrackDb.replace(',', '.'));
+              if (Number.isFinite(db)) normalizeTrack(track.id, Math.min(0, db));
+              setNormalizeTrackOpen(false);
+              onClose();
+            }}
+          >
+            <span className="text-white/70 whitespace-nowrap">Pico em</span>
+            <input
+              autoFocus
+              type="text"
+              inputMode="decimal"
+              value={normalizeTrackDb}
+              onChange={(e) => setNormalizeTrackDb(e.target.value)}
+              className="w-14 bg-black/60 border border-white/20 rounded px-1.5 py-0.5 text-right text-white outline-none focus:border-logic-accent"
+            />
+            <span className="text-white/70">dB</span>
+            <button type="submit" className="ml-1 px-2 py-0.5 rounded bg-logic-accent text-white font-bold hover:brightness-110 transition">OK</button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            disabled={clipCount === 0}
+            onClick={(e) => { e.stopPropagation(); setNormalizeTrackOpen(true); }}
+            title={clipCount === 0 ? 'Esta faixa não tem clipes' : `Normalizar os ${clipCount} clipes desta faixa, em todas as músicas`}
+            className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 transition ${clipCount === 0 ? 'opacity-30 cursor-not-allowed' : 'text-white/90 hover:text-white hover:bg-white/10'}`}
+          >
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal size={13} className="text-logic-text-muted" />
+              <span>Normalizar Faixa Inteira...</span>
+            </span>
+            <span className="text-[9px] font-mono text-logic-text-muted shrink-0">{clipCount} clipe{clipCount === 1 ? '' : 's'}</span>
+          </button>
+        )
       )}
 
       <div className="h-px bg-white/10 my-1" />

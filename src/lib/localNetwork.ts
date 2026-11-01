@@ -59,6 +59,18 @@ export interface LocalBridge {
   openAction: (action: CheckAction) => Promise<void>;
 }
 
+/** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */
+export interface MaestroVoiceStatus {
+  /** Mac com chip Apple (em Mac Intel a fala usa a voz do Mac) */
+  supported: boolean;
+  /** o programa de voz e as vozes vieram no app */
+  engine: boolean;
+  /** download do modelo (~1,8 GB, uma vez só, em silêncio) */
+  model: { state: 'missing' | 'downloading' | 'paused' | 'verifying' | 'ready' | 'error'; progress?: number; error?: string | null };
+  /** dá para falar com a voz de IA agora */
+  ready: boolean;
+}
+
 declare global {
   interface Window {
     vsLocal?: LocalBridge;
@@ -71,6 +83,31 @@ declare global {
       /** Menu Visualizar → Modo Show (⌘M) do app do Mac */
       onMenuShowMode?: (cb: () => void) => () => void;
       hasLocalDemucs?: () => Promise<boolean>;
+      /** Vozes do Maestro por IA instaladas no Mac. */
+      maestroVoices?: () => Promise<Array<{ id: string; name: string; gender: string; locale: string; engine?: 'qwen' | 'mac' }>>;
+      /** Gera o áudio de uma narração do Maestro com a voz do sistema (WAV em base64). */
+      maestroSpeak?: (payload: { text: string; voice: string; wpm: number; span?: number; pace?: number; group?: string[] }) => Promise<{
+        ok: boolean;
+        voice: string;
+        voiceGender?: string;
+        locale?: string;
+        /** Aviso quando a voz pedida não está instalada e outra foi usada no lugar. */
+        note?: string | null;
+        /** Ritmo que o motor realmente usou (pode ter subido para caber na marcação). */
+        rate: number;
+        /** Voz de IA: fator de velocidade que a tela aplica (o WAV vem na velocidade natural). */
+        tempo?: number;
+        seconds: number;
+        /** true quando nem no ritmo máximo a fala coube na marcação. */
+        overflow?: boolean;
+        /** Qual motor falou: a voz de IA (Qwen3-TTS) ou a voz do Mac. */
+        engine?: 'qwen' | 'mac';
+        wavBase64: string;
+      }>;
+      /** Voz brasileira de IA do Maestro: programa, vozes e download do modelo. */
+      maestroVoiceStatus?: () => Promise<MaestroVoiceStatus>;
+      /** Avisa se uma música está tocando: o download da voz pausa durante o show. */
+      maestroVoicePlaying?: (playing: boolean) => Promise<void>;
       separateStemsLocal?: (
         filename: string,
         audioData: ArrayBuffer

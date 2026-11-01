@@ -5,15 +5,18 @@ import { computeNextSongId } from '@/lib/playFlow';
 import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
+  MaestroNarration,
 } from '@/types';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
+import { TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { normalizePages } from '@/lib/prompterTypes';
 import { antiClipFader } from '@/lib/faderScale';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
 import type { SnapStep } from '@/lib/grid';
+import { MAESTRO_IA_TRACK_ID, sortedNarrations } from '@/lib/narrations';
 
 export interface InstantPrep {
   done: number;
@@ -154,6 +157,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   importProgress: null,
   lrMasterActive: false,
   levelMatch: false,
+  levelMatchDb: TARGET_DB_DEFAULT,
   songLoudness: {},
   songKeys: {},
   dawMode: true,
@@ -245,6 +249,8 @@ interface StoreActions {
   toggleClipSolo: (clipId: string) => void;
   setClipFade: (clipId: string, patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }) => void;
   normalizeClip: (clipId: string, targetDb: number) => void;
+  /** Normaliza a faixa inteira: todos os clipes dela, em todas as músicas. */
+  normalizeTrack: (trackId: string, targetDb: number) => void;
   addSong: (song: Song) => void;
   updateSong: (songId: string, updates: Partial<Song>) => void;
   removeSong: (songId: string) => void;
@@ -258,6 +264,17 @@ interface StoreActions {
   addSongRegion: (songId: string, region: SongRegion) => boolean;
   updateSongRegion: (songId: string, regionId: string, updates: Partial<Omit<SongRegion, 'id'>>) => void;
   removeSongRegion: (songId: string, regionId: string) => void;
+  /** Marcação de fala do Maestro por IA (texto, voz, intervalo na música). */
+  addNarration: (songId: string, narration: MaestroNarration) => void;
+  updateNarration: (songId: string, narrationId: string, patch: Partial<MaestroNarration>) => void;
+  removeNarration: (songId: string, narrationId: string) => void;
+  /** Coloca o áudio gerado da fala na faixa (tira o antigo) e atualiza a marcação, num passo só. */
+  setNarrationAudio: (songId: string, narrationId: string, clip: AudioClip, patch: Partial<MaestroNarration>) => void;
+  /**
+   * Subfaixa "Maestro IA" dentro do Maestro, onde ficam os áudios das falas geradas.
+   * Cria na primeira vez e devolve o id.
+   */
+  ensureMaestroIaTrack: () => string;
   placeSongRegions: (songId: string, layout: RegionLayout) => void;
   setSongLoading: (songId: string, loading: boolean) => void;
   setSongIncomplete: (songId: string, incomplete: boolean) => void;
@@ -290,6 +307,8 @@ interface StoreActions {
   clearClipIndicator: (trackId: string) => void;
   applyAntiClip: (trackId: string) => void;
   setLevelMatch: (on: boolean) => void;
+  /** Alvo do "volume igual" em LUFS, escolhido pelo usuário. */
+  setLevelMatchDb: (db: number) => void;
   setSongLoudness: (songId: string, value: import('@/types').SongLoudness) => void;
   setSongDetectedKey: (songId: string, value: { key: string; sig: string }) => void;
   setPreparingParams: (v: { done: number; total: number } | null) => void;
@@ -389,6 +408,7 @@ export function partializeHistory(state: Store) {
     magicRoutingActive: state.magicRoutingActive,
     prevOutputChannels: state.prevOutputChannels,
     levelMatch: state.levelMatch,
+    levelMatchDb: state.levelMatchDb,
   };
 }
 
@@ -742,14 +762,44 @@ export const useStore = create<Store>()(
         const entry = state.playlist.find((p) => p.songId === songId);
         if (!entry) return;
         const newSongId = `song-dup-${newEntryId()}`;
-        const song = state.songs.find((s) => s.id === songId);
-        if (song) {
-          set((s) => ({
-            songs: [...s.songs, { ...song, id: newSongId }],
-            playlist: [...s.playlist, { ...entry, id: newEntryId(), songId: newSongId, order: s.playlist.length }],
-            playlistOrder: [...s.playlistOrder, newSongId],
-          }));
+        const song = state.songs.find((sg) => sg.id === songId);
+        if (!song) return;
+        // Duplica os clipes e registra as fontes de áudio; sem isso o motor não encontra
+        // o arquivo e a música duplicada falha ao tocar com erro de saída de áudio.
+        const originalClips = state.clips.filter((c) => c.songId === songId);
+        const clipIdMap = new Map<string, string>();
+        for (const c of originalClips) clipIdMap.set(c.id, `clip-dup-${newEntryId()}`);
+        const duplicatedClips = originalClips.map((c) => ({ ...c, id: clipIdMap.get(c.id)!, songId: newSongId }));
+        for (const orig of originalClips) {
+          const src = getClipSource(orig.id);
+          const newId = clipIdMap.get(orig.id);
+          if (src && newId) registerClipSource(newId, newSongId, src);
         }
+        // as falas do Maestro por IA da cópia apontam para os áudios copiados, não para os da original
+        const narrations = song.narrations?.map((n) => ({
+          ...n,
+          id: `${n.id}-dup-${newEntryId()}`,
+          clipId: n.clipId ? clipIdMap.get(n.clipId) : undefined,
+        }));
+        set((s) => {
+          // nome "(cópia)" também serve para o projeto salvo não misturar as pastas das duas músicas
+          const copySong: Song = { ...song, id: newSongId, name: `${song.name} (cópia)`, clips: duplicatedClips.map((c) => c.id), narrations };
+          const copyEntry: PlaylistEntry = { ...entry, id: newEntryId(), songId: newSongId, name: `${entry.name} (cópia)` };
+          // a cópia entra logo abaixo da original (no mesmo bloco), não no fim da playlist
+          const ordered = resolveBlocks(orderedPlaylist(s));
+          const at = ordered.findIndex((p) => p.songId === songId);
+          const next = at < 0 ? [...ordered, copyEntry] : [...ordered.slice(0, at + 1), copyEntry, ...ordered.slice(at + 1)];
+          const copyOf = <T,>(map: Record<string, T> | undefined) => (map?.[songId] !== undefined ? { ...map, [newSongId]: map[songId] } : map);
+          return {
+            ...withBlocks({ songs: [...s.songs, copySong], blocks: s.blocks }, next),
+            clips: [...s.clips, ...duplicatedClips],
+            // mesma medida de volume, tom e letra: a cópia não precisa ser analisada de novo
+            songLoudness: copyOf(s.songLoudness),
+            songKeys: copyOf(s.songKeys),
+            lyricMaps: copyOf(s.lyricMaps) ?? s.lyricMaps,
+            selectedSongId: newSongId,
+          };
+        });
       },
 
       reorderPlaylist: (fromIndex, toIndex) => set((s) => {
@@ -1080,6 +1130,71 @@ export const useStore = create<Store>()(
         })();
       },
 
+      // Normaliza a faixa inteira: todos os clipes dela, em todas as músicas do projeto.
+      // No VS as faixas de instrumento são pastas: os clipes ficam nas subfaixas de dentro,
+      // então a pasta inclui os clipes das filhas.
+      // Cada clipe recebe o próprio ganho para o pico bater no dB pedido (mesma conta do
+      // normalizeClip); clipes em silêncio e arquivos que não abrem são só contados.
+      normalizeTrack: (trackId, targetDb) => {
+        const allTracks = get().tracks;
+        const track = allTracks.find((t) => t.id === trackId);
+        if (!track) return;
+        const ids = new Set<string>([trackId]);
+        const collect = (id: string) => {
+          const t = allTracks.find((x) => x.id === id);
+          for (const childId of t?.children ?? []) {
+            if (ids.has(childId)) continue;
+            ids.add(childId);
+            collect(childId);
+          }
+        };
+        collect(trackId);
+        const clipIds = get().clips.filter((c) => ids.has(c.trackId)).map((c) => c.id);
+        if (clipIds.length === 0) {
+          get().setImportProgress({ clipId: 'normalize', status: 'error', message: `A faixa "${track.name}" não tem clipes para normalizar.` } as ImportProgress);
+          setTimeout(() => { if (get().importProgress?.clipId === 'normalize') get().setImportProgress(null); }, 3500);
+          return;
+        }
+        const notice = (status: 'working' | 'done' | 'error', message: string) => {
+          get().setImportProgress({ clipId: 'normalize', status, message } as ImportProgress);
+          if (status !== 'working') setTimeout(() => { if (get().importProgress?.clipId === 'normalize') get().setImportProgress(null); }, 3500);
+        };
+        notice('working', `Normalizando a faixa "${track.name}" (${clipIds.length} clipe${clipIds.length === 1 ? '' : 's'})...`);
+        void (async () => {
+          const MAX_GAIN = dbToGain(24);
+          let done = 0;
+          let silent = 0;
+          const failed: string[] = [];
+          for (const clipId of clipIds) {
+            // busca o clipe a cada volta: a faixa pode ter mudado enquanto normalizava
+            const clip = get().clips.find((c) => c.id === clipId);
+            if (!clip) continue;
+            try {
+              let audio = getClipPlayAudio(clip);
+              if (!audio) {
+                const src = getClipSource(clip.id);
+                if (!src) throw new Error('arquivo não encontrado');
+                const full = await openClipAudio(clip.songId, clip.id, src);
+                putClipAudio(clip.id, clip.songId, full);
+                audio = getClipPlayAudio(clip);
+              }
+              if (!audio) throw new Error('áudio não pôde ser lido');
+              const peak = truePeak(audio.channels);
+              if (peak <= 0) { silent++; continue; }
+              const gain = Math.min(MAX_GAIN, dbToGain(targetDb) / peak);
+              set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+              done++;
+            } catch {
+              failed.push(clip.name);
+            }
+          }
+          const parts = [`${done} de ${clipIds.length} clipe${clipIds.length === 1 ? '' : 's'} normalizado${done === 1 ? '' : 's'} com pico em ${targetDb.toFixed(1)} dB na faixa "${track.name}"`];
+          if (silent > 0) parts.push(`${silent} em silêncio`);
+          if (failed.length > 0) parts.push(`${failed.length} sem áudio (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '...' : ''})`);
+          notice(done > 0 ? 'done' : 'error', `${parts.join('; ')}.`);
+        })();
+      },
+
       addSong: (song) => set((s) => ({ songs: [...s.songs, song] })),
       updateSong: (songId, updates) => set((s) => ({ songs: s.songs.map((sg) => sg.id === songId ? { ...sg, ...updates } : sg) })),
       removeSong: (songId) => {
@@ -1199,6 +1314,77 @@ export const useStore = create<Store>()(
         queuedRegion: s.queuedRegion?.regionId === regionId ? null : s.queuedRegion,
       })),
       setQueuedRegion: (queued) => set({ queuedRegion: queued }),
+
+      // Marcações de fala do Maestro por IA: ficam na música, em ordem de início.
+      addNarration: (songId, narration) => set((s) => ({
+        songs: s.songs.map((sg) => sg.id === songId
+          ? { ...sg, narrations: sortedNarrations([...(sg.narrations ?? []), narration]) }
+          : sg),
+      })),
+      updateNarration: (songId, narrationId, patch) => set((s) => {
+        // Mudou de lugar na música? O áudio gerado vai junto (marcação arrastada = fala
+        // arrastada), no mesmo passo do desfazer.
+        const before = s.songs.find((sg) => sg.id === songId)?.narrations?.find((n) => n.id === narrationId);
+        if (!before) return s;
+        const moveClip = patch.start !== undefined && before.clipId && Math.abs(patch.start - before.start) > 1e-4
+          ? { id: before.clipId, startTime: Math.max(0, patch.start) }
+          : null;
+        return {
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, narrations: sortedNarrations((sg.narrations ?? []).map((n) => (n.id === narrationId ? { ...n, ...patch } : n))) }
+            : sg),
+          ...(moveClip ? { clips: s.clips.map((c) => (c.id === moveClip.id ? { ...c, startTime: moveClip.startTime } : c)) } : {}),
+        };
+      }),
+      removeNarration: (songId, narrationId) => set((s) => {
+        const n = s.songs.find((sg) => sg.id === songId)?.narrations?.find((x) => x.id === narrationId);
+        if (!n) return s;
+        // o clipe gerado sai junto: o áudio da fala não pode ficar tocando na faixa Maestro
+        return {
+          clips: n.clipId ? s.clips.filter((c) => c.id !== n.clipId) : s.clips,
+          selectedClipIds: n.clipId ? s.selectedClipIds.filter((id) => id !== n.clipId) : s.selectedClipIds,
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, narrations: (sg.narrations ?? []).filter((x) => x.id !== narrationId) }
+            : sg),
+        };
+      }),
+      setNarrationAudio: (songId, narrationId, clip, patch) => set((s) => {
+        const n = s.songs.find((sg) => sg.id === songId)?.narrations?.find((x) => x.id === narrationId);
+        if (!n) return s;
+        // troca o áudio antigo pelo novo e marca a fala como pronta, num passo só do desfazer
+        return {
+          clips: [...s.clips.filter((c) => c.id !== n.clipId), clip],
+          selectedClipIds: n.clipId ? s.selectedClipIds.filter((id) => id !== n.clipId) : s.selectedClipIds,
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, narrations: (sg.narrations ?? []).map((x) => (x.id === narrationId ? { ...x, ...patch, clipId: clip.id } : x)) }
+            : sg),
+        };
+      }),
+
+      ensureMaestroIaTrack: () => {
+        const existing = get().tracks.find((t) => t.id === MAESTRO_IA_TRACK_ID);
+        if (existing) return existing.id;
+        const maestro = get().tracks.find((t) => t.id === 'track-maestro');
+        // projeto sem a faixa Maestro (muito antigo): a fala vai direto na faixa de mesmo id
+        if (!maestro) return 'track-maestro';
+        // Subfaixa do Maestro: toca pelo canal dele (mesma saída e fader), não muda de tom com a
+        // música e vai para o lado L no LR mágico. Uma só para todas as falas e músicas.
+        const lane: Track = {
+          id: MAESTRO_IA_TRACK_ID, name: 'Maestro IA', type: 'audio', color: '#38bdf8',
+          volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
+          isSubgroup: false, parentId: maestro.id, children: [], height: 40,
+          visible: true, outputChannel: maestro.outputChannel, meterLevel: 0, clipIndicator: false, clipPeak: 0,
+        };
+        set((s) => ({
+          tracks: [
+            ...s.tracks.map((t) => (t.id === maestro.id && !t.children.includes(MAESTRO_IA_TRACK_ID)
+              ? { ...t, children: [...t.children, MAESTRO_IA_TRACK_ID] }
+              : t)),
+            lane,
+          ],
+        }));
+        return MAESTRO_IA_TRACK_ID;
+      },
       updateMedleyPart: (songId, partId, patch) => set((s) => ({
         songs: s.songs.map((sg) => sg.id !== songId || !sg.medley ? sg : {
           ...sg,
@@ -1351,6 +1537,10 @@ export const useStore = create<Store>()(
 
       setMasterVolume: (volume) => set({ masterVolume: Math.max(0, Math.min(1.5, volume)) }),
       setLevelMatch: (on) => set({ levelMatch: on }),
+      setLevelMatchDb: (db) => {
+        if (!Number.isFinite(db)) return;
+        set({ levelMatchDb: Math.max(TARGET_DB_MIN, Math.min(TARGET_DB_MAX, db)) });
+      },
       setSongLoudness: (songId, value) => set((s) => ({ songLoudness: { ...(s.songLoudness ?? {}), [songId]: value } })),
       setSongDetectedKey: (songId, value) => set((s) => ({ songKeys: { ...(s.songKeys ?? {}), [songId]: value } })),
       setPreparingParams: (v) => set({ preparingParams: v }),
@@ -1412,7 +1602,8 @@ export const useStore = create<Store>()(
         const parents = s.tracks.filter((t) => t.isSubgroup);
         const normalize = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
-        const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup);
+        // a faixa Maestro IA (falas geradas) fica como está, com os áudios dela
+        const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup || t.id === MAESTRO_IA_TRACK_ID);
         const prevChildByFullName = new Map<string, Track>();
         for (const t of s.tracks) {
           if (t.parentId && !t.isSubgroup) {
@@ -1425,7 +1616,7 @@ export const useStore = create<Store>()(
         type Dest = { target: RoutingTarget; display: string } | 'guia' | 'click' | 'maestro';
         const destByClip = new Map<string, Dest>();
         for (const clip of s.clips) {
-          if (isTimecodeTrackId(clip.trackId)) continue;
+          if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID) continue;
           if (clip.routingMethod === 'manual' && protectedIds.has(clip.trackId)) {
             destByClip.set(clip.id, clip.trackId === 'track-guia' ? 'guia' : clip.trackId === 'track-click' ? 'click' : 'maestro');
             continue;

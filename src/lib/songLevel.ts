@@ -1,17 +1,15 @@
-// "Volume igual entre os VS": cada música tem o loudness (LUFS) e o pico real medidos uma vez;
-// com a função ligada, todas recebem o ganho para soar no MESMO loudness. O alvo é o mais alto
-// que todas as músicas do show alcançam sem o pico passar de -1 dBTP — assim todas ficam iguais
-// e nenhuma clipa o master. Sem dependências do motor: o motor e a exportação só leem o ganho.
+// "Volume igual entre os VS" (botão IGUALAR): o usuário escolhe um pico em dB (ex.: -2) e cada
+// música recebe o ganho para o MAIOR pico dela ficar exatamente nesse valor. As músicas mais
+// baixas sobem e as mais altas descem até o mesmo pico. O pico de cada música é medido uma vez
+// (true peak da gravação com os faders em 0 dB). Sem dependências do motor: o motor e a
+// exportação só leem o ganho.
 import { getClipSource } from '@/lib/audioLibrary';
-import { dbToGain, gainToDb, matchGain } from '@/lib/loudness';
+import { dbToGain, peakMatchGain } from '@/lib/loudness';
 import { isTimecodeTrackId } from '@/lib/timecode';
+import { MAX_BOOST_DB, TARGET_DB_DEFAULT, clampTarget } from '@/lib/levelTarget';
 import type { AudioClip, ProjectState, SongLoudness } from '@/types';
 
-export const LEVEL_CEILING_DBTP = -1;
-const TARGET_MAX = -14;
-const TARGET_MIN = -23;
-
-type LevelState = Pick<ProjectState, 'songs' | 'clips' | 'playlist' | 'levelMatch' | 'songLoudness'>;
+type LevelState = Pick<ProjectState, 'songs' | 'clips' | 'playlist' | 'levelMatch' | 'levelMatchDb' | 'songLoudness'>;
 
 /** O que define o som gravado da música (não entram os faders: mexer no show não muda a medida). */
 export function loudnessSignature(songId: string, clips: AudioClip[]): string {
@@ -27,26 +25,30 @@ export function validLoudness(state: LevelState, songId: string): SongLoudness |
   return m && m.sig === loudnessSignature(songId, state.clips) ? m : null;
 }
 
-/** Loudness comum (LUFS) das músicas do show, ou null se nenhuma foi medida ainda. */
-export function levelTarget(state: LevelState): number | null {
-  const ids = state.playlist.length ? state.playlist.map((p) => p.songId) : state.songs.map((s) => s.id);
-  let reach = Infinity;
-  for (const id of new Set(ids)) {
-    const m = validLoudness(state, id);
-    if (!m || !Number.isFinite(m.lufs) || m.peak <= 0) continue;
-    reach = Math.min(reach, m.lufs + (LEVEL_CEILING_DBTP - gainToDb(m.peak)));
-  }
-  if (!Number.isFinite(reach)) return null;
-  return Math.max(TARGET_MIN, Math.min(TARGET_MAX, reach));
+/** Pico (dB) em que todas as músicas ficam: o que o usuário escolheu, ou o padrão. */
+export function levelTarget(state: LevelState): number {
+  const db = state.levelMatchDb;
+  return typeof db === 'number' && Number.isFinite(db) ? clampTarget(db) : TARGET_DB_DEFAULT;
 }
 
-/** Ganho (linear) desta música com o nivelamento ligado; 1 se desligado ou ainda sem medida. */
+/** Ganho (linear) desta música com o IGUALAR ligado; 1 se desligado ou ainda sem medida. */
 export function songLevelGain(state: LevelState, songId: string): number {
   if (!state.levelMatch) return 1;
   const m = validLoudness(state, songId);
-  const target = levelTarget(state);
-  if (!m || target === null) return 1;
-  return matchGain(m.lufs, m.peak, target, LEVEL_CEILING_DBTP);
+  if (!m || m.peak <= 0) return 1;
+  return peakMatchGain(m.peak, levelTarget(state), MAX_BOOST_DB);
+}
+
+/**
+ * A música é tão baixa que nem subindo o máximo (+24 dB) chega ao pico pedido. Serve só para
+ * avisar na tela: ela continua tocando, só que abaixo das outras.
+ */
+export function belowTarget(state: LevelState, songId: string): boolean {
+  if (!state.levelMatch) return false;
+  const m = validLoudness(state, songId);
+  if (!m || m.peak <= 0) return false;
+  return m.peak * dbToGain(MAX_BOOST_DB) < dbToGain(levelTarget(state)) - 1e-9;
 }
 
 export { dbToGain };
+export { MAX_BOOST_DB, TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN, clampTarget, parseTargetDb } from '@/lib/levelTarget';

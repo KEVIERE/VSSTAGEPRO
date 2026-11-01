@@ -9,10 +9,33 @@ on:
   # ainda não passou pelo ambiente de teste (staging).
 
 jobs:
+  # Programa de voz do Maestro IA (Swift + MLX): precisa do Swift 6.3 (Xcode 26.4 ou mais novo),
+  # que só a máquina macos-26 tem. Compila aqui e entrega pronto para o instalador (macos-15).
+  voz:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compilar o programa de voz
+        working-directory: desktop
+        run: ./scripts/buildMaestroVoiceHelper.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vs-maestro-voz
+          path: desktop/maestro-voice-helper/build/out
+          retention-days: 30
+
   mac:
+    needs: voz
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+
+      - name: Receber o programa de voz do Maestro IA (compilado na etapa "voz")
+        uses: actions/download-artifact@v4
+        with:
+          name: vs-maestro-voz
+          path: desktop/maestro-voice-helper/build/out
 
       - uses: actions/setup-node@v4
         with:
@@ -51,10 +74,15 @@ jobs:
           # instalador de Apple Silicon saía com o motor de IA Intel (versão 1.2.8).
           # 1. Apple Silicon (arm64) com motor de IA embutido
           ./scripts/prepareAiEngine.sh arm64
+          # voz brasileira do Maestro IA: programa de voz (compilado na etapa "voz") + as duas vozes.
+          # O modelo (1,8 GB) não vai no instalador: o app baixa uma vez, em silêncio.
+          chmod +x maestro-voice-helper/build/out/vs-maestro-voz
+          ./scripts/prepareMaestroVoice.sh arm64
           CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --arm64 -c.mac.target=dmg --publish never
 
           # 2. Intel (x64) com motor de IA embutido
           ./scripts/prepareAiEngine.sh x64
+          ./scripts/prepareMaestroVoice.sh x64
           CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --x64 -c.mac.target=dmg --publish never
 
       - uses: actions/upload-artifact@v4
@@ -85,6 +113,19 @@ jobs:
             ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^torch-2\.2\.2\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem o PyTorch 2.2.2"; hdiutil detach "$MNT" -quiet; exit 1; }
             ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^soundfile-0\.12\.1\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem a soundfile (leitura/gravação de áudio)"; hdiutil detach "$MNT" -quiet; exit 1; }
             [ -s "$MNT/VS Stage.app/Contents/Resources/ai-engine/torch-cache/hub/checkpoints/5c90dfd2-34c22ccb.th" ] || { echo "::error::$ARCH: o modelo de IA htdemucs_6s não está embutido"; hdiutil detach "$MNT" -quiet; exit 1; }
+            # voz brasileira do Maestro IA: no Apple Silicon, o programa de voz (arm64), os shaders do
+            # MLX e as duas vozes; o modelo (1,8 GB) NÃO vai junto (o app baixa). No Intel, nada disso.
+            VOICE="$MNT/VS Stage.app/Contents/Resources/maestro-voice-engine"
+            if [ "$ARCH" = arm64 ]; then
+              file "$VOICE/vs-maestro-voz" | grep -q arm64 || { echo "::error::arm64: falta o programa de voz do Maestro IA"; hdiutil detach "$MNT" -quiet; exit 1; }
+              find "$VOICE" -name default.metallib | grep -q . || { echo "::error::arm64: faltam os shaders do MLX do programa de voz"; hdiutil detach "$MNT" -quiet; exit 1; }
+              for v in feminina masculina; do
+                [ -s "$VOICE/voices/$v.wav" ] && [ -s "$VOICE/voices/$v.txt" ] || { echo "::error::arm64: falta a voz $v do Maestro IA"; hdiutil detach "$MNT" -quiet; exit 1; }
+              done
+            else
+              [ ! -e "$VOICE/vs-maestro-voz" ] || { echo "::error::x64: o programa de voz (só Apple Silicon) foi junto no Intel"; hdiutil detach "$MNT" -quiet; exit 1; }
+            fi
+            ! find "$MNT/VS Stage.app" -name '*.safetensors' | grep -q . || { echo "::error::$ARCH: o modelo de voz foi embutido (deveria ser baixado pelo app)"; hdiutil detach "$MNT" -quiet; exit 1; }
             hdiutil detach "$MNT" -quiet
 
             SHA_ORIG=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
@@ -96,7 +137,7 @@ jobs:
             if [ "$SHA_ORIG" != "$SHA_NEW" ]; then
               echo "::error::$ARCH: SHA-256 da reconstrução não bate com o original"; exit 1
             fi
-            echo "$ARCH ok: assinatura válida, motor de IA $WANT com versões travadas e reconstrução das partes confere"
+            echo "$ARCH ok: assinatura válida, motor de IA $WANT com versões travadas, motor de voz do Maestro IA $WANT e reconstrução das partes confere"
           done
 
       # Publica os instaladores em partes de 45 MB na VPS e, em espelho, no bucket Supabase

@@ -33,7 +33,8 @@
     "files": [
       "*.js",
       "splash.html",
-      "package.json"
+      "package.json",
+      "maestro-voice-model.json"
     ],
     "extraResources": [
       {
@@ -47,6 +48,14 @@
       {
         "from": "ai-engine",
         "to": "ai-engine"
+      },
+      {
+        "from": "maestro-voice-engine",
+        "to": "maestro-voice-engine",
+        "filter": [
+          "**/*",
+          "!.gitkeep"
+        ]
       }
     ],
     "afterPack": "./scripts/adhocSign.js",

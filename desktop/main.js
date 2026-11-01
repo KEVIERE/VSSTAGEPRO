@@ -8,6 +8,9 @@ const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const selfUpdate = require('./selfUpdate');
 const { separateStemsLocal, cancelStemSeparation, hasLocalDemucs } = require('./stemSeparatorLocal');
+const maestroVoice = require('./maestroVoice');
+const maestroQwen = require('./maestroQwen');
+const maestroVoiceDownload = require('./maestroVoiceDownload');
 const { initAntiTamper } = require('./antiTamper');
 
 const SCHEME = 'vsstage';
@@ -264,6 +267,11 @@ handle('exportStreamAppend', (streamId, chunk) => exportFiles.streamAppend(strea
 handle('exportStreamClose', (streamId) => exportFiles.streamClose(streamId));
 handle('exportStreamAbort', (streamId) => exportFiles.streamAbort(streamId));
 handle('hasLocalDemucs', () => hasLocalDemucs());
+handle('maestroVoices', () => maestroVoice.listVoices());
+handle('maestroSpeak', (payload) => maestroVoice.renderNarration(payload));
+handle('maestroVoiceStatus', () => maestroVoice.voiceStatus());
+// música tocando: o download da voz pausa (não disputa a rede e o disco durante o show)
+handle('maestroVoicePlaying', (playing) => { maestroVoiceDownload.setPaused(!!playing); });
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 handle('cancelStemSeparation', () => cancelStemSeparation());
 
@@ -388,6 +396,10 @@ if (hasSingleInstance) app.whenReady().then(() => {
   setTimeout(() => finishSplash(true), SPLASH_MAX_MS);
   deliverPendingProject();
   app.on('activate', () => { if (!win) createWindow(); });
+
+  // Voz brasileira do Maestro IA: baixa o modelo uma vez, em silêncio, 1 min depois de abrir
+  // (só em Mac com chip Apple; em Intel a fala usa a voz do Mac).
+  if (maestroQwen.supported()) setTimeout(() => maestroVoiceDownload.start(), 60_000).unref?.();
 });
 
 app.on('open-file', (event, filePath) => {
@@ -411,4 +423,8 @@ if (initialProject) pendingProjectPath = initialProject;
 if (!hasSingleInstance) app.quit();
 
 app.on('window-all-closed', () => { app.quit(); });
-app.on('before-quit', () => { server?.stop(); });
+app.on('before-quit', () => {
+  server?.stop();
+  maestroVoiceDownload.stop();
+  maestroQwen.stopHelper();
+});

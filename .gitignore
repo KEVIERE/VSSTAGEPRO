@@ -31,3 +31,11 @@ desktop/build-info.json
 desktop/ai-engine/*
 !desktop/ai-engine/.gitkeep
 
+# Motor de voz do Maestro IA (programa vs-maestro-voz + vozes), gerado por desktop/scripts/prepareMaestroVoice.sh
+desktop/maestro-voice-engine/*
+!desktop/maestro-voice-engine/.gitkeep
+
+# Build do programa de voz do Maestro IA (desktop/scripts/buildMaestroVoiceHelper.sh)
+desktop/maestro-voice-helper/build/
+desktop/maestro-voice-helper/.build/
+desktop/maestro-voice-helper/.swiftpm/

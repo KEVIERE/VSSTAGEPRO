@@ -15,6 +15,7 @@ import { useCollapsedRows } from '@/lib/useCollapsedRows';
 import { groupDroppedEntries, importSongGroups, takeDroppedEntries } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
 import { getLiveProgressPct } from '@/lib/playProgress';
+import { stopPlayback } from '@/lib/transportControl';
 
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
@@ -57,6 +58,8 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   const [renameValue, setRenameValue] = useState('');
   const [renamingBlockId, setRenamingBlockId] = useState<string | null>(null);
   const [renameBlockValue, setRenameBlockValue] = useState('');
+  const [songMenu, setSongMenu] = useState<{ x: number; y: number; songId: string; confirmDelete?: boolean } | null>(null);
+  const songMenuRef = useRef<HTMLDivElement>(null);
   const [blockMenu, setBlockMenu] = useState<{ x: number; y: number; blockId: string } | null>(null);
   const [colorPickerBlock, setColorPickerBlock] = useState<string | null>(null);
   const blockMenuRef = useRef<HTMLDivElement>(null);
@@ -71,6 +74,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   useEffect(() => {
     const h = (e: MouseEvent) => {
       if (blockMenuRef.current && !blockMenuRef.current.contains(e.target as Node)) setBlockMenu(null);
+      if (songMenuRef.current && !songMenuRef.current.contains(e.target as Node)) setSongMenu(null);
       if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) setColorPickerBlock(null);
     };
     document.addEventListener('mousedown', h);
@@ -533,6 +537,11 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                     onDragEnd={clearDrag}
                     onClick={() => selectSong(entry.songId)}
                     onDoubleClick={() => handleDoubleClick(entry)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      selectSong(entry.songId);
+                      setSongMenu({ x: e.clientX, y: e.clientY, songId: entry.songId });
+                    }}
                     className={`group flex flex-col border-b border-logic-border-dark cursor-pointer transition-colors duration-75 relative
                       ${isCurrent ? 'bg-[#1a3a1a]' : isNext ? 'bg-[#3a2a0a]' : isSelected ? 'bg-white/[0.08]' : 'hover:bg-logic-bg-panel-light'}
                       ${isPlayed && !isSelected ? 'opacity-45 hover:opacity-80' : ''}
@@ -577,8 +586,9 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                           autoFocus
                           value={renameValue}
                           onChange={(e) => setRenameValue(e.target.value)}
+                          onFocus={(e) => e.currentTarget.select()}
                           onBlur={handleRenameSubmit}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSubmit(); }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSubmit(); else if (e.key === 'Escape') { e.preventDefault(); setRenameValue(entry.name); setRenamingId(null); } }}
                           onClick={(e) => e.stopPropagation()}
                           className="flex-1 bg-logic-bg-deep text-xs text-white px-1 py-0.5 rounded border border-logic-accent outline-none min-w-0"
                         />
@@ -635,6 +645,51 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
         <span>{playlist.length} música(s)</span>
         <span>{blocks.length} bloco(s)</span>
       </div>}
+
+      {/* Song context menu */}
+      {songMenu && (
+        <div
+          ref={songMenuRef}
+          className="fixed z-[100] min-w-44 py-1 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded text-xs"
+          style={{ left: Math.min(songMenu.x, window.innerWidth - 190), top: Math.min(songMenu.y, window.innerHeight - 110) }}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-logic-accent hover:text-white transition-colors"
+            onClick={() => {
+              const entry = playlist.find((p) => p.songId === songMenu.songId);
+              if (entry) {
+                setRenamingId(entry.songId);
+                setRenameValue(entry.name);
+              }
+              setSongMenu(null);
+            }}
+          >
+            Renomear
+          </button>
+          <button
+            className="w-full text-left px-3 py-1.5 hover:bg-logic-accent hover:text-white transition-colors"
+            onClick={() => { useStore.getState().duplicatePlaylistEntry(songMenu.songId); setSongMenu(null); }}
+          >
+            Duplicar
+          </button>
+          <div className="h-px bg-logic-border-dark my-1" />
+          <button
+            className={`w-full text-left px-3 py-1.5 transition-colors ${songMenu.confirmDelete ? 'bg-logic-lcd-red text-white' : 'text-logic-lcd-red hover:bg-logic-lcd-red hover:text-white'}`}
+            onClick={() => {
+              // pede um segundo clique: excluir tira a música (e os áudios dela) do projeto
+              if (!songMenu.confirmDelete) { setSongMenu({ ...songMenu, confirmDelete: true }); return; }
+              const st = useStore.getState();
+              if (st.transport.isPlaying && st.transport.currentSongId === songMenu.songId) stopPlayback();
+              st.removeSong(songMenu.songId);
+              setSongMenu(null);
+            }}
+            title="Tira a música do projeto e de todos os shows (⌘Z desfaz)"
+          >
+            {songMenu.confirmDelete ? 'Clique de novo para excluir' : 'Excluir'}
+          </button>
+        </div>
+      )}
 
       {/* Block context menu */}
       {blockMenu && (

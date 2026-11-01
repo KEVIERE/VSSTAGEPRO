@@ -73,3 +73,32 @@ test('matchGain: leva ao alvo, mas nunca deixa o true peak passar do teto', () =
   assert.ok(Math.abs(0.8 * g - dbToGain(-1)) < 1e-9);
   assert.equal(matchGain(-Infinity, 0, -14, -1), 1);
 });
+
+// IGUALAR por pico: o usuário escolhe o pico em dB e todas as músicas ficam com o maior pico nele.
+import { peakMatchGain } from '../src/lib/loudness.ts';
+import { parseTargetDb, clampTarget, TARGET_DB_MIN } from '../src/lib/levelTarget.ts';
+
+test('IGUALAR por pico: a mais baixa sobe e a mais alta desce até o mesmo pico', () => {
+  const alvo = -2;
+  const baixa = dbToGain(-9); // pico em -9 dB
+  const alta = dbToGain(-0.5); // pico em -0,5 dB
+  assert.ok(Math.abs(gainToDb(baixa * peakMatchGain(baixa, alvo)) - alvo) < 1e-9, 'a baixa termina com pico em -2 dB');
+  assert.ok(Math.abs(gainToDb(alta * peakMatchGain(alta, alvo)) - alvo) < 1e-9, 'a alta termina com pico em -2 dB');
+  assert.ok(peakMatchGain(baixa, alvo) > 1, 'a baixa sobe');
+  assert.ok(peakMatchGain(alta, alvo) < 1, 'a alta desce');
+});
+
+test('IGUALAR por pico: subida limitada e música sem medida fica como está', () => {
+  assert.ok(Math.abs(gainToDb(peakMatchGain(dbToGain(-60), -1)) - 24) < 1e-9, 'quase muda: sobe no máximo +24 dB');
+  assert.equal(peakMatchGain(0, -1), 1);
+});
+
+test('pico digitado: "2" vale -2, aceita vírgula e "dB", e fica na faixa', () => {
+  assert.equal(parseTargetDb('-2'), -2);
+  assert.equal(parseTargetDb('2'), -2, 'pico acima de 0 dB clipa: positivo vira negativo');
+  assert.equal(parseTargetDb('-2,5 dB'), -2.5);
+  assert.equal(parseTargetDb('0'), 0);
+  assert.equal(parseTargetDb('-90'), TARGET_DB_MIN);
+  assert.equal(parseTargetDb('abc'), null);
+  assert.equal(clampTarget(3), 0);
+});

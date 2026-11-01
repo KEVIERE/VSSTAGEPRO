@@ -35,6 +35,8 @@ export type SavedManifest = {
   zoomV: number;
   lrMasterActive: boolean;
   levelMatch?: boolean;
+  /** Alvo em LUFS do "volume igual" escolhido pelo usuário. */
+  levelMatchDb?: number;
   /** LR mágico ligado e os pans de antes dele (para o botão poder voltar depois de reabrir). */
   magicRoutingActive?: boolean;
   prevOutputChannels?: Record<string, number> | null;
@@ -103,6 +105,7 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     zoomV: state.zoomV,
     lrMasterActive: state.lrMasterActive,
     levelMatch: state.levelMatch ?? false,
+    levelMatchDb: state.levelMatchDb,
     magicRoutingActive: (state as ProjectState & { magicRoutingActive?: boolean }).magicRoutingActive ?? false,
     prevOutputChannels: (state as ProjectState & { prevOutputChannels?: Record<string, number> | null }).prevOutputChannels ?? null,
     songLoudness: state.songLoudness ?? {},

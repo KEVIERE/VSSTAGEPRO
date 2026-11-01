@@ -5,6 +5,7 @@ import { masterAudioClip } from '@/lib/voiceMastering';
 import { reclassifyClipWithAi } from '@/lib/aiRouter';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
+import NarrationDialog from '@/components/NarrationDialog';
 
 interface ContextMenuState {
   visible: boolean;
@@ -28,6 +29,9 @@ export default function ContextMenu() {
   const dawMode = useStore((s) => s.dawMode);
   const clips = useStore((s) => s.clips);
   const tracks = useStore((s) => s.tracks);
+  const songs = useStore((s) => s.songs);
+  // Editor da fala: aberto a partir do próprio clipe gerado (também dá pelo clique duplo na régua)
+  const [editingNarrationId, setEditingNarrationId] = useState<{ songId: string; narrationId: string } | null>(null);
 
   const openMenu = useCallback((e: MouseEvent, clipId: string) => {
     e.preventDefault();
@@ -64,9 +68,22 @@ export default function ContextMenu() {
     };
   }, [openMenu]);
 
+  if (editingNarrationId) {
+    const song = songs.find((sg) => sg.id === editingNarrationId.songId);
+    const narration = song?.narrations?.find((n) => n.id === editingNarrationId.narrationId);
+    if (song && narration) {
+      return <NarrationDialog song={song} narration={narration} onClose={() => setEditingNarrationId(null)} />;
+    }
+  }
+
   if (!state.visible || !state.clipId) return null;
 
   const clip = clips.find((c) => c.id === state.clipId);
+  // O clipe de uma fala do Maestro por IA é guardado na própria marcação: por aqui dá para
+  // voltar ao texto e à voz que o geraram.
+  const narrationOwner = clip
+    ? songs.flatMap((sg) => (sg.narrations ?? []).filter((n) => n.clipId === clip.id).map((n) => ({ song: sg, narration: n })))[0] ?? null
+    : null;
 
   const allTargets: { id: string; name: string; color: string; isChild: boolean }[] = [];
   for (const routeId of ROUTABLE_TRACKS) {
@@ -115,6 +132,25 @@ export default function ContextMenu() {
           </div>
         )}
       </div>
+
+      {narrationOwner && (
+        <>
+          <div className="h-px bg-logic-border-dark my-1" />
+          <button
+            className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+            onClick={() => {
+              const id = narrationOwner.narration.id;
+              const songId = narrationOwner.song.id;
+              closeMenu();
+              setEditingNarrationId({ songId, narrationId: id });
+            }}
+            title="Voltar ao texto e à voz desta fala"
+          >
+            <span>Editar a Fala do Maestro…</span>
+            <span className="text-[10px] opacity-75 truncate max-w-28">{narrationOwner.narration.text || 'sem texto'}</span>
+          </button>
+        </>
+      )}
 
       <div className="h-px bg-logic-border-dark my-1" />
 

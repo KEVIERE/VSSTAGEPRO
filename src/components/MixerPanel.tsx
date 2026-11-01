@@ -2,38 +2,98 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import { volumeToDb } from '@/lib/audioEngine';
 import { audioEngine } from '@/lib/audioEngine';
 import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
-import { useMemo, useRef, useSyncExternalStore } from 'react';
-import { levelTarget, songLevelGain } from '@/lib/songLevel';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { belowTarget, levelTarget, parseTargetDb, songLevelGain, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
 import MeterMask from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import { useMeterLevel } from '@/lib/meterBus';
 
-// Volume igual entre os VS: liga/desliga e mostra o alvo comum e a medição em andamento.
+// Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
+// nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
+// outro e apertar Enter aplica na hora.
 function LevelMatchButton() {
   const on = useStore((s) => !!s.levelMatch);
   const setLevelMatch = useStore((s) => s.setLevelMatch);
+  const setLevelMatchDb = useStore((s) => s.setLevelMatchDb);
+  const storedDb = useStore((s) => s.levelMatchDb);
   const target = useStore((s) => levelTarget(s));
   const current = useStore((s) => s.transport.currentSongId ?? s.selectedSongId);
   const gainDb = useStore((s) => (current ? 20 * Math.log10(songLevelGain(s, current)) : 0));
   const progress = useSyncExternalStore(onLevelProgress, levelProgress);
-  const label = !on ? 'IGUALAR' : progress ? `${progress.done}/${progress.total}` : target !== null ? `${target.toFixed(0)} LU` : 'IGUALAR';
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) { inputRef.current?.focus(); inputRef.current?.select(); }
+  }, [editing]);
+
+  const commit = () => {
+    const db = parseTargetDb(draft);
+    if (db !== null) setLevelMatchDb(db);
+    setEditing(false);
+  };
+
+  const targetText = target.toFixed(1);
+  const low = useStore((s) => (current ? belowTarget(s, current) : false));
   const title = !on
-    ? 'Volume igual entre os VS: liga para todas as músicas soarem no mesmo volume, sem clipar o master.'
-    : `Volume igual ligado. Todas as músicas do show soam em ${target !== null ? target.toFixed(1) + ' LUFS' : '(medindo)'}, com pico máximo de -1 dBTP.`
+    ? 'Volume igual entre os VS: clique para o maior pico de todas as músicas ficar no mesmo volume (em dB). As mais baixas sobem e as mais altas descem. Depois de ligado, dá para digitar o pico desejado.'
+    : `Volume igual ligado: o maior pico de cada música fica em ${targetText} dB (com os faders em 0 dB).`
       + (progress ? ` Medindo as músicas: ${progress.done} de ${progress.total}.` : '')
       + (current ? ` Esta música: ${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)} dB.` : '')
-      + ' Clique para desligar.';
+      + (low ? ' Ela é baixa demais para chegar ao pico pedido mesmo subindo +24 dB.' : '')
+      + ` Clique no número para escolher o pico (de ${TARGET_DB_MIN} a ${TARGET_DB_MAX} dB). Clique em IGUALAR para desligar.`;
+
+  const tone = on
+    ? 'bg-logic-lcd-green/20 text-logic-lcd-green border-logic-lcd-green/70'
+    : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark hover:text-logic-text';
+
+  if (on && editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
+        }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-[52px] text-center font-bold px-0.5 py-0.5 rounded border text-[8px] bg-logic-lcd-green/20 text-logic-lcd-green border-logic-lcd-green/70 outline-none"
+        title={`Pico desejado em dB (${TARGET_DB_MIN} a ${TARGET_DB_MAX}; "2" vale como -2). Enter aplica, Esc cancela.`}
+        aria-label="Pico desejado em dB"
+      />
+    );
+  }
+
+  // Ligado: "IGUALAR" vira o botão de desligar e embaixo aparece o pico desejado (clicável).
+  // Um embaixo do outro: lado a lado não cabem nos 72 px do canal Master.
   return (
-    <button
-      className={`font-bold px-1 py-0.5 rounded border transition-colors text-[8px] ${on ? 'bg-logic-lcd-green/20 text-logic-lcd-green border-logic-lcd-green/70' : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark hover:text-logic-text'}`}
-      onClick={() => setLevelMatch(!on)}
-      title={title}
-      aria-pressed={on}
-    >
-      {label}
-    </button>
+    <div className="flex flex-col items-center justify-center gap-0.5">
+      <button
+        className={`font-bold px-1 py-0.5 rounded border transition-colors text-[8px] ${tone}`}
+        onClick={() => setLevelMatch(!on)}
+        title={title}
+        aria-pressed={on}
+      >
+        {on && progress ? `${progress.done}/${progress.total}` : 'IGUALAR'}
+      </button>
+      {on && (
+        <button
+          className="font-bold px-1 py-0.5 rounded border border-logic-lcd-green/70 bg-logic-lcd-green/20 text-logic-lcd-green text-[8px] tabular-nums hover:brightness-125 transition"
+          onClick={() => { setDraft(String(storedDb ?? target)); setEditing(true); }}
+          title={`Pico de todas as músicas: ${targetText} dB. Clique para digitar outro (${TARGET_DB_MIN} a ${TARGET_DB_MAX} dB).`}
+        >
+          {`${targetText} dB`}
+        </button>
+      )}
+    </div>
   );
 }
 

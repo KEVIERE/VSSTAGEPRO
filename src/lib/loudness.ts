@@ -223,6 +223,16 @@ export function lookaheadLimit(channels: Float32Array[], sampleRate: number, cei
 }
 
 /** Ganho para levar `lufs` ao alvo sem o true peak passar do teto (dBTP). */
+/**
+ * Ganho para o maior pico (true peak, linear) da música ficar em `targetDb` dB: a música mais
+ * baixa sobe e a mais alta desce até o mesmo pico. A subida tem limite (`maxBoostDb`) para uma
+ * gravação quase muda não virar só ruído.
+ */
+export function peakMatchGain(peak: number, targetDb: number, maxBoostDb = 24): number {
+  if (!(peak > 0)) return 1;
+  return Math.min(dbToGain(maxBoostDb), dbToGain(targetDb) / peak);
+}
+
 export function matchGain(lufs: number, peak: number, targetLufs: number, ceilingDbtp: number): number {
   if (!Number.isFinite(lufs) || peak <= 0) return 1;
   const wanted = dbToGain(targetLufs - lufs);

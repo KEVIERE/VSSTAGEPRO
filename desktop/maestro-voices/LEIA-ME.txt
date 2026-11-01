@@ -1,0 +1,17 @@
+Vozes de IA do Maestro IA (VS Stage)
+
+As duas vozes foram CRIADAS POR IA e não pertencem a nenhuma pessoa real. Cada arquivo .wav é um
+trecho de referência; o .txt ao lado tem o texto falado nele. No app, o modelo Qwen3-TTS 0.6B Base
+copia a voz a partir desse trecho.
+
+Como foram criadas (01/11/2026): modelo Qwen3-TTS VoiceDesign 1.7B (Alibaba, licença Apache-2.0,
+mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit), em português, a partir destas descrições:
+
+feminina.wav (semente 100):
+  A Brazilian Portuguese female voice-over artist from São Paulo in her thirties. Warm, clear and confident, professional studio narration, neutral Brazilian accent, medium pitch.
+
+masculina.wav (semente 103):
+  A Brazilian Portuguese male voice-over artist from São Paulo in his thirties. Deep, warm and confident, professional studio narration, neutral Brazilian accent.
+
+Texto falado nos dois trechos:
+  Boa noite, pessoal! Eu sou o maestro do VS Stage e vou guiar a banda no show de hoje: atenção nas entradas, no refrão e no final.

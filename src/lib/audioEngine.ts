@@ -1691,7 +1691,7 @@ class AudioEngine {
           if (old && old !== sg && playbackKey(old) !== playbackKey(sg)) this.applySongPlaybackParams(sg.id);
         }
       }
-      if (s.levelMatch !== prev.levelMatch || s.songLoudness !== prev.songLoudness || s.playlist !== prev.playlist || s.magicRoutingActive !== prev.magicRoutingActive) this.applySongLevel();
+      if (s.levelMatch !== prev.levelMatch || s.levelMatchDb !== prev.levelMatchDb || s.songLoudness !== prev.songLoudness || s.playlist !== prev.playlist || s.magicRoutingActive !== prev.magicRoutingActive) this.applySongLevel();
       if (s.magicRoutingActive !== prev.magicRoutingActive) {
         this.channels.forEach((_, id) => this.routeChannel(id));
         this.applyLimiterMode();
