@@ -13,7 +13,7 @@ import { getClipSource, putClipAudio, registerClipSource, toClipAudio, toClipAud
 import { processClipAudioAsync } from '@/lib/timeStretch';
 import { audioEngine } from '@/lib/audioEngine';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
-import { generateMarkers } from '@/lib/audioDecoder';
+import { deviceSampleRate, generateMarkers } from '@/lib/audioDecoder';
 import { friendlyError } from '@/lib/friendlyError';
 import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, currentSignature, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
 import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
@@ -164,13 +164,19 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-/** Bytes do WAV → AudioBuffer, pela decodificação do próprio navegador. */
+/**
+ * Bytes do WAV → AudioBuffer, já na taxa de amostragem da saída de áudio.
+ * O tocador da faixa lê as amostras na taxa da placa, sem converter: a fala guardada em 44,1 kHz
+ * numa saída de 48 kHz tocava 9% mais rápida e 1,5 semitom mais aguda (o "Padrão" não soava como
+ * a voz original). A pré-escuta convertia certo, por isso só a faixa saía diferente.
+ */
 async function decodeWavBytes(bytes: Uint8Array): Promise<AudioBuffer> {
   // cópia em ArrayBuffer próprio: o decodificador exige ArrayBuffer, não a view
   const raw = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(raw).set(bytes);
-  // contexto offline: decodifica sem abrir a placa de som (não mexe na saída durante o show)
-  const ctx = new OfflineAudioContext(1, 1, 44100);
+  // contexto offline: decodifica (e converte a taxa) sem abrir a placa de som
+  const rate = audioEngine.currentSampleRate() ?? deviceSampleRate();
+  const ctx = new OfflineAudioContext(1, 1, rate);
   return ctx.decodeAudioData(raw);
 }
 

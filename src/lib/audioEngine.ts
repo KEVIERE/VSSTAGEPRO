@@ -510,6 +510,11 @@ class AudioEngine {
     store.setPlaybackError(msg);
   }
 
+  /** Taxa de amostragem do motor, se ele já estiver aberto (o tocador lê o áudio nesta taxa, sem converter). */
+  currentSampleRate(): number | null {
+    return this.ctx && this.ctx.state !== 'closed' ? this.ctx.sampleRate : null;
+  }
+
   getContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
       // Modo Show: blocos de áudio maiores, alguns milissegundos a mais de atraso e muito mais folga contra estalos.

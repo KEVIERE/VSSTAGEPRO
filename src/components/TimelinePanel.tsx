@@ -26,6 +26,15 @@ import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 import { glueSelectedClips } from '@/lib/clipGlue';
 
+/**
+ * A coluna dos nomes das faixas e a régua de cima seguem a rolagem da timeline pelo próprio
+ * navegador (animação ligada à rolagem, em src/index.css): as três andam no mesmo quadro. Antes um
+ * código copiava a posição depois que a timeline já tinha rolado, e a coluna vinha atrasada.
+ * Navegador sem esse recurso: fica a cópia por código.
+ */
+const FOLLOW_SCROLL_CSS = typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
+  && CSS.supports('animation-timeline', '--vs-tl-y') && CSS.supports('timeline-scope', '--vs-tl-y');
+
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
 type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
 
@@ -1805,17 +1814,61 @@ export default function TimelinePanel() {
     setVisible((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
   }, []);
 
-  const handleScroll = useCallback(() => {
-    if (scrollRef.current) {
-      if (headerScrollRef.current) {
-        headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
-      }
-      if (trackHeadersRef.current) {
-        trackHeadersRef.current.scrollTop = scrollRef.current.scrollTop;
-      }
+  /**
+   * A coluna dos nomes anda junto com a timeline. Feito dentro do quadro de pintura (em vez de no
+   * evento de rolagem): o navegador desenha as duas no mesmo quadro, senão a coluna esquerda
+   * "ficava para trás" por um quadro a cada rolagem e o olho lia isso como folga.
+   */
+  const followRange = useRef({ x: -1, y: -1 });
+  /**
+   * Quanto a timeline rola no máximo, nos dois sentidos: é o tamanho do caminho que a coluna dos
+   * nomes e a régua andam junto (src/index.css). Muda com faixas, zoom e janela, e também durante a
+   * rolagem (a grade desenhada mais à frente aumenta a área rolável): por isso é conferido também a
+   * cada rolagem, mas só grava quando mudou.
+   */
+  const applyFollowRange = useCallback(() => {
+    const el = scrollRef.current;
+    const root = timelinePanelRef.current;
+    if (!el || !root) return;
+    const x = Math.max(0, el.scrollWidth - el.clientWidth);
+    const y = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (x !== followRange.current.x) root.style.setProperty('--vs-follow-max-x', String(x));
+    if (y !== followRange.current.y) root.style.setProperty('--vs-follow-max-y', String(y));
+    followRange.current = { x, y };
+  }, []);
+
+  const syncHeaders = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (FOLLOW_SCROLL_CSS) { applyFollowRange(); return; }
+    if (headerScrollRef.current && headerScrollRef.current.scrollLeft !== el.scrollLeft) {
+      headerScrollRef.current.scrollLeft = el.scrollLeft;
     }
+    if (trackHeadersRef.current && trackHeadersRef.current.scrollTop !== el.scrollTop) {
+      trackHeadersRef.current.scrollTop = el.scrollTop;
+    }
+  }, [applyFollowRange]);
+
+  const handleScroll = useCallback(() => {
+    syncHeaders();
     updateVisible();
-  }, [updateVisible]);
+  }, [updateVisible, syncHeaders]);
+
+  // Rolar com dois dedos (pad) na coluna dos nomes: a rolagem é sempre a da timeline.
+  useEffect(() => {
+    const at = (e: Event) => {
+      syncHeaders();
+      updateVisible();
+    };
+    const heads = trackHeadersRef.current;
+    const main = scrollRef.current;
+    heads?.addEventListener('scroll', at, { passive: true });
+    main?.addEventListener('scroll', at, { passive: true });
+    return () => {
+      heads?.removeEventListener('scroll', at);
+      main?.removeEventListener('scroll', at);
+    };
+  }, [syncHeaders, updateVisible]);
 
   // A coluna das faixas só existe com uma música aberta: o rolar com dois dedos é ligado sempre
   // que ela aparece (antes era ligado uma vez só, na abertura — sem música ainda, nunca ligava).
@@ -1853,9 +1906,26 @@ export default function TimelinePanel() {
       el.scrollLeft = Math.max(0, anchor.time * zoomH - anchor.mouseX);
       zoomAnchorRef.current = null;
     }
-    if (el && headerScrollRef.current) headerScrollRef.current.scrollLeft = el.scrollLeft;
+    if (el && headerScrollRef.current && !FOLLOW_SCROLL_CSS) headerScrollRef.current.scrollLeft = el.scrollLeft;
     updateVisible();
   }, [zoomH, timelineWidth, updateVisible]);
+
+  // O caminho da coluna dos nomes e da régua acompanha faixas, zoom e tamanho da janela.
+  useEffect(() => {
+    if (!FOLLOW_SCROLL_CSS) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    followRange.current = { x: -1, y: -1 };
+    applyFollowRange();
+    const ro = new ResizeObserver(applyFollowRange);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [hasSong, timelineWidth, zoomH, applyFollowRange]);
+  // a grade e as ondas desenhadas mais à frente mudam a área rolável sem mudar o tamanho de nada
+  useLayoutEffect(() => {
+    if (FOLLOW_SCROLL_CSS) applyFollowRange();
+  }, [visible, applyFollowRange]);
 
   const zoomAround = useCallback((factor: number, mouseX: number) => {
     const el = scrollRef.current;
@@ -2009,7 +2079,7 @@ export default function TimelinePanel() {
   };
 
   return (
-    <div ref={timelinePanelRef} className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
+    <div ref={timelinePanelRef} className={`flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative ${FOLLOW_SCROLL_CSS ? 'timeline-follow-scope' : ''}`}>
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
           {/* Ações Rápidas: Cápsula Segmentada Unificada estilo Logic Pro 11 / Apple macOS */}
@@ -2063,7 +2133,7 @@ export default function TimelinePanel() {
           </div>
         </div>
         <div ref={headerScrollRef} className="flex-1 overflow-hidden">
-          <div style={{ width: `${timelineWidth + 24}px` }}>
+          <div className={FOLLOW_SCROLL_CSS ? 'timeline-follow-x' : undefined} style={{ width: `${timelineWidth + 24}px` }}>
             {song ? (
               <MedleyLane song={song} zoomH={zoomH} />
             ) : (
@@ -2146,9 +2216,10 @@ export default function TimelinePanel() {
             {/* Coluna da esquerda (Tracks): LARGURA FIXA, 100% IMÓVEL HORIZONTALMENTE */}
             <div
               ref={trackHeadersRef}
-              className="bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden overflow-y-hidden select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]"
+              className={`bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden ${FOLLOW_SCROLL_CSS ? 'overflow-y-hidden' : 'overflow-y-auto'} no-scrollbar select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]`}
               style={{ width: `${HEADER_W}px` }}
             >
+              <div className={FOLLOW_SCROLL_CSS ? 'timeline-follow-y' : undefined}>
               {/* A primeira linha é a de timecode, alinhada com a primeira linha de áudios à direita.
                   A MedleyLane e a RegionLane ficam no cabeçalho fixo de cima, não aqui. */}
               <TimecodeTrackRow songId={song.id} />
@@ -2176,6 +2247,7 @@ export default function TimelinePanel() {
                 }
                 return <TrackRow key={track.id} track={track} depth={0} onContextMenu={handleOpenTrackMenu} />;
               })}
+              </div>
               <div
                 className="absolute top-0 right-0 bottom-0 w-1.5 -mr-0.5 z-50 cursor-col-resize group/widthHandle"
                 onPointerDown={handleHeaderWidthPointerDown}
@@ -2189,7 +2261,7 @@ export default function TimelinePanel() {
             {/* Coluna da direita (Timeline & Clipes): Rola horizontalmente e verticalmente */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10"
+              className={`flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10 ${FOLLOW_SCROLL_CSS ? 'timeline-follow-source' : ''}`}
               onScroll={handleScroll}
             >
               <div

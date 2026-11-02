@@ -18,6 +18,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
+import { supportWhatsAppUrl } from '@/lib/support';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function SubscriptionReturn() {
@@ -212,7 +213,7 @@ export default function SubscriptionReturn() {
               </div>
 
               <a
-                href="https://wa.me/5511932498250?text=Ol%C3%A1!%20Acabei%20de%20assinar%20o%20VS%20Stage%20Pro%20e%20gostaria%20de%20tirar%20uma%20d%C3%BAvida."
+                href={supportWhatsAppUrl('Olá! Acabei de assinar o VS Stage Pro e gostaria de tirar uma dúvida.')}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full sm:w-auto px-5 h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-white font-bold text-xs flex items-center justify-center gap-2 transition"

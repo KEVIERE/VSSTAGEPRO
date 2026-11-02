@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock,
   Lock,
+  MessageCircle,
   Mic2,
   Monitor,
   Smartphone,
@@ -17,6 +18,8 @@ import {
   Zap,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
+import { SUPPORT_WHATSAPP_DISPLAY, supportWhatsAppUrl } from '@/lib/support';
+import WhatsAppButton from './WhatsAppButton';
 import { useScrollReveal } from './useScrollReveal';
 
 /* =========================================================================
@@ -950,7 +953,7 @@ export default function SalesPage() {
       {/* =====================================================================
           10. APPLE DIRECTORY FOOTER
           ===================================================================== */}
-      <footer className="border-t border-white/[0.1] bg-[#000000] py-14 text-xs text-[#86868b]">
+      <footer className="border-t border-white/[0.1] bg-[#000000] pt-14 pb-24 text-xs text-[#86868b]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-6 pb-8 border-b border-white/[0.08]">
             <div className="flex items-center gap-3 text-white font-bold text-sm">
@@ -967,6 +970,23 @@ export default function SalesPage() {
             </div>
           </div>
 
+          {/* Contato e suporte: direto no WhatsApp */}
+          <div className="py-8 flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-white/[0.08]">
+            <div className="text-center sm:text-left">
+              <div className="text-sm font-semibold text-white">Contato e suporte</div>
+              <div className="text-xs text-[#86868b] mt-1">Dúvidas, ajuda com o setup ou com o show: fale direto com a gente no WhatsApp.</div>
+            </div>
+            <a
+              href={supportWhatsAppUrl('Olá! Vim pelo site do VS Stage Pro e gostaria de falar com o suporte.')}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 h-11 rounded-full bg-[#25d366] hover:bg-[#20bd5a] text-white text-sm font-semibold transition-colors shrink-0"
+            >
+              <MessageCircle size={17} />
+              <span>WhatsApp {SUPPORT_WHATSAPP_DISPLAY}</span>
+            </a>
+          </div>
+
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-[11px] text-[#6e6e73]">
             <div>
               Copyright © 2026 VS Stage Pro. Todos os direitos reservados.
@@ -976,11 +996,20 @@ export default function SalesPage() {
               <span>•</span>
               <span>Privacidade</span>
               <span>•</span>
-              <span>Suporte ao Diretor Musical</span>
+              <a
+                href={supportWhatsAppUrl('Olá! Preciso de suporte com o VS Stage Pro.')}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-white transition-colors"
+              >
+                Suporte ao Diretor Musical
+              </a>
             </div>
           </div>
         </div>
       </footer>
+
+      <WhatsAppButton />
 
     </div>
   );

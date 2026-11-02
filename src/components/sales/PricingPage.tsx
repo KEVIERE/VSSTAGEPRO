@@ -29,6 +29,8 @@ import {
   Zap,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
+import { SUPPORT_WHATSAPP_DISPLAY, supportWhatsAppUrl } from '@/lib/support';
+import WhatsAppButton from './WhatsAppButton';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 
@@ -686,20 +688,20 @@ export default function PricingPage() {
               Fale diretamente com nossa equipe técnica pelo WhatsApp e tire suas dúvidas sobre seu setup.
             </p>
             <a
-              href="https://wa.me/5579998144026?text=Ol%C3%A1!%20Tenho%20d%C3%BAvidas%20sobre%20os%20planos%20do%20VS%20Stage%20Pro."
+              href={supportWhatsAppUrl('Olá! Tenho dúvidas sobre os planos do VS Stage Pro.')}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 mt-4 px-5 h-10 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-semibold border border-white/15 transition-colors"
             >
               <MessageCircle size={15} className="text-emerald-400" />
-              <span>Chamar Suporte no WhatsApp</span>
+              <span>Chamar Suporte no WhatsApp · {SUPPORT_WHATSAPP_DISPLAY}</span>
             </a>
           </div>
         </div>
       </section>
 
       {/* Rodapé */}
-      <footer className="relative z-10 border-t border-white/[0.08] bg-black py-8 text-xs text-apple-text-secondary">
+      <footer className="relative z-10 border-t border-white/[0.08] bg-black pt-8 pb-24 text-xs text-apple-text-secondary">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
@@ -709,7 +711,7 @@ export default function PricingPage() {
             <a href="/" className="hover:text-white transition">Início</a>
             <a href="#baixar" className="hover:text-white transition">Download Mac</a>
             <a
-              href="https://wa.me/5579998144026"
+              href={supportWhatsAppUrl('Olá! Preciso de suporte com o VS Stage Pro.')}
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-white transition flex items-center gap-1"
@@ -719,6 +721,8 @@ export default function PricingPage() {
           </div>
         </div>
       </footer>
+
+      <WhatsAppButton message="Olá! Tenho dúvidas sobre os planos do VS Stage Pro." />
 
       {/* MODAL DE AUTENTICAÇÃO PARA CHECKOUT */}
       {authModalOpen && (

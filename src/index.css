@@ -84,6 +84,18 @@
     height: 0 !important;
     width: 0 !important;
   }
+
+  /* A coluna dos nomes rola junto com a timeline, mas sem barra de rolagem própria: a
+     rolagem é sempre a da timeline (sync em handleScroll), então a barra aqui só apareceria
+     "flutuando" ao lado das faixas. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
   .timeline-scroll-container {
     scrollbar-width: none;
   }
@@ -434,4 +446,38 @@
 
 @media (prefers-reduced-motion: reduce) {
   .apple-fade-in, .apple-reveal { animation: none !important; transition: none !important; opacity: 1 !important; transform: none !important; }
+}
+
+/* A coluna dos nomes das faixas (vertical) e a régua de cima (horizontal) seguem a rolagem da
+   timeline pelo próprio navegador: a animação é ligada à rolagem e roda junto com ela, no mesmo
+   quadro. Copiar a posição por código deixava a coluna um quadro atrás ("descolada").
+   O tamanho do caminho (--vs-follow-max-*) vem do TimelinePanel. */
+.timeline-follow-scope {
+  timeline-scope: --vs-tl-y, --vs-tl-x;
+}
+.timeline-follow-source {
+  scroll-timeline: --vs-tl-y block, --vs-tl-x inline;
+}
+@keyframes vs-follow-y {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-1px * var(--vs-follow-max-y, 0))); }
+}
+@keyframes vs-follow-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1px * var(--vs-follow-max-x, 0))); }
+}
+.timeline-follow-y,
+.timeline-follow-x {
+  animation-duration: auto;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+  will-change: transform;
+}
+.timeline-follow-y {
+  animation-name: vs-follow-y;
+  animation-timeline: --vs-tl-y;
+}
+.timeline-follow-x {
+  animation-name: vs-follow-x;
+  animation-timeline: --vs-tl-x;
 }
