@@ -19,11 +19,12 @@ const FIT_MARGIN = 1.05;
 /** Folga para o cursor parado "quase" no beat (arredondamento, atraso do clique) contar como nele. */
 const BEAT_TOLERANCE = 0.05;
 
-export type VoicePreset = 'feminina' | 'masculina';
+export type VoicePreset = 'feminina' | 'masculina' | 'cubas';
 
 export const VOICE_PRESETS: ReadonlyArray<{ id: VoicePreset; label: string }> = [
   { id: 'feminina', label: 'Feminina' },
   { id: 'masculina', label: 'Masculina' },
+  { id: 'cubas', label: 'Cubas' },
 ];
 
 /** Marcações da música em ordem de início. */
@@ -60,10 +61,11 @@ export function spanForNatural(text: string): number {
 }
 
 /**
- * Versão da voz de IA. Muda quando o motor ou as vozes mudam: as falas feitas antes (Kokoro, voz do
- * Mac de reserva) deixam de valer e o app gera de novo, para tudo sair no mesmo tom.
+ * Versão da voz de IA. Muda quando o motor, as vozes ou o tratamento do áudio mudam: as falas feitas
+ * antes deixam de valer e o app gera de novo, para tudo sair no mesmo tom.
+ * qwen3: corte novo do começo da fala (sem respiração nem resto da palavra anterior na contagem).
  */
-export const VOICE_VERSION = 'qwen2';
+export const VOICE_VERSION = 'qwen3';
 
 /** Marca de fala feita com a voz do Mac no lugar da voz de IA (gera de novo quando a de IA estiver pronta). */
 export const FALLBACK_MARK = '|reserva';
@@ -89,6 +91,30 @@ export const PITCH_PRESETS: ReadonlyArray<{ id: 'grave' | 'padrao' | 'agudo'; la
 /** Quanto o tom muda (centésimos de semitom): 2 semitons para baixo ou para cima. */
 export function pitchCents(pitch?: string): number {
   return pitch === 'grave' ? -200 : pitch === 'agudo' ? 200 : 0;
+}
+
+/** Fala comum: se não couber na marcação, acelera até aqui. Nunca desacelera (sobraria silêncio). */
+const MAX_FIT_TEMPO = 1.35;
+
+/**
+ * Fator de velocidade (1 = natural, 1,2 = 20% mais rápido) para uma fala que veio na velocidade
+ * natural (voz online). A mesma regra da voz de IA do Mac (desktop/maestroQwen.js):
+ * - fala comum (sem `pace`): só acelera se não couber na marcação, até 1,35×;
+ * - contagem (`pace`): a velocidade escolhida; acelera mais só se o número não couber no tempo.
+ */
+export function fitTempo(natural: number, span: number, pace?: number): { tempo: number; seconds: number; overflow: boolean } {
+  const s = Number(span) > 0 ? Number(span) : 0;
+  let tempo: number;
+  if (Number(pace) > 0) {
+    tempo = Math.max(COUNT_PACE_MIN, Math.min(COUNT_PACE_MAX, Number(pace)));
+    if (s > 0 && natural / tempo > s) tempo = Math.min(COUNT_PACE_MAX, natural / s);
+  } else {
+    tempo = 1;
+    if (s > 0 && natural > s) tempo = Math.min(MAX_FIT_TEMPO, natural / s);
+  }
+  tempo = Math.round(tempo * 1000) / 1000;
+  const seconds = natural / tempo;
+  return { tempo, seconds, overflow: s > 0 && seconds > s * 1.02 };
 }
 
 /** Assinatura do que a marcação pede agora. */

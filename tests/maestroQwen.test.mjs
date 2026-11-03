@@ -29,7 +29,9 @@ function fresh(env = {}) {
 const tmpDir = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `vs-qwen-${name}-`));
 const { qwen } = fresh();
 
-test('feminina e masculina viram as duas vozes de IA; voz do Mac não é de IA', () => {
+test('feminina, masculina e cubas viram as vozes de IA; voz do Mac não é de IA', () => {
+  assert.equal(qwen.qwenVoiceFor('cubas').ref, 'cubas');
+  assert.equal(qwen.qwenVoiceFor('qwen:cubas').name, 'Cubas (IA)');
   assert.equal(qwen.qwenVoiceFor('feminina').ref, 'feminina');
   assert.equal(qwen.qwenVoiceFor('masculina').ref, 'masculina');
   assert.equal(qwen.qwenVoiceFor('qwen:masculina').gender, 'masculina');
@@ -126,7 +128,7 @@ function fakeEngine() {
   const engine = tmpDir('motor');
   fs.writeFileSync(path.join(engine, 'vs-maestro-voz'), FAKE_HELPER, { mode: 0o755 });
   fs.mkdirSync(path.join(engine, 'voices'));
-  for (const v of ['feminina', 'masculina']) {
+  for (const v of ['feminina', 'masculina', 'cubas']) {
     fs.writeFileSync(path.join(engine, 'voices', `${v}.wav`), 'x');
     fs.writeFileSync(path.join(engine, 'voices', `${v}.txt`), 'Boa noite, pessoal!\n');
   }

@@ -3,6 +3,7 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { RoutingTarget } from '@/types';
 import { masterAudioClip } from '@/lib/voiceMastering';
 import { reclassifyClipWithAi } from '@/lib/aiRouter';
+import { canSplitClipStems, isDrumClip, isSplittingStems, startClipStemSplit } from '@/lib/clipStemSplit';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
 import NarrationDialog from '@/components/NarrationDialog';
@@ -305,6 +306,31 @@ export default function ContextMenu() {
             <span>✨ Masterizar com IA</span>
             <span className="text-[10px] opacity-75 font-normal">Estúdio</span>
           </button>
+          {(() => {
+            // Separar stems: bateria vira bumbo, caixa, pratos, tons e sala; os outros áudios viram
+            // voz, baixo, bateria, guitarra/violão, teclado e outros, cada um na sua faixa.
+            const available = canSplitClipStems();
+            const busy = isSplittingStems();
+            const drum = isDrumClip(clip);
+            return (
+              <button
+                className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit"
+                disabled={!available || busy}
+                title={!available
+                  ? 'Só no app do VS Stage para Mac (a IA roda no próprio Mac)'
+                  : busy ? 'Já há uma separação em andamento'
+                    : drum ? 'Separa a bateria em Bumbo, Caixa, Pratos, Tons e Sala, cada um na sua faixa'
+                      : 'Separa os instrumentos deste áudio e põe cada um na sua faixa'}
+                onClick={() => {
+                  void startClipStemSplit(clip.id);
+                  closeMenu();
+                }}
+              >
+                <span>✂︎ Separar stems</span>
+                <span className="text-[10px] opacity-75 font-normal">{!available ? 'Só no Mac' : drum ? 'Peças da bateria' : 'IA'}</span>
+              </button>
+            );
+          })()}
         </>
       )}
 

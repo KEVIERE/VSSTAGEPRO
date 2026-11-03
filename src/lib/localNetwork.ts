@@ -60,14 +60,26 @@ export interface LocalBridge {
 }
 
 /** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */
+/**
+ * Resultado da separação da bateria em peças. `why` vem preenchido quando não deu para separar:
+ * aí a música fica com a bateria inteira, como antes.
+ */
+export interface DrumPiecesResult {
+  bumbo?: ArrayBuffer;
+  caixa?: ArrayBuffer;
+  pratos?: ArrayBuffer;
+  tons?: ArrayBuffer;
+  why?: string;
+}
+
 export interface MaestroVoiceStatus {
-  /** Mac com chip Apple (em Mac Intel a fala usa a voz do Mac) */
+  /** Mac com chip Apple: a voz de IA roda no próprio Mac (Qwen3-TTS) */
   supported: boolean;
   /** o programa de voz e as vozes vieram no app */
   engine: boolean;
   /** download do modelo (~1,8 GB, uma vez só, em silêncio) */
   model: { state: 'missing' | 'downloading' | 'paused' | 'verifying' | 'ready' | 'error'; progress?: number; error?: string | null };
-  /** dá para falar com a voz de IA agora */
+  /** dá para falar com a voz de IA do próprio Mac agora */
   ready: boolean;
 }
 
@@ -85,6 +97,8 @@ declare global {
       hasLocalDemucs?: () => Promise<boolean>;
       /** Vozes do Maestro por IA instaladas no Mac. */
       maestroVoices?: () => Promise<Array<{ id: string; name: string; gender: string; locale: string; engine?: 'qwen' | 'mac' }>>;
+      /** Gera a fala com uma voz online gratuita (áudio em base64). */
+      maestroOnlineSpeak?: (payload: { text: string; voice: string }) => Promise<{ voice: string; mime: string; audioBase64: string }>;
       /** Gera o áudio de uma narração do Maestro com a voz do sistema (WAV em base64). */
       maestroSpeak?: (payload: { text: string; voice: string; wpm: number; span?: number; pace?: number; group?: string[] }) => Promise<{
         ok: boolean;
@@ -121,6 +135,12 @@ declare global {
       }>;
       /** Para a separação por IA em andamento (botão Cancelar do diálogo). */
       cancelStemSeparation?: () => Promise<boolean>;
+      /** Separa a bateria já isolada em peças (bumbo, caixa, pratos, tons). */
+      separateDrumPieces?: (drumsWav: ArrayBuffer) => Promise<DrumPiecesResult>;
+      /** Se a separação da bateria está pronta (modelo baixado e runtime instalado). */
+      drumPiecesStatus?: () => Promise<{ ready: boolean; state: string; progress: number; error?: string | null }>;
+      /** Abre o painel do macOS para baixar as vozes premium (Luciana Premium). */
+      openVoiceSettings?: () => Promise<boolean>;
       onSeparationProgress?: (cb: (data: { percent: number; message: string }) => void) => () => void;
       onRemoteTransport?: (cb: (cmd: { action: string; songId?: string }) => void) => () => void;
       /** Projeto aberto no Finder: caminho no disco (a tela lê por projectFileUrl). */
@@ -128,6 +148,10 @@ declare global {
       projectFileUrl?: (filePath: string) => string;
       /** Avisa o app do Mac que o pedido de abrir projeto foi atendido (abriu, cancelou ou falhou). */
       projectTaken?: () => void;
+      /** Avisa o app do Mac se o projeto tem alteração não salva (fechar ou sair pergunta antes). */
+      setProjectUnsaved?: (unsaved: boolean, projectName: string) => void;
+      /** A pessoa escolheu "Salvar" ao fechar: a tela salva e responde se deu certo. */
+      onSaveBeforeClose?: (cb: () => Promise<boolean>) => () => void;
       notifySessionState?: (active: boolean) => void;
     };
     __VS_LOCAL__?: number;

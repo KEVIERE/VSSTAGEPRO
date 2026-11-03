@@ -12,6 +12,23 @@ export const REGION_COLORS: Array<{ name: string; value: string }> = [
 ];
 
 const SUGGESTED_NAMES = ['Intro', 'Verso', 'Pré-Refrão', 'Refrão', 'Ponte', 'Solo', 'Final'];
+
+/** Nomes prontos da janela de região. Cada parte tem sempre a mesma cor (Refrão vermelho, Ponte azul...). */
+export const REGION_PRESETS: Array<{ name: string; color: string }> = [
+  { name: 'Intro', color: '#30d158' },
+  { name: 'Pré-refrão', color: '#ff9f0a' },
+  { name: 'Refrão', color: '#ff453a' },
+  { name: 'Ponte', color: '#0a84ff' },
+  { name: 'Solo', color: '#ffd60a' },
+  { name: 'Final', color: '#64d2ff' },
+];
+
+/** Cor da parte pronta com esse nome (sem diferença de maiúsculas e acentos); null para nome livre. */
+export function presetColor(name: string): string | null {
+  const key = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z]/g, '');
+  const k = key(name);
+  return REGION_PRESETS.find((p) => key(p.name) === k)?.color ?? null;
+}
 const DEFAULT_BARS = 4;
 const BEATS_PER_BAR = 4;
 const FALLBACK_MIN_LENGTH = 0.25;

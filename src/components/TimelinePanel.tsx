@@ -10,7 +10,8 @@ import { masterMaestroClip } from '@/lib/voiceMastering';
 import { useMeterLevel } from '@/lib/meterBus';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import Playhead from '@/components/Playhead';
-import { formatRegionTime, freeSlotAt, suggestRegionStyle } from '@/lib/regions';
+import { formatRegionTime, freeSlotAt, presetColor, suggestRegionStyle } from '@/lib/regions';
+import { RegionNamePicker } from '@/components/LanePopover';
 import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
 import { NarrationLane, NARRATION_LANE_HEIGHT } from '@/components/NarrationLane';
 import { cursorTime, lastPitch, lastVoice } from '@/lib/maestroVoice';
@@ -194,10 +195,13 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
   const count = useStore((s) => s.songs.find((sg) => sg.id === songId)?.narrations?.length ?? 0);
   const iaTrack = useStore((s) => s.tracks.find((t) => t.id === MAESTRO_IA_TRACK_ID));
   const toggleMute = useStore((s) => s.toggleMute);
+  // A altura acompanha o tamanho das faixas (zoom vertical), igual à régua do Maestro na timeline.
+  // Com altura fixa, TODA linha abaixo do Maestro saía deslocada da coluna dos nomes.
+  const zoomV = useStore((s) => s.zoomV);
   return (
     <div
       className="flex items-center gap-1.5 border-b border-logic-border-dark bg-[#161b22] pr-2 text-2xs select-none"
-      style={{ height: `${NARRATION_LANE_HEIGHT}px`, paddingLeft: '16px' }}
+      style={{ height: `${Math.round(NARRATION_LANE_HEIGHT * zoomV)}px`, paddingLeft: '16px' }}
       title={`Maestro por IA: falas escritas por você e geradas por voz (${count} nesta música). O som sai pela faixa Maestro (mesma saída e volume).`}
     >
       <Sparkles size={11} className="text-sky-300 shrink-0" />
@@ -1754,6 +1758,9 @@ export default function TimelinePanel() {
     if (!cutMedleyAt(song, cursor)) setNoSpaceHint(true);
   };
 
+  // Botão Região: guarda o ponto do cursor e abre a janela de nomes (Intro, Refrão...); a região
+  // só é criada depois que a pessoa escolhe o nome.
+  const [regionSlot, setRegionSlot] = useState<{ songId: string; start: number; end: number } | null>(null);
   const handleAddRegionAtCursor = () => {
     if (!song) return;
     const st = useStore.getState();
@@ -1761,13 +1768,16 @@ export default function TimelinePanel() {
       ? audioEngine.getCurrentTime()
       : st.transport.currentTime;
     const slot = freeSlotAt(song, snapTime(cursor, grid, snapStep));
+    if (!slot) { setNoSpaceHint(true); return; }
+    setRegionSlot({ songId: song.id, ...slot });
+  };
+  const createRegionNamed = (name: string) => {
+    const slot = regionSlot;
+    setRegionSlot(null);
+    if (!song || !slot || slot.songId !== song.id) return;
     const id = `region-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-    const style = suggestRegionStyle(song.regions ?? []);
-    if (slot && addSongRegion(song.id, { id, ...style, start: slot.start, end: slot.end, loop: false })) {
-      setEditingRegionId(id);
-    } else {
-      setNoSpaceHint(true);
-    }
+    const color = presetColor(name) ?? suggestRegionStyle(song.regions ?? []).color;
+    if (!addSongRegion(song.id, { id, name, color, start: slot.start, end: slot.end, loop: false })) setNoSpaceHint(true);
   };
 
   const trackHeight = Math.round(40 * zoomV);
@@ -2082,39 +2092,46 @@ export default function TimelinePanel() {
     <div ref={timelinePanelRef} className={`flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative ${FOLLOW_SCROLL_CSS ? 'timeline-follow-scope' : ''}`}>
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
-          {/* Ações Rápidas: Cápsula Segmentada Unificada estilo Logic Pro 11 / Apple macOS */}
+          {/* Ações rápidas: teclas de mesa (Dividir, Medley, Regiões) */}
           <div className="h-10 flex items-center px-2 border-b border-logic-border-dark/60 bg-logic-bg-deep">
-            <div className="flex items-center w-full h-[28px] rounded-lg bg-black/50 border border-white/10 p-[2px] select-none gap-0.5">
+            <div className="flex items-center w-full h-[26px] select-none gap-1">
               <button
-                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
+                className="console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none"
                 onClick={handleSplitAtCursor}
                 disabled={!song || timelineLocked}
                 title="Dividir áudios selecionados no cursor (Split - atalho S)"
               >
-                <Scissors size={11} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <Scissors size={11} className="shrink-0" />
                 <span className="leading-none">Dividir</span>
               </button>
-              <div className="w-px h-3.5 bg-white/10 shrink-0" />
               <button
-                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
+                className="console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none"
                 onClick={handleCutMedleyAtCursor}
                 disabled={!song || timelineLocked}
                 title="Fatiar medley no cursor: separa uma música da outra"
               >
-                <ArrowLeftRight size={11} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <ArrowLeftRight size={11} className="shrink-0" />
                 <span className="leading-none">Medley</span>
               </button>
-              <div className="w-px h-3.5 bg-white/10 shrink-0" />
               <button
-                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
+                data-region-button
+                className={`console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none ${regionSlot ? 'is-lit-blue' : ''}`}
                 onClick={handleAddRegionAtCursor}
                 disabled={!song || timelineLocked}
-                title="Nova região de 4 compassos a partir do cursor"
+                title="Nova região no cursor: escolha Intro, Pré-refrão, Refrão, Ponte, Solo, Final ou escreva outro nome"
               >
-                <Plus size={12} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
-                <span className="leading-none">Regiões</span>
+                <Plus size={12} className="shrink-0" />
+                <span className="leading-none">Região</span>
               </button>
             </div>
+            {regionSlot && (
+              <RegionNamePicker
+                anchor="[data-region-button]"
+                title="Nova região"
+                onPick={createRegionNamed}
+                onClose={() => setRegionSlot(null)}
+              />
+            )}
           </div>
 
           {/* Linha 2: Navegação, Altura e Zoom Horizontal */}
@@ -2293,13 +2310,26 @@ export default function TimelinePanel() {
                   const isTc = track.id === TIMECODE_TRACK_ID;
                   const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
                   const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
-                  // Logo abaixo da faixa Maestro fica a régua do Maestro por IA (falas geradas por voz)
+                  // Logo abaixo da faixa Maestro fica a régua do Maestro por IA (falas geradas por voz).
+                  // Ela acompanha a altura das faixas: com altura fixa, cada linha daqui para baixo
+                  // saía deslocada da coluna dos nomes assim que se mudava o tamanho das tracks.
                   const isMaestroRow = track.id === 'track-maestro';
+                  const maestroLaneHeight = Math.round(NARRATION_LANE_HEIGHT * zoomV);
+                  // Pasta recolhida é só UMA linha na coluna dos nomes: as filhas não entram. Na
+                  // timeline ela fica com a altura de todas as filhas, senão tudo abaixo desalinha.
+                  const childCount = track.children?.length ?? 0;
+                  const mergedHeight = isFolder && collapsedFolders.has(track.id) && childCount > 0
+                    ? rowHeight + (track.children ?? []).reduce((sum, id) => {
+                        const child = tracks.find((t) => t.id === id);
+                        if (!child) return sum;
+                        return sum + Math.round((child.height ?? 40) * zoomV) + (child.id === 'track-maestro' ? maestroLaneHeight : 0);
+                      }, 0)
+                    : rowHeight;
                   return (
                     <div key={track.id}>
                     <div
                       className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
-                      style={{ height: `${rowHeight}px` }}
+                      style={{ height: `${mergedHeight}px` }}
                     >
                       {trackClips.map((clip) => (
                         <ClipBlock
@@ -2325,6 +2355,7 @@ export default function TimelinePanel() {
                       <NarrationLane
                         song={song}
                         zoomH={zoomH}
+                        height={maestroLaneHeight}
                         visible={visible}
                         onEdit={(n) => setReadingNarrationId(n.id)}
                         onCreate={createNarration}

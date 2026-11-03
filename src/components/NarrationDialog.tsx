@@ -3,14 +3,15 @@ import { Loader2, Mic, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { useStore } from '@/store';
 import type { MaestroNarration, Song } from '@/types';
 import {
-  COUNT_PACE_MAX, COUNT_PACE_MIN, FAST_WPM, MAX_WPM, MIN_WPM, NARRATION_MIN_LENGTH, PITCH_PRESETS, VOICE_PRESETS,
+  COUNT_PACE_MAX, COUNT_PACE_MIN, FAST_WPM, MAX_WPM, MIN_WPM, NARRATION_MIN_LENGTH, PITCH_PRESETS,
   isOnBeat, narrationBounds, spanForNatural, spanForWpm, syncedToCursor, wpmForSpan,
 } from '@/lib/narrations';
 import {
-  IA_VOICE_NAMES, availableVoices, cursorTime, generateNarration, generatingSnapshot, hasVoiceEngine, isGenerating,
+  canGenerate, cursorTime, generateNarration, generatingSnapshot, isGenerating, isPresetVoice,
   moveNarration, narrationBuffer, narrationOverflows, narrationState, playPreview, rememberPitch, rememberVoice, scheduleGeneration,
-  iaStatusText, shortVoiceName, stopPreview, subscribeGenerating, voiceEngineStatus, type VoiceOption,
+  iaStatusText, shortVoiceName, stopPreview, subscribeGenerating, voiceEngineStatus,
 } from '@/lib/maestroVoice';
+import MaestroVoicePicker from '@/components/MaestroVoicePicker';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
 import { formatRegionTime } from '@/lib/regions';
 import { friendlyError } from '@/lib/friendlyError';
@@ -23,8 +24,8 @@ interface NarrationDialogProps {
 }
 
 /**
- * Editor da fala do Maestro por IA: o texto, a voz (feminina ou masculina, de IA) e o
- * tamanho da marcação definem a fala. "Gerar e ouvir" cria o áudio na faixa Maestro IA e toca
+ * Editor da fala do Maestro por IA: o texto, a voz (Feminina ou Masculina, de IA no próprio Mac, ou
+ * uma das vozes online) e o tamanho da marcação definem a fala. "Gerar e ouvir" cria o áudio na faixa Maestro IA e toca
  * para conferir. Fechou com texto novo? A voz é gerada sozinha.
  */
 export default function NarrationDialog({ song, narration, onClose }: NarrationDialogProps) {
@@ -38,7 +39,6 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [voices, setVoices] = useState<VoiceOption[]>([]);
   // voz brasileira de IA do app do Mac: programa, vozes e download (null no navegador)
   const [ia, setIa] = useState<MaestroVoiceStatus | null>(null);
   // velocidade fixa (contagem): o controle mexe aqui e grava ao soltar (um passo do desfazer)
@@ -48,19 +48,19 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   const textNow = useRef(text);
   textNow.current = text;
 
-  const engine = hasVoiceEngine();
+  const voice = narration.voice || 'feminina';
+  // vozes padrão: só no app do Mac; vozes online: em qualquer lugar com internet e conta
+  const engine = canGenerate(voice);
   const busy = isGenerating(narration.id);
   const span = narration.end - narration.start;
   const wpm = wpmForSpan(text, span);
   const state = narrationState(narration);
   const onBeat = isOnBeat(song, narration.start);
   const over = narrationOverflows(narration);
-  const voice = narration.voice || 'feminina';
-  const installed = (g: 'feminina' | 'masculina') => voices.length === 0 || voices.some((v) => v.gender === g);
+  // voz de IA do próprio Mac pronta (as vozes padrão)
   const iaAvailable = !!ia?.ready;
 
   useEffect(() => { textRef.current?.focus(); textRef.current?.select(); }, []);
-  useEffect(() => { void availableVoices().then(setVoices); }, []);
   // acompanha o download da voz enquanto a janela está aberta
   useEffect(() => {
     let alive = true;
@@ -150,7 +150,7 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   const generate = async () => {
     const trimmed = commitText();
     if (!trimmed) { setError('Escreva o texto que o maestro deve falar.'); return; }
-    if (!engine) { setError('A voz do Maestro por IA só funciona no app do Mac.'); return; }
+    if (!engine) { setError('As vozes Feminina e Masculina só são geradas no app do Mac.'); return; }
     setError(null);
     setDone(null);
     stopPreview();
@@ -180,17 +180,14 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
     playPreview(buffer, () => setPlaying(false));
   };
 
-  // as vozes de IA feminina e masculina já são os botões: a lista mostra as outras vozes
-  const iaVoices = voices.filter((v) => v.engine === 'qwen' && !/^qwen:(feminina|masculina)$/.test(v.id));
-  const macVoices = voices.filter((v) => v.engine !== 'qwen');
-  const iaNotice = engine ? iaStatusText(ia) : null;
-  const voiceIsPreset = voice === 'feminina' || voice === 'masculina';
+  // o aviso do download da voz de IA do Mac só interessa a quem usa as vozes padrão
+  const iaNotice = engine && isPresetVoice(voice) ? iaStatusText(ia) : null;
   const btn = 'px-2 py-1.5 rounded border text-2xs font-semibold transition-colors border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text disabled:opacity-40 disabled:pointer-events-none';
 
   return (
     <div
       ref={panelRef}
-      className="fixed z-[200] w-[380px] max-w-[calc(100vw-32px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
+      className="fixed z-[200] w-[450px] max-w-[calc(100vw-32px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
       style={{ top: '16%', left: '50%', transform: 'translateX(-50%)' }}
       role="dialog"
       aria-label="Maestro por IA"
@@ -224,52 +221,8 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
         }}
       />
 
-      {/* Voz: feminina ou masculina (de IA), ou outra voz pelo nome */}
-      <div className="flex items-center gap-2">
-        <span className="text-logic-text-muted w-12 shrink-0">Voz</span>
-        <div className="flex-1 grid grid-cols-2 gap-1">
-          {VOICE_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              className={`px-2 py-1.5 rounded border text-2xs font-semibold transition-colors ${
-                voice === p.id
-                  ? 'border-sky-400 bg-sky-500/25 text-sky-100'
-                  : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text'
-              }`}
-              onClick={() => chooseVoice(p.id)}
-              aria-pressed={voice === p.id}
-              title={iaAvailable
-                ? `Voz de IA ${p.label.toLowerCase()}: ${IA_VOICE_NAMES[p.id]}`
-                : installed(p.id) ? `Voz ${p.label.toLowerCase()} do Mac em português` : `Nenhuma voz ${p.label.toLowerCase()} em português instalada no Mac`}
-            >
-              {p.label}{iaAvailable && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}
-            </button>
-          ))}
-        </div>
-      </div>
-      {iaVoices.length + macVoices.length > 0 && (
-        <div className="flex items-center gap-2 -mt-1">
-          <span className="w-12 shrink-0" />
-          <select
-            value={voiceIsPreset ? '' : voice}
-            onChange={(e) => chooseVoice(e.target.value || 'feminina')}
-            className="flex-1 px-1.5 py-1 rounded bg-logic-bg-deep border border-logic-border-light text-2xs text-logic-text-dim focus:outline-none focus:border-sky-400"
-            title="Escolher outra voz pelo nome"
-          >
-            <option value="">{voiceIsPreset ? 'Outra voz…' : 'Voltar para Feminina/Masculina'}</option>
-            {iaVoices.length > 0 && (
-              <optgroup label="Voz de IA">
-                {iaVoices.map((v) => <option key={v.id} value={v.id}>{shortVoiceName(v.name)} · {v.gender}</option>)}
-              </optgroup>
-            )}
-            {macVoices.length > 0 && (
-              <optgroup label="Voz do Mac">
-                {macVoices.map((v) => <option key={v.id} value={v.id}>{shortVoiceName(v.name)} · {v.gender} · {v.locale.replace('_', '-')}</option>)}
-              </optgroup>
-            )}
-          </select>
-        </div>
-      )}
+      {/* Voz: as padrão (Feminina e Masculina, de IA no próprio Mac) e, logo abaixo, as vozes online */}
+      <MaestroVoicePicker voice={voice} onChoose={chooseVoice} iaReady={iaAvailable} pitch={narration.pitch} />
 
       {/* Tom da voz: grave, padrão ou agudo (sem mudar a velocidade) */}
       <div className="flex items-center gap-2">
@@ -361,14 +314,9 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
           A fala passa {over.toFixed(1)}s do fim da marcação, mesmo no ritmo máximo.
         </div>
       )}
-      {!iaAvailable && voices.length > 0 && (!installed('feminina') || !installed('masculina')) && (
-        <div className="px-2 py-1.5 rounded bg-logic-lcd-amber/15 border border-logic-lcd-amber/40 text-logic-lcd-amber text-2xs">
-          Falta a voz {installed('feminina') ? 'masculina' : 'feminina'} em português no Mac. Para instalar: Ajustes do Sistema → Acessibilidade → Conteúdo Falado → Voz do Sistema → Gerenciar Vozes.
-        </div>
-      )}
       {!engine && (
         <div className="px-2 py-1.5 rounded bg-logic-lcd-amber/15 border border-logic-lcd-amber/40 text-logic-lcd-amber text-2xs">
-          A voz do Maestro por IA só é gerada no app do Mac. As marcações ficam salvas no projeto.
+          As vozes Feminina e Masculina só são geradas no app do Mac. As marcações ficam salvas no projeto.
         </div>
       )}
       {iaNotice && (

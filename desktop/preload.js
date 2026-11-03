@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   maestroVoicePlaying: call('maestroVoicePlaying'),
   separateStemsLocal: call('separateStemsLocal'),
   cancelStemSeparation: call('cancelStemSeparation'),
+  separateDrumPieces: call('separateDrumPieces'),
+  drumPiecesStatus: call('drumPiecesStatus'),
+  openVoiceSettings: call('openVoiceSettings'),
   projectFileUrl: (filePath) => `vsstage://project/${encodeURIComponent(filePath)}`,
   onSeparationProgress: (cb) => {
     const listener = (_event, data) => cb(data);
@@ -62,6 +65,20 @@ contextBridge.exposeInMainWorld('vsDesktop', {
     return () => ipcRenderer.removeListener('project:open-file', listener);
   },
   projectTaken: () => ipcRenderer.send('project:taken'),
+  // Alteração não salva: fechar a janela ou sair do app pergunta Salvar / Não salvar / Cancelar.
+  setProjectUnsaved: (unsaved, projectName) => ipcRenderer.send('project:unsaved', {
+    unsaved: Boolean(unsaved),
+    name: String(projectName ?? ''),
+  }),
+  onSaveBeforeClose: (cb) => {
+    const listener = async () => {
+      let ok = false;
+      try { ok = Boolean(await cb()); } catch { ok = false; }
+      ipcRenderer.send('project:savedBeforeClose', ok);
+    };
+    ipcRenderer.on('project:saveBeforeClose', listener);
+    return () => ipcRenderer.removeListener('project:saveBeforeClose', listener);
+  },
   onRemoteTransport: (cb) => {
     const listener = (_event, cmd) => cb(cmd);
     ipcRenderer.on('remote:transport', listener);

@@ -1,14 +1,15 @@
 import { adminApi } from '@/components/admin/adminApi';
 import { authRedirect } from '@/lib/authRedirect';
 import { useEffect, useState } from 'react';
-import { BadgeCheck, Ban, Check, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
+import { BadgeCheck, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
-import VsLogo from '@/components/VsLogo';
+import { AccessCard, AccessFoot, AccessNotice, AccessStage, AccessStatus, AccessTitle, FootKey, TrialClock } from '@/components/access/AccessChrome';
 import { friendlyError } from '@/lib/friendlyError';
 import SubscribeDialog from '@/components/SubscribeDialog';
 import { LICENSE_REFRESH_EVENT } from '@/lib/licenseEvents';
 import { maskPhone, normalizePhone } from '@/lib/authFlow';
+import { forgetVoices } from '@/lib/maestroVoice';
 
 export type License = {
   status: 'anonymous' | 'trial' | 'active' | 'expired' | 'blocked';
@@ -85,39 +86,37 @@ function PromoRedeem({ onRedeemed }: { onRedeemed: () => void }) {
 
   if (!open) {
     return (
-      <button
-        type="button" onClick={() => setOpen(true)}
-        className="w-full h-9 border-t border-logic-border text-xs text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
-      >
-        <Tag size={13} /> Tenho um código promocional
-      </button>
+      <div className="px-6 pb-4 text-center">
+        <button type="button" onClick={() => setOpen(true)} className="access-link inline-flex items-center gap-1.5">
+          <Tag size={13} /> Tenho um código promocional
+        </button>
+      </div>
     );
   }
   return (
-    <form onSubmit={submit} className="border-t border-logic-border px-4 py-3 space-y-2">
+    <form onSubmit={submit} className="px-6 pb-4 space-y-2">
       <div className="flex gap-2">
         <div className="flex-1">
           <Field icon={Tag} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="CÓDIGO PROMOCIONAL" maxLength={32} autoFocus />
         </div>
         <button
           type="submit" disabled={busy || !code.trim()}
-          className="px-4 rounded-lg bg-logic-bg-elevated text-xs font-semibold hover:bg-logic-bg-panel-light transition disabled:opacity-50 flex items-center gap-1.5"
+          className="console-key px-4 text-[0.95rem] flex items-center gap-1.5"
         >
           {busy && <Loader2 size={13} className="animate-spin" />} Aplicar
         </button>
       </div>
-      {msg && <p className={`text-xs text-center ${msg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>{msg.text}</p>}
+      {msg && <AccessNotice tone={msg.ok ? 'green' : 'red'}><p>{msg.text}</p></AccessNotice>}
     </form>
   );
 }
 
-const inputCls = 'w-full bg-logic-bg-deep text-sm text-logic-text pl-9 pr-3 py-2.5 rounded-lg border border-logic-border-light outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted';
-
+// Campo rebaixado no painel, com o ícone à esquerda (acende âmbar ao digitar)
 function Field({ icon: Icon, className = '', ...props }: { icon: typeof Mail } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <div className="relative">
-      <Icon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-logic-text-muted pointer-events-none" />
-      <input {...props} className={`${inputCls} ${className}`} />
+    <div className="access-input relative">
+      <Icon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <input {...props} className={`access-field ${className}`} />
     </div>
   );
 }
@@ -213,6 +212,8 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
       (async () => {
         setSession(s);
+        // entrou ou saiu da conta: as vozes de nuvem do Maestro mudam (precisam do login)
+        forgetVoices();
         if (s) {
           try { await loadLicense(); } catch { /* silencioso */ }
           checkAdmin();
@@ -364,9 +365,9 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const promoToast = promoNotice && (
     <div
       role="status"
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] px-4 py-3 rounded-lg border shadow-2xl text-sm flex items-center gap-2 bg-logic-bg-panel ${promoNotice.ok ? 'border-logic-lcd-green/40 text-logic-lcd-green' : 'border-logic-lcd-red/40 text-logic-lcd-red'}`}
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] max-w-[calc(100vw-2rem)] px-4 py-3 rounded-lg text-sm flex items-center gap-2.5 console-face shadow-2xl ring-1 ring-black ${promoNotice.ok ? 'text-logic-lcd-green' : 'text-[#ff7a70]'}`}
     >
-      {promoNotice.ok ? <CheckCircle2 size={15} /> : <Ban size={15} />}
+      {promoNotice.ok ? <span className="console-led is-on-green shrink-0" /> : <span className="console-lamp is-on shrink-0" />}
       {promoNotice.text}
     </div>
   );
@@ -380,55 +381,43 @@ export default function DirectorAccess({ children }: { children: (license: Licen
 
   if (!ready) {
     return (
-      <div className="h-full flex items-center justify-center bg-logic-bg-deep">
-        <Loader2 className="animate-spin text-logic-text-muted" />
-      </div>
+      <AccessStage>
+        <Loader2 className="animate-spin text-logic-lcd-amber" aria-label="Carregando" />
+      </AccessStage>
     );
   }
 
   if (!session) {
     const signup = view === 'signup';
+    const label = subscribeOpen ? 'Entre para assinar' : view === 'forgot' ? 'Recuperar senha' : signup ? 'Criar conta' : 'Entrar';
     return (
-      <div className="fixed inset-0 bg-logic-bg-deep text-logic-text flex items-center justify-center p-6 overflow-y-auto">
-        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[560px] h-[560px] rounded-full bg-logic-lcd-green/10 blur-3xl" />
-        </div>
-        <div className="relative w-[400px] max-w-full bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl overflow-hidden">
-          <div className="flex items-center px-4 h-9 border-b border-logic-border bg-logic-bg-elevated">
-            <span className="text-2xs font-semibold tracking-widest text-logic-text-muted">
-              {subscribeOpen ? 'ENTRE PARA ASSINAR' : view === 'forgot' ? 'RECUPERAR SENHA' : signup ? 'CRIAR CONTA' : 'ENTRAR'}
-            </span>
-          </div>
-
-          <form onSubmit={submit} className="px-6 pt-6 pb-5 space-y-3">
-            <div className="text-center mb-5">
-              <div className="mx-auto w-20 h-20 mb-3 flex items-center justify-center">
-                <VsLogo size={80} />
-              </div>
-              <h1 className="text-xl font-semibold">VS Stage Pro</h1>
-              <p className="text-xs text-logic-text-dim mt-1">
-                {subscribeOpen
-                  ? 'Entre ou crie sua conta para escolher seu plano'
-                  : view === 'forgot' ? 'Digite seu e-mail para receber o link de nova senha' : signup ? 'Crie sua conta e use grátis' : 'Entre para abrir seu show'}
-              </p>
-            </div>
+      <AccessStage>
+        <AccessCard label={label}>
+          <form onSubmit={submit} className="px-6 pt-7 pb-6 space-y-3">
+            <AccessTitle
+              title="VS Stage Pro"
+              subtitle={subscribeOpen
+                ? 'Entre ou crie sua conta para escolher seu plano'
+                : view === 'forgot' ? 'Digite seu e-mail para receber o link de nova senha' : signup ? 'Crie sua conta e use grátis' : 'Entre para abrir seu show'}
+            />
 
             {view === 'forgot' ? (
               <div className="flex justify-between items-center px-1">
                 <button
                   type="button"
                   onClick={() => { setView('signin'); setError(null); setInfo(null); }}
-                  className="text-xs text-logic-text-muted hover:text-logic-text transition flex items-center gap-1"
+                  className="access-link flex items-center gap-1"
                 >
                   &larr; Voltar para o login
                 </button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 p-1 rounded-lg bg-logic-bg-deep border border-logic-border-dark">
+              <div className="console-well grid grid-cols-2 gap-1 p-1 rounded-md" role="tablist" aria-label="Entrar ou criar conta">
                 {(['signin', 'signup'] as const).map((v) => (
                   <button
-                    key={v} type="button" onClick={() => { setView(v); setError(null); setInfo(null); }}
-                    className={`py-1.5 rounded-md text-xs font-medium transition-colors ${view === v ? 'bg-logic-bg-elevated text-logic-text shadow' : 'text-logic-text-muted hover:text-logic-text'}`}
+                    key={v} type="button" role="tab" aria-selected={view === v}
+                    onClick={() => { setView(v); setError(null); setInfo(null); }}
+                    className={`console-key h-9 text-[0.98rem] ${view === v ? 'is-lit-amber' : ''}`}
                   >
                     {v === 'signin' ? 'Entrar' : 'Criar conta'}
                   </button>
@@ -437,13 +426,13 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             )}
 
             {error && (
-              <div className="px-3 py-2 rounded-lg border bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red text-xs text-center space-y-1.5">
+              <AccessNotice tone="red">
                 <p>{error}</p>
                 {errorIsAlreadyRegistered && (
                   <button
                     type="button"
                     onClick={() => { setView('signin'); setError(null); setErrorIsAlreadyRegistered(false); }}
-                    className="text-logic-lcd-green font-semibold hover:underline"
+                    className="font-semibold text-logic-lcd-amber hover:underline"
                   >
                     Ir para "Entrar"
                   </button>
@@ -452,18 +441,14 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                   <button
                     type="button"
                     onClick={() => { setView('signup'); setError(null); setErrorHasNoAccount(false); }}
-                    className="text-logic-lcd-green font-semibold hover:underline"
+                    className="font-semibold text-logic-lcd-amber hover:underline"
                   >
                     Ir para "Criar conta"
                   </button>
                 )}
-              </div>
+              </AccessNotice>
             )}
-            {info && (
-              <div className="px-3 py-2 rounded-lg border bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green text-xs text-center">
-                {info}
-              </div>
-            )}
+            {info && <AccessNotice tone="green"><p>{info}</p></AccessNotice>}
 
             {view === 'forgot' ? (
               <Field icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail cadastrado" autoComplete="email" required autoFocus />
@@ -480,12 +465,12 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                   <Field
                     icon={Lock} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)}
                     placeholder="Senha" autoComplete={signup ? 'new-password' : 'current-password'} required minLength={6}
-                    className="pr-9"
+                    className="pr-10"
                   />
                   <button
                     type="button" onClick={() => setShowPassword((v) => !v)}
                     aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-logic-text transition"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-logic-text-muted hover:text-logic-text transition"
                   >
                     {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
@@ -493,157 +478,121 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </>
             )}
 
-            {view === 'signin' && (
-              <button
-                type="button" onClick={() => setRemember((v) => !v)}
-                className="w-full flex items-center gap-2 text-xs text-logic-text-dim hover:text-logic-text transition"
-              >
-                <span className={`w-4 h-4 shrink-0 rounded flex items-center justify-center border transition-colors ${remember ? 'bg-logic-lcd-green border-logic-lcd-green' : 'border-logic-border-light'}`}>
-                  {remember && <Check size={11} className="text-black" strokeWidth={3} />}
-                </span>
-                Salvar para a próxima vez
-              </button>
-            )}
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              {view === 'signin' && (
+                <button
+                  type="button" onClick={() => setRemember((v) => !v)} aria-pressed={remember}
+                  className="console-key h-7 px-2.5 text-[0.85rem] inline-flex items-center gap-2"
+                >
+                  <span className={`console-led ${remember ? 'is-on-green' : ''}`} />
+                  Salvar para a próxima vez
+                </button>
+              )}
+              {view !== 'forgot' && !promoOpen && (
+                <button type="button" onClick={() => setPromoOpen(true)} className="access-link inline-flex items-center gap-1.5">
+                  <Tag size={12} /> Tem um código promocional?
+                </button>
+              )}
+            </div>
 
-            {view !== 'forgot' && (promoOpen ? (
+            {view !== 'forgot' && promoOpen && (
               <div className="relative">
-                <Field icon={Tag} value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="CÓDIGO PROMOCIONAL" maxLength={32} autoFocus />
+                <Field icon={Tag} value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="CÓDIGO PROMOCIONAL" maxLength={32} autoFocus className="pr-10" />
                 <button
                   type="button" aria-label="Remover código" onClick={() => { setPromo(''); setPromoOpen(false); }}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded text-logic-text-muted hover:text-logic-text"
                 >
                   <X size={13} />
                 </button>
               </div>
-            ) : (
-              <button
-                type="button" onClick={() => setPromoOpen(true)}
-                className="w-full text-left text-2xs text-logic-text-dim hover:text-logic-lcd-green transition flex items-center gap-1.5"
-              >
-                <Tag size={12} /> Tem um código promocional?
-              </button>
-            ))}
+            )}
 
-            <button
-              type="submit" disabled={busy}
-              className="w-full py-2.5 rounded-lg bg-logic-lcd-green text-black text-sm font-bold hover:brightness-110 transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {busy && <Loader2 size={15} className="animate-spin" />}
-              {signup
-                ? (subscribeOpen ? 'Criar conta e assinar' : 'Criar conta e começar o teste')
-                : view === 'forgot' ? 'Enviar link de recuperação' : (subscribeOpen ? 'Entrar e assinar' : 'Entrar')}
-            </button>
-            {view === 'signin' && (
-              <button
-                type="button"
-                onClick={() => { setView('forgot'); setError(null); setInfo(null); }}
-                className="w-full text-center text-2xs text-logic-text-dim hover:text-logic-text transition pt-1 flex items-center justify-center gap-1"
-              >
-                <KeyRound size={11} /> Esqueci minha senha
+            <div className="pt-1">
+              <button type="submit" disabled={busy} className="access-key">
+                {busy && <Loader2 size={16} className="animate-spin" />}
+                {signup
+                  ? (subscribeOpen ? 'Criar conta e assinar' : 'Criar conta e começar o teste')
+                  : view === 'forgot' ? 'Enviar link de recuperação' : (subscribeOpen ? 'Entrar e assinar' : 'Entrar')}
               </button>
+            </div>
+            {view === 'signin' && (
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setView('forgot'); setError(null); setInfo(null); }}
+                  className="access-link inline-flex items-center gap-1.5"
+                >
+                  <KeyRound size={12} /> Esqueci minha senha
+                </button>
+              </div>
             )}
           </form>
 
-          <div className="grid grid-cols-2 border-t border-logic-border">
-            <button
-              type="button"
-              onClick={() => { setSubscribeOpen(false); setView('signup'); setError(null); }}
-              className={`h-12 text-xs font-semibold transition flex items-center justify-center gap-1.5 hover:bg-logic-bg-elevated ${!subscribeOpen && signup ? 'text-logic-lcd-green' : 'text-logic-text-dim hover:text-logic-text'}`}
-            >
+          <AccessFoot>
+            <FootKey lit={!subscribeOpen && signup} onClick={() => { setSubscribeOpen(false); setView('signup'); setError(null); }}>
               <Gift size={14} /> Teste grátis
-            </button>
-            <button
-              type="button"
-              onClick={() => { setSubscribeOpen(true); setError(null); }}
-              className={`h-12 text-xs font-semibold transition border-l border-logic-border flex items-center justify-center gap-1.5 hover:bg-logic-bg-elevated ${subscribeOpen ? 'text-logic-lcd-green' : 'text-logic-text-dim hover:text-logic-text'}`}
-            >
+            </FootKey>
+            <FootKey lit={subscribeOpen} onClick={() => { setSubscribeOpen(true); setError(null); }}>
               <CreditCard size={14} /> Assinar agora
-            </button>
-          </div>
-        </div>
-      </div>
+            </FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
     );
   }
 
   if (license?.status === 'blocked') {
     return (
-      <div className="fixed inset-0 z-[300] flex items-center justify-center bg-logic-bg-deep text-logic-text p-6">
-        <div className="relative w-[400px] max-w-full bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl overflow-hidden">
-          <div className="flex items-center px-4 h-9 border-b border-logic-border bg-logic-bg-elevated">
-            <span className="text-2xs font-semibold tracking-widest text-logic-lcd-red">CONTA SUSPENSA</span>
-          </div>
-          <div className="px-6 py-7 text-center">
-            <div className="mx-auto w-20 h-20 mb-4 flex items-center justify-center">
-              <VsLogo size={80} />
-            </div>
-            <h1 className="text-lg font-semibold flex items-center justify-center gap-2">
-              <Ban size={18} className="text-logic-lcd-red" /> Acesso suspenso
-            </h1>
-            <p className="text-sm text-logic-text-dim leading-relaxed mt-2">
-              Esta conta foi suspensa pela administração do VS Stage Pro.
-              {license.reason ? <> Motivo: <span className="text-logic-text">{license.reason}</span>.</> : null}
-            </p>
-            <p className="text-xs text-logic-text-muted mt-3">
-              Se acha que é um engano, escreva para <span className="text-logic-lcd-green">suporte.vssategepro@gmail.com</span>.
+      <AccessStage>
+        <AccessCard label={<span className="text-logic-lcd-red">Conta suspensa</span>} status={<AccessStatus tone="red">Bloqueada</AccessStatus>}>
+          <div className="px-6 pt-7 pb-6 text-center">
+            <AccessTitle
+              title="Acesso suspenso"
+              subtitle={<>Esta conta foi suspensa pela administração do VS Stage Pro.{license.reason ? <> Motivo: <span className="text-logic-text">{license.reason}</span>.</> : null}</>}
+            />
+            <p className="text-xs text-logic-text-muted -mt-2">
+              Se acha que é um engano, escreva para <span className="text-logic-lcd-amber">suporte.vssategepro@gmail.com</span>.
             </p>
           </div>
-          <button
-            onClick={doSignOut}
-            className="w-full h-10 border-t border-logic-border text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
-          >
-            <LogOut size={13} /> Sair da conta
-          </button>
-        </div>
-      </div>
+          <AccessFoot cols={1}>
+            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
     );
   }
 
   if (license?.status === 'expired') {
     return (
-      <div className="fixed inset-0 z-[300] flex items-center justify-center bg-logic-bg-deep p-6 overflow-y-auto">
-        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[560px] h-[560px] rounded-full bg-logic-lcd-green/10 blur-3xl" />
-        </div>
+      <AccessStage>
         <SubscribeDialog
           embedded
-          label={(
-            <span className="flex items-center gap-2">
-              TESTE GRÁTIS ENCERRADO
-              <span className="inline-flex items-center gap-1 px-1.5 h-4 rounded bg-logic-lcd-red/15 text-logic-lcd-red font-bold tracking-normal tabular-nums">
-                <Timer size={10} /> 0min
-              </span>
-            </span>
-          )}
+          label="Teste grátis encerrado"
+          status={<AccessStatus tone="red">0:00</AccessStatus>}
           title="Seu teste grátis terminou"
           subtitle="Faça sua assinatura para continuar usando o VS Stage Pro. Seus shows e projetos continuam salvos — ao assinar, tudo volta exatamente de onde parou."
           footer={(
             <>
-            <PromoRedeem onRedeemed={() => { loadLicense().catch(() => {}); }} />
-            <div className="flex border-t border-logic-border">
-              <button
-                onClick={async () => {
-                  // assinatura paga, bônus ou parceiro adicionado pelo admin: libera na hora
-                  const lic = await loadLicense().catch(() => null);
-                  if (lic?.status !== 'active') {
-                    setPromoNotice({ ok: false, text: 'Ainda não encontramos assinatura ativa nesta conta. Se acabou de assinar, aguarde um instante e tente de novo.' });
-                  }
-                }}
-                className="flex-1 h-10 text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
-              >
-                <RefreshCw size={13} /> Já assinei
-              </button>
-              <button
-                onClick={doSignOut}
-                className="flex-1 h-10 text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition border-l border-logic-border flex items-center justify-center gap-1.5"
-              >
-                <LogOut size={13} /> Sair da conta
-              </button>
-            </div>
+              <PromoRedeem onRedeemed={() => { loadLicense().catch(() => {}); }} />
+              <AccessFoot>
+                <FootKey
+                  onClick={async () => {
+                    // assinatura paga, bônus ou parceiro adicionado pelo admin: libera na hora
+                    const lic = await loadLicense().catch(() => null);
+                    if (lic?.status !== 'active') {
+                      setPromoNotice({ ok: false, text: 'Ainda não encontramos assinatura ativa nesta conta. Se acabou de assinar, aguarde um instante e tente de novo.' });
+                    }
+                  }}
+                >
+                  <RefreshCw size={14} /> Já assinei
+                </FootKey>
+                <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+              </AccessFoot>
             </>
           )}
         />
         {promoToast}
-      </div>
+      </AccessStage>
     );
   }
 
@@ -651,39 +600,22 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   // liberado para clientes. No app do Mac isso nunca acontece (isAdmin já começa true lá).
   if (isWebEnvironment && isAdmin === false) {
     return (
-      <div className="fixed inset-0 bg-logic-bg-deep text-logic-text flex items-center justify-center p-6">
-        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[560px] h-[560px] rounded-full bg-logic-lcd-amber/10 blur-3xl" />
-        </div>
-        <div className="relative w-[400px] max-w-full bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl overflow-hidden">
-          <div className="flex items-center px-4 h-9 border-b border-logic-border bg-logic-bg-elevated">
-            <span className="text-2xs font-semibold tracking-widest text-logic-text-muted">SÓ NO MAC</span>
-          </div>
-          <div className="px-6 py-7 text-center">
-            <div className="mx-auto w-20 h-20 mb-4 flex items-center justify-center">
-              <VsLogo size={80} />
-            </div>
-            <h1 className="text-lg font-semibold flex items-center justify-center gap-2">
-              <Laptop size={18} className="text-logic-lcd-amber" /> Baixe o VS Stage para Mac
-            </h1>
-            <p className="text-sm text-logic-text-dim leading-relaxed mt-2">
-              O editor completo do VS Stage Pro é feito para rodar no app do Mac, não direto no navegador. Baixe o programa para começar seu teste grátis.
-            </p>
-            <a
-              href="#baixar"
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 py-2.5 rounded-lg bg-logic-lcd-green text-black text-sm font-bold hover:brightness-110 transition"
-            >
-              Baixar para Mac
+      <AccessStage>
+        <AccessCard label="Só no Mac" status={<AccessStatus tone="amber">Mac</AccessStatus>}>
+          <div className="px-6 pt-7 pb-6 text-center">
+            <AccessTitle
+              title="Baixe o VS Stage para Mac"
+              subtitle="O editor completo do VS Stage Pro é feito para rodar no app do Mac, não direto no navegador. Baixe o programa para começar seu teste grátis."
+            />
+            <a href="#baixar" className="access-key">
+              <Laptop size={16} /> Baixar para Mac
             </a>
           </div>
-          <button
-            onClick={doSignOut}
-            className="w-full h-10 border-t border-logic-border text-xs font-medium text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5"
-          >
-            <LogOut size={13} /> Sair da conta
-          </button>
-        </div>
-      </div>
+          <AccessFoot cols={1}>
+            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
     );
   }
 
@@ -691,75 +623,60 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     const firstName = ((session.user.user_metadata?.name as string | undefined) ?? '').trim().split(/\s+/)[0];
     const loading = !license;
     const isTrial = license?.status === 'trial';
+    const isActive = license?.status === 'active';
     const endsAt = isTrial && license.ends_at ? new Date(license.ends_at).getTime() : null;
+    const statusText = loading ? 'Conferindo sua conta…'
+      : isActive
+        ? (license.partner ? 'Você é Parceiro VS Stage Pro (Endorse). Acesso completo liberado.'
+          : license.plan === 'promo' ? 'Seu bônus de acesso está ativo.' : 'Sua assinatura está ativa.')
+        : isTrial ? 'Você está no teste grátis.' : null;
     return (
-      <div className="fixed inset-0 bg-logic-bg-deep text-logic-text flex items-center justify-center p-6 overflow-y-auto">
-        <div className="absolute inset-0 pointer-events-none" aria-hidden="true">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[560px] h-[560px] rounded-full bg-logic-lcd-green/10 blur-3xl" />
-        </div>
-        <div className="relative w-[400px] max-w-full bg-logic-bg-panel border border-logic-border-light rounded-lg shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 h-9 border-b border-logic-border bg-logic-bg-elevated">
-            <span className="text-2xs font-semibold tracking-widest text-logic-text-muted">BEM-VINDO</span>
-            {isTrial && endsAt !== null && (
-              <span className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-green/15 text-logic-lcd-green text-2xs font-bold tabular-nums">
-                <Timer size={11} /> {formatRemaining(endsAt - Date.now())}
-              </span>
-            )}
-          </div>
-
-          <div className="px-6 pt-6 pb-5 text-center">
+      <AccessStage>
+        <AccessCard
+          label="Bem-vindo"
+          status={loading ? <span className="console-led" />
+            : isActive ? <AccessStatus tone="green">{license.partner ? 'Parceiro' : 'Assinante'}</AccessStatus>
+              : <AccessStatus tone="amber">Teste grátis</AccessStatus>}
+        >
+          <div className="px-6 pt-7 pb-6 text-center">
             {justConfirmed && (
-              <div className="mb-4 px-3 py-2 rounded-lg border bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green text-xs flex items-center justify-center gap-1.5">
-                <CheckCircle2 size={14} /> Conta criada com sucesso!
+              <div className="mb-5"><AccessNotice tone="green"><p>Conta criada com sucesso!</p></AccessNotice></div>
+            )}
+            <AccessTitle title={firstName ? `Olá, ${firstName}` : 'VS Stage Pro'} subtitle={session.user.email} />
+
+            {endsAt !== null ? (
+              <TrialClock endsAt={endsAt} />
+            ) : (
+              <div className="console-display px-4 py-3 flex items-center justify-center gap-2.5 min-h-[3.25rem] text-[0.82rem]">
+                {loading
+                  ? <Loader2 size={14} className="animate-spin text-logic-lcd-amber" />
+                  : <span className={`console-led ${isActive ? 'is-on-green' : 'is-on-amber'}`} />}
+                <span className={isActive ? 'text-logic-lcd-green console-glow' : 'text-logic-text-dim'}>{statusText}</span>
               </div>
             )}
-            <div className="mx-auto w-20 h-20 mb-3 flex items-center justify-center">
-              <VsLogo size={80} />
-            </div>
-            <h1 className="text-xl font-semibold">{firstName ? `Olá, ${firstName}` : 'VS Stage Pro'}</h1>
-            <p className="text-xs text-logic-text-dim mt-1">{session.user.email}</p>
-            <p className="text-xs text-logic-text-dim mt-3 min-h-4">
-              {loading ? 'Conferindo sua conta…'
-                : license.status === 'active'
-                  ? (license.partner ? 'Você é Parceiro VS Stage Pro (Endorse). Acesso completo liberado.'
-                    : license.plan === 'promo' ? 'Seu bônus de acesso está ativo.' : 'Sua assinatura está ativa.')
-                  : isTrial ? 'Você está no teste grátis.' : null}
-            </p>
+            {endsAt !== null && statusText && <p className="text-xs text-logic-text-dim mt-3">{statusText}</p>}
 
-            <button
-              type="button" onClick={passGate} disabled={loading} autoFocus
-              className="mt-5 w-full py-2.5 rounded-lg bg-logic-lcd-green text-black text-sm font-bold hover:brightness-110 transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading && <Loader2 size={15} className="animate-spin" />}
-              {license?.status === 'active' ? 'Abrir o VS Stage Pro' : 'Continuar no teste grátis'}
+            <button type="button" onClick={passGate} disabled={loading} autoFocus className="access-key mt-5">
+              {loading && <Loader2 size={16} className="animate-spin" />}
+              {isActive ? 'Abrir o VS Stage Pro' : 'Continuar no teste grátis'}
             </button>
           </div>
 
-          <div className="grid grid-cols-2 border-t border-logic-border">
-            {license?.status === 'active' ? (
-              <span className="h-12 text-xs font-semibold text-logic-lcd-green flex items-center justify-center gap-1.5">
-                <CheckCircle2 size={14} /> {license.partner ? 'Parceiro · Endorse' : 'Assinante'}
+          <AccessFoot>
+            {isActive ? (
+              <span className="console-key h-10 px-3 text-[0.95rem] flex items-center justify-center gap-2 text-logic-lcd-green pointer-events-none">
+                <span className="console-led is-on-green" /> <CheckCircle2 size={14} /> {license.partner ? 'Parceiro · Endorse' : 'Assinante'}
               </span>
             ) : (
-              <button
-                type="button" disabled={loading}
-                onClick={() => { setSubscribeOpen(true); passGate(); }}
-                className="h-12 text-xs font-semibold text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition flex items-center justify-center gap-1.5 disabled:opacity-50"
-              >
+              <FootKey disabled={loading} onClick={() => { setSubscribeOpen(true); passGate(); }}>
                 <CreditCard size={14} /> Assinar agora
-              </button>
+              </FootKey>
             )}
-            <button
-              type="button"
-              onClick={doSignOut}
-              className="h-12 text-xs font-semibold text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition border-l border-logic-border flex items-center justify-center gap-1.5"
-            >
-              <LogOut size={14} /> Entrar com outra conta
-            </button>
-          </div>
-        </div>
+            <FootKey onClick={doSignOut}><LogOut size={14} /> Trocar de conta</FootKey>
+          </AccessFoot>
+        </AccessCard>
         {promoToast}
-      </div>
+      </AccessStage>
     );
   }
 

@@ -7,7 +7,7 @@ import {
   FAST_WPM, NARRATION_MIN_LENGTH, freeRunAt, narrationBounds, placeNarration, sortedNarrations, syncedToCursor, wpmForSpan,
 } from '@/lib/narrations';
 import {
-  cursorTime, generateNarration, generatingSnapshot, hasVoiceEngine, isGenerating, moveNarration, narrationBuffer,
+  canGenerate, cursorTime, generateNarration, generatingSnapshot, hasVoiceEngine, isGenerating, moveNarration, narrationBuffer,
   narrationOverflows, narrationState, playPreview, removeCountGroup, scheduleGeneration, subscribeGenerating, voiceLabel,
 } from '@/lib/maestroVoice';
 import { snapTime, songGrid } from '@/lib/grid';
@@ -26,6 +26,9 @@ type DragMode = 'move' | 'start' | 'end';
 interface NarrationLaneProps {
   song: Song;
   zoomH: number;
+  /** Altura da régua em px. Quem desenha passa a altura das faixas vezes o zoom, para a régua
+   *  continuar alinhada com a coluna dos nomes. */
+  height?: number;
   /** Janela (px) da linha do tempo que está na tela, para só desenhar o que aparece. */
   visible: { start: number; end: number };
   /** Abre o editor da fala. */
@@ -46,7 +49,7 @@ interface NarrationLaneProps {
  *   menor = mais rápido, maior = mais devagar. A voz é gerada de novo sozinha.
  * - Clique duplo abre o editor; botão direito tem "Sincar no beat do cursor". Alt desliga o ímã.
  */
-export function NarrationLane({ song, zoomH, visible, onEdit, onCreate, onEditCount }: NarrationLaneProps) {
+export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount }: NarrationLaneProps) {
   const updateNarration = useStore((s) => s.updateNarration);
   const snapStep = useStore((s) => s.snapStep);
   const clips = useStore((s) => s.clips);
@@ -184,7 +187,7 @@ export function NarrationLane({ song, zoomH, visible, onEdit, onCreate, onEditCo
       ref={laneRef}
       data-narration-lane
       className="relative border-b border-logic-border-dark bg-[#10161d] cursor-crosshair select-none"
-      style={{ height: `${NARRATION_LANE_HEIGHT}px` }}
+      style={{ height: `${height}px` }}
       onPointerDown={handleLanePointerDown}
       onDoubleClick={handleLaneDoubleClick}
       onContextMenu={(e) => e.preventDefault()}
@@ -326,7 +329,7 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
   const removeNarration = useStore((s) => s.removeNarration);
   const ref = useRef<HTMLDivElement>(null);
   const cursor = cursorTime(song.id);
-  const engine = hasVoiceEngine();
+  const engine = canGenerate(narration.voice);
   const state = narrationState(narration);
 
   useEffect(() => {

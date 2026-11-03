@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { ListOrdered, Trash2, X } from 'lucide-react';
 import type { Song } from '@/types';
 import {
-  COUNT_PACE_DEFAULT, COUNT_PACE_MAX, COUNT_PACE_MIN, PITCH_PRESETS, VOICE_PRESETS, beatStartAt, countWords,
+  COUNT_PACE_DEFAULT, COUNT_PACE_MAX, COUNT_PACE_MIN, PITCH_PRESETS, beatStartAt, countWords,
 } from '@/lib/narrations';
 import {
-  IA_VOICE_NAMES, countGroupItems, createCountIn, generateMany, hasVoiceEngine, lastPitch, lastVoice, rememberPitch, rememberVoice,
+  canGenerate, countGroupItems, createCountIn, generateMany, isPresetVoice, lastPitch, lastVoice, rememberPitch, rememberVoice,
   iaStatusText, removeCountGroup, stopPreview, updateCountGroup, voiceEngineStatus,
 } from '@/lib/maestroVoice';
+import MaestroVoicePicker from '@/components/MaestroVoicePicker';
 import { barBeatLabel, songGrid } from '@/lib/grid';
 import { formatRegionTime } from '@/lib/regions';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
@@ -47,7 +48,8 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
 
   const [total, setTotal] = useState(target.kind === 'edit' ? editing.length : beatsPerBar);
   const [restart, setRestart] = useState(false);
-  const [voice, setVoice] = useState(first?.voice ?? (lastVoice() === 'masculina' ? 'masculina' : 'feminina'));
+  // a última voz escolhida (padrão ou online) vale para a contagem nova
+  const [voice, setVoice] = useState(first?.voice ?? lastVoice());
   const [pace, setPace] = useState(first?.pace ?? savedPace());
   // tom da voz da contagem inteira (grave, padrão, agudo)
   const [pitch, setPitch] = useState<'grave' | 'padrao' | 'agudo'>(first ? (first.pitch ?? 'padrao') : (lastPitch() ?? 'padrao'));
@@ -90,11 +92,11 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
       rememberPitch(pitchValue);
       const made = createCountIn(song, { start, total, restartEachBar: restart, voice, pace, pitch: pitchValue });
       if ('error' in made) { setError(made.error); return; }
-      if (hasVoiceEngine()) void generateMany(song.id, made.ids);
+      if (canGenerate(voice)) void generateMany(song.id, made.ids);
     } else {
       rememberPitch(pitchValue);
       const ids = updateCountGroup(song.id, target.group, { voice, pace, pitch: pitchValue });
-      if (hasVoiceEngine()) void generateMany(song.id, ids);
+      if (canGenerate(voice)) void generateMany(song.id, ids);
     }
     onClose();
   };
@@ -104,7 +106,7 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
   return (
     <div
       ref={panelRef}
-      className="fixed z-[200] w-[360px] max-w-[calc(100vw-32px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
+      className="fixed z-[200] w-[450px] max-w-[calc(100vw-32px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
       style={{ top: '16%', left: '50%', transform: 'translateX(-50%)' }}
       role="dialog"
       aria-label="Contagem do Maestro IA"
@@ -150,21 +152,7 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
         {preview}
       </div>
 
-      <div className="flex items-center gap-2">
-        <span className="text-logic-text-muted w-16 shrink-0">Voz</span>
-        <div className="flex-1 grid grid-cols-2 gap-1">
-          {VOICE_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              className={`${btn} ${voice === p.id ? 'border-sky-400 bg-sky-500/25 text-sky-100' : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text'}`}
-              onClick={() => setVoice(p.id)}
-              aria-pressed={voice === p.id}
-            >
-              {p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}
-            </button>
-          ))}
-        </div>
-      </div>
+      <MaestroVoicePicker voice={voice} onChoose={setVoice} iaReady={iaReady} pitch={pitchValue} labelClass="w-16" />
 
       <div className="flex items-center gap-2">
         <span className="text-logic-text-muted w-16 shrink-0">Tom</span>
@@ -200,7 +188,7 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
         <span className="font-mono text-logic-text-dim w-10 text-right">{pace.toFixed(2)}×</span>
       </div>
 
-      {iaStatusText(ia) && (
+      {isPresetVoice(voice) && iaStatusText(ia) && (
         <div className="px-2 py-1.5 rounded bg-sky-500/10 border border-sky-400/30 text-sky-200 text-2xs">{iaStatusText(ia)}</div>
       )}
 

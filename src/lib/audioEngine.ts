@@ -17,6 +17,7 @@ import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode'
 import { TimecodePlayer } from '@/lib/timecodePlayer';
 import { AntiClipInsert, antiClipActive, loadPeakLimiter } from '@/lib/antiClip';
 import { isUserInteracting } from '@/lib/interactionTracker';
+import { MAESTRO_IA_TRACK_ID } from '@/lib/narrations';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
 import type { ClipAudio } from '@/lib/audioLibrary';
@@ -52,6 +53,14 @@ export function createSafetyLimiter(ctx: BaseAudioContext): DynamicsCompressorNo
 // Trilhas não-melódicas: apenas bateria, percussões, click e maestro não sofrem transposição de tom (tuner).
 // A faixa "Guia" (voz guia) É melódica e deve transpor junto com a música quando o tuner for alterado.
 const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-click', 'track-maestro']);
+
+/**
+ * Fala do Maestro (a voz do maestro por IA e a régua das falas): entram quase sem rampa, para a
+ * primeira sílaba cair exatamente na linha da grade, junto com o click.
+ */
+export function isSpeechTrack(track: Track): boolean {
+  return track.id === MAESTRO_IA_TRACK_ID || track.parentId === 'track-maestro';
+}
 
 export function isMelodicTrack(track: Track, all: Track[]): boolean {
   let t: Track | undefined = track;
@@ -1417,6 +1426,11 @@ class AudioEngine {
       const pitch = melodic ? pitchFromCents(cents) : 1;
       const ready = stretched?.get(clip.id);
 
+      // A rampa de entrada (10 ms a 48 kHz) suaviza o começo de música, mas numa fala do Maestro ela
+      // abafa a primeira sílaba: a contagem ("Um!") entrava depois da linha da grade e mais fraca.
+      // Fala e click entram quase secos (0,2 ms para não estalar).
+      const isSpeech = isSpeechTrack(track);
+
       const node = this.createPlayer(ctx, bufferLength, {
         sampleRate,
         offsetSamples,
@@ -1424,7 +1438,7 @@ class AudioEngine {
         pitch,
         process: songNeedsProcessing(song),
         primeTargetFrames: fastSeek ? 1024 : 2048,
-        fadeInFrames: fastSeek ? 1024 : 512,
+        fadeInFrames: isSpeech ? (fastSeek ? 256 : 10) : (fastSeek ? 1024 : 512),
         ...(ready ? { renderedLeft: ready.left, renderedRight: ready.right, renderedTempo: tempo, renderedPitch: pitch, renderedValidFrames: ready.validFrames } : {}),
       });
       // Nenhuma cópia do áudio inteiro no Play: vai junto só o trecho da largada, o resto em

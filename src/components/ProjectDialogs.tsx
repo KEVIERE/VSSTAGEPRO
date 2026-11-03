@@ -24,6 +24,7 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
   const setExportProgress = useStore((s) => s.setExportProgress);
   const setProjectName = useStore((s) => s.setProjectName);
   const setSaveTarget = useStore((s) => s.setSaveTarget);
+  const markProjectSaved = useStore((s) => s.markProjectSaved);
   const exportMessage = useStore((s) => s.exportProgress?.message);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,10 +122,12 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             disabled={busy || !folderSaveSupported}
             onClick={() => run(async () => {
               if (mode === 'save') {
-                void saveProjectBackup(useStore.getState());
-                const target = await saveProjectAsFolder(useStore.getState(), projectName, progress, controller.current?.signal);
+                const saved = useStore.getState();
+                void saveProjectBackup(saved);
+                const target = await saveProjectAsFolder(saved, projectName, progress, controller.current?.signal);
                 setProjectName(projectName);
                 setSaveTarget(target);
+                markProjectSaved({ ...saved, projectName });
                 void rememberProject(projectName, target);
                 return `Projeto "${projectName}" salvo em pasta.`;
               }
@@ -155,10 +158,12 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
             disabled={busy}
             onClick={() => run(async () => {
               if (mode === 'save') {
-                void saveProjectBackup(useStore.getState());
-                const { target, missingCount } = await saveProjectAsPackage(useStore.getState(), projectName, progress, controller.current?.signal);
+                const saved = useStore.getState();
+                void saveProjectBackup(saved);
+                const { target, missingCount } = await saveProjectAsPackage(saved, projectName, progress, controller.current?.signal);
                 setProjectName(projectName);
                 setSaveTarget(target);
+                markProjectSaved({ ...saved, projectName });
                 void rememberProject(projectName, target);
                 if (missingCount > 0) {
                   return `Projeto "${projectName}" salvo! Aviso: ${missingCount} ${missingCount === 1 ? 'áudio estava indisponível' : 'áudios estavam indisponíveis'} e foi(ram) salvo(s) sem o arquivo.`;

@@ -1,4 +1,5 @@
 <!-- Template do e-mail "Redefinir senha" (Supabase Auth > Email Templates > Reset password). Variável: {{ .ConfirmationURL }} -->
+<!-- Pedido feito pela Área do Músico (link volta com ?musico=1): o texto fala com o músico. -->
 <!-- Variável disponível: {{ .ConfirmationURL }} -->
 <div style="background:#0a0b0d;padding:40px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
   <table role="presentation" width="100%" style="max-width:440px;margin:0 auto;background:#17181c;border:1px solid #2c2f38;border-radius:16px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.5);">
@@ -19,6 +20,18 @@
         <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#30d158;font-weight:700;margin-bottom:16px;">
           VS STAGE PRO
         </div>
+{{ if eq .RedirectTo "https://vsstagepro.com.br/?musico=1" "https://www.vsstagepro.com.br/?musico=1" "https://vsstagepro.com.br/staging/?musico=1" }}
+        <h1 style="margin:0 0 12px;font-size:21px;line-height:1.3;color:#eaeaea;font-weight:600;">
+          Nova senha da Área do Músico
+        </h1>
+        <p style="margin:0 0 26px;font-size:14px;line-height:1.6;color:#9a9a9a;">
+          Recebemos um pedido para criar uma nova senha na sua conta de músico do VS Stage Pro. Clique abaixo, escolha a nova senha e volte para suas cifras e partituras. O link vale por 1 hora.
+        </p>
+        <a href="{{ .ConfirmationURL }}"
+           style="display:inline-block;padding:13px 32px;border-radius:10px;background:#30d158;color:#06110a;font-size:14px;font-weight:700;text-decoration:none;">
+          Criar nova senha
+        </a>
+        {{ else }}
         <h1 style="margin:0 0 12px;font-size:21px;line-height:1.3;color:#eaeaea;font-weight:600;">
           Redefinir sua senha
         </h1>
@@ -29,6 +42,7 @@
            style="display:inline-block;padding:13px 32px;border-radius:10px;background:#30d158;color:#06110a;font-size:14px;font-weight:700;text-decoration:none;">
           Criar nova senha
         </a>
+        {{ end }}
         <p style="margin:28px 0 0;font-size:12px;line-height:1.6;color:#6b6b6b;">
           Se o botão não funcionar, copie e cole este link no navegador:<br>
           <span style="color:#8a8a8a;word-break:break-all;">{{ .ConfirmationURL }}</span>

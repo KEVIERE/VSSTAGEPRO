@@ -29,7 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
-import { SUPPORT_WHATSAPP_DISPLAY, supportWhatsAppUrl } from '@/lib/support';
+import { supportWhatsAppUrl } from '@/lib/support';
 import WhatsAppButton from './WhatsAppButton';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
@@ -694,7 +694,7 @@ export default function PricingPage() {
               className="inline-flex items-center gap-2 mt-4 px-5 h-10 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white text-xs font-semibold border border-white/15 transition-colors"
             >
               <MessageCircle size={15} className="text-emerald-400" />
-              <span>Chamar Suporte no WhatsApp · {SUPPORT_WHATSAPP_DISPLAY}</span>
+              <span>Chamar Suporte no WhatsApp</span>
             </a>
           </div>
         </div>

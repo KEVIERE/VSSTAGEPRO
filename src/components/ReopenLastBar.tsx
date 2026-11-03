@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { FolderOpen, X } from 'lucide-react';
 import { useStore } from '@/store';
 import { openRecentProject } from '@/lib/projectQuickSave';
+import { confirmLeaveProject } from '@/lib/unsavedChanges';
 import { autoOpenEnabled, canReopenSilently, listRecentProjects, type RecentProject } from '@/lib/recentProjects';
 
 /** Ao iniciar, reabre o último projeto; se o Mac pedir permissão, oferece abrir com um clique. */
@@ -38,7 +39,11 @@ export default function ReopenLastBar() {
       </span>
       <button
         className="px-2 h-6 rounded bg-logic-lcd-green text-black font-semibold hover:brightness-110 transition"
-        onClick={() => { const entry = pending; setPending(null); void openRecentProject(entry); }}
+        onClick={() => {
+          const entry = pending;
+          setPending(null);
+          void confirmLeaveProject().then((ok) => { if (ok) void openRecentProject(entry); });
+        }}
       >
         Abrir projeto
       </button>

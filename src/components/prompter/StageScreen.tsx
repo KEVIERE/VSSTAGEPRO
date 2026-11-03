@@ -1,9 +1,11 @@
 import { useRef } from 'react';
 import type { LyricPage, Notice, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
 import { kindInfo, lyricFontCss } from '@/lib/prompterTypes';
-import type { SetlistSong } from '@/lib/musicianTypes';
+import type { SetlistSong, ShowLive } from '@/lib/musicianTypes';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import { activeNotice, formatClock, nextPageTime, pageIndexFor, showTimeView } from '@/lib/prompterView';
+import { songKeyLabel } from '@/lib/musicKey';
+import SegmentDisplay from '@/components/SegmentDisplay';
 
 // The TV must keep scrolling lyrics through short internet drops, so tolerate a long gap before freezing.
 const STAGE_STALE_MS = 30000;
@@ -64,7 +66,7 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
       <div className={`absolute inset-0 flex transition-opacity duration-300 ${dimForNotice ? 'opacity-25' : 'opacity-100'}`}>
         {p.toggles.playlist && <SidePlaylist snap={snap} songs={songs} currentId={current?.id ?? null} nextId={next?.id ?? null} />}
         <div className="flex-1 min-w-0 flex flex-col">
-          {showTop && <TopBar p={p} now={now} current={current} next={next} currentName={current && live?.sliceName ? live.sliceName : current?.name} nextName={live?.nextSliceName && current ? live.nextSliceName : next?.name} currentMedley={current && live?.sliceName ? current.name : undefined} nextMedley={current && live?.nextSliceName ? current.name : undefined} progress={lv.songProgress} remaining={current ? Math.max(0, current.duration - lv.currentTime) : 0} />}
+          {showTop && <TopBar p={p} now={now} live={live} playing={lv.isPlaying} current={current} next={next} currentName={current && live?.sliceName ? live.sliceName : current?.name} nextName={live?.nextSliceName && current ? live.nextSliceName : next?.name} currentMedley={current && live?.sliceName ? current.name : undefined} nextMedley={current && live?.nextSliceName ? current.name : undefined} progress={lv.songProgress} remaining={current ? Math.max(0, current.duration - lv.currentTime) : 0} />}
           <div className="flex-1 min-h-0 relative">
             {showLyrics && current
               ? <LyricsView pages={pages} t={lv.currentTime} playing={lv.isPlaying} songId={current.id} p={p} />
@@ -92,86 +94,172 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
   );
 }
 
-function SongPanel({ label, name, color, progress, time, medley }: { label: string; name: string; color: string; progress?: number; time?: string; medley?: string }) {
+// ---------------------------------------------------------------------------------------------
+// Barra de cima e playlist com o visual do programa (mesa analógica): displays de vidro com LED,
+// números de 7 segmentos, Tom e BPM, e a playlist com as faixas coloridas dos blocos. Tudo em
+// cqh/cqw para crescer junto com a TV.
+// ---------------------------------------------------------------------------------------------
+
+const LCD_TEXT = '#d8d3c6';
+const LEGEND = '#8f8b81';
+const STEEL = 'linear-gradient(180deg, #24282d, #1b1e22)';
+const BARLOW = "'Barlow Semi Condensed', 'Inter', system-ui, sans-serif";
+
+function Legend({ children, color = LEGEND }: { children: React.ReactNode; color?: string }) {
   return (
-    <div className="flex-1 basis-0 min-w-0 rounded-[1cqh] border px-[1.4cqw] py-[1cqh] flex flex-col justify-center" style={{ borderColor: `${color}66`, background: `${color}1f`, height: '11cqh' }}>
-      <div className="flex items-baseline justify-between gap-[1cqw]">
-        <p className="font-semibold tracking-[0.15em] truncate" style={{ fontSize: '1.6cqh', color }}>
-          {label}
-          {medley && <span className="ml-[0.8cqw] px-[0.4cqw] rounded-[0.4cqh] border border-current">MEDLEY</span>}
-          {medley && <span className="ml-[0.8cqw] tracking-normal opacity-70">{medley}</span>}
-        </p>
-        {time && <p className="tabular-nums font-semibold" style={{ fontSize: '1.8cqh', color }}>{time}</p>}
-      </div>
-      <p className="font-semibold truncate" style={{ fontSize: '3.2cqh', lineHeight: 1.2, color }}>{name}</p>
-      <div className="mt-[0.6cqh] h-[0.7cqh] rounded-full overflow-hidden" style={{ background: progress === undefined ? 'transparent' : `${color}33` }}>
-        {progress !== undefined && <div className="h-full rounded-full" style={{ width: `${Math.min(1, Math.max(0, progress)) * 100}%`, background: color, transition: 'width 200ms linear' }} />}
-      </div>
+    <span className="flex items-center gap-[0.5cqw] font-semibold truncate" style={{ fontFamily: BARLOW, fontSize: '1.55cqh', lineHeight: 1, letterSpacing: '0.06em', color }}>
+      {children}
+    </span>
+  );
+}
+
+function Led({ color }: { color: string | null }) {
+  return (
+    <span
+      className="flex-shrink-0 rounded-full"
+      style={{ width: '0.95cqh', height: '0.95cqh', background: color ?? '#2a1a1a', boxShadow: color ? `0 0 0.7cqh 0.15cqh ${color}bb` : 'inset 0 1px 1px rgba(0,0,0,0.8)' }}
+    />
+  );
+}
+
+function Readout({ label, value, color }: { label: string; value: string; color: string }) {
+  if (!value) return null;
+  return (
+    <span className="flex items-baseline gap-[0.35cqw]">
+      <span className="font-semibold" style={{ fontFamily: BARLOW, fontSize: '1.4cqh', letterSpacing: '0.06em', color: LEGEND }}>{label}</span>
+      <span className="console-glow font-semibold tabular-nums" style={{ fontFamily: BARLOW, fontSize: '2.5cqh', lineHeight: 1, color }}>{value}</span>
+    </span>
+  );
+}
+
+function Display({ children, className = '', style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
+  return (
+    <div className={`console-display flex flex-col justify-between min-w-0 ${className}`} style={{ padding: '1cqh 1cqw', borderRadius: '0.5cqh', ...style }}>
+      {children}
     </div>
   );
 }
 
-function TopBar({ p, now, current, currentName, nextName, currentMedley, nextMedley, progress, remaining }: {
-  p: PrompterState; now: number; current: SetlistSong | null; next: SetlistSong | null; currentName?: string; nextName?: string; currentMedley?: string; nextMedley?: string; progress: number; remaining: number;
+function meta(song: SetlistSong | null, live: ShowLive | null, playing: boolean) {
+  if (!song) return { key: '', bpm: '' };
+  const tuner = playing && typeof live?.tuner === 'number' ? live.tuner : song.tuner;
+  const bpm = playing && live?.bpm ? live.bpm : song.bpm;
+  return { key: songKeyLabel({ musicKey: song.musicKey, tuner }), bpm: bpm ? String(bpm) : '' };
+}
+
+function SongDisplay({ label, name, color, song, live, playing, progress, time, medley, fillFromRight = false }: {
+  label: string; name: string; color: string; song: SetlistSong | null; live: ShowLive | null; playing: boolean;
+  progress: number; time?: string; medley?: string; fillFromRight?: boolean;
+}) {
+  const on = !!song;
+  const m = meta(song, live, playing);
+  return (
+    <Display className="flex-1 basis-0">
+      <div className="flex items-center justify-between gap-[1cqw]">
+        <Legend color={on ? color : LEGEND}>
+          <Led color={on ? color : null} />
+          {label}
+          {medley && <span className="px-[0.3cqw] rounded-[0.3cqh] border border-current" style={{ fontSize: '1.2cqh', letterSpacing: '0.14em' }}>MEDLEY</span>}
+        </Legend>
+        <span className="flex items-center gap-[1cqw] flex-shrink-0">
+          <Readout label="Tom" value={m.key} color="#ffab1f" />
+          <Readout label="BPM" value={m.bpm} color={LCD_TEXT} />
+        </span>
+      </div>
+      <div className="flex items-center gap-[1cqw] min-w-0">
+        <div className="flex-1 min-w-0">
+          <p className="console-glow font-semibold truncate" style={{ fontFamily: BARLOW, fontSize: '3.7cqh', lineHeight: 1.1, color: on ? color : '#6f6c66' }}>{name}</p>
+          {medley && <p className="truncate" style={{ fontSize: '1.4cqh', color: LEGEND }}>{medley}</p>}
+        </div>
+        {time && (
+          <span className="flex flex-shrink-0" style={{ height: '4.6cqh', color }}>
+            <SegmentDisplay text={time} className="h-full" label={`Faltam ${time.replace('-', '')}`} />
+          </span>
+        )}
+      </div>
+      <div className={`led-bar flex ${fillFromRight ? 'justify-end' : ''}`} style={{ height: '0.8cqh', color, borderRadius: '0.15cqh' }}>
+        <div className="led-bar-fill" style={{ width: `${Math.min(1, Math.max(0, progress)) * 100}%`, transition: 'width 200ms linear' }} />
+      </div>
+    </Display>
+  );
+}
+
+function TopBar({ p, now, live, playing, current, next, currentName, nextName, currentMedley, nextMedley, progress, remaining }: {
+  p: PrompterState; now: number; live: ShowLive | null; playing: boolean; current: SetlistSong | null; next: SetlistSong | null;
+  currentName?: string; nextName?: string; currentMedley?: string; nextMedley?: string; progress: number; remaining: number;
 }) {
   const st = showTimeView(p, now);
-  const stColor = st.phase === 'over' ? RED : st.phase === 'running' && st.seconds < 600 ? ORANGE : '#ffffff';
-  const stLabel = st.phase === 'before' ? 'SHOW COMEÇA EM' : st.phase === 'running' ? 'TEMPO DE SHOW · RESTAM' : 'PASSOU DO HORÁRIO';
+  const stColor = st.phase === 'over' ? RED : st.phase === 'running' && st.seconds < 600 ? ORANGE : LCD_TEXT;
+  const stLabel = st.phase === 'before' ? 'Show começa em' : st.phase === 'running' ? 'Tempo de show · restam' : 'Passou do horário';
   return (
-    <div className="flex items-center gap-[2cqw] px-[2.5cqw] border-b border-white/10" style={{ height: '15cqh' }}>
-      <div className="w-[15cqw] flex-shrink-0">
-        {p.toggles.clock && <p className="font-semibold tabular-nums" style={{ fontSize: '6cqh', lineHeight: 1 }}>{wallClock(now)}</p>}
-      </div>
-      <div className="flex-1 min-w-0 flex items-center gap-[1.5cqw]">
-        {p.toggles.nowNext && (
-          <>
-            <SongPanel label="TOCANDO" name={currentName ?? '—'} color={GREEN} progress={current ? progress : 0} time={current ? `-${formatClock(remaining)}` : undefined} medley={currentMedley} />
-            <SongPanel label="PRÓXIMA" name={nextName ?? '—'} color={ORANGE} medley={nextMedley} />
-          </>
-        )}
-      </div>
-      <div className="w-[15cqw] flex-shrink-0 text-right">
-        {p.toggles.showTime && st.phase !== 'none' && (
-          <>
-            <p className="font-semibold tracking-[0.12em]" style={{ fontSize: '1.6cqh', color: stColor }}>{stLabel}</p>
-            <p className="font-semibold tabular-nums" style={{ fontSize: '5.4cqh', lineHeight: 1.1, color: stColor }}>
-              {st.phase === 'over' ? '+' : ''}{formatClock(st.seconds)}
-            </p>
-          </>
-        )}
-      </div>
+    <div className="flex items-stretch gap-[1.2cqw] px-[1.6cqw] py-[1.4cqh]" style={{ height: '17cqh', background: STEEL, borderBottom: '0.3cqh solid #0b0d0f' }}>
+      {p.toggles.clock && (
+        <Display className="flex-shrink-0" style={{ width: '15cqw' }}>
+          <Legend>Relógio</Legend>
+          <div className="flex justify-center" style={{ height: '7.2cqh', color: LCD_TEXT }}>
+            <SegmentDisplay text={wallClock(now)} className="h-full" label={`Agora são ${wallClock(now)}`} />
+          </div>
+        </Display>
+      )}
+      {p.toggles.nowNext && (
+        <div className="flex-1 min-w-0 flex gap-[1.2cqw]">
+          <SongDisplay
+            label="Tocando" name={currentName ?? '---'} color={GREEN} song={current} live={live} playing={playing}
+            progress={current ? progress : 0} time={current ? `-${formatClock(remaining)}` : undefined} medley={currentMedley}
+          />
+          <SongDisplay
+            label="Próxima" name={nextName ?? '---'} color={ORANGE} song={next} live={null} playing={false}
+            progress={current && next ? progress : 0} medley={nextMedley} fillFromRight
+          />
+        </div>
+      )}
+      {p.toggles.showTime && st.phase !== 'none' && (
+        <Display className="flex-shrink-0" style={{ width: '17cqw' }}>
+          <Legend color={st.phase === 'running' ? LEGEND : stColor}>{stLabel}</Legend>
+          <div className="flex justify-center" style={{ height: '7.2cqh', color: stColor }}>
+            <SegmentDisplay text={formatClock(st.seconds)} className="h-full" label={`${stLabel} ${formatClock(st.seconds)}`} />
+          </div>
+        </Display>
+      )}
     </div>
   );
 }
 
 function SidePlaylist({ snap, songs, currentId, nextId }: { snap: PrompterSnapshot; songs: SetlistSong[]; currentId: string | null; nextId: string | null }) {
   const blocks = new Map(snap.show.setlist.blocks.map((b) => [b.id, b]));
+  const blockTotal = (id: string) => songs.filter((s) => s.blockId === id).reduce((sum, s) => sum + (s.duration || 0), 0);
   let lastBlock: string | null | undefined;
   return (
-    <div className="w-[22cqw] flex-shrink-0 border-r border-white/10 bg-white/[0.03] overflow-hidden py-[2cqh]">
+    <div className="w-[23cqw] flex-shrink-0 overflow-hidden" style={{ background: STEEL, borderRight: '0.3cqh solid #0b0d0f' }}>
+      <div className="flex items-center justify-between px-[1.2cqw]" style={{ height: '5cqh', borderBottom: '0.2cqh solid #0b0d0f' }}>
+        <Legend color={LCD_TEXT}>Playlist do show</Legend>
+        <Legend>{songs.length} músicas</Legend>
+      </div>
       {songs.map((s, i) => {
         const block = s.blockId ? blocks.get(s.blockId) : undefined;
         const header = s.blockId !== lastBlock && block;
         lastBlock = s.blockId;
         const isCur = s.id === currentId;
         const isNext = s.id === nextId;
+        const tone = isCur ? GREEN : isNext ? ORANGE : null;
         return (
           <div key={s.id}>
             {header && (
-              <p className="px-[1.5cqw] pt-[1.6cqh] pb-[0.6cqh] font-semibold tracking-[0.12em] uppercase truncate" style={{ fontSize: '1.7cqh', color: block.color }}>
-                {block.name}
-              </p>
+              <div className="cue-block relative flex items-center justify-center px-[1.2cqw]" style={{ height: '4.4cqh', background: block.color }}>
+                <span className="font-bold uppercase truncate text-white" style={{ fontFamily: BARLOW, fontSize: '1.9cqh', letterSpacing: '0.16em' }}>{block.name}</span>
+                <span className="absolute right-[1.2cqw] tabular-nums text-white/85 font-semibold" style={{ fontFamily: BARLOW, fontSize: '1.6cqh' }}>{formatClock(blockTotal(block.id))}</span>
+              </div>
             )}
             <div
-              className="flex items-center gap-[0.8cqw] px-[1.5cqw] py-[0.7cqh]"
-              style={{
-                fontSize: '2.4cqh',
-                background: isCur ? 'rgba(48,209,88,0.18)' : isNext ? 'rgba(255,159,10,0.14)' : undefined,
-                borderLeft: `0.4cqw solid ${isCur ? GREEN : isNext ? ORANGE : 'transparent'}`,
-              }}
+              className={`cue-row flex items-center gap-[0.9cqw] px-[1.2cqw] ${isCur ? 'is-current' : isNext ? 'is-next' : ''}`}
+              style={{ height: '5.6cqh', borderBottom: '1px solid rgba(0,0,0,0.45)' }}
             >
-              <span className="tabular-nums text-white/40 w-[2.2cqw]">{i + 1}</span>
-              <span className="truncate font-medium" style={{ color: isCur ? GREEN : isNext ? ORANGE : 'rgba(255,255,255,0.75)' }}>{s.name}</span>
+              <Led color={tone} />
+              <span className="flex flex-shrink-0" style={{ height: '2.5cqh', color: tone ?? '#6f6c66' }}>
+                <SegmentDisplay text={String(i + 1).padStart(2, '0')} className="h-full" label={`Música ${i + 1}`} />
+              </span>
+              <span className={`flex-1 min-w-0 truncate font-semibold ${tone ? 'console-glow' : ''}`} style={{ fontFamily: BARLOW, fontSize: '2.6cqh', color: tone ?? LCD_TEXT }}>{s.name}</span>
+              <span className="flex-shrink-0 tabular-nums" style={{ fontFamily: BARLOW, fontSize: '1.7cqh', color: tone ?? LEGEND }}>{formatClock(s.duration || 0)}</span>
             </div>
           </div>
         );
@@ -298,8 +386,11 @@ function NoticeView({ notice, barSize }: { notice: Notice; barSize: number }) {
       className={`absolute inset-x-0 bottom-0 bg-black flex items-center gap-[3cqw] px-[4cqw] animate-[prompterIn_250ms_ease-out] ${pulse}`}
       style={{ height: `${barSize}cqh`, borderTop: `0.8cqh solid ${st.color}` }}
     >
-      <span className="font-semibold tracking-[0.2em] flex-shrink-0" style={{ fontSize: `${Math.max(2, barSize * 0.13)}cqh`, color: st.color }}>{st.label}</span>
-      <p className="flex-1 min-w-0 font-semibold whitespace-pre-line" style={{ fontSize: `${Math.max(3, barSize * 0.3)}cqh`, lineHeight: 1.2 }}>{notice.text}</p>
+      <span className="flex items-center gap-[0.8cqw] font-bold tracking-[0.2em] flex-shrink-0" style={{ fontFamily: BARLOW, fontSize: `${Math.max(2, barSize * 0.13)}cqh`, color: st.color }}>
+        <span className="rounded-full" style={{ width: '1.1cqh', height: '1.1cqh', background: st.color, boxShadow: `0 0 0.8cqh ${st.color}` }} />
+        {st.label}
+      </span>
+      <p className="flex-1 min-w-0 font-semibold whitespace-pre-line" style={{ fontFamily: BARLOW, fontSize: `${Math.max(3, barSize * 0.32)}cqh`, lineHeight: 1.15 }}>{notice.text}</p>
     </div>
   );
 }

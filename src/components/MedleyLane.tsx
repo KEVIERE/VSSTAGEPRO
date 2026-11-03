@@ -1,13 +1,23 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Trash2, Scissors } from 'lucide-react';
+import { Trash2, Scissors, Pencil } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import type { MedleyPart, Song } from '@/types';
 import { cutBounds, medleySlices, partsWithCut, sortedParts, type MedleySlice } from '@/lib/medley';
 import { formatRegionTime } from '@/lib/regions';
 import { snapTime, songGrid } from '@/lib/grid';
 import { seekToPosition } from '@/lib/transportControl';
+import { LaneActionMenu } from '@/components/LanePopover';
 
 const DRAG_THRESHOLD_PX = 3;
+
+/** Exclui uma música do medley: junta com a anterior; na primeira, desfaz o medley inteiro. */
+function removeMedleyPart(song: Song, partId: string, first: boolean) {
+  const st = useStore.getState();
+  const current = st.songs.find((x) => x.id === song.id) ?? song;
+  const parts = sortedParts(current.medley).filter((p) => p.id !== partId);
+  st.updateSong(song.id, { medley: first || parts.length < 2 ? undefined : parts });
+}
 
 /** Corta o medley no ponto indicado; devolve false se não couber um corte ali. */
 export function cutMedleyAt(song: Song, at: number): boolean {
@@ -23,6 +33,8 @@ export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
   const snapStep = useStore((s) => s.snapStep);
   const [drag, setDrag] = useState<{ id: string; start: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // clique duplo numa música do medley (ou no corte dela): menu Renomear / Excluir
+  const [menuId, setMenuId] = useState<string | null>(null);
   const slices = medleySlices(song).map((s, i, all) => {
     if (!drag) return s;
     if (s.id === drag.id) return { ...s, start: drag.start };
@@ -85,8 +97,8 @@ export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
           } ${editingId === s.id ? 'ring-1 ring-white' : ''}`}
           style={{ left: `${s.start * zoomH}px`, width: `${Math.max(2, (s.end - s.start) * zoomH)}px` }}
           onClick={() => seekToPosition(song.id, s.start)}
-          onDoubleClick={(e) => { e.stopPropagation(); setEditingId(s.id); }}
-          title={`${s.name} · ${formatRegionTime(s.start)}–${formatRegionTime(s.end)}\nClique para ir · Clique duplo para renomear ou apagar o corte`}
+          onDoubleClick={(e) => { e.stopPropagation(); setEditingId(null); setMenuId(s.id); }}
+          title={`${s.name} · ${formatRegionTime(s.start)}–${formatRegionTime(s.end)}\nClique para ir · Clique duplo para renomear ou excluir`}
         >
           <span className="pl-2.5 pr-1 text-2xs font-semibold text-logic-text truncate pointer-events-none">
             <span className="text-logic-text-muted mr-1">{i + 1}</span>{s.name}
@@ -99,19 +111,37 @@ export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
           className="absolute top-0 bottom-0 w-2.5 -ml-[5px] z-10 cursor-ew-resize group touch-none"
           style={{ left: `${s.start * zoomH}px` }}
           onPointerDown={(e) => handleCutPointerDown(e, s)}
-          onDoubleClick={(e) => e.stopPropagation()}
-          title="Arraste para mover o corte (Option desliga o alinhamento ao BPM)"
+          onDoubleClick={(e) => { e.stopPropagation(); setEditingId(null); setMenuId(s.id); }}
+          title="Arraste para mover o corte (Option desliga o alinhamento ao BPM) · Clique duplo para renomear ou excluir"
         >
           <span className={`absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-0.5 transition-colors ${drag?.id === s.id ? 'bg-white' : 'bg-logic-lcd-yellow group-hover:bg-white'}`} />
           <Scissors size={9} className="absolute left-1/2 -translate-x-1/2 -top-px text-logic-lcd-yellow rotate-90 pointer-events-none" />
         </div>
       ))}
-      {editing && <MedleyEditor song={song} slice={editing} first={editing.id === slices[0]?.id} onClose={() => setEditingId(null)} />}
+      {editing && <MedleyEditor song={song} slice={editing} onClose={() => setEditingId(null)} />}
+      {menuId && slices.some((s) => s.id === menuId) && (() => {
+        const first = menuId === slices[0]?.id;
+        return (
+          <LaneActionMenu
+            anchor={`[data-medley-id="${menuId}"]`}
+            title={slices.find((s) => s.id === menuId)?.name ?? 'Medley'}
+            onClose={() => setMenuId(null)}
+            actions={[
+              { label: 'Renomear', icon: <Pencil size={14} />, onClick: () => setEditingId(menuId) },
+              {
+                label: 'Excluir', icon: <Trash2 size={14} />, danger: true,
+                hint: first ? 'Desfaz o medley desta música' : 'Junta com a música anterior',
+                onClick: () => removeMedleyPart(song, menuId, first),
+              },
+            ]}
+          />
+        );
+      })()}
     </div>
   );
 }
 
-function MedleyEditor({ song, slice, first, onClose }: { song: Song; slice: MedleySlice; first: boolean; onClose: () => void }) {
+function MedleyEditor({ song, slice, onClose }: { song: Song; slice: MedleySlice; onClose: () => void }) {
   const updateSong = useStore((s) => s.updateSong);
   const [name, setName] = useState(slice.name);
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
@@ -130,12 +160,6 @@ function MedleyEditor({ song, slice, first, onClose }: { song: Song; slice: Medl
   const closeRef = useRef(close);
   closeRef.current = close;
 
-  const remove = () => {
-    const parts = sortedParts(song.medley).filter((p) => p.id !== slice.id);
-    updateSong(song.id, { medley: first || parts.length < 2 ? undefined : parts });
-    onClose();
-  };
-
   useLayoutEffect(() => {
     const anchor = document.querySelector(`[data-medley-id="${slice.id}"]`);
     const panelWidth = 256;
@@ -147,9 +171,15 @@ function MedleyEditor({ song, slice, first, onClose }: { song: Song; slice: Medl
     setCoords({ top: r.bottom + 6, left: Math.min(Math.max(8, r.left - 12), window.innerWidth - panelWidth - 8) });
   }, [slice.id]);
 
+  // o campo só existe depois que a posição da janela é calculada: foca nessa hora
+  const placed = coords !== null;
   useEffect(() => {
+    if (!placed) return;
     inputRef.current?.focus();
     inputRef.current?.select();
+  }, [placed]);
+
+  useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) closeRef.current();
     };
@@ -169,7 +199,8 @@ function MedleyEditor({ song, slice, first, onClose }: { song: Song; slice: Medl
 
   if (!coords) return null;
 
-  return (
+  // no <body>, fora da faixa que rola para o lado (senão a janela abre no lugar errado)
+  return createPortal(
     <div
       ref={panelRef}
       className="fixed z-[100] w-64 rounded-md border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-3 animate-[fadeIn_120ms_ease-out] cursor-default"
@@ -178,10 +209,10 @@ function MedleyEditor({ song, slice, first, onClose }: { song: Song; slice: Medl
       onDoubleClick={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       role="dialog"
-      aria-label="Editar música do medley"
+      aria-label="Renomear música do medley"
     >
       <div className="flex items-center justify-between">
-        <span className="text-2xs uppercase tracking-wider text-logic-text-muted">Música do medley</span>
+        <span className="text-2xs uppercase tracking-wider text-logic-text-muted">Renomear</span>
         <span className="text-2xs font-mono text-logic-text-dim">{formatRegionTime(slice.start)} – {formatRegionTime(slice.end)}</span>
       </div>
       <input
@@ -194,16 +225,7 @@ function MedleyEditor({ song, slice, first, onClose }: { song: Song; slice: Medl
         className="w-full px-2 py-1.5 text-xs rounded bg-logic-bg-deep border border-logic-border-light text-logic-text focus:outline-none focus:border-logic-accent transition-colors"
         placeholder="Nome da música"
       />
-      <div className="flex justify-end pt-1 border-t border-logic-border-dark">
-        <button
-          className="flex items-center gap-1 px-2 py-1 text-xs rounded text-logic-lcd-red hover:bg-logic-lcd-red/15 transition-colors"
-          onClick={remove}
-          title={first ? 'Remove todos os cortes desta música' : 'Junta esta parte com a anterior'}
-        >
-          <Trash2 size={12} />
-          {first ? 'Desfazer medley' : 'Apagar corte'}
-        </button>
-      </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -1,26 +1,74 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, Maximize, Minus, PenLine, Plus } from 'lucide-react';
+import { ArrowDownWideNarrow, ImagePlus, Loader2, Maximize, Minus, MoveHorizontal, PenLine, Plus, Share2 } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetBackend, SheetInfo, ShowLive } from '@/lib/musicianTypes';
-import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { currentPart, liveSheetKey } from '@/lib/medleySheets';
+import { docIsImageOnly, type NotebookLine } from '@/lib/notebook';
 import { useNotebook } from './notebook/useNotebook';
+import { useImageImport } from './notebook/useImageImport';
 import NotebookPage from './notebook/NotebookPage';
-import { bpmText, NowNextBlock, SignalBanner } from './LivePanel';
+import SharePane from './notebook/SharePane';
+import { NowNextDisplays, SignalBanner } from './LivePanel';
 
-// Modo Palco da Área do Músico: em cima só a música tocando e a próxima; embaixo a cifra /
-// partitura da música NO AR, que troca sozinha quando o diretor passa de música. A cifra pode
-// rolar sozinha acompanhando a música ou caber inteira na tela.
+// Modo Show da Área do Músico: em cima os dois displays do programa (Tocando e Próxima); embaixo,
+// ocupando o resto da tela, a cifra / partitura / foto da partitura da música NO AR, que troca
+// sozinha quando o diretor passa de música. Texto pode rolar sozinho ou caber inteiro na tela;
+// fotos enchem a tela (ou a largura, rolando sozinhas).
 
 type Fit = 'scroll' | 'page';
+type ImgFit = 'fill' | 'width';
 const FIT_LS = 'vs_stage_fit';
+const IMG_FIT_LS = 'vs_stage_img_fit';
 const ZOOM_LS = 'vs_stage_zoom';
 // depois que o músico rola com o dedo, a rolagem automática espera um pouco antes de voltar
 const MANUAL_PAUSE_MS = 6000;
 
+type ImageLine = Extract<NotebookLine, { kind: 'image' }>;
+
 const noop = () => {};
 
+function readLs<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return (allowed as readonly string[]).includes(v ?? '') ? (v as T) : fallback;
+  } catch { return fallback; }
+}
+
+function writeLs(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* só conveniência */ }
+}
+
+/** Fotos da partitura ocupando a tela toda abaixo dos displays; várias páginas lado a lado. */
+function ImageFill({ lines, boxRef, onManual }: {
+  lines: ImageLine[];
+  boxRef: React.RefObject<HTMLDivElement>;
+  onManual: () => void;
+}) {
+  return (
+    <div
+      ref={boxRef}
+      className="h-full overflow-x-auto overflow-y-hidden logic-scroll"
+      onWheel={onManual}
+      onTouchStart={onManual}
+      onPointerDown={onManual}
+    >
+      <div className="h-full w-max min-w-full flex justify-center gap-3 p-2">
+        {lines.map((l) => (
+          <img
+            key={l.id}
+            src={l.src}
+            alt="Partitura ou cifra"
+            draggable={false}
+            className="h-full w-auto object-contain rounded-sm select-none shadow-[0_2px_10px_rgba(0,0,0,0.5)]"
+            style={{ maxWidth: 'calc(100vw - 16px)', aspectRatio: `${l.w} / ${l.h}` }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function StageView({
-  lv, live, currentSong, nextSong, backend, sheets, onSheetsChanged, onEdit, keyOf,
+  lv, live, currentSong, nextSong, backend, sheets, onSheetsChanged, onEdit,
 }: {
   lv: LiveView;
   live: ShowLive | null;
@@ -31,14 +79,16 @@ export default function StageView({
   onSheetsChanged: () => Promise<void>;
   /** Abre o caderno desta música para escrever. */
   onEdit: (songId: string) => void;
-  /** Tom (cifra curta) de uma música, já com o tuner. */
-  keyOf?: (song: SetlistSong | null | undefined) => string;
 }) {
-  const [fit, setFit] = useState<Fit>(() => (localStorage.getItem(FIT_LS) === 'page' ? 'page' : 'scroll'));
+  const [fit, setFit] = useState<Fit>(() => readLs(FIT_LS, ['scroll', 'page'] as const, 'scroll'));
+  const [imgFit, setImgFit] = useState<ImgFit>(() => readLs(IMG_FIT_LS, ['fill', 'width'] as const, 'fill'));
   const [zoom, setZoom] = useState(() => {
-    const z = Number(localStorage.getItem(ZOOM_LS));
+    const z = Number((() => { try { return localStorage.getItem(ZOOM_LS); } catch { return null; } })());
     return z >= 0.6 && z <= 2.5 ? z : 1;
   });
+  const [sharing, setSharing] = useState(false);
+  const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
+
   // Num medley, a cifra mostrada é a da parte tocando (ou a da música inteira, se só ela existir).
   const part = currentPart(currentSong, live, lv.currentTime);
   const songId = currentSong ? liveSheetKey(currentSong, live, lv.currentTime, sheets) : null;
@@ -47,41 +97,60 @@ export default function StageView({
   const nb = useNotebook({ backend, songId, songName: sheetName, sheet: sheets.find((s) => s.song_id === songId), onSheetsChanged });
   const doc = nb.doc;
   const isEmpty = doc.lines.length === 0 && doc.strokes.length === 0;
+  const imageOnly = docIsImageOnly(doc);
+  const images = useImageImport({ doc, update: nb.update, onResult: setToast });
 
   const boxRef = useRef<HTMLDivElement>(null);
+  const imgBoxRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const manualUntil = useRef(0);
   const [scale, setScale] = useState(1);
   const [cols, setCols] = useState(1);
 
   const isPlaying = lv.isPlaying && !!currentSong;
-  const secondsLeft = currentSong ? (currentSong.duration - lv.currentTime) * bpmAdjustToAlpha(currentSong.bpmAdjust ?? 0) : Infinity;
-  const finalCountdown = isPlaying && secondsLeft <= 10 ? Math.max(0, Math.ceil(secondsLeft)) : null;
   const progress = Math.max(0, Math.min(1, lv.songProgress));
   // a rolagem da cifra de uma parte acompanha só o trecho dessa parte
   const scrollProgress = onPart
     ? Math.max(0, Math.min(1, (lv.currentTime - part!.start) / Math.max(1, part!.end - part!.start)))
     : progress;
+  const fillImages = imageOnly && imgFit === 'fill';
+  const pageFit = !imageOnly && fit === 'page';
 
-  const saveFit = (f: Fit) => { setFit(f); try { localStorage.setItem(FIT_LS, f); } catch { /* só conveniência */ } };
+  const saveFit = (f: Fit) => { setFit(f); writeLs(FIT_LS, f); };
+  const saveImgFit = (f: ImgFit) => { setImgFit(f); writeLs(IMG_FIT_LS, f); };
   const saveZoom = (z: number) => {
     const v = Math.round(Math.max(0.6, Math.min(2.5, z)) * 10) / 10;
     setZoom(v);
-    try { localStorage.setItem(ZOOM_LS, String(v)); } catch { /* só conveniência */ }
+    writeLs(ZOOM_LS, String(v));
   };
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  // música nova: fecha o envio e volta ao começo
+  useEffect(() => {
+    setSharing(false);
+    manualUntil.current = 0;
+    if (boxRef.current) boxRef.current.scrollTop = 0;
+    if (imgBoxRef.current) imgBoxRef.current.scrollLeft = 0;
+  }, [songId]);
 
   // Página inteira: como num caderno de músicas impresso — em tela larga a cifra se divide em
   // colunas e, se ainda não couber, é reduzida (centralizada). Com desenhos à mão fica numa
   // coluna só, para os traços não saírem do lugar.
   useLayoutEffect(() => {
-    if (fit !== 'page') { setScale(1); setCols(1); return; }
+    if (!pageFit) { setScale(1); setCols(1); return; }
     const box = boxRef.current;
     const page = pageRef.current;
     if (!box || !page) return;
     const measure = () => {
       const W = box.clientWidth;
       const H = box.clientHeight;
-      const maxCols = doc.strokes.length ? 1 : Math.max(1, Math.min(4, Math.floor(W / 340)));
+      const hasImages = doc.lines.some((l) => l.kind === 'image');
+      const maxCols = doc.strokes.length || hasImages ? 1 : Math.max(1, Math.min(4, Math.floor(W / 340)));
       let best = { n: 1, s: 0 };
       for (let n = 1; n <= maxCols; n++) {
         page.style.columnCount = String(n);
@@ -97,143 +166,174 @@ export default function StageView({
     const ro = new ResizeObserver(measure);
     ro.observe(box);
     return () => ro.disconnect();
-  }, [fit, doc, zoom]);
+  }, [pageFit, doc, zoom]);
 
-  // Rolagem automática: a posição da cifra acompanha o andamento da música, um pouco à frente
-  // (para o músico ler o que vem). Suave, e pausa quando o músico rola com o dedo.
+  // Rolagem automática: a cifra (ou as páginas de foto, de lado) acompanha o andamento da
+  // música, um pouco à frente. Suave, e pausa quando o músico rola com o dedo.
   useEffect(() => {
-    if (fit !== 'scroll' || !isPlaying) return;
+    if (pageFit || !isPlaying) return;
     let raf = 0;
     const tick = () => {
-      const box = boxRef.current;
-      if (box && Date.now() > manualUntil.current) {
-        const max = box.scrollHeight - box.clientHeight;
-        if (max > 0) {
-          const target = Math.max(0, Math.min(1, (scrollProgress - 0.04) / 0.92)) * max;
-          const delta = target - box.scrollTop;
-          if (Math.abs(delta) > 0.5) box.scrollTop += delta * 0.08;
+      if (Date.now() > manualUntil.current) {
+        const target = Math.max(0, Math.min(1, (scrollProgress - 0.04) / 0.92));
+        const img = fillImages ? imgBoxRef.current : null;
+        const box = fillImages ? null : boxRef.current;
+        if (img) {
+          const max = img.scrollWidth - img.clientWidth;
+          const delta = target * max - img.scrollLeft;
+          if (max > 0 && Math.abs(delta) > 0.5) img.scrollLeft += delta * 0.08;
+        } else if (box) {
+          const max = box.scrollHeight - box.clientHeight;
+          const delta = target * max - box.scrollTop;
+          if (max > 0 && Math.abs(delta) > 0.5) box.scrollTop += delta * 0.08;
         }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [fit, isPlaying, scrollProgress]);
-
-  // música nova: volta ao topo
-  useEffect(() => {
-    manualUntil.current = 0;
-    if (boxRef.current) boxRef.current.scrollTop = 0;
-  }, [songId]);
+  }, [pageFit, fillImages, isPlaying, scrollProgress]);
 
   const onManual = () => { manualUntil.current = Date.now() + MANUAL_PAUSE_MS; };
-  const key = keyOf?.(currentSong);
-  const nextKey = keyOf?.(nextSong);
-  const meta = (song: SetlistSong | null | undefined, k: string | undefined) =>
-    [k ? `${k}` : '', bpmText(song) ? `${bpmText(song)}` : ''].filter(Boolean).join('  ·  ');
-
-  const btn = (on: boolean) => `flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-xs transition-colors ${
-    on ? 'bg-logic-accent/15 border-logic-accent/60 text-logic-accent' : 'border-logic-border-light text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-panel-light'
-  }`;
+  const key = (on: boolean) => `console-key flex items-center gap-1.5 h-8 px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-logic-bg-deep">
-      <div className="px-3 pt-2 pb-2 bg-logic-bg border-b border-logic-border-dark">
+    <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-logic-bg-deep">
+      <div className="console-face px-3 pt-2 pb-2 border-b border-black">
         <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} />
-        <div className={`mt-2 logic-lcd px-3 py-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 ${finalCountdown !== null ? 'shadow-[0_0_0_1px_rgba(255,69,58,0.5),0_0_18px_rgba(255,69,58,0.18)]' : ''}`}>
-          <div>
-            <NowNextBlock
-              label="Tocando"
-              badge={finalCountdown !== null ? `Restam ${finalCountdown}s` : undefined}
-              name={currentSong && live?.sliceName ? live.sliceName : currentSong?.name}
-              medley={currentSong && live?.sliceName ? currentSong.name : undefined}
-              active={isPlaying}
-              color="#30d158"
-              meta={isPlaying ? meta(currentSong, key) : ''}
-            />
-            <div className="mt-1 h-1 rounded-full bg-black/40 overflow-hidden">
-              <div className={`h-full rounded-full transition-[width] duration-200 ${finalCountdown !== null ? 'bg-logic-lcd-red' : 'bg-logic-lcd-green'}`} style={{ width: `${isPlaying ? progress * 100 : 0}%` }} />
-            </div>
-          </div>
-          <NowNextBlock
-            label="Próxima"
-            name={isPlaying && live?.nextSliceName ? live.nextSliceName : nextSong?.name}
-            medley={isPlaying && live?.nextSliceName && currentSong ? currentSong.name : undefined}
-            active={!!nextSong || !!live?.nextSliceName}
-            color="#ff9f0a"
-            meta={nextSong ? meta(nextSong, nextKey) : ''}
-          />
+        <div className="mt-2">
+          <NowNextDisplays lv={lv} live={live} currentSong={currentSong} nextSong={nextSong} big />
         </div>
         <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-          <button className={btn(fit === 'scroll')} onClick={() => saveFit('scroll')} title="A cifra rola sozinha acompanhando a música">
-            <ArrowDownWideNarrow size={14} /> Rolar sozinho
-          </button>
-          <button className={btn(fit === 'page')} onClick={() => saveFit('page')} title="A cifra inteira cabe na tela">
-            <Maximize size={14} /> Página inteira
-          </button>
-          <div className="flex items-center ml-1">
-            <button className="w-8 h-8 rounded-l-md border border-logic-border-light text-logic-text-dim hover:text-logic-text flex items-center justify-center" onClick={() => saveZoom(zoom - 0.1)} aria-label="Letra menor"><Minus size={13} /></button>
-            <span className="h-8 px-2 border-y border-logic-border-light text-2xs font-mono text-logic-text-dim flex items-center tabular-nums">{Math.round(zoom * 100)}%</span>
-            <button className="w-8 h-8 rounded-r-md border border-logic-border-light text-logic-text-dim hover:text-logic-text flex items-center justify-center" onClick={() => saveZoom(zoom + 0.1)} aria-label="Letra maior"><Plus size={13} /></button>
-          </div>
+          {imageOnly ? (
+            <>
+              <button className={key(imgFit === 'fill')} onClick={() => saveImgFit('fill')} title="A foto inteira cabe na tela, abaixo dos displays">
+                <Maximize size={14} /> Tela inteira
+              </button>
+              <button className={key(imgFit === 'width')} onClick={() => saveImgFit('width')} title="A foto ocupa a largura toda e rola sozinha acompanhando a música">
+                <MoveHorizontal size={14} /> Largura toda
+              </button>
+            </>
+          ) : (
+            <>
+              <button className={key(fit === 'scroll')} onClick={() => saveFit('scroll')} title="A cifra rola sozinha acompanhando a música">
+                <ArrowDownWideNarrow size={14} /> Rolar sozinho
+              </button>
+              <button className={key(fit === 'page')} onClick={() => saveFit('page')} title="A cifra inteira cabe na tela">
+                <Maximize size={14} /> Página inteira
+              </button>
+              <div className="flex items-center gap-1 ml-1">
+                <button className="console-key w-8 h-8 flex items-center justify-center" onClick={() => saveZoom(zoom - 0.1)} aria-label="Letra menor"><Minus size={13} /></button>
+                <span className="console-display h-8 px-2 font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums">{Math.round(zoom * 100)}%</span>
+                <button className="console-key w-8 h-8 flex items-center justify-center" onClick={() => saveZoom(zoom + 0.1)} aria-label="Letra maior"><Plus size={13} /></button>
+              </div>
+            </>
+          )}
           {songId && (
-            <button className={`${btn(false)} ml-auto`} onClick={() => onEdit(songId)} title="Abrir o caderno desta música para escrever">
-              <PenLine size={13} /> Editar cifra
-            </button>
+            <div className="flex items-center gap-1.5 ml-auto">
+              <button className={key(false)} onClick={images.open} disabled={images.adding} title="Importar a foto da sua partitura ou cifra para esta música">
+                {images.adding ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
+                <span className="hidden sm:inline">Importar imagem</span>
+              </button>
+              <button
+                className={key(false)}
+                disabled={!nb.sheetId}
+                onClick={async () => { await nb.flush(); setSharing(true); }}
+                title={nb.sheetId ? 'Enviar a partitura desta música para outro músico' : 'Escreva algo ou importe uma imagem para poder enviar'}
+              >
+                <Share2 size={13} /> <span className="hidden sm:inline">Enviar</span>
+              </button>
+              <button className={key(false)} onClick={() => onEdit(songId)} title="Abrir o caderno desta música para escrever">
+                <PenLine size={13} /> <span className="hidden sm:inline">Editar</span>
+              </button>
+            </div>
           )}
         </div>
       </div>
 
-      <div
-        ref={boxRef}
-        className={`flex-1 min-h-0 ${fit === 'page' ? 'overflow-hidden' : 'overflow-y-auto logic-scroll'}`}
-        onWheel={onManual}
-        onTouchStart={onManual}
-        onPointerDown={onManual}
-      >
+      <div className="flex-1 min-h-0">
         {!songId ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6">
             <p className="text-sm text-logic-text-dim">Aguardando o diretor dar o play</p>
-            <p className="text-xs text-logic-text-muted mt-1">A cifra da música no ar aparece aqui sozinha.</p>
+            <p className="text-xs text-logic-text-muted mt-1">A partitura ou cifra da música no ar aparece aqui sozinha.</p>
           </div>
         ) : isEmpty ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6">
             <PenLine size={28} className="text-logic-text-muted mb-2" />
-            <p className="text-sm text-logic-text-dim">Sem cifra para {sheetName}</p>
-            <button onClick={() => onEdit(songId)} className="mt-3 h-9 px-3 rounded-lg bg-logic-accent text-white text-xs font-semibold hover:brightness-110">Escrever a cifra</button>
+            <p className="text-sm text-logic-text-dim">Sem partitura para {sheetName}</p>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <button onClick={images.open} disabled={images.adding} className="console-key flex items-center gap-2 h-10 px-3 text-[13px] !text-logic-text">
+                {images.adding ? <Loader2 size={14} className="animate-spin" /> : <ImagePlus size={14} className="text-logic-lcd-amber" />}
+                Importar foto da partitura
+              </button>
+              <button onClick={() => onEdit(songId)} className="console-key flex items-center gap-2 h-10 px-3 text-[13px] !text-logic-text">
+                <PenLine size={14} className="text-logic-accent" /> Escrever a cifra
+              </button>
+            </div>
           </div>
+        ) : fillImages ? (
+          <ImageFill
+            key={songId}
+            lines={doc.lines.filter((l): l is ImageLine => l.kind === 'image')}
+            boxRef={imgBoxRef}
+            onManual={onManual}
+          />
         ) : (
           <div
-            ref={pageRef}
-            key={songId}
-            className="animate-[fadeIn_220ms_ease-out]"
-            style={fit === 'page'
-              ? { transform: `scale(${scale})`, transformOrigin: 'top center', columnCount: cols, columnGap: 28, columnRule: cols > 1 ? '1px solid rgba(255,255,255,0.06)' : undefined, marginLeft: 'auto', marginRight: 'auto' }
-              : undefined}
+            ref={boxRef}
+            className={`h-full ${pageFit ? 'overflow-hidden' : 'overflow-y-auto logic-scroll'}`}
+            onWheel={onManual}
+            onTouchStart={onManual}
+            onPointerDown={onManual}
           >
-            <div style={{ zoom }}>
-              <NotebookPage
-                doc={doc}
-                update={noop as never}
-                tool={null}
-                inkColor="#fff"
-                inkWidth={4}
-                markerColor="#ff0"
-                selectedId={null}
-                onSelect={noop}
-                editingId={null}
-                onEditing={noop}
-                activeChord={null}
-                selectedNote={null}
-                onSelectNote={noop}
-                brush={{ dur: 'q', rest: false, dot: false, acc: null }}
-                onAdd={noop}
-                readOnly
-              />
+            <div
+              ref={pageRef}
+              key={songId}
+              className="animate-[fadeIn_220ms_ease-out]"
+              style={pageFit
+                ? { transform: `scale(${scale})`, transformOrigin: 'top center', columnCount: cols, columnGap: 28, columnRule: cols > 1 ? '1px solid rgba(255,255,255,0.06)' : undefined, marginLeft: 'auto', marginRight: 'auto' }
+                : undefined}
+            >
+              <div style={{ zoom: imageOnly ? 1 : zoom }}>
+                <NotebookPage
+                  doc={doc}
+                  update={noop as never}
+                  tool={null}
+                  inkColor="#fff"
+                  inkWidth={4}
+                  markerColor="#ff0"
+                  selectedId={null}
+                  onSelect={noop}
+                  editingId={null}
+                  onEditing={noop}
+                  activeChord={null}
+                  selectedNote={null}
+                  onSelectNote={noop}
+                  brush={{ dur: 'q', rest: false, dot: false, acc: null }}
+                  onAdd={noop}
+                  readOnly
+                />
+              </div>
             </div>
           </div>
         )}
       </div>
+
+      {images.input}
+
+      {sharing && nb.sheetId && (
+        <div className="absolute inset-0 z-40 flex flex-col bg-logic-bg-deep animate-[fadeIn_140ms_ease-out]">
+          <SharePane backend={backend} sheetId={nb.sheetId} onBack={() => setSharing(false)} />
+        </div>
+      )}
+
+      {toast && (
+        <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-50 max-w-[90%] px-4 py-2.5 rounded-lg border text-xs shadow-2xl animate-[fadeIn_160ms_ease-out] bg-logic-bg-elevated ${
+          toast.ok ? 'border-logic-lcd-green/40 text-logic-lcd-green' : 'border-logic-lcd-red/40 text-logic-lcd-red'
+        }`}>
+          {toast.text}
+        </div>
+      )}
     </div>
   );
 }

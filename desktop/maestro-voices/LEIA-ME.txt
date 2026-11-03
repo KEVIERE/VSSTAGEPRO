@@ -15,3 +15,8 @@ masculina.wav (semente 103):
 
 Texto falado nos dois trechos:
   Boa noite, pessoal! Eu sou o maestro do VS Stage e vou guiar a banda no show de hoje: atenção nas entradas, no refrão e no final.
+
+cubas.wav (voz gravada pelo dono do projeto, em 02/11/2026):
+  Trecho contínuo de ~10 s tirado de uma gravação dele falando chamadas de maestro. O motor copia o
+  timbre e o sotaque dessa gravação. Texto falado: "Entra a banda. Um, dois, três, quatro. Refrão.
+  Um, dois, três, quatro."

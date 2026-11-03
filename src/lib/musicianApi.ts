@@ -208,6 +208,27 @@ export async function musicianShareSheet(
   return Number(obj.count) || 0;
 }
 
+export async function musicianAvatar(code: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('musician_avatar', { p_code: code });
+  if (error) throw error;
+  const obj = assertOk(data, 'musician_avatar failed');
+  return typeof obj.avatar === 'string' ? obj.avatar : null;
+}
+
+export async function musicianSetAvatar(code: string, avatar: string | null): Promise<void> {
+  const { data, error } = await supabase.rpc('musician_set_avatar', { p_code: code, p_avatar: avatar });
+  if (error) throw error;
+  assertOk(data, 'musician_set_avatar failed');
+}
+
+/** Fotos dos músicos do show (id → foto). Lida quando a janela abre, não a cada consulta da lista. */
+export async function directorMusicianAvatars(showId: string, directorKey: string): Promise<Record<string, string>> {
+  const { data, error } = await supabase.rpc('director_musician_avatars', { p_show: showId, p_key: directorKey });
+  if (error) throw error;
+  const obj = assertOk(data, 'director_musician_avatars failed');
+  return (obj.avatars as Record<string, string>) ?? {};
+}
+
 export function onlineSheetBackend(code: string): SheetBackend {
   return {
     key: `online:${code}`,
@@ -217,6 +238,8 @@ export function onlineSheetBackend(code: string): SheetBackend {
     songLyrics: (songId) => musicianSongLyrics(code, songId),
     colleagues: () => musicianColleagues(code),
     share: (sheetId, targets) => musicianShareSheet(code, sheetId, targets),
+    avatar: () => musicianAvatar(code),
+    setAvatar: (avatar) => musicianSetAvatar(code, avatar),
   };
 }
 
@@ -246,10 +269,11 @@ export function buildLive(
   bpm: number | null, playFlow: string, onAir: boolean,
   sliceName: string | null = null, nextSliceName: string | null = null,
   sliceId: string | null = null, nextSliceId: string | null = null,
+  tuner: number | null = null,
 ): ShowLive {
   return {
     isPlaying, isPaused, currentTime, songProgress, nextSongCountdown,
-    currentSongId, nextSongId, bpm, playFlow, onAir, sliceName, nextSliceName, sliceId, nextSliceId,
+    currentSongId, nextSongId, bpm, playFlow, onAir, sliceName, nextSliceName, sliceId, nextSliceId, tuner,
     publishedAt: Date.now(),
   };
 }

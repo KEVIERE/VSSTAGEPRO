@@ -92,14 +92,14 @@ test('o silêncio do modelo continua no zero: nada de espaço antes da voz', () 
   assert.ok(secs > 0.5 && secs < 0.6, `ficou ${secs.toFixed(3)} s (0,5 s de fala + respiro curto)`);
 });
 
-test('o som começa justo no início do áudio (2 ms), com entrada suave', () => {
+test('o som começa na primeira amostra do áudio (zero de silêncio antes da voz)', () => {
   const rate = 24000;
   const samples = new Float32Array(rate); // 1 s: silêncio até 300 ms, depois a voz
   for (let i = Math.round(rate * 0.3); i < rate; i++) samples[i] = 0.4 * Math.sin(i / 7);
   const out = trimSilence(floatToWav(samples, rate));
   const first = (() => { for (let i = 0; i < (out.length - 44) / 2; i++) if (Math.abs(out.readInt16LE(44 + i * 2)) > 200) return i / rate; return -1; })();
-  assert.ok(first >= 0.001 && first <= 0.003, `o som começa em ${(first * 1000).toFixed(1)} ms (esperado ~2 ms)`);
-  assert.equal(out.readInt16LE(44), 0, 'a primeira amostra é zero: sem estalo');
+  // a fala cai na linha da grade: nada de folga na frente (o app ainda dá 1 ms de entrada no fim)
+  assert.ok(first >= 0 && first <= 0.0005, `o som começa em ${(first * 1000).toFixed(2)} ms (esperado 0)`);
 });
 
 test('contagem com velocidade fixa: não estica para encher o tempo, só acelera se não couber', async () => {
@@ -166,7 +166,8 @@ test('voz de IA: começa onde a voz ganha força, sem a respiração da frente (
   const breath = withLead((i) => 0.015 * Math.sin(i / 40));
   const cut = trimSilence(breath, { tightStart: true });
   assert.ok(firstStrong(cut) < 0.01, `a palavra começa em ${(firstStrong(cut) * 1000).toFixed(0)} ms (a respiração saiu)`);
-  assert.ok(firstStrong(trimSilence(breath)) > 0.09, 'sem a opção (voz do Mac), nada muda');
+  // a voz do Mac passa pelo mesmo corte: o chiado fraco na frente também era o "espaço" antes da palavra
+  assert.ok(firstStrong(trimSilence(breath)) < 0.01, 'a voz do Mac também começa na palavra');
   // consoante chiada: fraca (4%), mas cheia de cruzamentos por zero: fica (até 80 ms)
   const hiss = withLead((i) => 0.02 * Math.sin(i * 2.7));
   const kept = trimSilence(hiss, { tightStart: true });

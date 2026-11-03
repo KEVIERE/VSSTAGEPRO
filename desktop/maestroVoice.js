@@ -30,6 +30,19 @@ const AFCONVERT = '/usr/bin/afconvert';
 
 const INSTALL_HINT = 'Para instalar: Ajustes do Sistema → Acessibilidade → Conteúdo Falado → Voz do Sistema → Gerenciar Vozes → Português (Brasil).';
 
+/**
+ * A melhor voz grátis que existe no Mac é a versão **Premium** da Luciana (soa como as vozes de
+ * nuvem, mas roda no próprio Mac, sem internet e sem conta). Ela só aparece depois de baixada —
+ * o macOS não deixa um app baixar voz sozinho.
+ */
+const PREMIUM_HINT = 'Para ter a voz premium (a que soa como as de nuvem, grátis e sem internet): Ajustes do Sistema → Acessibilidade → Conteúdo Falado → Voz do Sistema → Gerenciar Vozes → Português (Brasil) → escolha "Luciana" e baixe a versão Premium (ou uma Melhorada). Ela aparece aqui sozinha.';
+
+/** A pasta onde o macOS guarda as vozes, para abrir direto no Gerenciar Vozes. */
+function openVoiceSettings() {
+  // abre Ajustes do Sistema direto no painel de Acessibilidade → Conteúdo Falado
+  return run('/usr/bin/open', ['x-apple.systempreferences:com.apple.preference.universalaccess?s=SpokenContent']).catch(() => '');
+}
+
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
@@ -68,6 +81,16 @@ function genderOf(name) {
 }
 
 /**
+ * Vozes do Mac que entram na lista da tela. Hoje é none: o dono do projeto não quer nenhuma voz
+ * do sistema oferecida — a voz do maestro é sempre a de IA (os botões Feminina/Masculina).
+ * A voz do Mac continua como reserva interna (sem internet, sem conta), mas não aparece para
+ * escolher. Ficam só as versões Melhorada/Premium, caso alguém baixe uma pelo sistema.
+ */
+function offerable(voice) {
+  return quality(voice.name) > 0;
+}
+
+/**
  * Uma linha de `say -v '?'`. Os nomes das vozes novas trazem o idioma entre parênteses e às
  * vezes só um espaço antes do código do idioma:
  *   "Luciana             pt_BR    # Olá, meu nome é Luciana."
@@ -77,7 +100,7 @@ function parseVoiceLine(line) {
   const m = line.match(/^(.+?)\s+([a-z]{2,3}_[A-Za-z0-9]{2,4})\s+#/);
   if (!m) return null;
   const name = m[1].trim();
-  return { id: name, name, gender: genderOf(name), locale: m[2] };
+  return { id: name, name, gender: genderOf(name), locale: m[2], quality: quality(name) };
 }
 
 /** Vozes do `say` instaladas no Mac. */
@@ -92,7 +115,9 @@ async function listVoices() {
   const ia = st.supported && st.engine
     ? qwen.QWEN_VOICES.map((v) => ({ id: v.id, name: v.name, gender: v.gender, locale: 'pt_BR', engine: 'qwen' }))
     : [];
-  const mac = (await listMacVoices().catch(() => [])).map((v) => ({ ...v, engine: 'mac' }));
+  const mac = (await listMacVoices().catch(() => []))
+    .filter(offerable)
+    .map((v) => ({ ...v, engine: 'mac' }));
   return [...ia, ...mac];
 }
 
@@ -242,5 +267,10 @@ module.exports = {
   pickVoice,
   parseVoiceLine,
   genderOf,
+  offerable,
+  quality,
+  baseName,
+  openVoiceSettings,
+  PREMIUM_HINT,
   voiceStatus: () => qwen.status(),
 };

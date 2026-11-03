@@ -34,7 +34,8 @@
       "*.js",
       "splash.html",
       "package.json",
-      "maestro-voice-model.json"
+      "maestro-voice-model.json",
+      "drumPieceSeparator.py"
     ],
     "extraResources": [
       {

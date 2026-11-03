@@ -1,15 +1,20 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Headphones,
-  X, Radio, Repeat, Layers, ListOrdered, Search, Music2, Speaker,
+  X, Repeat, Layers, ListOrdered, Search, Music2, Speaker,
 } from 'lucide-react';
+import SegmentDisplay from '@/components/SegmentDisplay';
+import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 import { useStore } from '@/store';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import { formatTime, useShowTotals } from '@/components/ShowRundown';
-import { currentAndNextSlice, sliceDuration } from '@/lib/medley';
+import { currentAndNextSlice, paramsAt, sliceDuration } from '@/lib/medley';
+import { effectiveBpm } from '@/lib/musicianApi';
+import { songKeyLabel } from '@/lib/musicKey';
+import MetaReadout from '@/components/MetaReadout';
 import { audioEngine } from '@/lib/audioEngine';
 import { getLiveProgressPct } from '@/lib/playProgress';
-import type { PlayFlow, Song } from '@/types';
+import type { PlayFlow, PlaylistEntry, Song } from '@/types';
 
 const FLOWS: { id: PlayFlow; label: string; hint: string; icon: typeof Repeat }[] = [
   { id: 'continuo', label: 'Contínuo', hint: 'Toca a lista inteira, uma atrás da outra', icon: Repeat },
@@ -23,7 +28,7 @@ function useClock() {
     const id = window.setInterval(() => setNow(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  return now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 }
 
 // Nome curto da placa em uso: sem o "Default - " e sem o código USB do fim (ex.: "(1235:821d)").
@@ -41,7 +46,7 @@ function AudioDeviceButton() {
   return (
     <button
       onClick={() => useStore.getState().setAudioDeviceDialogOpen(true)}
-      className="ml-auto flex items-center gap-1.5 min-w-0 max-w-[150px] h-7 px-2 rounded-md text-2xs text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
+      className="console-key ml-auto flex items-center gap-1.5 min-w-0 max-w-[150px] h-7 px-2 text-[11px] font-semibold"
       title={`Dispositivo de Áudio: ${name} · ${outputs} saídas`}
     >
       <Speaker size={12} className="shrink-0" />
@@ -50,63 +55,51 @@ function AudioDeviceButton() {
   );
 }
 
-function ShowTotalsSummary({ playlist, songs }: { playlist: Array<any>; songs: Song[] }) {
+// Totais do show em três displays de 7 segmentos, com o nome impresso embaixo
+function ShowTotalsSummary({ playlist, songs }: { playlist: PlaylistEntry[]; songs: Song[] }) {
   const { total, remaining } = useShowTotals(playlist, songs);
   return (
-    <div className="grid grid-cols-3 shrink-0 rounded-lg border border-logic-border-dark bg-logic-bg-deep divide-x divide-logic-border-dark">
-      {[
-        ['Músicas', String(playlist.length), 'text-logic-text'],
-        ['Duração do show', formatTime(total), 'text-logic-text'],
-        ['Falta no show', formatTime(remaining), 'text-logic-lcd-amber'],
-      ].map(([label, value, tone]) => (
-        <div key={label} className="flex flex-col items-center py-2">
-          <span className="text-2xs uppercase tracking-[0.12em] text-logic-text-muted">{label}</span>
-          <span className={`mt-0.5 text-lg font-semibold tabular-nums ${tone}`}>{value}</span>
-        </div>
-      ))}
+    <div className="shrink-0">
+      <div className="console-display grid grid-cols-3 divide-x divide-black/80">
+        {[
+          ['Músicas', String(playlist.length), 'text-logic-lcd-text'],
+          ['Duração do show', formatTime(total), 'text-logic-lcd-text'],
+          ['Falta no show', formatTime(remaining), 'text-logic-lcd-amber'],
+        ].map(([label, value, tone]) => (
+          <div key={label} className="flex justify-center py-2.5">
+            <SegmentDisplay text={value} label={`${label}: ${value}`} className={`h-6 ${tone}`} />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-3 mt-1.5">
+        {['Músicas', 'Duração do show', 'Falta no show'].map((label) => (
+          <span key={label} className="console-legend text-center">{label}</span>
+        ))}
+      </div>
     </div>
   );
 }
 
-// Relógio grande "Restante da música": atualiza direto do relógio de hardware a 60fps via rAF,
-// sem disparar re-render do React nem depender dos ticks do Zustand.
+// Display grande "Restante da música", em 7 segmentos: verde, e vermelho nos últimos 15 s.
+// O tempo vem do relógio do áudio; o React só redesenha uma vez por segundo.
 function RemainingDisplay({ title }: { title: string }) {
-  const textRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      const el = textRef.current;
-      if (el) {
-        const st = useStore.getState();
-        const curId = st.transport.currentSongId ?? st.selectedSongId ?? st.playlist[0]?.songId;
-        const curSong = st.songs.find((s) => s.id === curId);
-        const duration = curSong?.duration ?? 0;
-
-        if (duration <= 0) {
-          el.textContent = '--:--';
-          el.className = 'mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums text-logic-text-muted/50';
-        } else {
-          const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-          const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-          const left = Math.max(0, duration - t);
-          el.textContent = `-${formatTime(left)}`;
-          el.className = `mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums ${left <= 15 ? 'text-logic-lcd-red' : 'text-logic-lcd-green'}`;
-        }
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  const left = useSongRemaining();
+  const text = left === null ? '-:--' : `-${clockText(left)}`;
+  const tone = left === null ? 'text-logic-text-muted' : left <= 15 ? 'text-logic-lcd-red' : 'text-logic-lcd-green';
 
   return (
-    <div className="rounded-xl border border-logic-border-dark bg-black px-6 py-6 text-center">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-logic-text-muted">Restante da música</div>
-      <div ref={textRef} className="mt-2 font-mono text-6xl xl:text-7xl font-semibold leading-none tabular-nums text-logic-text-muted/50">
-        --:--
+    <div className="console-bezel">
+      <div className="console-display px-5 pt-3 pb-4 text-center">
+        <div className="console-legend">Restante da música</div>
+        <div className="mt-3 flex justify-center">
+          <SegmentDisplay
+            text={text}
+            label={left === null ? 'Sem música' : `Faltam ${clockText(left)}`}
+            className={`h-[72px] xl:h-[84px] ${tone}`}
+          />
+        </div>
+        <div className="console-glow mt-3 text-xl xl:text-2xl font-semibold leading-tight text-logic-lcd-text truncate" title={title}>{title}</div>
       </div>
-      <div className="mt-3 text-xl xl:text-2xl font-semibold leading-tight text-logic-text truncate" title={title}>{title}</div>
     </div>
   );
 }
@@ -138,15 +131,47 @@ function LiveProgressBar({
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // barra de LEDs: a cor enche e as linhas escuras por cima recortam em segmentos
   return (
-    <div className={`flex h-1.5 rounded-full bg-black/40 overflow-hidden ${reverse ? 'justify-end' : ''}`}>
-      <div ref={barRef} className={`h-full ${colorCls} will-change-[width]`} style={{ width: '0%' }} />
+    <div className={`relative flex h-2 rounded-[1px] bg-white/[0.06] overflow-hidden ${reverse ? 'justify-end' : ''}`}>
+      <div ref={barRef} className={`h-full ${colorCls} will-change-[width]`} style={{ width: '0%', boxShadow: '0 0 6px currentColor' }} />
+      <div className="absolute inset-0 pointer-events-none" style={{ background: 'repeating-linear-gradient(90deg, transparent 0 5px, #0c0e0d 5px 7px)' }} />
     </div>
   );
 }
 
+/**
+ * Tom e BPM valendo numa música. `at`: 'live' = no ponto em que ela está tocando (num medley,
+ * o da parte no ar); número = num ponto fixo (início da próxima música ou parte). Relê a cada
+ * 0,4 s e quando a música muda (ajuste de BPM/tom, partes novas na timeline).
+ */
+function useSongMeta(song: Song | undefined, at: 'live' | number): { key: string; bpm: string } {
+  const detected = useStore((s) => (song ? s.songKeys?.[song.id]?.key : undefined));
+  const [params, setParams] = useState<{ bpmAdjust: number; tuner: number } | null>(null);
+  useEffect(() => {
+    if (!song) { setParams(null); return; }
+    const read = () => {
+      let t = typeof at === 'number' ? at : 0;
+      if (at === 'live') {
+        const st = useStore.getState();
+        t = st.transport.isPlaying && audioEngine.isRunning() ? audioEngine.getCurrentTime() : st.transport.currentTime;
+      }
+      const p = paramsAt(song, t);
+      setParams((prev) => (prev && prev.bpmAdjust === p.bpmAdjust && prev.tuner === p.tuner ? prev : { bpmAdjust: p.bpmAdjust, tuner: p.tuner }));
+    };
+    read();
+    if (at !== 'live') return;
+    const id = window.setInterval(read, 400);
+    return () => window.clearInterval(id);
+  }, [song, at]);
+  if (!song) return { key: '', bpm: '' };
+  const p = params ?? { bpmAdjust: song.bpmAdjust ?? 0, tuner: song.tuner ?? 0 };
+  const bpm = effectiveBpm(song.bpm, song.bpmDetected, p.bpmAdjust);
+  return { key: songKeyLabel({ musicKey: song.musicKey || detected, tuner: p.tuner }), bpm: bpm ? String(bpm) : '' };
+}
+
 function SongCard({
-  label, name, tone, time, reverse = false, medley, mode,
+  label, name, tone, time, reverse = false, medley, mode, meta,
 }: {
   label: string;
   name: string | null;
@@ -155,24 +180,31 @@ function SongCard({
   reverse?: boolean;
   medley?: string;
   mode: 'current' | 'next';
+  /** tom e BPM que valem nessa música (ou parte) */
+  meta: { key: string; bpm: string };
 }) {
-  const c = tone === 'green'
-    ? { border: 'border-logic-lcd-green/50', bg: 'bg-logic-lcd-green/[0.08]', text: 'text-logic-lcd-green' }
-    : { border: 'border-logic-lcd-amber/50', bg: 'bg-logic-lcd-amber/[0.08]', text: 'text-logic-lcd-amber' };
+  const text = tone === 'green' ? 'text-logic-lcd-green' : 'text-logic-lcd-amber';
+  // Visor de vidro: o nome da música aceso na cor do estado (verde tocando, âmbar próxima)
   return (
-    <div className={`flex flex-col justify-between min-w-0 h-[92px] rounded-lg border px-4 py-2.5 transition-colors duration-300 ${name ? `${c.border} ${c.bg}` : 'border-logic-border-dark bg-logic-bg-deep'}`}>
-      <div className="flex items-center justify-between text-2xs font-semibold uppercase tracking-[0.16em]">
-        <span className={`flex items-center gap-2 min-w-0 ${name ? c.text : 'text-logic-text-muted'}`}>
+    <div className={`console-display flex flex-col justify-between gap-1 min-w-0 h-[118px] px-3.5 py-2.5 ${name ? '' : 'opacity-70'}`}>
+      <div className="flex items-center justify-between">
+        <span className={`console-legend flex items-center gap-2 min-w-0 ${name ? `${text} opacity-80` : ''}`}>
           {label}
-          {medley && <span className="px-1 rounded-[3px] border border-current text-[9px] leading-[12px] tracking-[0.14em] opacity-80">MEDLEY</span>}
+          {medley && <span className="px-1 rounded-[2px] border border-current text-[9px] leading-[12px] tracking-[0.14em]">MEDLEY</span>}
         </span>
-        {time && <span className="tabular-nums text-logic-text-dim">{time}</span>}
+        {time && <SegmentDisplay text={time} className="h-3 text-logic-lcd-text/70" ghost={false} />}
       </div>
-      <div key={name ?? ''} className={`min-w-0 animate-[fadeIn_250ms_ease-out] ${name ? c.text : 'text-logic-text-muted'}`}>
-        <div className={`text-base font-semibold leading-tight ${medley ? 'truncate' : 'line-clamp-2'}`}>{name ?? '—'}</div>
+      <div key={name ?? ''} className={`console-glow min-w-0 animate-[fadeIn_250ms_ease-out] ${name ? text : 'text-logic-text-muted'}`}>
+        <div className={`text-[17px] font-semibold leading-tight ${medley ? 'truncate' : 'line-clamp-2'}`}>{name ?? '—'}</div>
         {medley && <div className="text-xs leading-tight truncate text-logic-text-dim">{medley}</div>}
       </div>
-      <LiveProgressBar tone={tone} reverse={reverse} mode={mode} />
+      <div className="flex items-center gap-3 min-h-[15px]">
+        <MetaReadout label="Tom" value={name ? meta.key : ''} tone="text-logic-lcd-amber" />
+        <MetaReadout label="BPM" value={name ? meta.bpm : ''} />
+      </div>
+      <div className={text}>
+        <LiveProgressBar tone={tone} reverse={reverse} mode={mode} />
+      </div>
     </div>
   );
 }
@@ -205,6 +237,9 @@ export default function ShowModePanel({ showName }: { showName: string }) {
       ? formatTime(next.duration ?? 0)
       : undefined;
   const title = showName;
+  const currentMeta = useSongMeta(current, 'live');
+  // próxima: o tom/BPM com que ela começa (num medley, o da próxima parte)
+  const nextMeta = useSongMeta(current && slices.next ? current : next, current && slices.next ? slices.next.start : 0);
 
   // Busca instantânea: acha rápido qualquer música do show sem precisar sair do Modo Show
   const searchResults = useMemo(() => {
@@ -215,22 +250,22 @@ export default function ShowModePanel({ showName }: { showName: string }) {
       .filter(({ entry, song }) => entry?.name?.toLowerCase().includes(q) || song?.name?.toLowerCase().includes(q));
   }, [playlist, songs, searchQuery]);
 
-  const bigBtn = 'flex items-center justify-center h-12 shrink-0 rounded-lg border transition-all duration-150 active:scale-[0.96]';
-  const neutral = 'bg-logic-bg-elevated border-logic-border-light text-logic-text hover:bg-logic-bg-panel-light';
-  const toggle = (on: boolean) => `${bigBtn} gap-2 text-xs font-semibold uppercase tracking-[0.12em] ${on
-    ? 'bg-logic-lcd-amber/15 border-logic-lcd-amber/70 text-logic-lcd-amber'
-    : 'bg-logic-bg-elevated border-logic-border-light text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-panel-light'}`;
+  // teclas de mesa: as grandes para o transporte, as de liga/desliga com LED
+  const bigKey = 'console-key is-big flex items-center justify-center gap-2 shrink-0 text-[15px]';
+  const ledKey = (on: boolean) => `${bigKey} h-11 text-[13px] ${on ? '!text-logic-text' : ''}`;
 
   return (
-    <aside className="relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full bg-logic-bg-panel border-l border-logic-border-dark overflow-hidden animate-[fadeIn_200ms_ease-out]">
-      <div className="flex items-center gap-2 px-5 h-12 border-b border-logic-border-dark bg-logic-bg-deep shrink-0">
-        <Radio size={14} className={isPlaying ? 'text-logic-lcd-green animate-pulse' : 'text-logic-text-muted'} />
-        <span className="text-2xs font-semibold uppercase tracking-[0.18em] text-logic-text-dim shrink-0">Modo show</span>
+    <aside className="console-face relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full border-l-2 border-black overflow-hidden animate-[fadeIn_200ms_ease-out]">
+      <div className="console-rail flex items-center gap-2 px-4 h-12 shrink-0">
+        <span className={`console-lamp shrink-0 ${isPlaying ? 'is-on' : ''}`} title={isPlaying ? 'No ar: o show está tocando' : 'Parado'} />
+        <span className="font-stage text-[15px] font-semibold tracking-wide text-logic-text shrink-0">Modo show</span>
         <AudioDeviceButton />
-        <span className="ml-2 text-sm font-semibold tabular-nums text-logic-text-dim shrink-0">{clock}</span>
+        <span className="console-display ml-2 flex items-center h-7 px-2 shrink-0" title="Hora certa">
+          <SegmentDisplay text={clock} label={`Hora: ${clock}`} className="h-4 text-logic-lcd-amber" />
+        </span>
         <button
           onClick={togglePlaylistMaximized}
-          className="ml-3 flex items-center gap-1.5 h-8 px-3 rounded-md border border-logic-border-light bg-logic-bg-elevated text-xs font-semibold text-logic-text hover:bg-logic-lcd-red hover:border-logic-lcd-red hover:text-white transition-colors shrink-0"
+          className="console-key ml-2 flex items-center gap-1.5 h-8 px-3 text-[13px] shrink-0 hover:!bg-logic-lcd-red hover:!text-black"
           title="Sair do modo show (Esc ou ⌘M)"
         >
           <X size={14} /> Sair
@@ -238,7 +273,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
       </div>
 
       <div className="relative mx-4 mt-3 shrink-0">
-        <div className="flex items-center gap-2 px-3 h-9 rounded-lg bg-logic-bg-deep border border-logic-border-dark focus-within:border-logic-accent transition-colors">
+        <div className="console-well flex items-center gap-2 px-3 h-9 !rounded-[4px] ring-1 ring-transparent focus-within:ring-logic-accent transition-shadow">
           <Search size={14} className="text-logic-text-muted shrink-0" />
           <input
             type="text"
@@ -294,24 +329,26 @@ export default function ShowModePanel({ showName }: { showName: string }) {
             <Headphones size={14} /> Solo ativo: só as faixas em solo estão tocando
           </div>
         )}
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2.5">
+          {/* Tocar: acende verde enquanto o show toca */}
           <button
-            className={`${bigBtn} disabled:pointer-events-none ${isPlaying ? 'bg-logic-lcd-green/25 border-logic-lcd-green text-logic-lcd-green opacity-60' : 'bg-logic-lcd-green/15 border-logic-lcd-green/70 text-logic-lcd-green hover:bg-logic-lcd-green/25'}`}
+            className={`${bigKey} h-14 ${isPlaying ? 'is-lit-green' : '!text-logic-lcd-green'}`}
             onClick={startPlayback}
             disabled={isPlaying}
             title={isPlaying ? 'Já está tocando. Para trocar de música, dê Stop, escolha outra e toque' : 'Tocar (Espaço)'}
             aria-label="Tocar"
           >
-            <Play size={22} fill="currentColor" />
+            <Play size={22} fill="currentColor" /> Tocar
           </button>
-          <button className={`${bigBtn} ${neutral}`} onClick={stopPlayback} title="Parar (Esc)" aria-label="Parar">
-            <Square size={20} fill="currentColor" />
+          <button className={`${bigKey} h-14 !text-logic-text`} onClick={stopPlayback} title="Parar (Esc)" aria-label="Parar">
+            <Square size={18} fill="currentColor" /> Parar
           </button>
         </div>
 
         <div>
-          <div className="mb-1.5 text-2xs font-semibold uppercase tracking-[0.16em] text-logic-text-muted">Fluxo do show</div>
-          <div className="grid grid-cols-3 gap-1 p-1 rounded-lg bg-logic-bg-deep border border-logic-border-dark">
+          <div className="console-legend mb-1.5">Fluxo do show</div>
+          {/* teclas de escolha única: a do fluxo em uso fica acesa */}
+          <div className="grid grid-cols-3 gap-1.5">
             {FLOWS.map((f) => {
               const on = playFlow === f.id;
               return (
@@ -320,7 +357,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
                   onClick={() => setPlayFlow(f.id)}
                   title={f.hint}
                   aria-pressed={on}
-                  className={`flex items-center justify-center gap-1.5 h-10 rounded-md text-xs font-semibold transition-all duration-150 ${on ? 'bg-logic-accent text-white shadow' : 'text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated'}`}
+                  className={`console-key flex items-center justify-center gap-1.5 h-10 text-[13px] ${on ? 'is-lit-blue' : ''}`}
                 >
                   <f.icon size={14} /> {f.label}
                 </button>
@@ -328,11 +365,13 @@ export default function ShowModePanel({ showName }: { showName: string }) {
             })}
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <button className={toggle(showBpmTower)} onClick={toggleBpmTower} aria-pressed={showBpmTower} title="Mostrar/ocultar o ajuste de BPM em cada música">
+        <div className="grid grid-cols-2 gap-2.5">
+          <button className={ledKey(showBpmTower)} onClick={toggleBpmTower} aria-pressed={showBpmTower} title="Mostrar/ocultar o ajuste de BPM em cada música">
+            <span className={`console-led ${showBpmTower ? 'is-on-amber' : ''}`} />
             <Gauge size={16} /> BPM
           </button>
-          <button className={toggle(showTunerTower)} onClick={toggleTunerTower} aria-pressed={showTunerTower} title="Mostrar/ocultar o ajuste de tom em cada música">
+          <button className={ledKey(showTunerTower)} onClick={toggleTunerTower} aria-pressed={showTunerTower} title="Mostrar/ocultar o ajuste de tom em cada música">
+            <span className={`console-led ${showTunerTower ? 'is-on-amber' : ''}`} />
             <AudioWaveform size={16} /> Tuner
           </button>
         </div>
@@ -348,6 +387,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
               tone="green"
               time={current ? formatTime(current.duration) : undefined}
               mode="current"
+              meta={currentMeta}
             />
             <SongCard
               label="Próxima"
@@ -357,6 +397,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
               reverse
               time={nextTime}
               mode="next"
+              meta={nextMeta}
             />
           </div>
         </div>

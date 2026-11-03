@@ -189,6 +189,16 @@ export default function NotebookPage({
                   onStopEdit={() => onEditing(null)}
                 />
               )}
+              {line.kind === 'image' && (
+                // foto da partitura/cifra: ocupa a largura da página, sem deformar
+                <img
+                  src={line.src}
+                  alt="Partitura ou cifra"
+                  draggable={false}
+                  className="block w-full h-auto my-1 rounded-md bg-white select-none"
+                  style={{ aspectRatio: `${line.w} / ${line.h}` }}
+                />
+              )}
               {line.kind === 'staff' && (
                 <StaffLine
                   staff={line}

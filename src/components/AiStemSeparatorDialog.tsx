@@ -31,6 +31,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
   const [file, setFile] = useState<File | null>(null);
   const [songName, setSongName] = useState('');
   const [includeClick, setIncludeClick] = useState(true);
+  const [splitDrums, setSplitDrums] = useState(true);
   const [beatsPerBar, setBeatsPerBar] = useState<4 | 3 | 6>(4);
 
 
@@ -121,6 +122,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
           includeClick,
           beatsPerBar,
           songName: songName.trim() || undefined,
+          splitDrums,
         },
         (p) => { if (!cancelRef.current) setProgress(p); },
         () => cancelRef.current
@@ -315,6 +317,23 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                 </div>
               </div>
 
+              {/* Bateria em peças, como o Moises: bumbo, caixa, pratos e tons em faixas próprias */}
+              <label className="flex items-center gap-2.5 p-3 rounded-xl bg-white/[0.02] border border-white/10 cursor-pointer hover:bg-white/[0.04] transition">
+                <input
+                  type="checkbox"
+                  checked={splitDrums}
+                  onChange={(e) => setSplitDrums(e.target.checked)}
+                  className="accent-logic-lcd-green w-4 h-4 rounded cursor-pointer"
+                />
+                <div className="text-xs min-w-0">
+                  <span className="font-bold text-white block">Separar a bateria em peças</span>
+                  <span className="text-[10px] text-logic-text-dim block">
+                    Bumbo, Caixa, Pratos e Tons em faixas próprias, dentro da pasta Bateria.
+                    Baixa um modelo uma vez e deixa o processamento mais demorado.
+                  </span>
+                </div>
+              </label>
+
               {/* Explicação de Stems Separadas */}
               <div className="p-3 rounded-xl bg-logic-lcd-green/[0.07] border border-logic-lcd-green/20 text-2xs text-logic-text-dim space-y-1">
                 <p className="font-bold text-white text-xs flex items-center gap-1.5">
@@ -322,7 +341,7 @@ export default function AiStemSeparatorDialog({ open, onClose }: AiStemSeparator
                   <span>Stems separadas automaticamente:</span>
                 </p>
                 <p className="leading-relaxed">
-                  🥁 <strong>Bateria e percussão</strong> ➔ Pasta Bateria &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎸 <strong>Violões ou guitarras</strong> ➔ Pasta Violões ou Guitarras (a IA ouve e decide) &nbsp;|&nbsp; 🎹 <strong>Teclados</strong> ➔ Pasta Teclados &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; 🎻 <strong>Demais instrumentos</strong> ➔ Pasta Outros &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
+                  🥁 <strong>Bateria</strong> ➔ Pasta Bateria{splitDrums ? ' (em Bumbo, Caixa, Pratos e Tons)' : ' inteira'} &nbsp;|&nbsp; 🎸 <strong>Baixo</strong> ➔ Pasta Contrabaixo &nbsp;|&nbsp; 🎸 <strong>Violões ou guitarras</strong> ➔ Pasta Violões ou Guitarras (a IA ouve e decide) &nbsp;|&nbsp; 🎹 <strong>Teclados</strong> ➔ Pasta Teclados &nbsp;|&nbsp; 🎤 <strong>Voz</strong> ➔ Pasta Guia &nbsp;|&nbsp; 🎻 <strong>Demais instrumentos</strong> ➔ Pasta Outros &nbsp;|&nbsp; ⏱️ <strong>Click</strong> ➔ Pasta Click.
                 </p>
               </div>
             </div>

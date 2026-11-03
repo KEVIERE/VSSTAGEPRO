@@ -86,3 +86,53 @@ Com uma conta Apple Developer, instale o certificado **Developer ID Application*
 - Logo do show na tela do palco.
 
 As cifras e partituras dos músicos funcionam na rede local: ficam salvas no Mac em `rede-local-cadernos.json`, separadas pelo nome que cada músico usa para entrar.
+
+## Voz do Maestro por IA
+
+São dois motores, escolhidos sozinhos conforme o Mac:
+
+- **Apple Silicon**: o Qwen3-TTS roda no próprio Mac, pelo programa `vs-maestro-voz` (Swift + MLX). O modelo (~1,8 GB) é baixado uma vez, em silêncio. Não precisa de conta nem de internet para falar.
+- **Mac Intel**: o MLX não roda, então a fala usa as **vozes neurais brasileiras da Microsoft** (as mesmas do "Ler em Voz Alta"), pela função `maestro-voice` no Supabase. Muito mais natural que a voz do sistema, que era o que sobrava. Precisa de conta e internet na hora de gerar a fala; o áudio gerado fica salvo no projeto e toca no show sem internet.
+- **Reserva**: sem internet, sem conta ou se a nuvem falhar, a fala sai com a voz do Mac (`say`), e a tela avisa.
+
+### Ligar a voz na nuvem (uma vez só)
+
+1. Crie um recurso **Speech** no portal da Azure (o plano gratuito dá 500 mil letras por mês) e copie a **chave** e a **região**.
+2. Grave os segredos no Supabase:
+   ```bash
+   supabase secrets set AZURE_SPEECH_KEY=<chave> AZURE_SPEECH_REGION=brazilsouth
+   ```
+3. Publique a função:
+   ```bash
+   supabase functions deploy maestro-voice
+   ```
+
+Sem esses três passos, o Intel continua na voz do Mac — nada quebra.
+
+As vozes oferecidas estão em `supabase/functions/maestro-voice/index.ts`, na lista `CURATED`. A tela só mostra as que a conta realmente tem.
+
+## Separação da Bateria em peças
+
+Na criação do VS por IA há a opção **Separar a bateria em peças**. Ligada, o stem da bateria passa
+por um segundo modelo — o `drumsep` (Hybrid Demucs afinado em bateria, MIT) — que separa:
+
+- **Bumbo** (kick)
+- **Caixa** (snare)
+- **Pratos** (cymbals)
+- **Tons** (toms)
+
+Cada peça vira uma faixa dentro da pasta **Bateria**, como o Moises faz. As peças entram com ganho
+reduzido (1/√N) para a soma no mixer ficar no volume da bateria original.
+
+Como funciona o preparo (tudo automático, uma vez só, no primeiro uso):
+
+1. O **ONNX Runtime** é instalado no Python do motor de IA (a versão 1.20.1 é a última com pacote
+   universal2, que serve em Intel e em chip Apple).
+2. O **modelo** (~335 MB) é baixado e guardado em `~/Library/Application Support/VS Stage/drumsep/`.
+3. O script `drumPieceSeparator.py` (vai junto do app) faz a separação.
+
+Sem internet, sem o modelo ou sem o ONNX Runtime, a música é criada com a bateria inteira — nada
+quebra. A separação roda no processador e leva alguns minutos numa música longa.
+
+Limitação conhecida: o modelo separa **pratos** como uma peça só (chimbais, pratos de condução e
+condução ficam juntos); não existe modelo livre que separe chimbal de prato de ataque.

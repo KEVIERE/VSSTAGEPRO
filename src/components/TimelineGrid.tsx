@@ -217,7 +217,8 @@ const METERS: Array<{ value: 3 | 4 | 6; label: string }> = [
   { value: 6, label: '6/8' },
 ];
 
-const selectCls = 'h-[18px] rounded bg-logic-bg-elevated border border-logic-border-light text-2xs text-logic-text-dim px-1 hover:border-logic-accent focus:outline-none focus:border-logic-accent transition-colors';
+// seletores embutidos no painel, como as janelinhas de valor de uma mesa
+const selectCls = 'console-well h-[20px] !rounded-[3px] border border-black text-2xs text-logic-text px-1 hover:border-logic-accent focus:outline-none focus:border-logic-accent transition-colors';
 
 export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onSelectAll: () => void }) {
   const snapStep = useStore((s) => s.snapStep);
@@ -263,7 +264,7 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">
       <button
-        className={`flex items-center justify-center w-[22px] h-[18px] rounded border transition-colors ${snapOn ? 'bg-logic-accent/20 border-logic-accent text-logic-accent' : 'bg-logic-bg-elevated border-logic-border-light text-logic-text-muted hover:text-logic-text'}`}
+        className={`console-key flex items-center justify-center w-[24px] h-[20px] ${snapOn ? 'is-lit-blue' : ''}`}
         onClick={toggleSnap}
         title={snapOn ? 'Imã na grade ligado (segure Alt para mover livre)' : 'Imã na grade desligado'}
         aria-pressed={snapOn}
@@ -313,8 +314,8 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         />
       ) : (
         <button
-          className={`hidden md:flex items-center gap-1 px-1.5 h-[18px] rounded bg-logic-bg-deep border font-mono transition-colors hover:border-logic-accent disabled:pointer-events-none
-            ${song?.bpmMissing && !song.bpmDetected ? 'border-logic-lcd-amber/60 text-logic-lcd-amber' : 'border-logic-border-dark text-logic-text-dim'}`}
+          className={`console-display hidden md:flex items-center gap-1 px-1.5 h-[20px] font-stage font-semibold text-[12px] transition-colors hover:border-logic-accent disabled:pointer-events-none
+            ${song?.bpmMissing && !song.bpmDetected ? '!border-logic-lcd-amber/60 text-logic-lcd-amber' : 'text-logic-lcd-amber console-glow'}`}
           onClick={(e) => {
             if (song) setBpmDraft(song.bpmDetected && song.bpm ? String(Math.round(song.bpm * 100) / 100) : '');
             e.currentTarget.blur();
@@ -328,7 +329,7 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         </button>
       )}
       <button
-        className="flex items-center gap-1 px-1.5 h-[18px] rounded bg-logic-bg-elevated border border-logic-border-light text-logic-text-dim hover:text-logic-text hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        className="console-key flex items-center gap-1 px-2 h-[20px] text-[12px] disabled:pointer-events-none"
         onClick={remeasure}
         disabled={!song || measuring}
         title="Ler o BPM de novo pelo click (ou bateria)"
@@ -337,7 +338,7 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         <span className="hidden lg:inline">Medir BPM de novo</span>
       </button>
       <button
-        className="flex items-center gap-1 px-1.5 h-[18px] rounded bg-logic-bg-elevated border border-logic-border-light text-logic-text-dim hover:text-logic-text hover:border-logic-accent transition-colors disabled:opacity-40 disabled:pointer-events-none"
+        className="console-key flex items-center gap-1 px-2 h-[20px] text-[12px] disabled:pointer-events-none"
         onClick={onSelectAll}
         disabled={!song}
         title="Selecionar todos os áudios da música (Ctrl/Cmd + A)"

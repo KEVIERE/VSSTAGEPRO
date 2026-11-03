@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ClipboardPaste, PenLine, Radio, Sparkles } from 'lucide-react';
+import { ClipboardPaste, ImagePlus, PenLine, Radio, Sparkles } from 'lucide-react';
+import { useImageImport } from './notebook/useImageImport';
 import type { SheetBackend, SheetInfo } from '@/lib/musicianTypes';
 import {
   INK_COLORS, MARKER_COLORS, linesFromLyrics, newLine, transposeDoc,
@@ -89,6 +90,12 @@ export default function SheetPanel({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [mode, undo, redo]);
+
+  // fotos da partitura escrita à mão ou da cifra impressa: entram abaixo da linha marcada
+  const images = useImageImport({
+    doc, update, afterId: selectedId,
+    onResult: (r) => { setToast(r); if (r.ok) setTool('type'); },
+  });
 
   const savePrefs = (patch: Partial<ToolPrefs>) => setPrefs((p) => {
     const next = { ...p, ...patch };
@@ -211,6 +218,8 @@ export default function SheetPanel({
         onImport={importLyrics}
         onPasteChords={() => setPasting(true)}
         importing={importing}
+        onImportImage={images.open}
+        addingImage={images.adding}
         onClearDrawings={() => setConfirm('clear')}
         onDelete={() => setConfirm('delete')}
         hasDrawings={doc.strokes.length > 0}
@@ -244,7 +253,7 @@ export default function SheetPanel({
           <div className="mx-3 sm:mx-5 mt-5 p-4 rounded-xl border border-logic-border-dark bg-logic-bg-panel/70 animate-[fadeIn_200ms_ease-out]">
             <p className="text-sm font-semibold text-logic-text">Caderno de {songName || 'música'}</p>
             <p className="text-xs text-logic-text-muted mt-1 leading-relaxed">
-              Monte sua cifra, escreva a partitura ou rabisque por cima. Tudo fica salvo {backend.storedIn}, separado por música.
+              Monte sua cifra, escreva a partitura, rabisque por cima ou importe a foto da sua partitura. Tudo fica salvo {backend.storedIn}, separado por música.
             </p>
             <button
               onClick={importLyrics}
@@ -258,6 +267,13 @@ export default function SheetPanel({
               className="mt-2 flex items-center gap-2 h-9 px-3 rounded-lg bg-logic-bg-deep border border-logic-border-dark text-logic-text text-xs font-semibold hover:bg-logic-bg-elevated active:scale-95 transition-all"
             >
               <ClipboardPaste size={14} className="text-logic-lcd-amber" /> Colar cifra de um site ou texto
+            </button>
+            <button
+              onClick={images.open}
+              disabled={images.adding}
+              className="mt-2 flex items-center gap-2 h-9 px-3 rounded-lg bg-logic-bg-deep border border-logic-border-dark text-logic-text text-xs font-semibold hover:bg-logic-bg-elevated active:scale-95 transition-all disabled:opacity-50"
+            >
+              <ImagePlus size={14} className="text-logic-lcd-amber" /> Importar foto da partitura ou cifra
             </button>
           </div>
         )}
@@ -309,6 +325,8 @@ export default function SheetPanel({
           onClose={() => { setSelectedId(null); setSelectedNote(null); }}
         />
       )}
+
+      {images.input}
 
       {pasting && <PasteChordsDialog onClose={() => setPasting(false)} onInsert={insertPasted} />}
 

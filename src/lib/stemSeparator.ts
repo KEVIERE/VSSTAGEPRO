@@ -18,7 +18,7 @@ import { generateMarkers, decodeBlob } from '@/lib/audioDecoder';
  * Pergunta à IA de instrumentos o que tem no stem: 3 trechos de 5 s entre os mais fortes,
  * vence o instrumento que aparecer mais (desempate pela confiança). null = não reconheceu.
  */
-async function classifyStem(buffer: AudioBuffer, key: string): Promise<AiRouteResult | null> {
+export async function classifyStem(buffer: AudioBuffer, key: string): Promise<AiRouteResult | null> {
   const sr = buffer.sampleRate;
   const win = Math.min(buffer.length, Math.round(5 * sr));
   if (win < sr) return null;
@@ -47,6 +47,22 @@ async function classifyStem(buffer: AudioBuffer, key: string): Promise<AiRouteRe
   return winner && winner.n >= 2 ? winner.best : winner && picks.length < 2 ? winner.best : null;
 }
 
+/**
+ * Faixa onde um stem entra. Click, Guia e Maestro recebem o clipe direto; nas pastas (Bateria,
+ * Contrabaixo, Guitarras...) vai para a faixa com o NOME do stem ("Bumbo", "Baixo"...), que é
+ * criada se ainda não existir. Assim vários stems dividem os mesmos canais (e o roteamento
+ * de saída que o usuário já salvou para eles) em vez de criar canais novos a cada vez.
+ */
+export function trackForStem(parentId: string, childName: string): string {
+  if (parentId === 'track-guia' || parentId === 'track-click' || parentId === 'track-maestro') return parentId;
+  const wanted = childName.trim().toLocaleLowerCase('pt-BR');
+  const existing = useStore.getState().tracks.find((t) => t.parentId === parentId && t.name.trim().toLocaleLowerCase('pt-BR') === wanted);
+  if (existing) return existing.id;
+  const childId = `${parentId}-child-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+  useStore.getState().addChildTrack(parentId, childName, childId);
+  return childId;
+}
+
 export interface StemSeparationProgress {
   step: 'analyzing' | 'drums' | 'bass' | 'vocals' | 'other' | 'click' | 'finalizing';
   message: string;
@@ -65,6 +81,47 @@ export interface StemSeparationOptions {
   includeClick: boolean;
   beatsPerBar?: 4 | 3 | 6;
   songName?: string;
+  /** Separa também a bateria em bumbo, caixa, pratos e tons (como o Moises). */
+  splitDrums?: boolean;
+}
+
+/**
+ * Separa a bateria já isolada em peças. Devolve as peças decodificadas ou null (aí a bateria
+ * fica inteira). Nunca lança: separar a bateria é um extra, não pode derrubar a criação do VS.
+ */
+async function splitDrumPieces(
+  drums: AudioBuffer,
+  songName: string,
+  onProgress: (p: StemSeparationProgress) => void,
+): Promise<Record<'bumbo' | 'caixa' | 'pratos' | 'tons', AudioBuffer> | null> {
+  const bridge = window.vsDesktop?.separateDrumPieces;
+  if (!bridge) return null;
+  try {
+    onProgress({ step: 'drums', message: 'Separando a bateria em bumbo, caixa, pratos e tons...', percent: 96 });
+    // o modelo pede 44,1 kHz estéreo; o WAV do stem já vem nesse formato do Demucs
+    const wav = encodeWavPcm24(drums);
+    const result = await bridge(wav as ArrayBuffer);
+    const ids = ['bumbo', 'caixa', 'pratos', 'tons'] as const;
+    if (!ids.some((id) => result[id])) {
+      console.warn('separação da bateria indisponível:', result.why ?? 'sem peças');
+      return null;
+    }
+    const entries = await Promise.all(ids.map(async (id) => {
+      const raw = result[id];
+      if (!raw) return null;
+      try {
+        return [id, await decodeBlob(new Blob([raw], { type: 'audio/wav' }))] as const;
+      } catch {
+        return null;
+      }
+    }));
+    const pieces = Object.fromEntries(entries.filter(Boolean) as [string, AudioBuffer][]);
+    if (!pieces.bumbo && !pieces.caixa) return null;
+    return pieces as Record<'bumbo' | 'caixa' | 'pratos' | 'tons', AudioBuffer>;
+  } catch (err) {
+    console.warn('separação da bateria falhou:', err);
+    return null;
+  }
 }
 
 export interface StemResult {
@@ -196,8 +253,14 @@ export async function separateSongToVS(
     );
   }
 
-  // 3. MONTAGEM DO PROJETO E ROTEAMENTO OFICIAL
+  // 2.7 Bateria em peças (bumbo, caixa, pratos, tons), como o Moises faz. É um extra: sem o
+  // modelo ou sem internet, a bateria segue inteira e o VS é criado do mesmo jeito.
+  const drumPieces = options.splitDrums
+    ? await splitDrumPieces(drumsBuffer, songName, (p) => onProgress?.(p))
+    : null;
   checkCancelled();
+
+  // 3. MONTAGEM DO PROJETO E ROTEAMENTO OFICIAL
   onProgress?.({
     step: 'finalizing',
     message: 'Roteando stems para as pastas oficiais do programa...',
@@ -235,17 +298,45 @@ export async function separateSongToVS(
     startTime: number;
     duration: number;
     mute?: boolean;
+    /** Volume do clipe (1 = como veio). As peças da bateria entram atenuadas. */
+    gain?: number;
   }
 
-  const stemConfigs: StemEntry[] = [
-    {
+  const stemConfigs: StemEntry[] = [];
+
+  // Bateria: separada em peças, cada uma na sua faixa dentro da pasta Bateria (Bumbo, Caixa,
+  // Pratos, Tons), como o Moises. Sem a separação, uma faixa só com a bateria inteira.
+  if (drumPieces) {
+    // As peças tocam juntas: sem atenuar, a soma delas no mixer fica mais alta que a bateria
+    // original. O ganho abaixo devolve o volume que a bateria tinha antes de ser separada.
+    const aux = 1 / Math.sqrt(Math.max(1, Object.keys(drumPieces).length));
+    const ordem = ['bumbo', 'caixa', 'pratos', 'tons'] as const;
+    const labels: Record<typeof ordem[number], string> = { bumbo: 'Bumbo', caixa: 'Caixa', pratos: 'Pratos', tons: 'Tons' };
+    for (const id of ordem) {
+      const buffer = drumPieces[id];
+      if (!buffer) continue; // o modelo pode não devolver uma peça (ex.: música sem tons)
+      stemConfigs.push({
+        name: songName + ' - ' + labels[id],
+        childName: labels[id],
+        buffer,
+        parentTrackId: 'track-bateria',
+        startTime: leadIn,
+        duration,
+        gain: aux,
+      });
+    }
+  } else {
+    stemConfigs.push({
       name: songName + ' - Bateria',
       childName: 'Bateria',
       buffer: drumsBuffer,
       parentTrackId: 'track-bateria',
       startTime: leadIn,
       duration,
-    },
+    });
+  }
+
+  stemConfigs.push(
     {
       name: songName + ' - Baixo',
       childName: 'Baixo',
@@ -253,8 +344,7 @@ export async function separateSongToVS(
       parentTrackId: 'track-contrabaixo',
       startTime: leadIn,
       duration,
-    },
-  ];
+    });
 
   if (guitarBuffer) {
     // O modelo entrega violão e guitarra no mesmo stem: a IA de instrumentos ouve os trechos
@@ -330,26 +420,9 @@ export async function separateSongToVS(
     const config = stemConfigs[i];
     const parentId = config.parentTrackId;
 
-    // Roteamento padrão oficial do VS Stage Pro:
-    // Trilhas raiz (Click, Guia, Maestro) recebem o clipe direto.
-    // Subgrupos (Bateria, Contrabaixo, Guitarras, Teclados, Outros) usam/criam a faixa filha.
-    let actualTrackId: string;
-    if (parentId === 'track-guia' || parentId === 'track-click' || parentId === 'track-maestro') {
-      actualTrackId = parentId;
-    } else {
-      // Sempre a faixa com o NOME do stem ("Bateria", "Baixo", "Teclados"...): antes ia para a
-      // primeira faixa da pasta, e a bateria inteira caía em "Surdo 1". Vários VS feitos com
-      // IA dividem os mesmos canais no mixer em vez de criar um novo a cada música.
-      const wanted = config.childName.trim().toLocaleLowerCase('pt-BR');
-      const existingChild = useStore.getState().tracks.find((t) => t.parentId === parentId && t.name.trim().toLocaleLowerCase('pt-BR') === wanted);
-      if (existingChild) {
-        actualTrackId = existingChild.id;
-      } else {
-        const childId = parentId + '-child-' + Date.now() + '-' + i;
-        useStore.getState().addChildTrack(parentId, config.childName, childId);
-        actualTrackId = childId;
-      }
-    }
+    // Roteamento padrão oficial do VS Stage Pro (ver trackForStem): antes ia para a primeira
+    // faixa da pasta, e a bateria inteira caía em "Surdo 1".
+    const actualTrackId = trackForStem(parentId, config.childName);
 
     const clipId = 'clip-' + songId + '-' + i;
     const clipAudio = await toClipAudioAsync(config.buffer);
@@ -375,7 +448,7 @@ export async function separateSongToVS(
       routingMethod: 'ai',
       routingConfidence: 1,
       waveformPeaks: peaks,
-      gain: 1,
+      gain: config.gain ?? 1,
       mute: config.mute ?? false,
       solo: false,
     };

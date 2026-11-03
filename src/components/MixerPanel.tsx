@@ -5,10 +5,11 @@ import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { belowTarget, levelTarget, parseTargetDb, songLevelGain, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
-import MeterMask from '@/components/MeterMask';
+import { LedMeter } from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import { useMeterLevel } from '@/lib/meterBus';
+import { gainToFader } from '@/lib/faderScale';
 
 // Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
 // nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
@@ -47,10 +48,6 @@ function LevelMatchButton() {
       + (low ? ' Ela é baixa demais para chegar ao pico pedido mesmo subindo +24 dB.' : '')
       + ` Clique no número para escolher o pico (de ${TARGET_DB_MIN} a ${TARGET_DB_MAX} dB). Clique em IGUALAR para desligar.`;
 
-  const tone = on
-    ? 'bg-logic-lcd-green/20 text-logic-lcd-green border-logic-lcd-green/70'
-    : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark hover:text-logic-text';
-
   if (on && editing) {
     return (
       <input
@@ -65,7 +62,7 @@ function LevelMatchButton() {
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false); }
         }}
         onClick={(e) => e.stopPropagation()}
-        className="w-[52px] text-center font-bold px-0.5 py-0.5 rounded border text-[8px] bg-logic-lcd-green/20 text-logic-lcd-green border-logic-lcd-green/70 outline-none"
+        className="console-readout w-[52px] text-logic-lcd-green outline-none ring-1 ring-logic-lcd-green/70"
         title={`Pico desejado em dB (${TARGET_DB_MIN} a ${TARGET_DB_MAX}; "2" vale como -2). Enter aplica, Esc cancela.`}
         aria-label="Pico desejado em dB"
       />
@@ -77,16 +74,17 @@ function LevelMatchButton() {
   return (
     <div className="flex flex-col items-center justify-center gap-0.5">
       <button
-        className={`font-bold px-1 py-0.5 rounded border transition-colors text-[8px] ${tone}`}
+        className={`console-key flex items-center gap-1 h-[15px] px-1.5 text-[8.5px] leading-none tabular-nums ${on ? 'text-logic-text' : ''}`}
         onClick={() => setLevelMatch(!on)}
         title={title}
         aria-pressed={on}
       >
+        <span className={`console-led ${on ? 'is-on-green' : ''}`} />
         {on && progress ? `${progress.done}/${progress.total}` : 'IGUALAR'}
       </button>
       {on && (
         <button
-          className="font-bold px-1 py-0.5 rounded border border-logic-lcd-green/70 bg-logic-lcd-green/20 text-logic-lcd-green text-[8px] tabular-nums hover:brightness-125 transition"
+          className="console-readout console-glow text-logic-lcd-green hover:brightness-125 transition"
           onClick={() => { setDraft(String(storedDb ?? target)); setEditing(true); }}
           title={`Pico de todas as músicas: ${targetText} dB. Clique para digitar outro (${TARGET_DB_MIN} a ${TARGET_DB_MAX} dB).`}
         >
@@ -110,32 +108,49 @@ function LevelReadout({ id, title }: { id: string; title: string }) {
   const live = shown > -60;
   const tone = shown >= 0 ? 'text-logic-lcd-red' : shown >= -6 ? 'text-logic-lcd-amber' : 'text-logic-lcd-green';
   return (
-    <span className={`text-2xs font-mono tabular-nums h-3 leading-3 ${live ? tone : ''}`} title={title}>
+    <span className={`console-readout console-glow ${live ? tone : ''}`} title={title}>
       {live ? `${shown > 0 ? '+' : ''}${shown.toFixed(1)}` : '\u00a0'}
     </span>
   );
 }
 
-// Fader profissional de estúdio (Logic Pro 11 / Pro Tools):
-// Curso geométrico exato em pixels — onde o mouse arrasta é exatamente onde o cap do fader se posiciona.
-// Zero descompasso com inputs nativos de range.
+// Marcas impressas ao lado do fader, na mesma curva do motor de áudio (0 dB = 0,8 no fader)
+const FADER_MARKS: { db: number; label: string }[] = [
+  { db: 12, label: '+12' }, { db: 6, label: '+6' }, { db: 0, label: '0' },
+  { db: -6, label: '−6' }, { db: -12, label: '−12' }, { db: -Infinity, label: '−∞' },
+];
+const SCALE_W = 14;
+
+type CapTone = 'cue' | 'band' | 'master';
+// nomes escritos por inteiro para o Tailwind não descartar as classes no build
+const CAP_CLASS: Record<CapTone, string> = {
+  cue: 'console-cap--cue',
+  band: 'console-cap--band',
+  master: 'console-cap--master',
+};
+
+// Fader de mesa: escala impressa à esquerda, fenda no painel e a capa com frisos.
+// Curso exato em pixels: onde o mouse arrasta é onde a capa fica.
 function Fader({
   value,
   onChange,
   onDoubleClick,
-  width = 20,
+  width = 24,
   height = 120,
+  tone = 'band',
 }: {
   value: number;
   onChange: (v: number) => void;
   onDoubleClick?: () => void;
   width?: number;
   height?: number;
+  tone?: CapTone;
 }) {
-  const capHeight = 12;
+  const capHeight = 22;
   const travel = height - capHeight;
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const bottomPx = pct * travel;
+  const markY = (db: number) => (gainToFader(db === -Infinity ? 0 : Math.pow(10, db / 20)) / 1.5) * travel + capHeight / 2;
 
   // Fader relativo, como nas mesas: clicar não pula o volume — ele só anda o quanto o mouse
   // arrasta (encostar sem querer no palco não muda nada). Shift: ajuste fino (10× mais lento).
@@ -172,25 +187,34 @@ function Fader({
 
   return (
     <div
-      className="relative bg-logic-bg-deep rounded-sm border border-logic-border-dark cursor-ns-resize select-none overflow-hidden"
-      style={{ width: `${width}px`, height: `${height}px` }}
+      className="relative flex cursor-ns-resize select-none"
+      style={{ width: `${SCALE_W + width}px`, height: `${height}px` }}
       onPointerDown={handleDown}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
       title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
     >
-      {/* Pista do fader com centro rebaixado */}
-      <div className="absolute left-1/2 -translate-x-1/2 top-1.5 bottom-1.5 w-1 rounded-full bg-black/60 border border-white/5 pointer-events-none" />
-      {/* Linha de referência de 0 dB (volume 0.8 / 1.5 = 53.33% do curso) */}
-      <div
-        className="absolute left-0 right-0 h-px bg-white/30 pointer-events-none"
-        style={{ bottom: `${(0.8 / 1.5) * travel + capHeight / 2}px` }}
-      />
-      {/* Cap do fader metálico de estúdio com marcação luminosa central */}
-      <div
-        className="absolute left-0.5 right-0.5 rounded-sm bg-gradient-to-b from-[#4a4a50] via-[#2a2a2e] to-[#1e1e22] border border-white/20 shadow-md pointer-events-none flex items-center justify-center"
-        style={{ height: `${capHeight}px`, bottom: `${bottomPx}px` }}
-      >
-        <div className="w-full h-0.5 bg-logic-text shadow-[0_0_2px_rgba(255,255,255,0.8)]" />
+      {/* Escala em dB impressa no painel */}
+      <div className="relative h-full pointer-events-none" style={{ width: `${SCALE_W}px` }}>
+        {FADER_MARKS.map((m) => (
+          <span key={m.label} className={`console-scale ${m.db === 0 ? 'is-unity' : ''}`} style={{ bottom: `${markY(m.db)}px` }}>
+            {m.label}
+          </span>
+        ))}
+      </div>
+      <div className="relative h-full pointer-events-none" style={{ width: `${width}px` }}>
+        {FADER_MARKS.map((m) => (
+          <div key={m.label} className={`console-tick ${m.db === 0 ? 'is-unity' : ''}`} style={{ bottom: `${markY(m.db)}px` }} />
+        ))}
+        {/* Fenda do fader */}
+        <div
+          className="console-slot absolute left-1/2 -translate-x-1/2"
+          style={{ top: `${capHeight / 2 - 2}px`, bottom: `${capHeight / 2 - 2}px` }}
+        />
+        {/* Capa do fader */}
+        <div
+          className={`console-cap ${CAP_CLASS[tone]} absolute left-0 right-0`}
+          style={{ height: `${capHeight}px`, bottom: `${bottomPx}px` }}
+        />
       </div>
     </div>
   );
@@ -214,13 +238,13 @@ function MixerChannel({ trackId }: { trackId: string }) {
 
   return (
     <div
-      className={`flex flex-col items-center w-[72px] min-w-[72px] bg-logic-bg-panel border-r border-logic-border-dark py-1.5 px-1 gap-1 cursor-pointer transition-colors duration-75 relative
-        ${isSelected ? 'bg-logic-bg-panel-light' : 'hover:bg-logic-bg-panel-light'}`}
+      className={`console-strip flex flex-col items-center w-[72px] min-w-[72px] border-r border-logic-border-dark py-1.5 px-1 gap-[3px] cursor-pointer transition-colors duration-75 relative
+        ${isSelected ? 'is-selected' : ''}`}
       onClick={() => selectTrack(track.id)}
     >
       <OutputMenu track={track} />
 
-      {/* Pan knob (Pro Tools style) */}
+      {/* Knob de pan */}
       <div
         className="w-7 h-7 relative cursor-ew-resize select-none"
         onDoubleClick={(e) => { e.stopPropagation(); setPan(track.id, 0); }}
@@ -238,112 +262,98 @@ function MixerChannel({ trackId }: { trackId: string }) {
         }}
         title={`Pan: ${track.pan > 0 ? 'R' : track.pan < 0 ? 'L' : 'C'} ${Math.abs(Math.round(track.pan * 100))} (duplo clique = centro)`}
       >
-        <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none">
-          <circle cx="14" cy="14" r="12.5" fill="#1a1a1c" stroke="#3a3a3e" strokeWidth="1" />
-          <circle cx="14" cy="14" r="12.5" fill="none" stroke="#000" strokeWidth="0.5" opacity="0.6" />
-          <circle cx="14" cy="14" r="9" fill="#26262a" stroke="#111" strokeWidth="0.5" />
-          {track.pan !== 0 && (
-            <path
-              d={(() => {
-                const angle = track.pan * 135;
-                const toXY = (deg: number) => {
-                  const rad = ((deg - 90) * Math.PI) / 180;
-                  return [14 + 11.5 * Math.cos(rad), 14 + 11.5 * Math.sin(rad)];
-                };
-                const [x1, y1] = toXY(0);
-                const [x2, y2] = toXY(angle);
-                const sweep = angle > 0 ? 1 : 0;
-                return `M ${x1} ${y1} A 11.5 11.5 0 0 ${sweep} ${x2} ${y2}`;
-              })()}
-              fill="none"
-              stroke="#30d158"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          )}
-          <g style={{ transform: `rotate(${track.pan * 135}deg)`, transformOrigin: '14px 14px' }}>
-            <line x1="14" y1="14" x2="14" y2="6" stroke="#e8e8e8" strokeWidth="1.5" strokeLinecap="round" />
-          </g>
-        </svg>
+        <PanKnob pan={track.pan} />
       </div>
 
-      {/* Track name */}
-      {/* nome inteiro em até 2 linhas (antes cortava "Contrabaixo 1", "Percussão 2"...) */}
-      <span className="text-[9px] leading-[11px] h-[22px] text-logic-text-dim w-full text-center break-words line-clamp-2 overflow-hidden" title={track.name}>
-        {track.name}
-      </span>
+      {/* Nome do canal na fita crepe, inteiro em até 2 linhas */}
+      <div className="console-tape w-full h-[22px] flex items-center justify-center px-1" title={track.name}>
+        <span className="line-clamp-2 break-words text-center">{track.name}</span>
+      </div>
 
-      {/* Meter + Fader */}
-      <div className="flex gap-1 items-end">
-        {/* Peak meter (dBFS) */}
-        <div
-          className="relative w-3 h-[120px] bg-logic-bg-deep rounded-sm border border-logic-border-dark overflow-hidden"
-          onClick={(e) => { e.stopPropagation(); if (isClipping) clearClipIndicator(track.id); }}
-          title={isClipping ? 'Clique para apagar o indicador de clip' : undefined}
-        >
-          <div
-            className="absolute inset-0"
-            style={{
-              background: track.mute
-                ? '#555'
-                : 'linear-gradient(to top, #30d158 0%, #30d158 62.5%, #ffd60a 75%, #ffd60a 93.75%, #ff453a 95.8%, #ff453a 100%)',
-            }}
-          />
-          <MeterMask id={track.id} className="bg-logic-bg-deep" />
-          {isClipping && (
-            <div
-              className="absolute top-0 left-0 right-0 h-1 cursor-pointer"
-              style={{ background: '#ff453a', boxShadow: '0 0 5px #ff453a' }}
-            />
-          )}
-        </div>
-
-        {/* Fader */}
+      {/* Fader (com a escala) e medidor */}
+      <div className="flex gap-[3px] items-end">
         <Fader
           value={track.volume}
           onChange={(v) => setVolume(track.id, v)}
           onDoubleClick={() => setVolume(track.id, 0.8)}
-          width={20}
+          width={24}
           height={120}
+          tone={track.isSubgroup ? 'band' : 'cue'}
+        />
+        <LedMeter
+          id={track.id}
+          off={track.mute}
+          clipping={isClipping}
+          onClick={(e) => { e.stopPropagation(); if (isClipping) clearClipIndicator(track.id); }}
+          title={isClipping ? 'Clique para apagar o indicador de clip' : undefined}
         />
       </div>
 
       <LevelReadout id={track.id} title="Nível do sinal agora (dBFS, pico das últimas 1,5 s). Em silêncio fica apagado." />
 
-      {/* Anti-clip: liga/desliga o limitador de pico do canal em -0,1 dBFS */}
+      {/* Anti-clip: liga/desliga o limitador de pico do canal em -0,1 dBFS. O LED verde mostra que está ligado. */}
       <button
-        className={`text-[8px] font-bold px-1 py-0.5 rounded border transition-colors duration-75 ${
-          track.antiClip
-            ? 'bg-logic-lcd-green text-black border-logic-lcd-green hover:brightness-110'
-            : isClipping
-              ? 'bg-logic-lcd-red text-black border-logic-lcd-red hover:bg-logic-lcd-amber hover:border-logic-lcd-amber animate-pulse'
-              : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark hover:text-logic-text-dim'
-        }`}
+        className={`console-key flex items-center gap-1 h-[15px] px-1.5 text-[8.5px] leading-none ${
+          !track.antiClip && isClipping ? 'is-lit-red animate-pulse' : ''
+        } ${track.antiClip ? 'text-logic-text' : ''}`}
         onClick={(e) => { e.stopPropagation(); toggleAntiClip(track.id); }}
         aria-pressed={track.antiClip}
         title={track.antiClip
           ? 'Anti-Clip ligado: a saída deste canal não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
           : 'Anti-Clip desligado: clique para limitar a saída deste canal em -0,1 dBFS, sem mudar o volume do resto.'}
       >
+        <span className={`console-led ${track.antiClip ? 'is-on-green' : ''}`} />
         ANTI-CLIP
       </button>
 
-      {/* M/S buttons */}
+      {/* Teclas M (mudo) e S (solo): acendem quando ligadas */}
       <div className="flex gap-1">
         <button
-          className={`w-5 h-5 text-2xs font-bold rounded transition-colors duration-75 ${
-            track.mute ? 'bg-logic-lcd-amber text-black' : 'bg-logic-bg-deep text-logic-text-muted'
-          }`}
+          className={`console-key w-6 h-[18px] text-[11px] leading-none ${track.mute ? 'is-lit-amber' : ''}`}
           onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+          aria-pressed={track.mute}
+          title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
         >M</button>
         <button
-          className={`w-5 h-5 text-2xs font-bold rounded transition-colors duration-75 ${
-            track.solo ? 'bg-logic-lcd-amber text-black' : 'bg-logic-bg-deep text-logic-text-muted'
-          }`}
+          className={`console-key w-6 h-[18px] text-[11px] leading-none ${track.solo ? 'is-lit-amber' : ''}`}
           onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+          aria-pressed={track.solo}
+          title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
         >S</button>
       </div>
     </div>
+  );
+}
+
+// Knob de pan de mesa: marcas impressas em volta, saia serrilhada e capa azul com o ponteiro.
+const PAN_TICKS = Array.from({ length: 11 }, (_, i) => -135 + i * 27);
+
+function PanKnob({ pan }: { pan: number }) {
+  return (
+    <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none">
+      {PAN_TICKS.map((deg) => {
+        const rad = ((deg - 90) * Math.PI) / 180;
+        const center = deg === 0;
+        const r1 = 11.6;
+        const r2 = center ? 13.8 : 13.2;
+        return (
+          <line
+            key={deg}
+            x1={14 + r1 * Math.cos(rad)} y1={14 + r1 * Math.sin(rad)}
+            x2={14 + r2 * Math.cos(rad)} y2={14 + r2 * Math.sin(rad)}
+            stroke="#e7e2d6" strokeOpacity={center ? 0.85 : 0.35} strokeWidth={center ? 1.2 : 0.8}
+          />
+        );
+      })}
+      <circle cx="14" cy="14" r="10" fill="#141619" stroke="#050607" strokeWidth="0.8" />
+      <circle cx="14" cy="14" r="9.1" fill="none" stroke="#3b4047" strokeWidth="1.2" strokeDasharray="0.9 1.1" />
+      <circle cx="14" cy="14" r="6.6" fill="#5b84ad" />
+      <circle cx="14" cy="12.7" r="5" fill="#ffffff" opacity="0.13" />
+      <circle cx="14" cy="14" r="6.6" fill="none" stroke="#000" strokeOpacity="0.45" strokeWidth="0.6" />
+      <g transform={`rotate(${pan * 135} 14 14)`}>
+        <line x1="14" y1="13" x2="14" y2="4.8" stroke="#f4f0e6" strokeWidth="1.6" strokeLinecap="round" />
+      </g>
+    </svg>
   );
 }
 
@@ -388,22 +398,22 @@ export default function MixerPanel() {
   }
 
   return (
-    <div className="flex flex-col shrink-0 bg-logic-bg-panel border-t border-logic-border-dark overflow-hidden" style={{ height: '300px', maxHeight: '60%' }}>
-      {/* Header */}
+    <div className="console-face flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '300px', maxHeight: '60%' }}>
+      {/* Trilho de cima */}
       <div
-        className="flex items-center justify-between px-3 h-7 bg-logic-bg-deep border-b border-logic-border-dark cursor-pointer"
+        className="console-rail flex items-center justify-between px-3 h-7 cursor-pointer"
         onClick={toggleMixer}
       >
         <div className="flex items-center gap-2">
           <Volume2 size={13} className="text-logic-text-dim" />
-          <span className="text-xs font-medium text-logic-text-dim uppercase tracking-wider">Mixer</span>
+          <span className="font-stage text-[13px] font-semibold tracking-wide text-logic-text-dim">Mixer</span>
         </div>
-        <button className="text-logic-text-muted hover:text-logic-text transition-colors">
+        <button className="text-logic-text-muted hover:text-logic-text transition-colors" aria-label="Esconder o mixer">
           <ChevronDown size={14} />
         </button>
       </div>
 
-      {/* Channels */}
+      {/* Canais */}
       <div className="flex-1 flex overflow-x-auto overflow-y-hidden logic-scroll min-h-0">
         <div className="flex mx-auto min-w-fit border-l border-r border-logic-border-dark">
           <TimecodeMixerChannel />
@@ -411,46 +421,23 @@ export default function MixerPanel() {
             <MixerChannel key={trackId} trackId={trackId} />
           ))}
 
-          {/* Master channel */}
-          <div className="flex flex-col items-center w-[72px] min-w-[72px] bg-logic-bg-deep border-l-2 border-logic-border-light py-1.5 px-1 gap-1">
-          <span className="text-2xs text-logic-lcd-amber font-bold truncate w-full text-center px-1 py-0.5 border border-transparent">MASTER</span>
+          {/* Master: módulo separado, mais escuro, com capa de fader vermelha */}
+          <div className="console-strip flex flex-col items-center w-[72px] min-w-[72px] bg-black/25 border-l-2 border-black py-1.5 px-1 gap-[3px]">
+          <div className="console-tape w-full h-4 flex items-center justify-center px-1.5 text-[11.5px] tracking-wide">MASTER</div>
 
           {/* Botão mágico: roteia Guia/Click/Maestro → L (1) e Banda → R (2) */}
           <button
-            className={`flex items-center justify-center w-7 h-7 rounded-full border transition-colors duration-75 ${
-              magicRoutingActive
-                ? 'bg-logic-lcd-amber text-black border-logic-lcd-amber animate-pulse'
-                : 'bg-logic-bg-panel text-logic-text-muted hover:text-logic-text border-logic-border-light'
+            className={`console-key flex items-center justify-center w-7 h-7 !rounded-full ${
+              magicRoutingActive ? 'is-lit-amber animate-pulse' : ''
             }`}
             onClick={() => toggleMagicRouting()}
+            aria-pressed={magicRoutingActive}
             title="Roteamento mágico: Guia/Click/Maestro → L e Banda → R. O timecode não é alterado. Clique novamente para restaurar."
           >
             <Wand2 size={14} />
           </button>
 
-          <div className="flex gap-1 items-end">
-            {/* Peak meter (dBFS), mesma escala dos canais */}
-            <div
-              className="relative w-3 h-[120px] bg-logic-bg-deep rounded-sm border border-logic-border-dark overflow-hidden"
-              onClick={() => { if (masterIsClipping) clearMasterClipIndicator(); }}
-              title={masterIsClipping ? 'Clique para apagar o indicador de clip' : undefined}
-            >
-              <div
-                className="absolute inset-0"
-                style={{
-                  background: 'linear-gradient(to top, #30d158 0%, #30d158 62.5%, #ffd60a 75%, #ffd60a 93.75%, #ff453a 95.8%, #ff453a 100%)',
-                }}
-              />
-              <MeterMask id="master" className="bg-[#1c1c1c]" />
-              {masterIsClipping && (
-                <div
-                  className="absolute top-0 left-0 right-0 h-1 cursor-pointer"
-                  style={{ background: '#ff453a', boxShadow: '0 0 5px #ff453a' }}
-                />
-              )}
-            </div>
-
-            {/* Fader */}
+          <div className="flex gap-[3px] items-end">
             <Fader
               value={masterVolume}
               onChange={(v) => {
@@ -461,8 +448,16 @@ export default function MixerPanel() {
                 setMasterVolume(0.8);
                 audioEngine.setMasterVolume(0.8);
               }}
-              width={20}
+              width={24}
               height={120}
+              tone="master"
+            />
+            {/* mesma escala dos canais */}
+            <LedMeter
+              id="master"
+              clipping={masterIsClipping}
+              onClick={() => { if (masterIsClipping) clearMasterClipIndicator(); }}
+              title={masterIsClipping ? 'Clique para apagar o indicador de clip' : undefined}
             />
           </div>
 
@@ -471,11 +466,8 @@ export default function MixerPanel() {
 
           {/* Anti-clip */}
           <button
-            className={`font-bold px-1 py-0.5 rounded border transition-colors duration-75 text-[8px] ${
-              masterIsClipping
-                ? 'bg-logic-lcd-red text-black border-logic-lcd-red hover:bg-logic-lcd-amber hover:border-logic-lcd-amber animate-pulse'
-                : 'bg-logic-bg-deep text-logic-text-muted border-logic-border-dark opacity-60 cursor-default'
-            }`}
+            className={`console-key h-[15px] px-1.5 text-[8.5px] leading-none ${masterIsClipping ? 'is-lit-red animate-pulse' : ''}`}
+            disabled={!masterIsClipping}
             onClick={() => { if (masterIsClipping) { applyAntiClipMaster(); audioEngine.setMasterVolume(useStore.getState().masterVolume); } }}
             title="Anti-Clip: baixa o fader master só o necessário para o pico mais alto (antes do limiter) ficar 0,3 dB abaixo do clip"
           >

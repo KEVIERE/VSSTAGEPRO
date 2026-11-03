@@ -8,6 +8,7 @@ const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const selfUpdate = require('./selfUpdate');
 const { separateStemsLocal, cancelStemSeparation, hasLocalDemucs } = require('./stemSeparatorLocal');
+const drumPieces = require('./drumPieces');
 const maestroVoice = require('./maestroVoice');
 const maestroQwen = require('./maestroQwen');
 const maestroVoiceDownload = require('./maestroVoiceDownload');
@@ -65,6 +66,68 @@ ipcMain.on('project:taken', (event) => {
   lastQueuedPath = null;
   unlockMenu();
 });
+
+// Projeto com alteração não salva: a tela avisa, e fechar a janela ou sair do app pergunta antes.
+let projectUnsaved = false;
+let projectLabel = '';
+let closeConfirmed = false;
+let closeAsking = false;
+
+ipcMain.on('project:unsaved', (event, state) => {
+  if (!fromDirector(event)) return;
+  projectUnsaved = Boolean(state && state.unsaved);
+  projectLabel = state && typeof state.name === 'string' ? state.name.slice(0, 120) : '';
+  // bolinha no botão vermelho de fechar, como nos apps do Mac
+  if (process.platform === 'darwin' && win && !win.isDestroyed()) win.setDocumentEdited(projectUnsaved);
+});
+
+function needsSaveQuestion() {
+  return projectUnsaved && !closeConfirmed && win && !win.isDestroyed();
+}
+
+// "Salvar": a tela salva (ou abre "Salvar Projeto..." se o projeto nunca foi salvo) e responde se deu certo.
+function saveFromWindow() {
+  return new Promise((resolve) => {
+    if (!win || win.isDestroyed()) { resolve(false); return; }
+    const wc = win.webContents;
+    const done = (ok) => {
+      ipcMain.removeListener('project:savedBeforeClose', onSaved);
+      wc.removeListener('render-process-gone', onGone);
+      resolve(ok);
+    };
+    const onSaved = (event, ok) => { if (event.sender === wc) done(Boolean(ok)); };
+    const onGone = () => done(false);
+    ipcMain.on('project:savedBeforeClose', onSaved);
+    wc.on('render-process-gone', onGone);
+    wc.send('project:saveBeforeClose');
+  });
+}
+
+async function askBeforeClosing(quit) {
+  if (closeAsking || !win || win.isDestroyed()) return;
+  closeAsking = true;
+  try {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    const { response } = await dialog.showMessageBox(win, {
+      type: 'warning',
+      buttons: ['Salvar', 'Não salvar', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+      message: projectLabel ? `Salvar as alterações do projeto "${projectLabel}"?` : 'Salvar as alterações do projeto?',
+      detail: 'Se não salvar, o que você mudou desde o último salvamento será perdido.',
+    });
+    if (response === 2) return;
+    if (response === 0 && !(await saveFromWindow())) return;
+    closeConfirmed = true;
+  } finally {
+    closeAsking = false;
+  }
+  if (quit) app.quit();
+  else if (win && !win.isDestroyed()) win.close();
+}
 
 // Projetos grandes (passam de 2 GiB) não podem ir pelo IPC: manda só o caminho e a tela lê pelo
 // protocolo vsstage://project, que entrega o arquivo em pedaços para os áudios.
@@ -216,6 +279,16 @@ function createWindow() {
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith(`${SCHEME}://`)) { e.preventDefault(); if (/^https?:\/\//.test(url)) shell.openExternal(url); }
   });
+  projectUnsaved = false;
+  closeConfirmed = false;
+  // tela recarregada ou travada: o que ela avisou antes não vale mais
+  win.webContents.on('did-navigate', () => { projectUnsaved = false; });
+  win.webContents.on('render-process-gone', () => { projectUnsaved = false; });
+  win.on('close', (event) => {
+    if (!needsSaveQuestion()) return;
+    event.preventDefault();
+    void askBeforeClosing(false);
+  });
   win.loadURL(`${SCHEME}://app/`);
   win.on('closed', () => { win = null; });
   if (splashLeaving) win.once('ready-to-show', showMain);
@@ -274,6 +347,14 @@ handle('maestroVoiceStatus', () => maestroVoice.voiceStatus());
 handle('maestroVoicePlaying', (playing) => { maestroVoiceDownload.setPaused(!!playing); });
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 handle('cancelStemSeparation', () => cancelStemSeparation());
+// Separação da BATERIA em peças (bumbo, caixa, pratos, tons): roda depois do Demucs.
+handle('separateDrumPieces', (drumsWav) => drumPieces.separateDrumPieces(
+  Buffer.from(drumsWav),
+  (message) => { if (!win.isDestroyed()) win.webContents.send('separation:progress', { percent: 97, message }); },
+));
+handle('drumPiecesStatus', () => drumPieces.status());
+// abre o painel do macOS onde se baixam as vozes premium (Luciana Premium) — grátis e local
+handle('openVoiceSettings', () => maestroVoice.openVoiceSettings().then(() => true).catch(() => false));
 
 // Atualização silenciosa: confere, baixa, instala por cima do app atual e reabre —
 // o cliente só vê uma barra de progresso dentro do próprio programa.
@@ -423,7 +504,13 @@ if (initialProject) pendingProjectPath = initialProject;
 if (!hasSingleInstance) app.quit();
 
 app.on('window-all-closed', () => { app.quit(); });
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  // Cmd+Q com alteração não salva: pergunta antes; os serviços só param quando sair de verdade
+  if (needsSaveQuestion()) {
+    event.preventDefault();
+    void askBeforeClosing(true);
+    return;
+  }
   server?.stop();
   maestroVoiceDownload.stop();
   maestroQwen.stopHelper();

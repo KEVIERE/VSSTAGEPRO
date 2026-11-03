@@ -20,7 +20,9 @@ export type NotebookLine =
   | { id: string; kind: 'text'; text: string }
   | { id: string; kind: 'section'; label: string }
   | { id: string; kind: 'chords'; lyric: string; chords: ChordMark[] }
-  | { id: string; kind: 'staff'; mode: 'notes' | 'blank'; clef: Clef; time: TimeSig; notes: StaffNote[] };
+  | { id: string; kind: 'staff'; mode: 'notes' | 'blank'; clef: Clef; time: TimeSig; notes: StaffNote[] }
+  /** Foto ou imagem (partitura escrita à mão, cifra impressa): JPEG já diminuído, em data URL. */
+  | { id: string; kind: 'image'; src: string; w: number; h: number };
 
 export type LineKind = NotebookLine['kind'];
 
@@ -73,7 +75,7 @@ export function newLine(kind: LineKind, extra?: { label?: string; mode?: 'notes'
   if (kind === 'text') return { id, kind, text: '' };
   if (kind === 'section') return { id, kind, label: extra?.label ?? 'Verso' };
   if (kind === 'chords') return { id, kind, lyric: '', chords: [] };
-  return { id, kind, mode: extra?.mode ?? 'notes', clef: 'treble', time: '4/4', notes: [] };
+  return { id, kind: 'staff', mode: extra?.mode ?? 'notes', clef: 'treble', time: '4/4', notes: [] };
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -103,9 +105,21 @@ function cleanLine(raw: unknown): NotebookLine | null {
           ? raw.notes.filter((n): n is StaffNote => isObj(n) && typeof n.id === 'string' && typeof n.step === 'number' && typeof n.dur === 'string')
           : [],
       };
+    case 'image':
+      if (typeof raw.src !== 'string' || !/^data:image\/(jpeg|png|webp);base64,/.test(raw.src)) return null;
+      return {
+        id, kind: 'image', src: raw.src,
+        w: typeof raw.w === 'number' && raw.w > 0 ? raw.w : 1,
+        h: typeof raw.h === 'number' && raw.h > 0 ? raw.h : 1,
+      };
     default:
       return null;
   }
+}
+
+/** Página só de imagens (fotos de partitura), sem texto nem desenho por cima. */
+export function docIsImageOnly(doc: NotebookDoc): boolean {
+  return doc.strokes.length === 0 && doc.lines.length > 0 && doc.lines.every((l) => l.kind === 'image');
 }
 
 /** Reads a saved sheet. Sheets written before the notebook existed are plain text and become one text line. */

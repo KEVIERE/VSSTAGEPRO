@@ -58,3 +58,56 @@ test('sem nenhuma voz em português: não escolhe nada', () => {
 test('nome exato de uma voz é respeitado', () => {
   assert.equal(pickVoice(SAY, 'Reed (Português (Brasil))').name, 'Reed (Português (Brasil))');
 });
+
+test('as vozes compactas/Eloquence são marcadas como qualidade baixa (são a pior da Apple)', () => {
+  const eloquence = ['Eddy (Português (Brasil))', 'Flo (Português (Brasil))', 'Grandma (Português (Brasil))', 'Rocko (Português (Brasil))'];
+  for (const name of eloquence) {
+    const v = parseVoiceLine(`${name} pt_BR    # Olá, meu nome é X.`);
+    assert.equal(v.quality, 0, `${name} deveria ser qualidade 0 (compacta)`);
+  }
+  // a compacta que vem de fábrica também é 0
+  assert.equal(parseVoiceLine('Luciana             pt_BR    # Olá, meu nome é Luciana.').quality, 0);
+});
+
+test('versões baixadas são marcadas como melhores', () => {
+  assert.equal(parseVoiceLine('Luciana (Melhorada) pt_BR    # Olá.').quality, 1);
+  assert.equal(parseVoiceLine('Luciana (Aprimorada) pt_BR    # Olá.').quality, 1);
+  assert.equal(parseVoiceLine('Luciana (Premium) pt_BR    # Olá.').quality, 2);
+});
+
+test('com voz premium e compacta do mesmo nome, a premium vem primeiro', () => {
+  const list = [
+    parseVoiceLine('Luciana             pt_BR    # compacta'),
+    parseVoiceLine('Luciana (Premium)   pt_BR    # premium'),
+  ].filter(Boolean);
+  const ranked = pickVoice(list, 'feminina');
+  assert.match(ranked.name, /Premium/);
+});
+
+test('nenhuma voz do Mac aparece na lista: ficam só as duas de IA (Feminina e Masculina)', () => {
+  const { offerable } = require('../desktop/maestroVoice.js');
+  const list = [
+    'Eddy (Português (Brasil)) pt_BR    # oi',
+    'Flo (Português (Brasil)) pt_BR    # oi',
+    'Grandma (Português (Brasil)) pt_BR    # oi',
+    'Grandpa (Português (Brasil)) pt_BR    # oi',
+    'Reed (Português (Brasil)) pt_BR    # oi',
+    'Rocko (Português (Brasil)) pt_BR    # oi',
+    'Sandy (Português (Brasil)) pt_BR    # oi',
+    'Shelley (Português (Brasil)) pt_BR    # oi',
+    'Joana               pt_PT    # oi',
+    'Luciana             pt_BR    # oi',
+  ].map(parseVoiceLine).filter(Boolean);
+
+  assert.deepEqual(list.filter(offerable).map((v) => v.name), [], 'nenhuma voz do Mac na lista');
+
+  // só uma versão Melhorada/Premium baixada pelo sistema aparece
+  const comPremium = [...list, parseVoiceLine('Luciana (Premium) pt_BR    # oi')].filter(offerable).map((v) => v.name);
+  assert.deepEqual(comPremium, ['Luciana (Premium)']);
+});
+
+test('voz compacta escolhida não mostra mais pedido para baixar outra voz', () => {
+  const v = pickVoice([parseVoiceLine('Luciana             pt_BR    # oi')].filter(Boolean), 'feminina');
+  assert.equal(v.name, 'Luciana');
+  assert.equal(v.note, null, 'sem mensagem pedindo para baixar a Luciana');
+});

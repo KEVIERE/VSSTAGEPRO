@@ -69,7 +69,8 @@ export function SongAdjuster({ songId, kind, value, partId, inherited }: SongAdj
   // BPM: mostra quantos BPM reais a música (ou a fatia) está acima/abaixo do original
   const shown = songBpm ? realBpmDelta(songBpm, value) : Math.round(value);
   const size = partId ? 'w-[18px] h-[18px]' : 'w-5 h-5';
-  const btn = `${size} rounded border border-logic-border-light bg-logic-bg-elevated text-logic-text hover:bg-logic-bg-panel-light hover:border-logic-accent flex items-center justify-center transition-colors`;
+  // teclas de mesa com um visorzinho do valor no meio
+  const btn = `console-key ${size} flex items-center justify-center !text-logic-text`;
   const tone = inherited ? 'text-logic-text-muted/60' : shown === 0 ? 'text-logic-text-muted' : shown > 0 ? 'text-logic-lcd-green' : 'text-logic-lcd-amber';
   const label = kind === 'bpm' ? 'BPM' : 'tom';
   return (
@@ -82,7 +83,7 @@ export function SongAdjuster({ songId, kind, value, partId, inherited }: SongAdj
       <button className={btn} onClick={() => bump(-1)} aria-label={kind === 'bpm' ? 'Diminuir BPM' : 'Descer meio tom'}>
         <Minus size={10} />
       </button>
-      <span className={`text-xs font-mono tabular-nums w-9 text-center ${tone}`}>
+      <span className={`console-display font-stage font-semibold text-[12px] leading-[18px] tabular-nums w-9 text-center ${tone}`}>
         {shown > 0 ? '+' : ''}{shown}
       </span>
       <button className={btn} onClick={() => bump(1)} aria-label={kind === 'bpm' ? 'Aumentar BPM' : 'Subir meio tom'}>

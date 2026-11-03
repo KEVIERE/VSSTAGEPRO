@@ -42,6 +42,8 @@ import SubscriptionReturn from '@/components/SubscriptionReturn';
 import AdminPage from '@/components/admin/AdminPage';
 import MobileShowRemote from '@/components/MobileShowRemote';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
+import UnsavedChangesDialog from '@/components/UnsavedChangesDialog';
+import { confirmLeaveProject, watchUnsavedChanges } from '@/lib/unsavedChanges';
 import { copyClips, duplicateClips, pasteClips } from '@/lib/clipClipboard';
 import { trackFeature, useFeatureTracking } from '@/lib/featureUsage';
 import type { License } from '@/components/DirectorAccess';
@@ -51,6 +53,8 @@ import { useLocalBroadcast } from '@/lib/useLocalBroadcast';
 import { useReferenceAutoSync } from '@/lib/useReferenceAutoSync';
 import { useLiveBroadcast } from '@/lib/useLiveBroadcast';
 import { usePendingRequests } from '@/lib/usePendingRequests';
+import JoinRequestsBanner from '@/components/JoinRequestsBanner';
+import StemSplitStatus from '@/components/StemSplitStatus';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
@@ -282,7 +286,8 @@ function DirectorApp({ license }: { license: License }) {
   const [aiSeparatorOpen, setAiSeparatorOpen] = useState(false);
   const broadcast = useLiveBroadcast();
   const local = useLocalBroadcast();
-  const pendingRequests = usePendingRequests(broadcast.show);
+  const joinRequests = usePendingRequests(broadcast.show);
+  const pendingRequests = joinRequests.pending.length;
   const lyricsSync = useProjectLyricsSync(broadcast.show);
   const referenceSync = useReferenceAutoSync(broadcast.show);
   const toggleMixer = useStore((s) => s.toggleMixer);
@@ -395,14 +400,13 @@ function DirectorApp({ license }: { license: License }) {
   // Duplo clique no arquivo do projeto no Finder: o app do Mac manda o arquivo e ele abre aqui.
   useEffect(() => {
     if (!window.vsDesktop?.onOpenProjectFile) return;
-    return window.vsDesktop.onOpenProjectFile(({ name, path: filePath }) => {
-      const st = useStore.getState();
-      // Com um projeto já carregado, confirma antes de trocar o que está na tela.
-      const hasProject = Boolean(st.saveTarget) || st.songs.length > 0;
-      if (hasProject && !window.confirm(`Abrir "${name}"?\n\nO projeto que está aberto agora será fechado. Se tiver mudanças não salvas, salve antes.`)) {
+    return window.vsDesktop.onOpenProjectFile(async ({ name, path: filePath }) => {
+      // Com alteração não salva no projeto aberto, pergunta Salvar / Não salvar / Cancelar antes de trocar.
+      if (!(await confirmLeaveProject())) {
         window.vsDesktop?.projectTaken?.();
         return;
       }
+      const st = useStore.getState();
       const finish = () => window.vsDesktop?.projectTaken?.();
       window.vsDesktop?.projectTaken?.();
       st.setExportProgress({ active: true, message: `Abrindo "${name}"...` });
@@ -429,6 +433,9 @@ function DirectorApp({ license }: { license: License }) {
   useEffect(() => {
     useStore.getState().reconcileTracks();
   }, []);
+
+  // Fechar o app (ou a aba) com alteração não salva pergunta antes
+  useEffect(() => watchUnsavedChanges(), []);
 
   useEffect(() => watchPlaylistForNextSong(), []);
 
@@ -707,6 +714,12 @@ function DirectorApp({ license }: { license: License }) {
         )}
         <ReopenLastBar />
         <UpdateBanner />
+        <JoinRequestsBanner
+          show={broadcast.show}
+          pending={joinRequests.pending}
+          onChanged={joinRequests.refresh}
+          onOpenList={() => setShowManagerOpen(true)}
+        />
         {broadcast.onAir && broadcast.yielded && (
           <div className="flex items-center gap-3 px-3 h-8 bg-logic-lcd-amber/10 border-b border-logic-lcd-amber/30 text-xs text-logic-lcd-amber animate-[fadeIn_200ms_ease-out]">
             <Radio size={13} />
@@ -759,6 +772,7 @@ function DirectorApp({ license }: { license: License }) {
 
         {!playlistMaximized && <MixerPanel />}
         <ContextMenu />
+        <StemSplitStatus />
         <BounceDialog />
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
         {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}
@@ -778,6 +792,7 @@ function DirectorApp({ license }: { license: License }) {
           onClose={() => setAiSeparatorOpen(false)}
         />
         <MissingAudioDialog />
+        <UnsavedChangesDialog />
       </div>
     </ErrorBoundary>
   );

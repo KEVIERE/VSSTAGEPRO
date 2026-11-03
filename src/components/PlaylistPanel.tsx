@@ -16,6 +16,7 @@ import { groupDroppedEntries, importSongGroups, takeDroppedEntries } from '@/lib
 import { audioEngine } from '@/lib/audioEngine';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import { stopPlayback } from '@/lib/transportControl';
+import SegmentDisplay from '@/components/SegmentDisplay';
 
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
@@ -222,6 +223,9 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   const hasDetails = (sg: typeof songs[number] | undefined) => !!sg && (isMedley(sg) || (sg.regions?.length ?? 0) > 0);
   const expandableIds = playlist.filter((p) => hasDetails(songs.find((sg) => sg.id === p.songId))).map((p) => p.songId);
   const allCollapsed = expandableIds.length > 0 && expandableIds.every((id) => collapsedRows.has(id));
+  // teclas pequenas do cabeçalho: acendem quando a função está ligada
+  const hdrKey = (lit = '') => `console-key w-6 h-6 flex items-center justify-center shrink-0 disabled:opacity-30 ${lit}`;
+  const totalShow = starts.length ? starts[starts.length - 1] + playedDuration(songs.find((sg) => sg.id === playlist[playlist.length - 1]?.songId), playlist[playlist.length - 1]?.duration) : 0;
 
   return (
     <div
@@ -237,14 +241,14 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
         </div>
       )}
       {/* Header */}
-      <div className="flex items-center px-3 h-10 bg-logic-bg-deep border-b border-logic-border-dark relative">
+      <div className="console-rail flex items-center px-3 h-10 relative">
         <div className="flex items-center min-w-0">
           <ListMusic size={13} className="text-logic-text-dim mr-2 flex-shrink-0" />
-          <span className="text-xs font-medium text-logic-text-dim uppercase tracking-wider whitespace-nowrap flex-shrink-0">Playlist do Show</span>
+          <span className="font-stage text-[14px] font-semibold tracking-wide text-logic-text whitespace-nowrap flex-shrink-0">Playlist do show</span>
         </div>
         <div className="flex items-center gap-1 ml-auto pl-2 flex-shrink-0">
           <button
-            className={`transition-colors ${searchOpen ? 'text-logic-accent' : 'text-logic-text-muted hover:text-logic-text'}`}
+            className={hdrKey(searchOpen ? 'is-lit-blue' : '')}
             onClick={() => {
               setSearchOpen(!searchOpen);
               if (searchOpen) setSearchQuery('');
@@ -254,7 +258,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
             <Search size={14} />
           </button>
           <button
-            className={`transition-colors ${selectedSongId ? 'text-logic-text-muted hover:text-logic-text' : 'text-logic-text-muted/30 cursor-not-allowed'}`}
+            className={hdrKey()}
             onClick={() => { if (selectedSongId) createBlock(selectedSongId); }}
             disabled={!selectedSongId}
             title={selectedSongId ? 'Criar Bloco a partir da música selecionada' : 'Selecione uma música para criar um bloco'}
@@ -263,7 +267,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
           </button>
           {playlistMaximized && expandableIds.length > 0 && (
             <button
-              className="text-logic-text-muted hover:text-logic-text transition-colors"
+              className={hdrKey()}
               onClick={() => setAllRows(expandableIds, !allCollapsed)}
               title={allCollapsed ? 'Expandir todas as músicas' : 'Recolher todas as músicas'}
             >
@@ -272,7 +276,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
           )}
           {playlistMaximized && (
             <button
-              className={`transition-colors ${mixerVisible ? 'text-logic-accent' : 'text-logic-text-muted hover:text-logic-text'}`}
+              className={hdrKey(mixerVisible ? 'is-lit-blue' : '')}
               onClick={toggleMixer}
               title={mixerVisible ? 'Fechar Mixer (M)' : 'Abrir Mixer (M)'}
               aria-pressed={mixerVisible}
@@ -281,14 +285,14 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
             </button>
           )}
           <button
-            className="text-logic-text-muted hover:text-logic-text transition-colors"
+            className={hdrKey()}
             onClick={() => setImportOpen(true)}
             title="Importar VS"
           >
             <Plus size={14} />
           </button>
           <button
-            className={`transition-colors ${nextSongId ? 'text-logic-lcd-amber' : 'text-logic-text-muted hover:text-logic-text'}`}
+            className={hdrKey(nextSongId ? 'is-lit-amber' : '')}
             onClick={() => {
               if (transport.playFlow === 'uma-uma') return;
               setNextSong(selectedSongId && selectedSongId !== nextSongId ? selectedSongId : null);
@@ -298,7 +302,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
             <Link size={14} />
           </button>
           <button
-            className="text-logic-text-muted hover:text-logic-text transition-colors"
+            className={hdrKey()}
             onClick={togglePlaylistMaximized}
             title={playlistMaximized ? 'Sair do modo show (Esc)' : 'Modo show: playlist em tela cheia'}
           >
@@ -309,7 +313,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
       </div>
 
       {searchOpen && (
-        <div className="flex items-center gap-1.5 px-3 h-8 bg-logic-bg-deep border-b border-logic-border-dark animate-[fadeIn_150ms_ease-out]">
+        <div className="console-well flex items-center gap-1.5 mx-2 my-1.5 px-2.5 h-8 !rounded-[4px] animate-[fadeIn_150ms_ease-out]">
           <Search size={12} className="text-logic-text-muted shrink-0" />
           <input
             autoFocus
@@ -361,7 +365,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
       )}
 
       {wide && playlist.length > 0 && (
-        <div className="grid items-center gap-3 px-6 h-8 bg-logic-bg-deep border-b border-logic-border-dark text-2xs font-medium uppercase tracking-[0.12em] text-logic-text-muted" style={{ gridTemplateColumns: wideCols }}>
+        <div className="console-rail console-legend grid items-center gap-3 px-6 h-8" style={{ gridTemplateColumns: wideCols }}>
           <span>#</span><span>Música</span><span className="text-right">BPM</span><span className="text-right">Tom</span><span className="text-right">Duração</span><span className="text-right">Entra em</span>
           {showBpmTower && <span className="text-center text-logic-lcd-amber/80">Ajuste BPM</span>}
           {showTunerTower && <span className="text-center text-logic-lcd-amber/80">Tuner</span>}
@@ -369,7 +373,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
       )}
 
       {!wide && towerCount > 0 && playlist.length > 0 && (
-        <div className="flex items-center gap-2 px-2 h-7 bg-logic-bg-deep border-b border-logic-border-dark text-2xs font-medium uppercase tracking-wider text-logic-text-muted">
+        <div className="console-rail console-legend flex items-center gap-2 px-2 h-7">
           <span className="flex-1">Música</span>
           {showBpmTower && <span className="flex items-center justify-center gap-1 text-logic-lcd-amber/80" style={{ width: NARROW_TOWER_W - 8 }}><Gauge size={11} /> BPM</span>}
           {showTunerTower && <span className="flex items-center justify-center gap-1 text-logic-lcd-amber/80" style={{ width: NARROW_TOWER_W - 8 }}><AudioWaveform size={11} /> Tuner</span>}
@@ -457,7 +461,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                         resolveDrop();
                       }}
                       onDragEnd={clearDrag}
-                      className={`relative flex items-center gap-1.5 border-b ${wide ? 'px-6 h-9 mt-2' : 'px-2 h-7'} border-logic-border-dark ${dragOverBlockId === block.id && dragBlockId !== block.id ? 'ring-1 ring-logic-accent' : ''} ${dropPos?.type === 'block' && dropPos.id === block.id && dragIndex !== null ? 'ring-1 ring-logic-accent' : ''}`}
+                      className={`cue-block relative flex items-center gap-1.5 border-b ${wide ? 'px-6 h-9 mt-2' : 'px-2 h-7'} border-black ${dragOverBlockId === block.id && dragBlockId !== block.id ? 'ring-1 ring-logic-accent' : ''} ${dropPos?.type === 'block' && dropPos.id === block.id && dragIndex !== null ? 'ring-1 ring-logic-accent' : ''}`}
                       style={{ backgroundColor: block.color, borderLeft: `4px solid ${blockEdge(block.color)}` }}
                       onClick={() => useStore.getState().selectBlock(block.id)}
                       onDoubleClick={(e) => {
@@ -495,12 +499,12 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                             className="flex-1 min-w-0 bg-logic-bg-deep text-xs text-white px-1 py-0.5 rounded border border-logic-accent outline-none text-center"
                           />
                         ) : (
-                          <span className={`font-bold truncate ${wide ? 'text-xs uppercase tracking-[0.14em]' : 'text-xs'}`} style={{ color: blockInk(block.color) }}>
+                          <span className={`font-stage font-bold truncate ${wide ? 'text-[15px] uppercase tracking-[0.12em]' : 'text-[13px] tracking-wide'}`} style={{ color: blockInk(block.color) }}>
                             {block.name}
                           </span>
                         )}
                       </div>
-                      <span className={`text-2xs font-mono opacity-60 flex-shrink-0 ${wide ? 'absolute right-6 top-1/2 -translate-y-1/2' : ''}`} style={{ color: blockInk(block.color) }}>
+                      <span className={`font-stage font-semibold text-[12px] tabular-nums opacity-75 flex-shrink-0 ${wide ? 'absolute right-6 top-1/2 -translate-y-1/2 text-[13px]' : ''}`} style={{ color: blockInk(block.color) }}>
                         {formatTime(getBlockDuration(block.id))}
                       </span>
                     </div>
@@ -542,16 +546,23 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                       selectSong(entry.songId);
                       setSongMenu({ x: e.clientX, y: e.clientY, songId: entry.songId });
                     }}
-                    className={`group flex flex-col border-b border-logic-border-dark cursor-pointer transition-colors duration-75 relative
-                      ${isCurrent ? 'bg-[#1a3a1a]' : isNext ? 'bg-[#3a2a0a]' : isSelected ? 'bg-white/[0.08]' : 'hover:bg-logic-bg-panel-light'}
+                    className={`cue-row group flex flex-col border-b border-black/60 cursor-pointer transition-colors duration-75 relative
+                      ${isCurrent ? 'is-current' : isNext ? 'is-next' : isSelected ? 'is-selected' : ''}
                       ${isPlayed && !isSelected ? 'opacity-45 hover:opacity-80' : ''}
                       ${dropPos?.type === 'song' && dropPos.id === entry.songId ? (dropPos.half === 'before' ? 'border-t-2 border-t-logic-accent' : 'border-b-2 border-b-logic-accent') : ''}
                       ${dropPos?.type === 'blockInsert' && dropPos.id === entry.songId ? (dropPos.half === 'before' ? 'border-t-2 border-t-logic-lcd-amber' : 'border-b-2 border-b-logic-lcd-amber') : ''}`}
                   >
                     {wide && renamingId !== entry.songId ? (
-                      <div className="grid items-center gap-3 px-6 h-14 tabular-nums" style={{ gridTemplateColumns: wideCols }}>
+                      <div className="relative grid items-center gap-3 px-6 h-14 tabular-nums" style={{ gridTemplateColumns: wideCols }}>
+                        {/* LED da linha: verde tocando, âmbar próxima */}
+                        <span className={`console-led is-lg absolute left-[9px] top-1/2 -translate-y-1/2 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
                         <span className="flex items-center gap-1">
-                          <span className={`text-xs font-medium ${isCurrent ? 'text-logic-lcd-green' : 'text-logic-text-muted'}`}>{String(index + 1).padStart(2, '0')}</span>
+                          <SegmentDisplay
+                            text={String(index + 1).padStart(2, '0')}
+                            label={`Música ${index + 1}`}
+                            ghost={isCurrent || isNext}
+                            className={`h-[17px] ${isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}
+                          />
                           {canExpand && (
                             <button
                               className="w-5 h-5 rounded flex items-center justify-center text-logic-text-muted hover:text-logic-text hover:bg-white/10 transition-colors"
@@ -564,22 +575,23 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                             </button>
                           )}
                         </span>
-                        <span className={`text-lg font-semibold truncate ${isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : isSelected ? 'text-white' : 'text-logic-text'}`}>
+                        <span className={`text-lg font-semibold truncate ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : isSelected ? 'text-white' : 'text-logic-text'}`}>
                           {entry.name}
                           {audioStatus && <span className="ml-2 align-middle">{audioStatus}</span>}
-                          {isCurrent && <span className="ml-3 text-2xs font-medium uppercase tracking-[0.14em] text-logic-lcd-green/80">No ar</span>}
-                          {isNext && <span className="ml-3 text-2xs font-medium uppercase tracking-[0.14em] text-logic-lcd-amber/80">Próxima</span>}
+                          {isCurrent && <span className="console-display console-glow ml-3 px-1.5 py-px align-middle font-stage text-[12px] font-semibold tracking-wide text-logic-lcd-green">No ar</span>}
+                          {isNext && <span className="console-display console-glow ml-3 px-1.5 py-px align-middle font-stage text-[12px] font-semibold tracking-wide text-logic-lcd-amber">Próxima</span>}
                         </span>
-                        <span className="text-xs text-right text-logic-text-dim">{bpmLabel(song)}</span>
-                        <span className={`text-xs text-right ${song && song.tuner !== 0 ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`}>{song ? toneLabel(song.tuner) : '-'}</span>
-                        <span className="text-xs text-right text-logic-text">{formatTime(playedDuration(song, entry.duration))}</span>
-                        <span className="text-xs text-right text-logic-text-muted">{formatTime(starts[index])}</span>
+                        <span className="font-stage text-[14px] text-right text-logic-text-dim">{bpmLabel(song)}</span>
+                        <span className={`font-stage text-[14px] text-right ${song && song.tuner !== 0 ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`}>{song ? toneLabel(song.tuner) : '-'}</span>
+                        <span className="font-stage text-[15px] font-semibold text-right text-logic-text">{formatTime(playedDuration(song, entry.duration))}</span>
+                        <span className="font-stage text-[14px] text-right text-logic-text-muted">{formatTime(starts[index])}</span>
                         {showBpmTower && <div className="flex justify-center"><SongAdjuster songId={entry.songId} kind="bpm" value={song?.bpmAdjust ?? 0} /></div>}
                         {showTunerTower && <div className="flex justify-center"><SongAdjuster songId={entry.songId} kind="tuner" value={song?.tuner ?? 0} /></div>}
                       </div>
                     ) : (
                     <div className="flex items-center gap-2 px-2 h-10">
-                      <span className={`text-2xs font-mono flex-shrink-0 w-4 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{index + 1}</span>
+                      <span className={`console-led flex-shrink-0 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
+                      <span className={`font-stage text-[12px] tabular-nums text-right flex-shrink-0 w-4 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{index + 1}</span>
 
                       {renamingId === entry.songId ? (
                         <input
@@ -594,12 +606,12 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
                         />
                       ) : (
                         <div className="flex-1 min-w-0 flex items-center">
-                          <span className={`text-sm font-bold truncate block text-left ${isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : isSelected ? 'text-white' : 'text-logic-text'}`}>
+                          <span className={`text-sm font-bold truncate block text-left ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : isSelected ? 'text-white' : 'text-logic-text'}`}>
                             {entry.name}
                           </span>
                           {audioStatus && <span className="ml-1">{audioStatus}</span>}
                           {song && (
-                            <span className={`text-2xs font-mono ml-auto flex-shrink-0 pl-1 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{formatTime(song.duration)}</span>
+                            <span className={`font-stage text-[12px] tabular-nums ml-auto flex-shrink-0 pl-1 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{formatTime(song.duration)}</span>
                           )}
                         </div>
                       )}
@@ -641,9 +653,10 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
       </div>
 
       {/* Footer */}
-      {!wide && <div className="flex items-center justify-between px-3 h-7 bg-logic-bg-deep border-t border-logic-border-dark text-2xs text-logic-text-muted">
-        <span>{playlist.length} música(s)</span>
-        <span>{blocks.length} bloco(s)</span>
+      {!wide && <div className="console-rail console-legend flex items-center justify-between gap-2 px-3 h-7 border-t border-black">
+        <span>{playlist.length} {playlist.length === 1 ? 'música' : 'músicas'}</span>
+        <span className="tabular-nums">Total {formatTime(totalShow)}</span>
+        <span>{blocks.length} {blocks.length === 1 ? 'bloco' : 'blocos'}</span>
       </div>}
 
       {/* Song context menu */}
@@ -789,8 +802,8 @@ function CurrentProgressBar() {
   }, []);
 
   return (
-    <div className="h-1 bg-[#0a1a0a]">
-      <div ref={barRef} className="h-full bg-logic-lcd-green will-change-[width]" style={{ width: '0%' }} />
+    <div className="led-bar h-1.5 text-logic-lcd-green">
+      <div ref={barRef} className="led-bar-fill will-change-[width]" style={{ width: '0%' }} />
     </div>
   );
 }
@@ -814,8 +827,8 @@ function NextCountdownBar() {
   }, []);
 
   return (
-    <div className="h-1 bg-[#1a1000] flex justify-end">
-      <div ref={barRef} className="h-full bg-logic-lcd-amber ml-auto will-change-[width]" style={{ width: '0%' }} />
+    <div className="led-bar h-1.5 text-logic-lcd-amber flex justify-end">
+      <div ref={barRef} className="led-bar-fill ml-auto will-change-[width]" style={{ width: '0%' }} />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, DownloadCloud, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import type { UpdateInfo } from '@/lib/localNetwork';
+import { confirmLeaveProject } from '@/lib/unsavedChanges';
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const MANUAL_TOAST_MS = 5000;
@@ -90,6 +91,8 @@ export default function UpdateBanner() {
   }
 
   const install = async () => {
+    // A atualização fecha e reabre o app: antes, salvar ou descartar o que não foi salvo.
+    if (!(await confirmLeaveProject())) return;
     setInstalling(true);
     setError(null);
     try {

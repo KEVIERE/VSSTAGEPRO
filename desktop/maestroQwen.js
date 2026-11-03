@@ -25,6 +25,8 @@ const HELPER = 'vs-maestro-voz';
 const QWEN_VOICES = [
   { id: 'qwen:feminina', name: 'Voz feminina (IA)', gender: 'feminina', ref: 'feminina' },
   { id: 'qwen:masculina', name: 'Voz masculina (IA)', gender: 'masculina', ref: 'masculina' },
+  // a voz do dono do projeto (gravada por ele, 02/11/2026): o motor copia o timbre e o sotaque dela
+  { id: 'qwen:cubas', name: 'Cubas (IA)', gender: 'masculina', ref: 'cubas' },
 ];
 
 /** Fala comum: se não couber na marcação, acelera até aqui. Nunca desacelera (sobra silêncio). */
@@ -50,10 +52,11 @@ const CACHE_MAX_FILES = 400;
 /** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
 const CACHE_VERSION = 6;
 
-/** A voz pedida: 'feminina'/'masculina' ou o id de uma voz de IA. */
+/** A voz pedida: 'feminina'/'masculina'/'cubas' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
   if (wanted === 'feminina') return QWEN_VOICES[0];
   if (wanted === 'masculina') return QWEN_VOICES[1];
+  if (wanted === 'cubas') return QWEN_VOICES[2];
   return QWEN_VOICES.find((v) => v.id === wanted) ?? null;
 }
 

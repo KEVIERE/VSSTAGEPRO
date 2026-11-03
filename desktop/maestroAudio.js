@@ -108,6 +108,8 @@ function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}
   let peak = 0;
   for (let i = 0; i < frames; i++) for (let c = 0; c < frameBytes; c += 2) peak = Math.max(peak, Math.abs(sample(i, c)));
   if (peak <= 0) return buf; // silêncio puro: devolve como veio
+  // Limiar do início (36 dB abaixo do pico): só o silêncio e o chiado de fundo do modelo ficam
+  // de fora. Voz fraca de verdade (o começo de um "m" ou de um "s") já passa deste nível.
   const THRESHOLD = Math.max(0.0015, peak * 0.015);
   const loud = (i) => {
     for (let c = 0; c < frameBytes; c += 2) if (Math.abs(sample(i, c)) > THRESHOLD) return true;
@@ -115,7 +117,9 @@ function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}
   };
   let first = 0;
   while (first < frames && !loud(first)) first++;
-  if (tightStart && first < frames) first = voiceOnset(first, frames, rate, (i) => sample(i, 0));
+  // Toda fala: começa onde a voz pega força de verdade. Antes, só o modo `tightStart` fazia isso,
+  // e a voz do Mac ficava com 20 a 30 ms de chiado fraco na frente — o "espaço" antes da palavra.
+  if (first < frames) first = voiceOnset(first, frames, rate, (i) => sample(i, 0));
   let last = frames - 1;
   while (last > first && !loud(last)) last--;
   if (dropTrailingBlips) last = withoutTrailingBlips(first, last, rate, peak, THRESHOLD, (i) => {
@@ -123,17 +127,12 @@ function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}
     for (let c = 0; c < frameBytes; c += 2) m = Math.max(m, Math.abs(sample(i, c)));
     return m;
   });
-  const from = Math.max(0, first - Math.round(0.002 * rate));
+  // ZERO de silêncio antes da voz: o clipe começa na própria amostra onde o som começa, para a
+  // fala cair exatamente na linha da grade (junto com o click). Nenhuma rampa para cima: a voz
+  // entra já no volume em que foi gerada ("vem forte no início").
+  const from = first;
   const to = Math.min(frames, last + 1 + Math.round(0.06 * rate));
   const body = Buffer.from(buf.subarray(start + from * frameBytes, start + to * frameBytes));
-  // entrada suave de 2 ms: cortar no meio de uma onda faz um estalo
-  const fade = Math.min(Math.round(0.002 * rate), to - from);
-  for (let i = 0; i < fade; i++) {
-    for (let c = 0; c < frameBytes; c += 2) {
-      const o = i * frameBytes + c;
-      body.writeInt16LE(Math.round(body.readInt16LE(o) * (i / fade)), o);
-    }
-  }
   return wavFile(body, { channels: frameBytes / 2, byteRate });
 }
 

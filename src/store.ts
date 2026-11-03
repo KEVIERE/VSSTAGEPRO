@@ -81,6 +81,8 @@ interface ProjectStateExt {
   saveTarget: SaveTarget | null;
   audioInterfaceConnected: boolean;
   saveStatus: { kind: 'saving' | 'saved' | 'error'; message: string } | null;
+  /** Como o projeto estava no último salvamento ou abertura (null: projeto novo, nunca salvo). */
+  savedSnapshot: ProjectSnapshot | null;
   snapStep: SnapStep;
   /** Trava da timeline (cadeado): impede mover ou cortar clipes acidentalmente */
   timelineLocked: boolean;
@@ -118,6 +120,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   sectionKeys: localStorage.getItem('sectionKeys') === '1',
   saveTarget: null,
   saveStatus: null,
+  savedSnapshot: null,
   snapStep: 'beat',
   timelineLocked: false,
   recordingMaestro: null,
@@ -328,6 +331,8 @@ interface StoreActions {
   applyLoadedProject: (manifest: Partial<ProjectState>, sources: Map<string, Blob>, target?: SaveTarget) => void;
   setSaveTarget: (target: SaveTarget | null) => void;
   setSaveStatus: (status: ProjectStateExt['saveStatus']) => void;
+  /** Marca o projeto como salvo, do jeito que estava em `from` (o estado que foi gravado no arquivo). */
+  markProjectSaved: (from?: Store) => void;
   setSnapStep: (step: SnapStep) => void;
 }
 
@@ -442,6 +447,43 @@ export function historyEqual(a: HistoryState, b: HistoryState): boolean {
     }
   }
   return true;
+}
+
+// Aviso de "alteração não salva": compara o projeto com o do último salvamento. Vale o que entra
+// no Desfazer, mais os mapas de letra (o produtor pode mandá-los pela rede).
+export type ProjectSnapshot = { history: HistoryState; lyricMaps: ProjectState['lyricMaps'] };
+
+export function projectSnapshot(state: Store): ProjectSnapshot {
+  return { history: partializeHistory(state), lyricMaps: state.lyricMaps };
+}
+
+// Medidor e pico de clip mudam sozinhos tocando; uma faixa de projeto antigo pode nem ter esses campos.
+function sameSavedTracks(a: Track[], b: Track[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((x, i) => {
+    const y = b[i];
+    if (x === y) return true;
+    for (const k of Object.keys(x) as Array<keyof Track>) {
+      if (!TRANSIENT_TRACK_KEYS.has(k) && x[k] !== y[k]) return false;
+    }
+    for (const k of Object.keys(y) as Array<keyof Track>) {
+      if (!(k in x) && !TRANSIENT_TRACK_KEYS.has(k) && y[k] !== undefined) return false;
+    }
+    return true;
+  });
+}
+
+export function hasUnsavedChanges(state: Store): boolean {
+  const saved = state.savedSnapshot;
+  // projeto novo, nunca salvo: só tem o que perder depois de entrar alguma música
+  if (!saved) return state.songs.length > 0 || state.clips.length > 0;
+  if (state.lyricMaps !== saved.lyricMaps) return true;
+  const now = partializeHistory(state);
+  for (const key of Object.keys(now) as Array<keyof HistoryState>) {
+    if (key === 'tracks' ? !sameSavedTracks(now.tracks, saved.history.tracks) : now[key] !== saved.history[key]) return true;
+  }
+  return false;
 }
 
 export const useStore = create<Store>()(
@@ -687,11 +729,13 @@ export const useStore = create<Store>()(
 
       setSaveTarget: (target) => set({ saveTarget: target }),
       setSaveStatus: (status) => set({ saveStatus: status }),
+      markProjectSaved: (from) => set({ savedSnapshot: projectSnapshot(from ?? get()) }),
       setSnapStep: (step) => set({ snapStep: step }),
 
       applyLoadedProject: (manifest, sources, target) => {
         get().loadProject(manifest);
-        set({ saveTarget: target ?? null });
+        // recém-aberto: igual ao arquivo, nada a salvar
+        set({ saveTarget: target ?? null, savedSnapshot: projectSnapshot(get()) });
         for (const c of get().clips) {
           const src = sources.get(c.id);
           if (src) registerClipSource(c.id, c.songId, src);

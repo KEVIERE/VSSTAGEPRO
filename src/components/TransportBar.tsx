@@ -9,6 +9,8 @@ import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { currentAndNextSlice, isMedley, paramsAt } from '@/lib/medley';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow } from '@/types';
+import SegmentDisplay from '@/components/SegmentDisplay';
+import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
   'continuo': 'Contínuo',
@@ -61,6 +63,21 @@ function KeyBadge({ songId, tuner }: { songId: string | null | undefined; tuner:
     >
       {label || '--'}
     </button>
+  );
+}
+
+function RemainingClock({ warn }: { warn: boolean }) {
+  const left = useSongRemaining();
+  if (left === null) return null;
+  // em janela estreita o nome da música tem prioridade: o contador só aparece de 1024 px para cima
+  return (
+    <span className="hidden lg:inline-flex shrink-0">
+      <SegmentDisplay
+        text={`-${clockText(left)}`}
+        label={`Faltam ${clockText(left)}`}
+        className={`h-[17px] ${warn ? 'text-logic-lcd-red animate-pulse' : 'text-logic-lcd-green'}`}
+      />
+    </span>
   );
 }
 
@@ -174,14 +191,12 @@ export default function TransportBar() {
   const finalCountdown = transport.isPlaying && secondsLeft <= 10 ? Math.ceil(secondsLeft) : null;
 
   const toggleClass = (active: boolean) =>
-    `w-8 h-8 rounded border flex items-center justify-center transition-all duration-150 ${
-      active
-        ? 'bg-logic-lcd-amber/15 border-logic-lcd-amber/70 text-logic-lcd-amber'
-        : 'bg-logic-bg-elevated border-logic-border-light text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-panel-light'
+    `console-key w-8 h-8 flex items-center justify-center ${
+      active ? '!text-logic-lcd-amber console-glow !bg-[#3a3326]' : ''
     }`;
 
   return (
-    <div className="relative flex items-center gap-2 px-3 h-[68px] py-2 bg-logic-bg-panel border-b border-logic-border-dark">
+    <div className="console-face relative flex items-center gap-2 px-3 h-[68px] py-2 border-b border-black">
       {playbackError && (
         <div
           role="alert"
@@ -235,7 +250,7 @@ export default function TransportBar() {
         <span className="text-2xs text-logic-text-muted uppercase tracking-wider">Fluxo</span>
         <ArrowRight size={11} className="text-logic-text-muted" />
         <button
-          className="px-2 py-1.5 text-xs font-medium bg-logic-bg-elevated border border-logic-border-light rounded hover:bg-logic-bg-panel-light transition-colors duration-100 w-24 lg:w-28 text-center shrink-0"
+          className="console-key h-8 px-2 text-[13px] !text-logic-text w-24 lg:w-28 text-center shrink-0"
           onClick={cyclePlayFlow}
           title="Alternar fluxo de reprodução"
         >
@@ -263,7 +278,7 @@ export default function TransportBar() {
             </span>
           </div>
           <div className="flex items-center gap-2 h-5 min-w-0">
-            <span className="flex-1 min-w-0 block text-[15px] leading-5 font-medium truncate" style={{ color: transport.isPlaying ? '#30d158' : transport.isPaused ? '#ff9f0a' : '#555' }}>
+            <span className="console-glow flex-1 min-w-0 block text-[15px] leading-5 font-medium truncate" style={{ color: transport.isPlaying ? '#3ee26e' : transport.isPaused ? '#ffab1f' : '#4a4d50' }}>
               {showCurrent && currentSong ? (
                 slice ? (
                   <>
@@ -274,9 +289,12 @@ export default function TransportBar() {
                 ) : currentSong.name
               ) : '---'}
             </span>
+            {/* Contador de 7 segmentos com o que falta da música; nos últimos 10 s fica vermelho e pisca */}
+            {showCurrent && <RemainingClock warn={finalCountdown !== null} />}
+            {/* em janela estreita (sem o contador) o aviso dos últimos segundos aparece escrito */}
             {finalCountdown !== null && (
               <span
-                className="shrink-0 px-1.5 h-4 rounded bg-logic-lcd-red/15 border border-logic-lcd-red/50 text-2xs leading-[14px] font-semibold uppercase tracking-wider text-logic-lcd-red tabular-nums animate-pulse"
+                className="shrink-0 px-1.5 h-4 rounded bg-logic-lcd-red/15 border border-logic-lcd-red/50 text-2xs leading-[14px] font-semibold uppercase tracking-wider text-logic-lcd-red tabular-nums animate-pulse lg:sr-only"
                 role="timer"
                 aria-live="polite"
               >
@@ -299,7 +317,7 @@ export default function TransportBar() {
               {hasNextSong && !nextIsMedleySlice && nextSong && <KeyBadge songId={nextSong.id} tuner={nextSong.tuner ?? 0} />}
             </span>
           </div>
-          <span className="block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ff9f0a' : '#555' }}>
+          <span className="console-glow block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ffab1f' : '#4a4d50' }}>
             {nextDisplayName}
           </span>
           <TransportNextBar />

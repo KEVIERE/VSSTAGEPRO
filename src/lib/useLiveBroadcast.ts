@@ -56,7 +56,8 @@ export function snapshot(onAir: boolean, withSetlist: boolean) {
   const countdown = exact && song && t.nextSongId ? Math.max(0, song.duration - currentTime) : t.nextSongCountdown;
   const name = activeShowName(st);
   const slices = t.isPlaying || t.isPaused ? currentAndNextSlice(song ?? undefined, currentTime) : { current: null, next: null };
-  const bpmAdjust = song ? paramsAt(song, currentTime).bpmAdjust : 0;
+  const params = song ? paramsAt(song, currentTime) : null;
+  const bpmAdjust = params?.bpmAdjust ?? 0;
   return {
     name,
     // Um projeto vazio (aba nova ainda carregando) nunca apaga o repertório já enviado.
@@ -66,6 +67,7 @@ export function snapshot(onAir: boolean, withSetlist: boolean) {
       t.currentSongId, t.nextSongId, song ? effectiveBpm(song.bpm, song.bpmDetected, bpmAdjust) : null,
       t.playFlow, onAir, slices.current?.name ?? null, slices.next?.name ?? null,
       slices.current?.id ?? null, slices.next?.id ?? null,
+      params ? params.tuner : null,
     ),
   };
 }

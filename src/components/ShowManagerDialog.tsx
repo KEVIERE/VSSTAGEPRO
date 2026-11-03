@@ -3,8 +3,9 @@ import { X, Copy, RefreshCw, Trash2, Plus, Users, Share2, Radio, Square, AlertTr
 import {
   createShow, directorListMusicians,
   directorAddMusician, directorRegenerateCode, directorRemoveMusician,
-  directorInvite, directorResetInvite, directorSetCodeLogin, directorSetStatus,
+  directorInvite, directorResetInvite, directorSetCodeLogin, directorSetStatus, directorMusicianAvatars,
 } from '@/lib/musicianApi';
+import { Avatar } from '@/components/musician/MusicianAvatar';
 import type { DirectorMusician, ShowInvite } from '@/lib/musicianTypes';
 import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
 import { publicLink, usePublicAddress } from '@/lib/publicUrl';
@@ -86,6 +87,18 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
       return () => { if (pollRef.current) clearInterval(pollRef.current); };
     }
   }, [open, show, refreshMusicians]);
+
+  // fotos dos músicos: lidas ao abrir e quando entra ou sai alguém, nunca a cada consulta da lista
+  const [avatars, setAvatars] = useState<Record<string, string>>({});
+  const idsKey = musicians.map((m) => m.id).sort().join(',');
+  useEffect(() => {
+    if (!open || !show || !idsKey) return;
+    let alive = true;
+    directorMusicianAvatars(show.showId, show.directorKey)
+      .then((a) => { if (alive) setAvatars(a); })
+      .catch(() => { /* sem fotos: mostra as iniciais */ });
+    return () => { alive = false; };
+  }, [open, show, idsKey]);
 
   useEffect(() => {
     if (!open) return;
@@ -185,13 +198,13 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
   };
 
   const accessMessage = (code: string, name: string) =>
-    `Olá ${name}! Área do Músico – ${showName}\n\n${musicianLink()}\n\nSenha: ${formatCode(code)}`;
+    `Olá ${name}! Área do Músico – ${showName}\n\n${musicianLink()}\n\nCódigo pessoal: ${formatCode(code)}`;
 
   const handleWhatsApp = (code: string, name: string) => {
     const msg = encodeURIComponent(
       `Olá ${name}! Acesso ao show ${showName}\n\n` +
       `*Link de acesso Área do Músico:*\n${musicianLink()}\n\n` +
-      `*Senha:* ${formatCode(code)}`
+      `*Código pessoal:* ${formatCode(code)}`
     );
     window.open(`https://wa.me/?text=${msg}`, '_blank');
   };
@@ -342,7 +355,11 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                     <span className="text-sm font-semibold text-logic-text">Convite da banda</span>
                   </div>
                   <p className="text-xs text-logic-text-dim leading-relaxed">
-                    Mande este link para a banda. Cada músico cria a própria conta e pede para entrar; você aprova uma única vez.
+                    Mande este link para a banda. Cada músico cria a própria conta e pede para entrar: o pedido aparece aqui e você aceita ou recusa uma única vez. Depois ele entra direto com o login.
+                  </p>
+                  <p className="text-xs text-logic-text-dim">
+                    Quem já tem conta também pode digitar o código do convite na Área do Músico:{' '}
+                    <span className="font-mono font-semibold tracking-wider text-logic-lcd-amber">{formatCode(invite.invite_code)}</span>
                   </p>
                   <div className="flex items-center gap-2">
                     <span className="flex-1 min-w-0 truncate text-xs font-mono text-logic-lcd-amber bg-logic-bg-panel px-2.5 py-1.5 rounded border border-logic-border-dark">
@@ -392,7 +409,8 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                     Pedidos pendentes ({pending.length})
                   </p>
                   {pending.map((m) => (
-                    <div key={m.id} className="flex items-center gap-2 px-3 py-2 rounded bg-logic-bg-deep border border-logic-border-dark">
+                    <div key={m.id} className="flex items-center gap-2.5 px-3 py-2 rounded bg-logic-bg-deep border border-logic-border-dark">
+                      <Avatar src={avatars[m.id]} name={m.name} size={34} />
                       <div className="flex-1 min-w-0">
                         <span className="text-sm font-medium text-logic-text truncate">{m.name}</span>
                         {m.instrument && <span className="text-2xs text-logic-text-muted ml-2">{m.instrument}</span>}
@@ -417,7 +435,29 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                 </div>
               )}
 
-              {/* adicionar músico */}
+              {/* código pessoal: músico sem conta entra com um código gerado aqui */}
+              <div className="pt-1">
+                <div className="flex items-center gap-2">
+                  <KeyRound size={15} className="text-logic-lcd-amber" />
+                  <span className="text-sm font-semibold text-logic-text">Código pessoal</span>
+                </div>
+                <p className="text-xs text-logic-text-dim mt-1 leading-relaxed">
+                  Para músico sem conta: escreva o nome e clique em Gerar código. Ele abre a Área do Músico e digita o código em "Tenho um código pessoal do diretor".
+                </p>
+                {invite && !invite.allow_code_login && (
+                  <div className="flex items-center gap-2 mt-2 px-3 py-2 rounded border border-logic-lcd-amber/40 bg-logic-lcd-amber/10">
+                    <AlertTriangle size={13} className="shrink-0 text-logic-lcd-amber" />
+                    <span className="flex-1 text-xs text-logic-lcd-amber">A entrada com código pessoal está desligada. Os códigos não funcionam até você ligar.</span>
+                    <button
+                      className="px-2 h-6 rounded bg-logic-lcd-amber text-black text-2xs font-semibold hover:brightness-110 transition disabled:opacity-50"
+                      onClick={() => handleCodeLogin(true)}
+                      disabled={busy}
+                    >
+                      Ligar
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-2xs text-logic-text-muted uppercase tracking-wider">Nome do músico</label>
@@ -444,7 +484,7 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                   onClick={handleAddMusician}
                   disabled={busy || !newName.trim()}
                 >
-                  <Plus size={14} /> Adicionar
+                  <Plus size={14} /> Gerar código
                 </button>
               </div>
 
@@ -452,14 +492,15 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
               <div className="space-y-1.5">
                 {members.length === 0 && (
                   <p className="text-xs text-logic-text-muted text-center py-4">
-                    Nenhum músico no show ainda.
+                    Nenhum músico no show ainda. Gere um código acima ou mande o convite da banda.
                   </p>
                 )}
                 {members.map((m) => (
                   <div
                     key={m.id}
-                    className={`flex items-center gap-2 px-3 py-2 rounded bg-logic-bg-deep border ${m.status === 'blocked' ? 'border-logic-lcd-red/40 opacity-70' : 'border-logic-border-dark'}`}
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded bg-logic-bg-deep border ${m.status === 'blocked' ? 'border-logic-lcd-red/40 opacity-70' : 'border-logic-border-dark'}`}
                   >
+                    <Avatar src={avatars[m.id]} name={m.name} size={34} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${m.online ? 'bg-logic-lcd-green' : 'bg-logic-text-muted'}`} />
@@ -474,7 +515,7 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                         ) : m.has_account ? (
                           <span className="text-2xs text-logic-accent flex items-center gap-1"><UserCheck size={11} /> Conta aprovada</span>
                         ) : (
-                          <span className="text-sm font-mono font-semibold tracking-wider text-logic-lcd-amber">Senha: {formatCode(m.code)}</span>
+                          <span className="text-sm font-mono font-semibold tracking-wider text-logic-lcd-amber">Código: {formatCode(m.code)}</span>
                         )}
                       </div>
                     </div>
@@ -483,16 +524,16 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                         <button
                           className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-panel-light transition-colors"
                           onClick={() => handleCopy(accessMessage(m.code, m.name), `${m.id}-link`)}
-                          title="Copiar mensagem com o link e a senha escrita"
+                          title="Copiar mensagem com o link e o código pessoal"
                         >
-                          <Copy size={13} /> {copiedId === `${m.id}-link` ? <span className="text-logic-lcd-green">Copiado!</span> : 'Link + senha'}
+                          <Copy size={13} /> {copiedId === `${m.id}-link` ? <span className="text-logic-lcd-green">Copiado!</span> : 'Link + código'}
                         </button>
                         <button
                           className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-panel-light transition-colors"
                           onClick={() => handleCopy(formatCode(m.code), m.id)}
-                          title="Copiar senha"
+                          title="Copiar código pessoal"
                         >
-                          <KeyRound size={13} /> {copiedId === m.id ? <span className="text-logic-lcd-green">Copiado!</span> : 'Senha'}
+                          <KeyRound size={13} /> {copiedId === m.id ? <span className="text-logic-lcd-green">Copiado!</span> : 'Código'}
                         </button>
                         <button
                           className="p-1.5 rounded text-logic-text-muted hover:text-logic-lcd-green hover:bg-logic-bg-panel-light transition-colors"
@@ -507,9 +548,9 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                               className="px-2 py-1 rounded bg-logic-lcd-amber text-black text-2xs font-medium disabled:opacity-50"
                               onClick={() => { setConfirmRegen(null); handleRegenerate(m.id); }}
                               disabled={busy}
-                              title="A senha atual para de funcionar"
+                              title="O código atual para de funcionar"
                             >
-                              Trocar senha
+                              Trocar código
                             </button>
                             <button className="px-1.5 py-1 rounded text-2xs text-logic-text-muted hover:text-logic-text" onClick={() => setConfirmRegen(null)}>
                               Não
@@ -519,7 +560,7 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                           <button
                             className="p-1.5 rounded text-logic-text-muted hover:text-logic-lcd-amber hover:bg-logic-bg-panel-light transition-colors"
                             onClick={() => setConfirmRegen(m.id)}
-                            title="Trocar senha"
+                            title="Trocar código"
                           >
                             <RefreshCw size={14} />
                           </button>
