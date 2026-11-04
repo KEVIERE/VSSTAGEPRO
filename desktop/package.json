@@ -33,6 +33,9 @@
     "files": [
       "*.js",
       "splash.html",
+      "build/fonts/BarlowSemiCondensed-SemiBold.ttf",
+      "build/fonts/BarlowSemiCondensed-Bold.ttf",
+      "build/fonts/Outfit-SemiBold.ttf",
       "package.json",
       "maestro-voice-model.json",
       "drumPieceSeparator.py"
