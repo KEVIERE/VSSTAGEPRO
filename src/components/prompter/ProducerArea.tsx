@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Clapperboard, MonitorPlay, Megaphone, FileText, LogOut, WifiOff, Loader2 } from 'lucide-react';
+import { Clapperboard, MonitorPlay, Megaphone, FileText, LogOut, WifiOff, Loader2, Check, CloudOff, RefreshCw } from 'lucide-react';
 import PrompterAccess, { feedErrorText } from '@/components/prompter/PrompterAccess';
 import ScreenControlPanel from '@/components/prompter/ScreenControlPanel';
 import NoticeControl from '@/components/prompter/NoticeControl';
@@ -21,6 +21,15 @@ const TABS: { id: Tab; label: string; icon: typeof MonitorPlay }[] = [
   { id: 'notices', label: 'Avisos', icon: Megaphone },
   { id: 'lyrics', label: 'Letras', icon: FileText },
 ];
+
+/** "há 3 s", "agora" — o painel mostra quando o último envio chegou ao servidor. */
+function ago(ms: number, now: number): string {
+  const s = Math.max(0, Math.round((now - ms) / 1000));
+  if (s < 3) return 'agora';
+  if (s < 60) return `há ${s} s`;
+  const m = Math.round(s / 60);
+  return m === 1 ? 'há 1 min' : `há ${m} min`;
+}
 
 export default function ProducerArea() {
   const [code, setCode] = useState<string | null>(() => sessionStorage.getItem(PRODUCER_SS));
@@ -70,11 +79,14 @@ export default function ProducerArea() {
   const snap = feed.snap;
   const state = ctl.state;
   const problem = ctl.error ?? (feed.error === 'offline' ? 'Sem conexão' : null);
+  // Aviso já vencido (ou tirado) não é mais "no ar": a barra não pode dizer que está na TV.
+  const n = state.notice;
+  const live = n && (n.durationSec <= 0 || feed.now - n.sentAt < n.durationSec * 1000) ? n : null;
 
   return (
     <div className="h-screen flex flex-col bg-logic-bg-deep text-logic-text">
       <header className="console-rail shrink-0 z-30 border-b-2 border-black">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-4 h-14 flex items-center gap-3">
           <div className="w-8 h-8 rounded bg-black/40 border border-black text-logic-lcd-amber flex items-center justify-center flex-shrink-0 shadow-inner">
             <Clapperboard size={17} />
           </div>
@@ -91,7 +103,7 @@ export default function ProducerArea() {
                 className={`console-key flex items-center gap-1.5 px-3.5 h-8 text-[12px] ${tab === id ? 'is-lit-amber' : ''}`}
               >
                 <Icon size={14} /> {label}
-                {id === 'notices' && state.notice && <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber" />}
+                {id === 'notices' && live && <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber" />}
               </button>
             ))}
           </nav>
@@ -106,8 +118,38 @@ export default function ProducerArea() {
         </div>
       </header>
 
+      {/* Barra de estado do envio: o painel antes parecia funcionar mesmo quando o servidor
+          recusava a gravação. Agora o que está na TV é o que aparece aqui. */}
+      <div className="shrink-0 border-b border-black/60 bg-black/30">
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-4 h-9 flex items-center gap-3 text-xs">
+          {ctl.error ? (
+            <>
+              <span className="flex items-center gap-1.5 text-logic-lcd-red min-w-0 truncate" title={ctl.error}>
+                <CloudOff size={13} className="flex-shrink-0" /> <span className="truncate">{ctl.error}</span>
+              </span>
+              <button onClick={() => void ctl.resync()} className="console-key ml-auto flex items-center gap-1.5 px-2.5 h-6 text-[11px]">
+                <RefreshCw size={11} /> Recarregar
+              </button>
+            </>
+          ) : ctl.saving ? (
+            <span className="flex items-center gap-1.5 text-logic-text-dim"><Loader2 size={12} className="animate-spin" /> Enviando para a TV...</span>
+          ) : ctl.savedAt ? (
+            <span className="flex items-center gap-1.5 text-logic-lcd-green"><Check size={13} /> Na TV · enviado {ago(ctl.savedAt, feed.now)}</span>
+          ) : (
+            <span className="text-logic-text-muted">Tudo o que você muda aqui vai ao vivo para a TV do palco.</span>
+          )}
+          {live && !ctl.error && (
+            <span className="ml-auto flex items-center gap-1.5 min-w-0 text-logic-text-dim">
+              <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber animate-pulse flex-shrink-0" />
+              <span className="hidden sm:inline">No ar:</span>
+              <span className="truncate max-w-[40ch] text-logic-text">{live.text}</span>
+            </span>
+          )}
+        </div>
+      </div>
+
       <main className="flex-1 min-h-0 overflow-y-auto logic-scroll">
-        <div className="max-w-7xl mx-auto px-4 py-4 pb-24 sm:pb-6">
+        <div className={`mx-auto px-3 sm:px-4 py-4 pb-24 sm:pb-6 ${tab === 'notices' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
         {tab === 'screen' && <ScreenControlPanel code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} logoUrl={logoUrl} onManageNotices={() => setTab('notices')} />}
         {tab === 'notices' && <NoticeControl state={state} update={ctl.update} songs={snap.show.setlist.songs} now={feed.now} />}
         {tab === 'lyrics' && <LyricsEditor code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} />}
@@ -126,7 +168,7 @@ export default function ProducerArea() {
           >
             <Icon size={20} />
             {label}
-            {id === 'notices' && state.notice && <span className="absolute top-2 right-[calc(50%-16px)] w-2 h-2 rounded-full bg-logic-lcd-amber" />}
+            {id === 'notices' && live && <span className="absolute top-2 right-[calc(50%-16px)] w-2 h-2 rounded-full bg-logic-lcd-amber" />}
           </button>
         ))}
       </nav>
