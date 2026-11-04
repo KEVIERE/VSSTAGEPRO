@@ -558,15 +558,35 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
   content: ''; position: absolute; left: 5%; right: 5%; bottom: -6%; height: 40%; z-index: 0; pointer-events: none;
   background: radial-gradient(50% 50% at 50% 50%, rgba(62, 226, 110, 0.14), rgba(255, 171, 31, 0.08) 45%, transparent 75%); filter: blur(40px);
 }
-.vs-dev { position: absolute; will-change: translate; }
-.vs-dev > * { will-change: transform; }
-.vs-dev-imac { z-index: 1; left: 21%; top: 0; width: 58%; translate: 0 calc((1 - var(--sp, 0.3)) * 7%); }
-.vs-dev-mbook { z-index: 3; left: 0; bottom: 1%; width: 47%; translate: calc((1 - var(--sp, 0.3)) * -16%) calc((1 - var(--sp, 0.3)) * 10%); }
-.vs-dev-tab { z-index: 2; right: 0; bottom: 5%; width: 31%; translate: calc((1 - var(--sp, 0.3)) * 16%) calc((1 - var(--sp, 0.3)) * 10%); }
-.vs-dev-phone { z-index: 4; right: 28.5%; bottom: 0; width: 11.5%; translate: 0 calc((1 - var(--sp, 0.3)) * 26%); }
-.vs-devices .vs-dev > * { opacity: 0; transform: translateY(60px); }
-.is-on .vs-devices .vs-dev > * { animation: vsDevIn 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; animation-delay: var(--dd, 0ms); }
-@keyframes vsDevIn { to { opacity: 1; transform: none; } }
+.vs-dev { position: absolute; will-change: transform; }
+/* Entrada: cada aparelho sobe com um scale leve, sem "pular" na tela. A curva é longa no fim
+   (ease-out forte) para o movimento parar macio em vez de bater no lugar. */
+.vs-dev > * {
+  will-change: transform, opacity;
+  opacity: 0;
+  transform: translate3d(0, 34px, 0) scale(0.965);
+}
+.is-on .vs-devices .vs-dev > * {
+  animation: vsDevIn 1.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation-delay: var(--dd, 0ms);
+}
+@keyframes vsDevIn {
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+
+/* Parallax: os aparelhos têm profundidades diferentes, então se movem distâncias diferentes.
+   As medidas originais (7%, 10%, 26%) criavam um salto de até 175px entre o primeiro e o
+   último. Aqui a diferença é de ~28px, com uma curva que suaviza o começo e o fim do gesto. */
+.vs-dev-imac { z-index: 1; left: 21%; top: 0; width: 58%; --depth: 3%; }
+.vs-dev-mbook { z-index: 3; left: 0; bottom: 1%; width: 47%; --depth: 8%; --depth-x: -4%; }
+.vs-dev-tab { z-index: 2; right: 0; bottom: 5%; width: 31%; --depth: 6%; --depth-x: 4%; }
+.vs-dev-phone { z-index: 4; right: 28.5%; bottom: 0; width: 11.5%; --depth: 10%; }
+.vs-dev-imac, .vs-dev-mbook, .vs-dev-tab, .vs-dev-phone {
+  translate: calc((1 - var(--sp, 0.3)) * var(--depth-x, 0%)) calc((1 - var(--sp, 0.3)) * var(--depth, 0%));
+  /* Amortece o passo da rolagem sem ficar borrachudo: 0,18s alcanca o alvo antes do proximo quadro
+     perceptivel, mas arredonda os saltos de quem rola com o trackpad. */
+  transition: translate 0.18s linear;
+}
 @media (max-width: 640px) {
   .vs-devices { width: 150%; margin-left: -25%; }
 }
@@ -668,7 +688,8 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
   .vs-rise { opacity: 1; transform: none; }
   .vs-beams { opacity: 1; }
   .vs-grow { transform: none !important; }
-  .vs-phone-a, .vs-dev, .vs-console-inner { translate: none !important; }
+  .vs-phone-a, .vs-dev, .vs-console-inner,
+  .vs-dev-imac, .vs-dev-mbook, .vs-dev-tab, .vs-dev-phone { translate: none !important; }
   .vs-console-inner { width: 100% !important; }
   .vs-phone-b { translate: 0 4rem !important; }
   .vs-devices .vs-dev > * { opacity: 1; transform: none; }
