@@ -166,13 +166,15 @@ function SongDisplay({ label, name, color, song, live, playing, progress, time, 
           <Readout label="BPM" value={m.bpm} color={LCD_TEXT} />
         </span>
       </div>
-      <div className="flex items-center gap-[1cqw] min-w-0">
+      <div className="flex items-center gap-[0.6cqw] min-w-0">
         <div className="flex-1 min-w-0">
-          <p className="console-glow font-semibold truncate" style={{ fontFamily: BARLOW, fontSize: '3.7cqh', lineHeight: 1.1, color: on ? color : '#6f6c66' }}>{name}</p>
+          <p className="console-glow font-semibold truncate" style={{ fontFamily: BARLOW, fontSize: '3.9cqh', lineHeight: 1.1, color: on ? color : '#6f6c66' }}>{name}</p>
           {medley && <p className="truncate" style={{ fontSize: '1.4cqh', color: LEGEND }}>{medley}</p>}
         </div>
+        {/* Cronômetro discreto de propósito: o nome da música é o que o músico precisa ler de longe.
+            Fica em 1.5cqh, menor que o Tom/BPM, para nunca empurrar o nome para as reticências. */}
         {time && (
-          <span className="flex flex-shrink-0" style={{ height: '3.4cqh', color }}>
+          <span className="flex flex-shrink-0 items-center" style={{ height: '1.5cqh', maxWidth: '9cqw', color, opacity: 0.7 }}>
             <SegmentDisplay text={time} className="h-full" label={`Faltam ${time.replace('-', '')}`} />
           </span>
         )}
