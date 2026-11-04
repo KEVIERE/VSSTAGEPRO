@@ -72,6 +72,32 @@ async function listFiles(showId: string) {
   return [...bySong.values()];
 }
 
+// Todos os arquivos de uma pasta, sem juntar por música: a limpeza precisa ver o que sobrou de
+// verdade (um WAV antigo que o listFiles esconde continua ocupando espaço).
+async function listAll(bucket: string, showId: string) {
+  const { data, error } = await admin.storage.from(bucket).list(showId, { limit: 1000 });
+  if (error) throw error;
+  return (data ?? [])
+    .filter((f) => f.id !== null && f.name && !f.name.endsWith("/"))
+    .map((f) => ({ path: `${showId}/${f.name}`, size: (f.metadata as { size?: number } | null)?.size ?? 0 }));
+}
+
+// Apaga a pasta do show nos dois buckets e devolve quanto saiu. Usado pela confirmação do
+// diretor (só o áudio) e pela remoção do show (áudio + logo).
+async function removeShowFiles(showId: string, buckets: string[]) {
+  let removed = 0;
+  let bytes = 0;
+  for (const bucket of buckets) {
+    const files = await listAll(bucket, showId);
+    if (files.length === 0) continue;
+    const { error } = await admin.storage.from(bucket).remove(files.map((f) => f.path));
+    if (error) throw error;
+    removed += files.length;
+    bytes += files.reduce((sum, f) => sum + f.size, 0);
+  }
+  return { removed, bytes };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 200, headers: corsHeaders });
   try {
@@ -112,6 +138,21 @@ Deno.serve(async (req: Request) => {
       const showId = await showForCode(body.code, true);
       if (!showId) return json({ error: "invalid_code" }, 403);
       return json(await logoInfo(showId));
+    }
+
+    // O diretor confirma que as letras estão prontas: o áudio de referência já cumpriu o papel
+    // e sai do storage. As letras ficam; a pasta do show é que fica vazia.
+    if (body.action === "clear") {
+      if (!(await directorOk(body.show, body.key))) return json({ error: "forbidden" }, 403);
+      const res = await removeShowFiles(body.show as string, [BUCKET]);
+      return json(res);
+    }
+
+    // Show apagado: some tudo o que era dele nos dois buckets.
+    if (body.action === "delete_show") {
+      if (!(await directorOk(body.show, body.key))) return json({ error: "forbidden" }, 403);
+      const res = await removeShowFiles(body.show as string, [BUCKET, LOGO_BUCKET]);
+      return json(res);
     }
 
     if (body.action === "list") {

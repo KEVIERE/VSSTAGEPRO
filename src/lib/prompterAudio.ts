@@ -59,6 +59,19 @@ export async function uploadSongReference(showId: string, directorKey: string, s
   if (error) throw new Error('upload_failed');
 }
 
+export interface ClearedAudio { removed: number; bytes: number }
+
+// O diretor confirma que as letras ficaram prontas: o áudio de referência do show sai do storage
+// (as letras ficam). Usado pelo botão "Confirmar" do aviso no programa.
+export async function clearShowAudio(showId: string, directorKey: string): Promise<ClearedAudio> {
+  return callPrompterFn<ClearedAudio>({ action: 'clear', show: showId, key: directorKey });
+}
+
+// O show foi apagado: some também o que estava no storage dele (áudio e logo).
+export async function deleteShowReferences(showId: string, directorKey: string): Promise<ClearedAudio> {
+  return callPrompterFn<ClearedAudio>({ action: 'delete_show', show: showId, key: directorKey });
+}
+
 export async function directorReferenceStatus(showId: string, directorKey: string): Promise<Map<string, string | null>> {
   const res = await callPrompterFn<{ files: { songId: string; updatedAt: string | null }[] }>({ action: 'status', show: showId, key: directorKey });
   return new Map((Array.isArray(res.files) ? res.files : []).map((f) => [f.songId, f.updatedAt]));

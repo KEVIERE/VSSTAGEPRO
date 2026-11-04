@@ -56,6 +56,7 @@ import { usePendingRequests } from '@/lib/usePendingRequests';
 import JoinRequestsBanner from '@/components/JoinRequestsBanner';
 import StemSplitStatus from '@/components/StemSplitStatus';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
+import { clearShowAudio } from '@/lib/prompterAudio';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
 import { startSongKeyWatcher } from '@/lib/songKeyWatcher';
@@ -284,6 +285,10 @@ function DirectorApp({ license }: { license: License }) {
   const [prompterOpen, setPrompterOpen] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);
   const [aiSeparatorOpen, setAiSeparatorOpen] = useState(false);
+  // Confirmação das letras: guarda quantos bytes o áudio de referência liberou, para a barra
+  // mostrar o resultado e depois sumir.
+  const [audioFreed, setAudioFreed] = useState<number | null>(null);
+  const formatMb = (bytes: number) => `${(bytes / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
   const broadcast = useLiveBroadcast();
   const local = useLocalBroadcast();
   const joinRequests = usePendingRequests(broadcast.show);
@@ -732,19 +737,39 @@ function DirectorApp({ license }: { license: License }) {
         {(lyricsSync.received || local.lyricsReceived !== null) && (() => {
           const songs = lyricsSync.received?.songs ?? local.lyricsReceived ?? 0;
           const dismiss = () => { lyricsSync.dismiss(); local.dismissLyrics(); };
+          // O diretor confirma que as letras ficaram prontas: guarda o projeto e o áudio de
+          // referência sai do storage (o produtor deixa de vê-lo na aba Letras).
+          const confirm = async () => {
+            saveCurrentProject();
+            const show = broadcast.show;
+            if (show) {
+              const res = await clearShowAudio(show.showId, show.directorKey).catch(() => null);
+              if (res) setAudioFreed(res.bytes);
+            }
+            lyricsSync.confirm();
+            local.dismissLyrics();
+          };
           return (
-          <div className="flex items-center gap-3 px-3 h-8 bg-logic-lcd-green/10 border-b border-logic-lcd-green/30 text-xs text-logic-lcd-green animate-[fadeIn_200ms_ease-out]">
+          <div className={`flex items-center gap-3 px-3 h-8 border-b text-xs animate-[fadeIn_200ms_ease-out] ${
+            audioFreed !== null
+              ? 'bg-logic-lcd-green/10 border-logic-lcd-green/30 text-logic-lcd-green'
+              : 'bg-logic-lcd-amber/10 border-logic-lcd-amber/40 text-logic-lcd-amber'
+          }`}>
             <FileText size={13} />
             <span className="flex-1 truncate">
-              O produtor enviou os mapas de letra ({songs} {songs === 1 ? 'música' : 'músicas'}). Eles já estão no projeto: salve para guardá-los no arquivo.
+              {audioFreed !== null
+                ? `Confirmado — ${formatMb(audioFreed)} liberados. O áudio de referência saiu da área do produtor.`
+                : `O produtor concluiu as letras (${songs} ${songs === 1 ? 'música' : 'músicas'}). Confirme para liberar o áudio de referência.`}
             </span>
-            <button
-              className="px-2 h-6 rounded bg-logic-lcd-green text-black font-semibold hover:brightness-110 transition"
-              onClick={() => { dismiss(); saveCurrentProject(); }}
-            >
-              Salvar projeto
-            </button>
-            <button className="p-1 rounded hover:bg-white/10 transition" onClick={dismiss} aria-label="Fechar aviso">
+            {audioFreed === null && (
+              <button
+                className="px-2 h-6 rounded bg-logic-lcd-amber text-black font-semibold hover:brightness-110 transition"
+                onClick={confirm}
+              >
+                Confirmar
+              </button>
+            )}
+            <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => { dismiss(); setAudioFreed(null); }} aria-label="Fechar aviso">
               <X size={12} />
             </button>
           </div>
