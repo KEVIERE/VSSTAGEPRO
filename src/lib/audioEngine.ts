@@ -538,9 +538,12 @@ class AudioEngine {
       this.masterPreAnalyser.fftSize = METER_FFT;
       this.masterGain.connect(this.masterPreAnalyser);
       this.limiterSplit = false;
+      this.masterLimitOut = this.ctx.createGain();
       this.masterGain.connect(this.masterLimiter);
-      this.masterLimiter.connect(this.masterAnalyser);
+      this.masterLimiter.connect(this.masterLimitOut);
       this.applyLimiterMode();
+      this.masterAntiClipSplit = null;
+      this.applyMasterAntiClip();
       this.configureOutputs();
       // o limitador do anti-clip já fica carregado: ligar o botão age na hora
       loadPeakLimiter(this.ctx).catch((err) => console.warn('[anti-clip] limitador indisponível', err));
@@ -588,6 +591,10 @@ class AudioEngine {
     this.masterLimiterR = null;
     this.limiterNodes = [];
     this.limiterSplit = false;
+    this.masterLimitOut = null;
+    this.masterAntiClip = [];
+    this.masterAntiClipNodes = [];
+    this.masterAntiClipSplit = null;
     await old.close().catch(() => { /* já fechado */ });
     await this.prewarm().catch(() => { /* reabre no próximo play */ });
     return true;
@@ -1726,6 +1733,7 @@ class AudioEngine {
         this.channels.forEach((_, id) => this.routeChannel(id));
         this.applyLimiterMode();
       }
+      if (s.magicRoutingActive !== prev.magicRoutingActive || s.masterAntiClip !== prev.masterAntiClip) this.applyMasterAntiClip();
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();
       if (s.tracks !== prev.tracks) this.channels.forEach((_, id) => this.routeChannel(id));
@@ -2363,7 +2371,7 @@ class AudioEngine {
 
   private applyLimiterMode() {
     const ctx = this.ctx;
-    if (!ctx || !this.masterGain || !this.masterLimiter || !this.masterAnalyser) return;
+    if (!ctx || !this.masterGain || !this.masterLimiter || !this.masterLimitOut) return;
     const split = !!useStore.getState().magicRoutingActive;
     if (split === this.limiterSplit) return;
     const L = this.masterLimiter;
@@ -2382,16 +2390,63 @@ class AudioEngine {
       splitter.connect(R, 1);
       L.connect(merger, 0, 0);
       R.connect(merger, 0, 1);
-      merger.connect(this.masterAnalyser);
+      merger.connect(this.masterLimitOut);
       this.masterLimiterR = R;
       this.limiterNodes = [splitter, merger];
     } else {
       L.channelCount = 2;
       L.channelCountMode = 'clamped-max';
       this.masterGain.connect(L);
-      L.connect(this.masterAnalyser);
+      L.connect(this.masterLimitOut);
     }
     this.limiterSplit = split;
+  }
+
+  // Anti-clip do master: o mesmo limitador de pico dos canais (-0,1 dBFS), depois do limiter de
+  // segurança e antes do medidor e das saídas. No LR mágico cada lado tem o seu, como o limiter
+  // de segurança: um pico da banda não abaixa a guia/click.
+  private masterLimitOut: GainNode | null = null;
+  private masterAntiClip: AntiClipInsert[] = [];
+  private masterAntiClipNodes: AudioNode[] = [];
+  private masterAntiClipSplit: boolean | null = null;
+
+  private applyMasterAntiClip() {
+    const ctx = this.ctx;
+    const from = this.masterLimitOut;
+    const to = this.masterAnalyser;
+    if (!ctx || !from || !to) return;
+    const st = useStore.getState();
+    const on = !!st.masterAntiClip;
+    const split = !!st.magicRoutingActive;
+    if (split === this.masterAntiClipSplit) {
+      this.masterAntiClip.forEach((a) => a.set(on));
+      return;
+    }
+    this.masterAntiClip.forEach((a) => a.dispose());
+    this.masterAntiClipNodes.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
+    try { from.disconnect(); } catch { /* ignore */ }
+    this.masterAntiClip = [];
+    this.masterAntiClipNodes = [];
+    if (split) {
+      const splitter = ctx.createChannelSplitter(2);
+      const merger = ctx.createChannelMerger(2);
+      from.connect(splitter);
+      for (let c = 0; c < 2; c++) {
+        const side = ctx.createGain();
+        const out = ctx.createGain();
+        for (const n of [side, out]) { n.channelCount = 1; n.channelCountMode = 'explicit'; }
+        splitter.connect(side, c);
+        out.connect(merger, 0, c);
+        this.masterAntiClip.push(new AntiClipInsert(ctx, side, out));
+        this.masterAntiClipNodes.push(side, out);
+      }
+      merger.connect(to);
+      this.masterAntiClipNodes.push(splitter, merger);
+    } else {
+      this.masterAntiClip.push(new AntiClipInsert(ctx, from, to));
+    }
+    this.masterAntiClipSplit = split;
+    this.masterAntiClip.forEach((a) => a.set(on, true));
   }
 
   /** Pico do master antes do limiter (linear), nos últimos ~43 ms. */
@@ -2468,7 +2523,8 @@ class AudioEngine {
         }
         const masterLevel = this.getMasterMeterLevel();
         levels.set('master', masterLevel);
-        const masterPre = this.getMasterPrePeak();
+        // com o anti-clip do master ligado a saída não passa do teto: o indicador de clip fica apagado
+        const masterPre = store.masterAntiClip ? 0 : this.getMasterPrePeak();
         if (masterPre >= 1 && store.masterClipPeak < masterPre) store.updateMasterMeter(masterPre);
         // Redução do limiter de segurança (dB, 0 ou negativo) — mesmo canal do meterBus, lido como valor cru (não é amplitude linear).
         levels.set('master-gr', this.getMasterLimiterReduction());

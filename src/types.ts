@@ -321,6 +321,8 @@ export interface ProjectState {
   playbackError: string | null;
   preparingParams: { done: number; total: number } | null;
   lyricMaps: Record<string, LyricPage[]>;
+  /** Anti-clip do master: limitador de pico em -0,1 dBFS na saída do master (igual ao dos canais). */
+  masterAntiClip?: boolean;
   /** Volume igual entre os VS: cada música recebe o ganho para o mesmo loudness, sem clipar. */
   levelMatch?: boolean;
   /** Alvo em LUFS do "volume igual" escolhido pelo usuário (as músicas sobem ou descem até ele). */

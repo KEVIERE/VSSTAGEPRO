@@ -11,7 +11,6 @@ import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getC
 import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
 import { TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { normalizePages } from '@/lib/prompterTypes';
-import { antiClipFader } from '@/lib/faderScale';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
@@ -170,6 +169,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   showTunerTower: false,
   exportProgress: null,
   masterVolume: 0.8,
+  masterAntiClip: false,
   masterMeterLevel: 0,
   masterClipPeak: 0,
   playbackError: null,
@@ -307,7 +307,7 @@ interface StoreActions {
   updateMasterMeter: (level: number) => void;
   clearMasterClipIndicator: () => void;
   setPlaybackError: (message: string | null) => void;
-  applyAntiClipMaster: () => void;
+  toggleMasterAntiClip: () => void;
   setMasterVolume: (volume: number) => void;
   clearClipIndicator: (trackId: string) => void;
   setLevelMatch: (on: boolean) => void;
@@ -409,8 +409,9 @@ export function partializeHistory(state: Store) {
     defaultPlaylist: state.defaultPlaylist,
     timelineOrder: state.timelineOrder,
     lrMasterActive: state.lrMasterActive,
-    // também desfazem: fader master, LR mágico (com os pans de antes dele) e volume igual
+    // também desfazem: fader master, anti-clip do master, LR mágico (com os pans de antes dele) e volume igual
     masterVolume: state.masterVolume,
+    masterAntiClip: state.masterAntiClip,
     magicRoutingActive: state.magicRoutingActive,
     prevOutputChannels: state.prevOutputChannels,
     levelMatch: state.levelMatch,
@@ -1605,13 +1606,11 @@ export const useStore = create<Store>()(
       setSongDetectedKey: (songId, value) => set((s) => ({ songKeys: { ...(s.songKeys ?? {}), [songId]: value } })),
       setPreparingParams: (v) => set({ preparingParams: v }),
 
-      // O pico memorizado foi medido com o fader na posição atual: baixa o fader só o necessário
-      // para esse pico ficar 0,3 dB abaixo do clipping. A conta é feita no ganho real (o fader não
-      // é linear: 0 dB fica em 80% do curso), senão baixava demais ou de menos.
-      applyAntiClipMaster: () => set((s) => {
-        if (s.masterClipPeak < 1) return s;
-        return { masterVolume: antiClipFader(s.masterVolume, s.masterClipPeak), masterClipPeak: 0, masterMeterLevel: 0 };
-      }),
+      // Anti-clip do master: o mesmo dos canais (limitador de pico em -0,1 dBFS, no audioEngine e
+      // na exportação). Ao ligar, apaga o indicador de clip: dali em diante o master não passa do teto.
+      toggleMasterAntiClip: () => set((s) => s.masterAntiClip
+        ? { masterAntiClip: false }
+        : { masterAntiClip: true, masterClipPeak: 0 }),
 
       setVolumeDb: (trackId, dbChange) => set((s) => ({
         tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked

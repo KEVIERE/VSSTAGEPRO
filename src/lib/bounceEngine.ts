@@ -367,7 +367,16 @@ async function renderSliceOffline(
     limiter.connect(master.destination);
   }
   src.start(0);
-  return await master.startRendering();
+  const out = await master.startRendering();
+  // Anti-clip do master: o mesmo limitador da reprodução, depois do limiter de segurança
+  // (no LR mágico, um por lado). O "volume igual" já entrou no fader master: o teto é o de sempre.
+  if (useStore.getState().masterAntiClip) {
+    const sides = [out.getChannelData(0), out.getChannelData(1)];
+    if (magic) sides.forEach((ch) => limitInPlace([ch], sampleRate));
+    else limitInPlace(sides, sampleRate);
+    sides.forEach((ch, c) => out.copyToChannel(ch, c));
+  }
+  return out;
 }
 
 async function renderOffline(

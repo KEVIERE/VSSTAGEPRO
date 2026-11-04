@@ -25,14 +25,18 @@ export default function TimecodeMixerChannel() {
     <div className="console-strip flex flex-col items-center w-[80px] min-w-[80px] bg-logic-lcd-amber/[0.07] border-r-2 border-logic-lcd-amber/40 py-1.5 px-1 gap-[3px] relative">
       <OutputMenu track={track} />
 
-      <div className="flex items-center gap-1 h-5 text-logic-lcd-amber" title="Sinal de controle para telões e luzes">
+      {/* mesma altura do knob de pan dos canais (h-7), para a fita cair na mesma linha */}
+      <div className="flex items-center justify-center gap-1 h-7 text-logic-lcd-amber" title="Sinal de controle para telões e luzes">
         <Clock size={14} />
         <span className="font-stage text-[11px] font-bold tracking-wider">LTC</span>
       </div>
 
-      <div className="console-tape w-full h-4 flex items-center justify-center px-1.5" title={track.name}>Timecode</div>
+      {/* mesma fita dos canais: h-[22px] e alinhada à esquerda como o nome das faixas */}
+      <div className="console-tape w-full h-[22px] flex items-center justify-center px-1" title={track.name}>Timecode</div>
 
       <div className="flex gap-[3px] items-end">
+        {/* a escala de dB dos canais ocupa SCALE_W=14 à esquerda: sem ela o fader subiria 14 px */}
+        <div className="w-[14px] h-[120px] shrink-0" aria-hidden="true" />
         <div
           className="relative w-6 h-[120px]"
           onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
@@ -63,7 +67,7 @@ export default function TimecodeMixerChannel() {
       <span className="console-readout text-logic-text-dim">{dbLabel}</span>
 
       <button
-        className={`console-key flex items-center justify-center gap-1 w-full h-[18px] text-[10px] leading-none ${locked ? 'text-logic-lcd-amber' : ''}`}
+        className={`console-key flex items-center justify-center gap-1 w-full h-[15px] text-[8.5px] leading-none ${locked ? 'text-logic-lcd-amber' : ''}`}
         onClick={() => toggleFaderLock(track.id)}
         aria-pressed={locked}
         title={locked ? 'Destravar o fader' : 'Travar o fader'}
@@ -73,7 +77,7 @@ export default function TimecodeMixerChannel() {
       </button>
 
       <button
-        className={`console-key w-full h-5 text-[11px] leading-none ${track.mute ? 'is-lit-red animate-pulse' : ''}`}
+        className={`console-key w-full h-[18px] text-[11px] leading-none ${track.mute ? 'is-lit-red animate-pulse' : ''}`}
         onClick={() => toggleMute(track.id)}
         aria-pressed={track.mute}
         title={track.mute ? 'Timecode mudo: clique para voltar a enviar o sinal' : 'Silenciar o timecode'}

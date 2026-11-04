@@ -367,7 +367,8 @@ export default function MixerPanel() {
   const masterClipPeak = useStore((s) => s.masterClipPeak);
   const setMasterVolume = useStore((s) => s.setMasterVolume);
   const clearMasterClipIndicator = useStore((s) => s.clearMasterClipIndicator);
-  const applyAntiClipMaster = useStore((s) => s.applyAntiClipMaster);
+  const masterAntiClip = useStore((s) => !!s.masterAntiClip);
+  const toggleMasterAntiClip = useStore((s) => s.toggleMasterAntiClip);
   const masterIsClipping = masterClipPeak >= 1;
 
   const allChannels = useMemo(() => {
@@ -421,11 +422,17 @@ export default function MixerPanel() {
             <MixerChannel key={trackId} trackId={trackId} />
           ))}
 
-          {/* Master: módulo separado, mais escuro, com capa de fader vermelha */}
+          {/* Master: módulo separado, mais escuro, com capa de fader vermelha.
+              O topo repete as duas linhas dos canais (saída + knob de pan, aqui o LR mágico) para
+              a fita, o fader, a tecla ANTI-CLIP e o M/S caírem nas mesmas alturas dos outros. */}
           <div className="console-strip flex flex-col items-center w-[72px] min-w-[72px] bg-black/25 border-l-2 border-black py-1.5 px-1 gap-[3px]">
-          <div className="console-tape w-full h-4 flex items-center justify-center px-1.5 text-[11.5px] tracking-wide">MASTER</div>
+          {/* mesma altura do seletor de saída dos canais (2xs: 14px de linha + py-0.5 + borda) */}
+          <div className="h-[20px] flex items-center justify-center text-[9px] font-bold tracking-wider text-logic-text-dim" title="Saída: a do Dispositivo de Áudio escolhido">
+            SAÍDA
+          </div>
 
-          {/* Botão mágico: roteia Guia/Click/Maestro → L (1) e Banda → R (2) */}
+          {/* Botão mágico: roteia Guia/Click/Maestro → L (1) e Banda → R (2).
+              h-7 = knob de pan dos canais, para a fita e o fader caírem nas mesmas linhas. */}
           <button
             className={`console-key flex items-center justify-center w-7 h-7 !rounded-full ${
               magicRoutingActive ? 'is-lit-amber animate-pulse' : ''
@@ -436,6 +443,9 @@ export default function MixerPanel() {
           >
             <Wand2 size={14} />
           </button>
+
+          {/* mesma altura da fita dos canais (h-[22px]): a fita do master não pode levantar o fader */}
+          <div className="console-tape w-full h-[22px] flex items-center justify-center px-1.5 text-[11.5px] tracking-wide">MASTER</div>
 
           <div className="flex gap-[3px] items-end">
             <Fader
@@ -462,17 +472,26 @@ export default function MixerPanel() {
           </div>
 
           <LevelReadout id="master" title="Nível de saída do master agora (dBFS, pico das últimas 1,5 s, depois do limiter)" />
-          <LevelMatchButton />
 
-          {/* Anti-clip */}
+          {/* Anti-clip: o mesmo dos canais — liga/desliga o limitador de pico do master em -0,1 dBFS. LED verde = ligado. */}
           <button
-            className={`console-key h-[15px] px-1.5 text-[8.5px] leading-none ${masterIsClipping ? 'is-lit-red animate-pulse' : ''}`}
-            disabled={!masterIsClipping}
-            onClick={() => { if (masterIsClipping) { applyAntiClipMaster(); audioEngine.setMasterVolume(useStore.getState().masterVolume); } }}
-            title="Anti-Clip: baixa o fader master só o necessário para o pico mais alto (antes do limiter) ficar 0,3 dB abaixo do clip"
+            className={`console-key flex items-center gap-1 h-[15px] px-1.5 text-[8.5px] leading-none ${
+              !masterAntiClip && masterIsClipping ? 'is-lit-red animate-pulse' : ''
+            } ${masterAntiClip ? 'text-logic-text' : ''}`}
+            onClick={toggleMasterAntiClip}
+            aria-pressed={masterAntiClip}
+            title={masterAntiClip
+              ? 'Anti-Clip ligado: a saída do master não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+              : 'Anti-Clip desligado: clique para limitar a saída do master em -0,1 dBFS, sem mexer no fader.'}
           >
+            <span className={`console-led ${masterAntiClip ? 'is-on-green' : ''}`} />
             ANTI-CLIP
           </button>
+
+          {/* Mesma altura das teclas M/S dos canais: o IGUALAR fica embaixo do ANTI-CLIP. */}
+          <div className="flex gap-1 h-[18px] items-center justify-center">
+            <LevelMatchButton />
+          </div>
 
           </div>
         </div>

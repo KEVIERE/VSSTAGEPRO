@@ -34,6 +34,7 @@ export type SavedManifest = {
   zoomH: number;
   zoomV: number;
   lrMasterActive: boolean;
+  masterAntiClip?: boolean;
   levelMatch?: boolean;
   /** Alvo em LUFS do "volume igual" escolhido pelo usuário. */
   levelMatchDb?: number;
@@ -104,6 +105,7 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     zoomH: state.zoomH,
     zoomV: state.zoomV,
     lrMasterActive: state.lrMasterActive,
+    masterAntiClip: state.masterAntiClip ?? false,
     levelMatch: state.levelMatch ?? false,
     levelMatchDb: state.levelMatchDb,
     magicRoutingActive: (state as ProjectState & { magicRoutingActive?: boolean }).magicRoutingActive ?? false,
