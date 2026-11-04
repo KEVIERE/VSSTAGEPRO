@@ -172,7 +172,7 @@ function SongDisplay({ label, name, color, song, live, playing, progress, time, 
           {medley && <p className="truncate" style={{ fontSize: '1.4cqh', color: LEGEND }}>{medley}</p>}
         </div>
         {time && (
-          <span className="flex flex-shrink-0" style={{ height: '4.6cqh', color }}>
+          <span className="flex flex-shrink-0" style={{ height: '3.4cqh', color }}>
             <SegmentDisplay text={time} className="h-full" label={`Faltam ${time.replace('-', '')}`} />
           </span>
         )}
@@ -189,8 +189,13 @@ function TopBar({ p, now, live, playing, current, next, currentName, nextName, c
   currentName?: string; nextName?: string; currentMedley?: string; nextMedley?: string; progress: number; remaining: number;
 }) {
   const st = showTimeView(p, now);
-  const stColor = st.phase === 'over' ? RED : st.phase === 'running' && st.seconds < 600 ? ORANGE : LCD_TEXT;
-  const stLabel = st.phase === 'before' ? 'Show começa em' : st.phase === 'running' ? 'Tempo de show · restam' : 'Passou do horário';
+  const stColor = st.phase === 'idle' ? LEGEND
+    : st.phase === 'over' ? RED
+    : st.phase === 'running' && st.seconds < 600 ? ORANGE : LCD_TEXT;
+  const stLabel = st.phase === 'idle' ? 'Tempo de show'
+    : st.phase === 'before' ? 'Show começa em'
+    : st.phase === 'running' ? 'Tempo de show · restam'
+    : 'Passou do horário';
   return (
     <div className="flex items-stretch gap-[1.2cqw] px-[1.6cqw] py-[1.4cqh]" style={{ height: '17cqh', background: STEEL, borderBottom: '0.3cqh solid #0b0d0f' }}>
       {p.toggles.clock && (
@@ -213,7 +218,7 @@ function TopBar({ p, now, live, playing, current, next, currentName, nextName, c
           />
         </div>
       )}
-      {p.toggles.showTime && st.phase !== 'none' && (
+      {p.toggles.showTime && (
         <Display className="flex-shrink-0" style={{ width: '17cqw' }}>
           <Legend color={st.phase === 'running' ? LEGEND : stColor}>{stLabel}</Legend>
           <div className="flex justify-center" style={{ height: '7.2cqh', color: stColor }}>

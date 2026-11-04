@@ -28,3 +28,14 @@ export async function directorShowLogo(showId: string, directorKey: string): Pro
 export async function screenShowLogo(code: string): Promise<LogoInfo> {
   return asInfo(await callPrompterFn<LogoInfo>({ action: 'logo_get', code }));
 }
+
+// Pelo código do produtor: ele também troca a logo, sem precisar da chave do diretor.
+export async function producerUploadShowLogo(code: string, file: File): Promise<void> {
+  const { path, token } = await callPrompterFn<{ path: string; token: string }>({ action: 'logo_get_upload', code });
+  const { error } = await supabase.storage.from(BUCKET).uploadToSignedUrl(path, token, file, { contentType: file.type, upsert: true });
+  if (error) throw new Error('upload_failed');
+}
+
+export async function producerRemoveShowLogo(code: string): Promise<void> {
+  await callPrompterFn({ action: 'logo_remove_code', code });
+}

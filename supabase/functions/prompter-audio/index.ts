@@ -134,6 +134,26 @@ Deno.serve(async (req: Request) => {
       return json({ path: data.path, token: data.token });
     }
 
+    // O produtor técnico também troca a logo: ele está com a mão na massa no show e é quem vê
+    // a TV de perto. Autoriza pelo código do produtor, não pela chave do diretor.
+    if (body.action === "logo_upload_code" || body.action === "logo_remove_code" || body.action === "logo_get_upload") {
+      const showId = await showForProducer(body.code);
+      if (!showId) return json({ error: "invalid_code" }, 403);
+      if (body.action === "logo_get_upload") {
+        const { data, error } = await admin.storage.from(LOGO_BUCKET).createSignedUploadUrl(`${showId}/logo`, { upsert: true });
+        if (error || !data) return json({ error: "upload_unavailable" }, 500);
+        return json({ path: data.path, token: data.token, ...(await logoInfo(showId)) });
+      }
+      if (body.action === "logo_remove_code") {
+        const { error } = await admin.storage.from(LOGO_BUCKET).remove([`${showId}/logo`]);
+        if (error) return json({ error: "remove_failed" }, 500);
+        return json({ ok: true });
+      }
+      const { data, error } = await admin.storage.from(LOGO_BUCKET).createSignedUploadUrl(`${showId}/logo`, { upsert: true });
+      if (error || !data) return json({ error: "upload_unavailable" }, 500);
+      return json({ path: data.path, token: data.token });
+    }
+
     if (body.action === "logo_get") {
       const showId = await showForCode(body.code, true);
       if (!showId) return json({ error: "invalid_code" }, 403);

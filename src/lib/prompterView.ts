@@ -34,14 +34,17 @@ export function activeNotice(
 }
 
 export interface ShowTimeView {
-  phase: 'none' | 'before' | 'running' | 'over';
+  /** `idle`: a chave está ligada mas ninguém definiu o início ainda. */
+  phase: 'none' | 'idle' | 'before' | 'running' | 'over';
   seconds: number;
 }
 
 export function showTimeView(p: PrompterState, nowMs: number): ShowTimeView {
-  if (!p.showStartAt) return { phase: 'none', seconds: 0 };
+  // Sem horário definido o visor aparece zerado, para o produtor ver que a chave está ligada e
+  // que falta preencher o início. Antes ele sumia da tela e parecia que o botão não funcionava.
+  if (!p.showStartAt) return { phase: 'idle', seconds: p.showDurationMin * 60 };
   const start = Date.parse(p.showStartAt);
-  if (!Number.isFinite(start)) return { phase: 'none', seconds: 0 };
+  if (!Number.isFinite(start)) return { phase: 'idle', seconds: p.showDurationMin * 60 };
   if (nowMs < start) return { phase: 'before', seconds: (start - nowMs) / 1000 };
   const end = start + p.showDurationMin * 60000;
   if (nowMs <= end) return { phase: 'running', seconds: (end - nowMs) / 1000 };

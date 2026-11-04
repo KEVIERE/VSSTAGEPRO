@@ -108,7 +108,7 @@ export default function ProducerArea() {
 
       <main className="flex-1 min-h-0 overflow-y-auto logic-scroll">
         <div className="max-w-7xl mx-auto px-4 py-4 pb-24 sm:pb-6">
-        {tab === 'screen' && <ScreenControlPanel snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} logoUrl={logoUrl} onManageNotices={() => setTab('notices')} />}
+        {tab === 'screen' && <ScreenControlPanel code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} logoUrl={logoUrl} onManageNotices={() => setTab('notices')} />}
         {tab === 'notices' && <NoticeControl state={state} update={ctl.update} songs={snap.show.setlist.songs} now={feed.now} />}
         {tab === 'lyrics' && <LyricsEditor code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} />}
         </div>
