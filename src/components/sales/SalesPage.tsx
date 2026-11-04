@@ -95,7 +95,7 @@ function Nav() {
       <div className="vs-wrap h-12 flex items-center gap-6">
         <a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }} className="flex items-center gap-2.5 shrink-0">
           <VsLogo size={26} />
-          <span className="vs-display text-[1.2rem] tracking-[0.01em]">VS Stage Pro</span>
+          <span className="vs-wordmark">VS Stage Pro</span>
         </a>
         <nav className="hidden lg:flex items-center gap-6 mx-auto text-[0.82rem]" aria-label="Seções do site">
           {NAV_LINKS.map((l) => (
@@ -561,8 +561,8 @@ function FaderVideo() {
   return (
     <video
       ref={ref}
-      src="/site/faders.mp4"
-      poster="/site/faders-poster.jpg"
+      src="/site/faders.mp4?v=2"
+      poster="/site/faders-poster.jpg?v=2"
       width={2036}
       height={534}
       muted

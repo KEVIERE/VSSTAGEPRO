@@ -116,13 +116,13 @@ export const SPOTS = [
   {
     title: 'Uma faixa só para o timecode',
     text: 'O timecode LTC ganhou faixa, fader e saída próprios, com trava para ninguém mexer sem querer. A mesa de luz e os painéis de LED seguem cada música do começo ao fim, sem o sinal vazar no som principal.',
-    img: '/site/fader-timecode.jpg', w: 240, h: 801, glow: 'rgba(255,171,31,0.35)',
+    img: '/site/fader-timecode.jpg?v=2', w: 240, h: 801, glow: 'rgba(255,171,31,0.35)',
     alt: 'Fader de timecode LTC do VS Stage, com a capa âmbar e a trava ligada',
   },
   {
     title: 'Master com IA que iguala os VS',
     text: 'Um toque no IGUALAR e a IA analisa todos os VS do projeto: as músicas mais baixas sobem, as mais altas descem, e o show inteiro soa por igual. Nada de correr para o fader a cada música.',
-    img: '/site/fader-master.jpg', w: 216, h: 801, glow: 'rgba(255,65,54,0.3)',
+    img: '/site/fader-master.jpg?v=2', w: 216, h: 801, glow: 'rgba(255,65,54,0.3)',
     alt: 'Fader master do VS Stage, com a capa vermelha e o botão IGUALAR',
   },
 ];

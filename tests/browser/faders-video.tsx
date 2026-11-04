@@ -14,7 +14,7 @@ import { publishMeters } from '../../src/lib/meterBus';
 import { faderToGain } from '../../src/lib/faderScale';
 import { TIMECODE_TRACK_ID } from '../../src/lib/timecode';
 
-const LOOP = 8; // segundos (4 compassos a 120 BPM)
+const LOOP = 24; // segundos (12 compassos a 120 BPM)
 const MUTED = 'track-guia';
 
 // O mostrador de nível segura o pico por 1,5 s usando performance.now(): aqui ele segue o
@@ -54,7 +54,8 @@ const vary = (seed: number, n: number) => {
 
 // Fader de cada canal: onda que atravessa a mesa da esquerda para a direita
 function faderAt(i: number, p: number) {
-  return 0.76 + 0.32 * Math.sin(TAU * 2 * (p / LOOP) - i * 0.55) + 0.12 * Math.sin(TAU * (p / LOOP) + i * 0.9);
+  return 0.76 + 0.26 * Math.sin(TAU * 4 * (p / LOOP) - i * 0.55) + 0.12 * Math.sin(TAU * (p / LOOP) + i * 0.9)
+    + 0.07 * Math.sin(TAU * 7 * (p / LOOP) + i * 2.1);
 }
 
 // Sinal de cada instrumento antes do fader (amplitude linear), num show a 120 BPM.
@@ -72,7 +73,7 @@ function rawSourceAt(id: string, p: number): number {
     }
     case 'track-maestro': {
       // contagem "um, dois, três, quatro" no fim do 1º e do 3º compasso
-      const inWindow = (p >= 1 && p < 2) || (p >= 5 && p < 6);
+      const inWindow = (p % 8 >= 1 && p % 8 < 2) || (p % 8 >= 5 && p % 8 < 6);
       return inWindow ? amp(-8 - 3 * vary(2, Math.floor(p * 4))) * hit(p, 0.25, 0, 0.12) : 0;
     }
     case 'track-bateria':
