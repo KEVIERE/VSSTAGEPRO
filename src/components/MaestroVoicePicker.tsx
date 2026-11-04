@@ -117,18 +117,20 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
   const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
   const selected = (id: string) => voice === id || voice === `qwen:${id}`;
   // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
-  const legacy = !!voice && !isPresetVoice(voice) && !/^qwen:(feminina|masculina|cubas)$/.test(voice) && !onlineVoiceById(voice);
+  const legacy = !!voice && !isPresetVoice(voice) && !/^qwen:(feminina|masculina|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
 
   return (
     <>
       <div className="flex items-center gap-2">
         <span className={`text-logic-text-muted ${labelClass} shrink-0`}>Voz</span>
-        <div className="flex-1 grid grid-cols-3 gap-1">
+        <div className="flex-1 grid grid-cols-2 gap-1">
           {VOICE_PRESETS.map((p) => (
             <VoiceChip
               key={p.id}
               label={<>{p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}</>}
-              title={p.id === 'cubas' ? 'Voz Cubas: a voz gravada pelo dono do VS Stage, copiada por IA no próprio Mac (sem internet)' : `Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
+              title={p.id === 'cubas' || p.id === 'keven'
+                ? `Voz ${p.label}: voz gravada de uma pessoa real, copiada por IA no próprio Mac (sem internet)`
+                : `Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
               selected={selected(p.id)}
               onChoose={() => onChoose(p.id)}
               demo={demoOf(p.id)}

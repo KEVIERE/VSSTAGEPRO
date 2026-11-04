@@ -25,7 +25,7 @@ import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
 
 /** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
-export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'cubas', string> = { feminina: 'IA', masculina: 'IA', cubas: 'IA' };
+export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'cubas' | 'keven', string> = { feminina: 'IA', masculina: 'IA', cubas: 'IA', keven: 'IA' };
 
 /** Nome curto de uma voz ("Eddy (Português (Brasil))" → "Eddy"). */
 export function shortVoiceName(name: string): string {
@@ -34,7 +34,7 @@ export function shortVoiceName(name: string): string {
 
 /** A voz é uma das padrão (os botões Feminina/Masculina)? */
 export function isPresetVoice(voice: string | undefined): boolean {
-  return voice === 'feminina' || voice === 'masculina' || voice === 'cubas';
+  return voice === 'feminina' || voice === 'masculina' || voice === 'cubas' || voice === 'keven';
 }
 
 /** Rótulo da voz escolhida numa marcação. */
@@ -43,6 +43,7 @@ export function voiceLabel(voice: string | undefined): string {
   if (voice === 'feminina') return 'Feminina';
   if (voice === 'masculina') return 'Masculina';
   if (voice === 'cubas' || voice === 'qwen:cubas') return 'Cubas';
+  if (voice === 'keven' || voice === 'qwen:keven') return 'Keven';
   if (voice === 'qwen:feminina') return 'Feminina';
   if (voice === 'qwen:masculina') return 'Masculina';
   const online = onlineVoiceLabel(voice);
@@ -125,6 +126,7 @@ export function lastVoice(): string {
   // só as vozes oferecidas hoje: uma voz do Mac escolhida antes pelo nome volta para a padrão
   if (v === 'masculina' || v === 'qwen:masculina') return 'masculina';
   if (v === 'cubas' || v === 'qwen:cubas') return 'cubas';
+  if (v === 'keven' || v === 'qwen:keven') return 'keven';
   if (v && onlineVoiceById(v)) return v;
   return 'feminina';
 }

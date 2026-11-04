@@ -20,3 +20,12 @@ cubas.wav (voz gravada pelo dono do projeto, em 02/11/2026):
   Trecho contínuo de ~10 s tirado de uma gravação dele falando chamadas de maestro. O motor copia o
   timbre e o sotaque dessa gravação. Texto falado: "Entra a banda. Um, dois, três, quatro. Refrão.
   Um, dois, três, quatro."
+  Problema conhecido: quase metade do trecho é silêncio cortado (pausas de até 2,5 s), e a voz sai
+  travada (pausas longas no meio da fala, palavras repetidas). Vai ser regravada.
+
+keven.wav (voz do Keven, gravada em 03/11/2026):
+  Trecho de ~9 s tirado da 2ª leitura de KEVEN.wav (115,2-119,6 s e 120,6-125,4 s, com a pausa entre
+  as frases encurtada para ~0,45 s). Tratamento: só canal esquerdo (L e R eram iguais), corte de
+  graves em 80 Hz, -7 dB (a gravação veio masterizada em -11 LUFS) e 24 kHz mono. Sem compressor
+  extra. Texto conferido com o transcritor whisper: "Boa noite, pessoal! Eu sou o maestro e vou guiar
+  a banda no show de hoje. Atenção nas entradas, no refrão e no final."
