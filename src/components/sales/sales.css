@@ -31,6 +31,8 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
 .vs-section { padding-block: clamp(5.5rem, 13vh, 10rem); }
 
 /* ---------- Tipografia ---------- */
+/* nome na barra de cima: letreiro de marca, mais sóbrio que os títulos */
+.vs-wordmark { font-family: 'Montserrat', 'Inter', system-ui, sans-serif; font-weight: 600; font-size: 0.86rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--cream); white-space: nowrap; }
 .vs-display {
   font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
   font-weight: 700;
