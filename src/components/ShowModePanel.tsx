@@ -60,26 +60,148 @@ function AudioDeviceButton() {
   );
 }
 
-// Totais do show em três displays de 7 segmentos, com o nome impresso embaixo
+// Relógio que anda só enquanto `active` (o cronômetro do show redesenha 4× por segundo).
+function useNow(active: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const id = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(id);
+  }, [active]);
+  return now;
+}
+
+// Campo da duração do show (dois cliques no "Falta no show"). Enter ou sair do campo guarda;
+// Esc cancela; vazio volta para a duração do próprio show.
+function ShowDurationInput({ initial, onDone }: { initial: number; onDone: (sec: number | null | undefined) => void }) {
+  const [text, setText] = useState(() => (initial > 0 ? clockLabel(initial) : ''));
+  const [bad, setBad] = useState(false);
+  // Esc seguido do "blur" do campo não pode guardar o que foi cancelado
+  const finished = useRef(false);
+  const finish = (v: number | null | undefined) => {
+    if (finished.current) return;
+    finished.current = true;
+    onDone(v);
+  };
+  const read = (): number | null | undefined => {
+    if (text.trim() === '') return null;
+    const sec = parseShowDuration(text);
+    return sec === null ? undefined : sec;
+  };
+  return (
+    <input
+      autoFocus
+      value={text}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => { setText(e.target.value); setBad(false); }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === 'Escape') { e.preventDefault(); finish(undefined); }
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const v = read();
+        if (v === undefined) setBad(true);
+        else finish(v);
+      }}
+      onBlur={() => finish(read())}
+      placeholder="h:mm"
+      aria-label="Duração do show"
+      title="Ex.: 2 (duas horas), 2:30, 90min. Vazio volta para a duração do show."
+      className={`w-[104px] h-6 px-1 rounded bg-black/60 border text-center font-stage text-[15px] tabular-nums text-logic-lcd-amber outline-none ${
+        bad ? 'border-logic-lcd-red' : 'border-logic-lcd-amber/60'
+      }`}
+    />
+  );
+}
+
+// Totais do show em três displays de 7 segmentos, com o nome impresso embaixo.
+// "Falta no show" é um cronômetro de parede (showClock): começa com a duração do show selecionado,
+// conta a partir do Iniciar sem depender da música, e dois cliques trocam a duração.
 function ShowTotalsSummary({ playlist, songs }: { playlist: PlaylistEntry[]; songs: Song[] }) {
-  const { total, remaining } = useShowTotals(playlist, songs);
+  const { total } = useShowTotals(playlist, songs);
+  const showKey = showKeyOf(useStore((s) => s.activeShowId));
+  const clock = useSyncExternalStore(subscribeShowClock, getShowClock);
+  const duration = durationFor(clock, showKey, total);
+  const running = !!clock.run;
+  const now = useNow(running);
+  const left = clock.run ? remainingSec(clock.run, now) : duration;
+  const over = running && left < 0;
+  const [editing, setEditing] = useState(false);
+  const [confirmReset, setConfirmReset] = useState(false);
+  useEffect(() => {
+    if (!confirmReset) return;
+    const id = window.setTimeout(() => setConfirmReset(false), 3000);
+    return () => window.clearTimeout(id);
+  }, [confirmReset]);
+
+  const leftText = clockLabel(left);
+  const onKey = () => {
+    if (!running) { startShowClock(duration); return; }
+    // zerar no meio do show pede um segundo clique (evita apagar a contagem sem querer)
+    if (confirmReset) { resetShowClock(); setConfirmReset(false); } else setConfirmReset(true);
+  };
+
   return (
     <div className="shrink-0">
       <div className="console-display grid grid-cols-3 divide-x divide-black/80">
         {[
-          ['Músicas', String(playlist.length), 'text-logic-lcd-text'],
-          ['Duração do show', formatTime(total), 'text-logic-lcd-text'],
-          ['Falta no show', formatTime(remaining), 'text-logic-lcd-amber'],
-        ].map(([label, value, tone]) => (
+          ['Músicas', String(playlist.length)],
+          ['Duração do show', formatTime(total)],
+        ].map(([label, value]) => (
           <div key={label} className="flex justify-center py-2.5">
-            <SegmentDisplay text={value} label={`${label}: ${value}`} className={`h-6 ${tone}`} />
+            <SegmentDisplay text={value} label={`${label}: ${value}`} className="h-6 text-logic-lcd-text" />
           </div>
         ))}
+        <div
+          className="flex justify-center py-2.5 cursor-pointer select-none"
+          onDoubleClick={() => setEditing(true)}
+          title={over ? 'O show passou do tempo. Dois cliques para mudar a duração.' : 'Dois cliques para mudar a duração do show'}
+        >
+          {editing ? (
+            <ShowDurationInput
+              initial={duration}
+              onDone={(sec) => {
+                setEditing(false);
+                if (sec !== undefined) setShowDuration(showKey, sec, total);
+              }}
+            />
+          ) : (
+            <SegmentDisplay
+              text={leftText}
+              label={over ? `Passou ${leftText.slice(1)} do tempo do show` : `Falta no show: ${leftText}`}
+              className={`h-6 ${over ? 'text-logic-lcd-red animate-pulse' : 'text-logic-lcd-amber'} ${running ? '' : 'opacity-80'}`}
+            />
+          )}
+        </div>
       </div>
-      <div className="grid grid-cols-3 mt-1.5">
-        {['Músicas', 'Duração do show', 'Falta no show'].map((label) => (
-          <span key={label} className="console-legend text-center">{label}</span>
-        ))}
+      <div className="grid grid-cols-3 mt-1.5 items-start">
+        <span className="console-legend text-center">Músicas</span>
+        <span className="console-legend text-center">Duração do show</span>
+        <div className="flex flex-col items-center gap-1">
+          <span className="console-legend text-center">Falta no show</span>
+          <button
+            className={`console-key flex items-center gap-1 h-5 px-2 text-[10px] font-semibold leading-none ${confirmReset ? 'is-lit-amber' : ''}`}
+            onClick={onKey}
+            disabled={!running && !(duration > 0)}
+            aria-pressed={running}
+            title={running
+              ? (confirmReset ? 'Clique de novo para zerar o cronômetro do show' : 'Zerar o cronômetro do show (pede confirmação)')
+              : 'Iniciar a contagem do show. Trocar de música não mexe nela.'}
+          >
+            {running ? (
+              <>
+                <span className="console-led is-on-green" />
+                {confirmReset ? 'CONFIRMA?' : 'ZERAR'}
+              </>
+            ) : (
+              <>
+                <Play size={9} fill="currentColor" />
+                INICIAR
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
