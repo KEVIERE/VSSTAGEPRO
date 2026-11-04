@@ -563,8 +563,8 @@ function FaderVideo() {
       ref={ref}
       src="/site/faders.mp4"
       poster="/site/faders-poster.jpg"
-      width={2080}
-      height={480}
+      width={2036}
+      height={534}
       muted
       loop
       playsInline
