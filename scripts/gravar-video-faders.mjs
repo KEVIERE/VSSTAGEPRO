@@ -5,6 +5,9 @@
 //   ffmpeg -framerate 30 -i <pasta>/f%04d.png -c:v libx264 -preset veryslow -crf 18 -tune animation \
 //     -pix_fmt yuv420p -movflags +faststart -an public/site/faders.mp4
 //   ffmpeg -i <pasta>/f0000.png -q:v 4 public/site/faders-poster.jpg
+// E as fotos dos destaques (conferir largura e altura em SPOTS, src/components/sales/siteContent.ts):
+//   ffmpeg -i <pasta>/timecode.png -q:v 3 public/site/fader-timecode.jpg
+//   ffmpeg -i <pasta>/master.png -q:v 3 public/site/fader-master.jpg
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -79,6 +82,20 @@ try {
     await evaluate(`window.vsVideo.seek(${(frames + k) / FPS})`);
     const shot = await send('Page.captureScreenshot', { format: 'png', clip });
     writeFileSync(join(outDir, `f${String(k).padStart(4, '0')}.png`), Buffer.from(shot.data, 'base64'));
+  }
+
+  // Fotos do timecode e do master (destaques abaixo do vídeo), em resolução tripla, num ponto
+  // do loop em que o master está no verde
+  const FOTO = 4;
+  for (let k = 2 * frames; k <= 2 * frames + FOTO * FPS; k++) await evaluate(`window.vsVideo.seek(${k / FPS})`);
+  await send('Emulation.setDeviceMetricsOverride', { width: 1200, height: 800, deviceScaleFactor: 3, mobile: false });
+  await sleep(500);
+  for (const name of ['timecode', 'master']) {
+    const b = await evaluate(`window.vsVideo.area('${name}')`);
+    const c = { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height), scale: 1 };
+    const shot = await send('Page.captureScreenshot', { format: 'png', clip: c });
+    writeFileSync(join(outDir, `${name}.png`), Buffer.from(shot.data, 'base64'));
+    console.log(name, JSON.stringify(c));
   }
   console.log('pronto');
 } finally {

@@ -137,15 +137,17 @@ function seek(t: number) {
   return new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())));
 }
 
-// Retângulo dos canais (do seletor de saída até as teclas M/S), sem o trilho "Mixer"
-function area() {
-  const row = document.querySelector('.console-strip')!.parentElement!;
-  const r = row.getBoundingClientRect();
+// Retângulo dos canais (do seletor de saída até as teclas M/S), sem o trilho "Mixer".
+// 'timecode' ou 'master' devolve só aquele canal, com a mesma altura (fotos do site).
+function area(which?: 'timecode' | 'master') {
+  const strips = [...document.querySelectorAll('.console-strip')] as HTMLElement[];
+  const row = strips[0].parentElement!;
+  const box = (which === 'timecode' ? strips[0] : which === 'master' ? strips[strips.length - 1] : row).getBoundingClientRect();
   let bottom = 0;
   row.querySelectorAll('.console-strip > :last-child').forEach((el) => {
     bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
   });
-  return { x: r.left, y: r.top, width: r.width, height: Math.ceil(bottom + 6 - r.top) };
+  return { x: box.left, y: box.top, width: box.width, height: Math.ceil(bottom + 6 - box.top) };
 }
 
 (window as unknown as { vsVideo: unknown }).vsVideo = { seek, area, LOOP };
