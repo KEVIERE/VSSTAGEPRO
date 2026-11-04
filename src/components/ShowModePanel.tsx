@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useEffect, useState, useRef, useMemo, useSyncExternalStore } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Headphones,
   X, Repeat, Layers, ListOrdered, Search, Music2, Speaker,
@@ -12,6 +12,11 @@ import { currentAndNextSlice, paramsAt, sliceDuration } from '@/lib/medley';
 import { effectiveBpm } from '@/lib/musicianApi';
 import { songKeyLabel } from '@/lib/musicKey';
 import MetaReadout from '@/components/MetaReadout';
+import DiskLagNotice from '@/components/DiskLagNotice';
+import {
+  clockLabel, durationFor, getShowClock, parseShowDuration, remainingSec, resetShowClock,
+  setShowDuration, showKeyOf, startShowClock, subscribeShowClock,
+} from '@/lib/showClock';
 import { audioEngine } from '@/lib/audioEngine';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow, PlaylistEntry, Song } from '@/types';
@@ -256,6 +261,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
 
   return (
     <aside className="console-face relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full border-l-2 border-black overflow-hidden animate-[fadeIn_200ms_ease-out]">
+      <DiskLagNotice className="absolute right-3 top-[54px] z-30" />
       <div className="console-rail flex items-center gap-2 px-4 h-12 shrink-0">
         <span className={`console-lamp shrink-0 ${isPlaying ? 'is-on' : ''}`} title={isPlaying ? 'No ar: o show está tocando' : 'Parado'} />
         <span className="font-stage text-[15px] font-semibold tracking-wide text-logic-text shrink-0">Modo show</span>

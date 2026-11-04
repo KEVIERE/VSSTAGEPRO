@@ -10,6 +10,7 @@ import { currentAndNextSlice, isMedley, paramsAt } from '@/lib/medley';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow } from '@/types';
 import SegmentDisplay from '@/components/SegmentDisplay';
+import DiskLagNotice from '@/components/DiskLagNotice';
 import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
@@ -212,6 +213,7 @@ export default function TransportBar() {
           </button>
         </div>
       )}
+      <DiskLagNotice className="absolute right-3 top-full mt-1.5 z-50" />
       <div className="flex items-center gap-1">
         <button
           className={`logic-btn-transport transition-colors ${

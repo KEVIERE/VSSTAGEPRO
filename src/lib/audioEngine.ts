@@ -30,6 +30,7 @@ export const MAGIC_SUM_GAIN = 0.5;
 const START_WINDOW_FRAMES = 1 << 15;
 
 import { faderToGain } from '@/lib/faderScale';
+import { lateClipIds, setDiskLag } from '@/lib/diskLag';
 export { faderToGain };
 
 export function volumeToDb(volume: number): number {
@@ -416,9 +417,9 @@ class AudioEngine {
   private feeds = new Map<AudioWorkletNode, StreamHandle>();
   // Reprodutores que largaram pelo começo pronto e já receberam o áudio inteiro.
   private headFed = new WeakMap<AudioWorkletNode, ClipAudio>();
-  // Faixas no ar que ficaram sem dado a tempo (o áudio chegou atrasado do disco).
-  private starvedClips = new Set<string>();
-  private starvedNotice: string | null = null;
+  // Faixas no ar que ficaram sem dado a tempo (o áudio chegou atrasado do disco) e desde quando.
+  private starvedSince = new Map<string, number>();
+  private starvedTimer: ReturnType<typeof setTimeout> | null = null;
 
   private createPlayer(ctx: AudioContext, totalFrames: number, options: Record<string, unknown>): AudioWorkletNode {
     return new AudioWorkletNode(ctx, 'clip-player', {
@@ -500,23 +501,28 @@ class AudioEngine {
   }
 
   // Nada fica mudo sem aviso: se o áudio de uma faixa chega atrasado, a faixa segue no tempo
-  // certo em silêncio e o display diz qual faixa está esperando o disco.
+  // certo em silêncio. Se o atraso passar do tempo de espera, uma etiqueta no canto diz qual faixa
+  // está esperando o disco (atraso curto, enquanto a música carrega, passa sem aviso).
   private noteStarved(songId: string, clipId: string, starved: boolean) {
     if (!this.isPlaying || this.currentSongId !== songId || !this.activeClips.has(clipId)) return;
-    if (starved) this.starvedClips.add(clipId);
-    else this.starvedClips.delete(clipId);
-    const store = useStore.getState();
-    if (this.starvedClips.size === 0) {
-      if (this.starvedNotice && store.playbackError === this.starvedNotice) store.setPlaybackError(null);
-      this.starvedNotice = null;
-      return;
-    }
-    const names = store.clips.filter((c) => this.starvedClips.has(c.id)).map((c) => c.name);
-    const list = names.slice(0, 3).join(', ') + (names.length > 3 ? ` e mais ${names.length - 3}` : '');
-    const msg = `Áudio chegando atrasado do disco em: ${list}. A música segue no tempo certo e ${names.length === 1 ? 'a faixa volta' : 'as faixas voltam'} a soar assim que o áudio chegar.`;
-    if (store.playbackError && store.playbackError !== this.starvedNotice) return;
-    this.starvedNotice = msg;
-    store.setPlaybackError(msg);
+    if (!starved) this.starvedSince.delete(clipId);
+    else if (!this.starvedSince.has(clipId)) this.starvedSince.set(clipId, performance.now());
+    this.refreshStarved();
+  }
+
+  private refreshStarved() {
+    if (this.starvedTimer) { clearTimeout(this.starvedTimer); this.starvedTimer = null; }
+    for (const id of this.starvedSince.keys()) if (!this.isPlaying || !this.activeClips.has(id)) this.starvedSince.delete(id);
+    const { late, nextCheckIn } = lateClipIds(this.starvedSince, performance.now());
+    const lateSet = new Set(late);
+    setDiskLag(useStore.getState().clips.filter((c) => lateSet.has(c.id)).map((c) => c.name));
+    if (nextCheckIn !== null) this.starvedTimer = setTimeout(() => { this.starvedTimer = null; this.refreshStarved(); }, nextCheckIn);
+  }
+
+  private clearStarved() {
+    if (this.starvedTimer) { clearTimeout(this.starvedTimer); this.starvedTimer = null; }
+    this.starvedSince.clear();
+    setDiskLag([]);
   }
 
   /** Taxa de amostragem do motor, se ele já estiver aberto (o tocador lê o áudio nesta taxa, sem converter). */
@@ -2042,9 +2048,7 @@ class AudioEngine {
     this.isPlaying = false;
     this.currentSongId = null;
     this.playGeneration++;
-    this.starvedClips.clear();
-    if (this.starvedNotice && useStore.getState().playbackError === this.starvedNotice) useStore.getState().setPlaybackError(null);
-    this.starvedNotice = null;
+    this.clearStarved();
     this.seekRequest++;
     this.timecode?.stop();
     this.timecodeClipId = null;
@@ -2917,6 +2921,7 @@ class AudioEngine {
       if (active.clipPanner) { try { active.clipPanner.disconnect(); } catch { /* ignore */ } }
       this.activeClips.delete(clipId);
     }
+    if (clipIds.some((id) => this.starvedSince.has(id))) this.refreshStarved();
   }
 
   updateLiveClipPosition(clipId: string, newStartTime: number, endCutOnly = false) {
