@@ -30,13 +30,13 @@ export default function PrompterAccess({ icon, title, subtitle, error, onSubmit 
   return (
     <div className="min-h-screen flex items-center justify-center bg-logic-bg-deep px-4">
       <form
-        className="w-full max-w-sm bg-logic-bg-panel border border-logic-border rounded-2xl p-8 shadow-2xl animate-[fadeIn_200ms_ease-out]"
+        className="w-full max-w-sm console-face border-2 border-black rounded-lg p-8 shadow-2xl animate-[fadeIn_200ms_ease-out]"
         onSubmit={(e) => { e.preventDefault(); if (clean.length === codeLength) onSubmit(clean); }}
       >
-        <div className="w-12 h-12 rounded-xl bg-logic-accent/15 text-logic-accent flex items-center justify-center mb-5">{icon}</div>
-        <h1 className="text-xl font-semibold text-logic-text">{title}</h1>
+        <div className="console-rail w-12 h-12 rounded border-2 border-black text-logic-lcd-amber flex items-center justify-center mb-5 shadow-inner">{icon}</div>
+        <h1 className="font-stage text-xl font-bold tracking-wide text-logic-text">{title}</h1>
         <p className="text-sm text-logic-text-dim mt-2 leading-relaxed">{subtitle}</p>
-        <label htmlFor="access-code" className="block text-xs font-medium text-logic-text-dim mt-6 mb-2">{local ? 'PIN do produtor' : 'Código de acesso'}</label>
+        <label htmlFor="access-code" className="console-legend block mt-6 mb-2">{local ? 'PIN do produtor' : 'Código de acesso'}</label>
         <div className="flex gap-2">
           <div className="relative flex-1 min-w-0">
             <KeyRound size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-logic-text-muted" />
@@ -49,13 +49,13 @@ export default function PrompterAccess({ icon, title, subtitle, error, onSubmit 
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder={local ? 'Ex.: 482913' : 'Ex.: ABCDE-12345'}
-              className="w-full pl-9 pr-3 py-3 rounded-lg bg-logic-bg-deep border border-logic-border-light text-logic-text tracking-[0.18em] uppercase outline-none focus:border-logic-accent transition-colors placeholder:tracking-normal placeholder:normal-case placeholder:text-logic-text-muted"
+              className="w-full h-11 pl-9 pr-3 bg-[#08090a] font-stage text-[15px] font-semibold text-logic-lcd-amber tracking-[0.18em] uppercase outline-none border-2 border-black rounded shadow-inner placeholder:tracking-normal placeholder:normal-case placeholder:text-logic-text-muted placeholder:font-normal focus:border-logic-lcd-amber/60 transition-colors"
             />
           </div>
           <button
             type="button"
             onClick={paste}
-            className="shrink-0 flex items-center gap-1.5 px-3 rounded-lg border border-logic-border-light bg-logic-bg-elevated text-sm text-logic-text hover:bg-logic-bg-panel-light hover:border-logic-accent/60 active:scale-[0.97] transition-all"
+            className="console-key shrink-0 flex items-center gap-1.5 px-3 h-11 text-[12px]"
             title="Colar o código copiado"
           >
             <ClipboardPaste size={15} /> Colar
@@ -66,7 +66,7 @@ export default function PrompterAccess({ icon, title, subtitle, error, onSubmit 
         <button
           type="submit"
           disabled={clean.length !== codeLength}
-          className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-logic-accent text-white font-medium hover:bg-logic-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          className="console-key is-lit-amber mt-6 w-full flex items-center justify-center gap-2 h-11 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Entrar <ArrowRight size={16} />
         </button>

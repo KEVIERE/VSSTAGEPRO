@@ -73,23 +73,24 @@ export default function ProducerArea() {
 
   return (
     <div className="h-screen flex flex-col bg-logic-bg-deep text-logic-text">
-      <header className="shrink-0 z-30 bg-logic-bg/95 backdrop-blur border-b border-logic-border">
+      <header className="console-rail shrink-0 z-30 border-b-2 border-black">
         <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-logic-accent/15 text-logic-accent flex items-center justify-center flex-shrink-0">
+          <div className="w-8 h-8 rounded bg-black/40 border border-black text-logic-lcd-amber flex items-center justify-center flex-shrink-0 shadow-inner">
             <Clapperboard size={17} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold truncate">{snap.show.name || 'Show'}</p>
-            <p className="text-[11px] text-logic-text-dim">Produtor · Teleprompter</p>
+            <p className="font-stage text-sm font-semibold tracking-wide truncate">{snap.show.name || 'Show'}</p>
+            <p className="console-legend">Produtor · Teleprompter</p>
           </div>
-          <nav className="hidden sm:flex items-center gap-1 bg-logic-bg-deep rounded-lg p-1 border border-logic-border">
+          <nav className="hidden sm:flex items-center gap-1">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === id ? 'bg-logic-bg-elevated text-logic-text' : 'text-logic-text-dim hover:text-logic-text'}`}
+                aria-pressed={tab === id}
+                className={`console-key flex items-center gap-1.5 px-3.5 h-8 text-[12px] ${tab === id ? 'is-lit-amber' : ''}`}
               >
-                <Icon size={15} /> {label}
+                <Icon size={14} /> {label}
                 {id === 'notices' && state.notice && <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber" />}
               </button>
             ))}
@@ -99,8 +100,8 @@ export default function ProducerArea() {
               <WifiOff size={14} /> <span className="hidden md:inline">{problem}</span>
             </span>
           )}
-          <button onClick={leave} className="p-2 rounded-lg text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated transition-colors" title="Sair">
-            <LogOut size={16} />
+          <button onClick={leave} className="console-key flex items-center justify-center w-8 h-8" title="Sair">
+            <LogOut size={15} />
           </button>
         </div>
       </header>
@@ -113,12 +114,15 @@ export default function ProducerArea() {
         </div>
       </main>
 
-      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-logic-bg/95 backdrop-blur border-t border-logic-border grid grid-cols-3">
+      <nav className="console-rail sm:hidden fixed bottom-0 inset-x-0 z-30 border-t-2 border-black grid grid-cols-3">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`relative flex flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors ${tab === id ? 'text-logic-accent' : 'text-logic-text-dim'}`}
+            aria-pressed={tab === id}
+            className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-bold tracking-wide transition-colors ${
+              tab === id ? 'text-logic-lcd-amber' : 'text-logic-text-dim'
+            }`}
           >
             <Icon size={20} />
             {label}

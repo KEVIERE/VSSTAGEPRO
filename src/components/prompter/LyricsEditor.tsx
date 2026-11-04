@@ -155,11 +155,11 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   return (
     <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)] items-start">
       <LyricsProjectBar snap={snap} state={state} update={update} onSave={saveToProject} />
-      <aside className="bg-logic-bg-panel border border-logic-border rounded-xl p-2 md:sticky md:top-0 md:max-h-[calc(100vh-104px)] md:overflow-y-auto logic-scroll">
-        <div className="flex items-center gap-2 px-2 pt-1 pb-2">
-          <p className="flex-1 text-xs font-semibold tracking-wider uppercase text-logic-text-dim">Músicas do show</p>
-          <button onClick={() => loadAudio()} className="p-1 rounded text-logic-text-muted hover:text-logic-text transition-colors" title="Buscar áudios enviados pelo diretor">
-            <RefreshCw size={13} className={audioState === 'loading' ? 'animate-spin' : ''} />
+      <aside className="console-face border-2 border-black rounded-lg p-2 md:sticky md:top-0 md:max-h-[calc(100vh-104px)] md:overflow-y-auto logic-scroll shadow-lg">
+        <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-8 rounded-t flex items-center gap-2 border-b-2 border-black">
+          <p className="console-legend flex-1 !text-logic-text">Músicas do show</p>
+          <button onClick={() => loadAudio()} className="console-key flex items-center justify-center w-6 h-6" title="Buscar áudios enviados pelo diretor">
+            <RefreshCw size={12} className={audioState === 'loading' ? 'animate-spin' : ''} />
           </button>
         </div>
         {audioState === 'error' && <p className="px-2 pb-2 text-[11px] text-logic-lcd-red">Não foi possível buscar os áudios. Toque em atualizar.</p>}
@@ -182,26 +182,32 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
               tabIndex={0}
               onClick={() => { setSongId(s.id); setAutoPlayId(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setSongId(s.id); setAutoPlayId(null); } }}
-              className={`group w-full flex items-center gap-2.5 px-2.5 py-2.5 rounded-lg text-left cursor-pointer transition-colors ${sel ? 'bg-logic-accent/15 text-logic-text' : 'text-logic-text-dim hover:bg-logic-bg-elevated'}`}
+              className={`group w-full flex items-center gap-2.5 px-2.5 py-2 rounded text-left cursor-pointer transition-colors border ${
+                sel
+                  ? 'bg-logic-lcd-amber/[0.10] border-logic-lcd-amber/50 text-logic-text'
+                  : 'border-transparent text-logic-text-dim hover:bg-white/[0.04]'
+              }`}
             >
               <button
                 onClick={(e) => { e.stopPropagation(); setSongId(s.id); setAutoPlayId(s.id); }}
                 disabled={!hasAudio}
-                className="w-7 h-7 shrink-0 grid place-items-center rounded-full bg-logic-bg-elevated text-logic-accent hover:bg-logic-accent hover:text-white disabled:opacity-30 disabled:hover:bg-logic-bg-elevated disabled:hover:text-logic-accent transition-colors"
+                className={`console-key flex items-center justify-center w-7 h-7 shrink-0 rounded-full ${
+                  hasAudio ? '' : 'opacity-40 cursor-not-allowed'
+                }`}
                 title={hasAudio ? 'Ouvir esta música' : 'Aguardando áudio do diretor'}
                 aria-label={`Ouvir ${s.name}`}
               >
-                <Play size={12} className="ml-0.5" />
+                <Play size={11} className="ml-0.5" />
               </button>
-              <span className="text-xs tabular-nums text-logic-text-muted w-5">{i + 1}</span>
+              <span className="font-stage text-[11px] tabular-nums w-5 text-logic-text-muted">{i + 1}</span>
               <span className="flex-1 min-w-0">
                 <span className="block text-sm truncate">{s.name}</span>
-                <span className="block text-[11px] text-logic-text-muted truncate">
+                <span className="console-legend block truncate !text-[10px]">
                   {hasAudio ? 'Áudio pronto' : 'Sem áudio ainda'} · {pages.length === 0 ? 'sem letra' : `${pages.length} páginas${timed === pages.length ? '' : `, ${pages.length - timed} sem tempo`}`}
                 </span>
               </span>
-              {live && <span className="w-2 h-2 rounded-full bg-logic-lcd-green animate-pulse" title="Tocando agora" />}
-              {pages.length > 0 && timed === pages.length && !live && <Check size={14} className="text-logic-lcd-green" />}
+              {live && <span className="console-led is-on-green animate-pulse shrink-0" title="Tocando agora" />}
+              {pages.length > 0 && timed === pages.length && !live && <Check size={14} className="text-logic-lcd-green shrink-0" />}
             </div>
           );
         })}

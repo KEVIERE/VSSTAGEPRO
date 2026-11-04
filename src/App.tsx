@@ -750,27 +750,28 @@ function DirectorApp({ license }: { license: License }) {
             local.dismissLyrics();
           };
           return (
-          <div className={`flex items-center gap-3 px-3 h-8 border-b text-xs animate-[fadeIn_200ms_ease-out] ${
-            audioFreed !== null
-              ? 'bg-logic-lcd-green/10 border-logic-lcd-green/30 text-logic-lcd-green'
-              : 'bg-logic-lcd-amber/10 border-logic-lcd-amber/40 text-logic-lcd-amber'
-          }`}>
-            <FileText size={13} />
-            <span className="flex-1 truncate">
+          <div className="console-rail flex items-center gap-3 px-3 h-9 border-b-2 border-black text-xs animate-[fadeIn_200ms_ease-out]">
+            <span className={`console-led shrink-0 ${audioFreed !== null ? 'is-on-green' : 'is-on-amber animate-pulse'}`} />
+            <FileText size={13} className={`shrink-0 ${audioFreed !== null ? 'text-logic-lcd-green' : 'text-logic-lcd-amber'}`} />
+            <span className={`console-legend shrink-0 ${audioFreed !== null ? '!text-logic-lcd-green' : '!text-logic-lcd-amber'}`}>
+              {audioFreed !== null ? 'Letras confirmadas' : 'Letras prontas'}
+            </span>
+            <span className="flex-1 truncate text-[12px] text-logic-text-dim">
               {audioFreed !== null
-                ? `Confirmado — ${formatMb(audioFreed)} liberados. O áudio de referência saiu da área do produtor.`
-                : `O produtor concluiu as letras (${songs} ${songs === 1 ? 'música' : 'músicas'}). Confirme para liberar o áudio de referência.`}
+                ? `Áudio de referência liberado — ${formatMb(audioFreed)}. O produtor deixa de ver as músicas para ouvir.`
+                : `O produtor técnico avisou que as letras estão prontas (${songs} ${songs === 1 ? 'música' : 'músicas'}).`}
             </span>
             {audioFreed === null && (
               <button
-                className="px-2 h-6 rounded bg-logic-lcd-amber text-black font-semibold hover:brightness-110 transition"
+                className="console-key is-lit-amber h-6 px-3 text-[11px] shrink-0"
                 onClick={confirm}
+                title="Confirma as letras e libera o áudio de referência enviado ao produtor"
               >
-                Confirmar
+                OK
               </button>
             )}
-            <button className="p-1 rounded hover:bg-white/10 transition" onClick={() => { dismiss(); setAudioFreed(null); }} aria-label="Fechar aviso">
-              <X size={12} />
+            <button className="console-key flex items-center justify-center w-6 h-6 shrink-0" onClick={() => { dismiss(); setAudioFreed(null); }} aria-label="Fechar aviso">
+              <X size={11} />
             </button>
           </div>
           );
