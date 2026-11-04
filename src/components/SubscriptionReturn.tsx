@@ -50,7 +50,7 @@ export default function SubscriptionReturn() {
             <VsLogo size={28} />
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="font-black text-sm tracking-wider text-white">VS STAGE</span>
+                <span className="vs-brand text-sm text-white">VS Stage</span>
                 <span className="px-1.5 py-0.2 rounded bg-logic-lcd-green/20 text-logic-lcd-green text-[10px] font-extrabold tracking-widest border border-logic-lcd-green/40">
                   PRO
                 </span>

@@ -395,6 +395,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         <AccessCard label={label}>
           <form onSubmit={submit} className="px-6 pt-7 pb-6 space-y-3">
             <AccessTitle
+              brand
               title="VS Stage Pro"
               subtitle={subscribeOpen
                 ? 'Entre ou crie sua conta para escolher seu plano'
@@ -642,7 +643,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             {justConfirmed && (
               <div className="mb-5"><AccessNotice tone="green"><p>Conta criada com sucesso!</p></AccessNotice></div>
             )}
-            <AccessTitle title={firstName ? `Olá, ${firstName}` : 'VS Stage Pro'} subtitle={session.user.email} />
+            <AccessTitle brand={!firstName} title={firstName ? `Olá, ${firstName}` : 'VS Stage Pro'} subtitle={session.user.email} />
 
             {endsAt !== null ? (
               <TrialClock endsAt={endsAt} />

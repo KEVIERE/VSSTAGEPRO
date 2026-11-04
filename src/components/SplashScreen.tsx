@@ -8,7 +8,9 @@ const STEPS = [
 ];
 const EXIT_AT = 3600;
 const EXIT_MS = 450;
-const TITLE = 'VS STAGE';
+const TITLE = 'VS Stage Pro';
+// Nome do programa: fonte Outfit (carregada em src/index.css), a mesma de todo lugar
+const BRAND_FONT = "'Outfit', 'Inter', system-ui, sans-serif";
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
 export default function SplashScreen({ onDone }: { onDone: () => void }) {
@@ -310,7 +312,7 @@ export default function SplashScreen({ onDone }: { onDone: () => void }) {
           </g>
         </svg>
 
-        <text x="400" y="260" textAnchor="middle" fontFamily={FONT} fontSize="28" fontWeight="800" fill="#fff" className="splash-title-cinematic">
+        <text x="400" y="260" textAnchor="middle" fontFamily={BRAND_FONT} fontSize="30" fontWeight="600" fill="#fff" className="splash-title-cinematic">
           {TITLE}
         </text>
         <text className="splash-rise" style={{ animationDelay: '1200ms' }} x="400" y="285" textAnchor="middle" fontFamily={FONT} fontSize="11" fontWeight="600" fill="#9ca3af" letterSpacing="4">

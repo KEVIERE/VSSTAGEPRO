@@ -167,7 +167,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.1] bg-white/[0.02]">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
-            <span className="text-xs font-semibold tracking-tight text-white">VS Stage Pro</span>
+            <span className="vs-brand text-sm text-white">VS Stage Pro</span>
           </div>
           <span className="text-2xs font-semibold tracking-tight text-apple-text-secondary uppercase px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10">
             {TITLES[view]}

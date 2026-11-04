@@ -45,14 +45,14 @@ export function AccessStatus({ tone, children }: { tone: 'green' | 'amber' | 're
   );
 }
 
-/** Logo, título na fonte do programa e uma linha de apoio. */
-export function AccessTitle({ title, subtitle, id }: { title: ReactNode; subtitle?: ReactNode; id?: string }) {
+/** Logo, título na fonte do programa e uma linha de apoio. `brand`: o título é o nome do programa (fonte Outfit). */
+export function AccessTitle({ title, subtitle, id, brand = false }: { title: ReactNode; subtitle?: ReactNode; id?: string; brand?: boolean }) {
   return (
     <div className="text-center mb-6">
       <div className="mx-auto w-[72px] h-[72px] mb-3 flex items-center justify-center">
         <VsLogo size={72} />
       </div>
-      <h1 id={id} className="font-stage font-bold text-[2rem] leading-[0.95] tracking-[-0.01em] text-logic-text">{title}</h1>
+      <h1 id={id} className={`${brand ? 'vs-brand' : 'font-stage font-bold tracking-[-0.01em]'} text-[2rem] leading-[0.95] text-logic-text`}>{title}</h1>
       {subtitle && <p className="text-[0.82rem] text-logic-text-dim mt-2 leading-relaxed max-w-[22rem] mx-auto">{subtitle}</p>}
     </div>
   );

@@ -758,8 +758,8 @@
   animation: splashTitleCinematic 950ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both;
 }
 @keyframes splashTitleCinematic {
-  from { opacity: 0; letter-spacing: 12px; transform: translateY(8px); }
-  to { opacity: 1; letter-spacing: 4px; transform: translateY(0); }
+  from { opacity: 0; letter-spacing: 6px; transform: translateY(8px); }
+  to { opacity: 1; letter-spacing: -0.3px; transform: translateY(0); }
 }
 .splash-fade { animation: splashFade 600ms ease-out both; }
 .splash-draw {
@@ -965,4 +965,21 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .access-beam { animation: none; }
+}
+
+/* Nome do programa ("VS Stage Pro") junto da logo: fonte Outfit, em todo lugar (programa, site,
+   abertura). O arquivo vai junto no pacote, então aparece igual mesmo sem internet. */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../desktop/build/fonts/Outfit-SemiBold.ttf') format('truetype');
+}
+.vs-brand {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  text-indent: 0;
 }

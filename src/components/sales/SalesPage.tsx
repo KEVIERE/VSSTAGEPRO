@@ -797,7 +797,7 @@ function CompareSection() {
           <div className="vs-compare-row vs-compare-head text-[0.85rem] text-[color:var(--muted)]" role="row">
             <span role="columnheader">Na prática</span>
             <span role="columnheader">Programa de estúdio</span>
-            <span role="columnheader" className="text-[color:var(--amber)]">VS Stage Pro</span>
+            <span role="columnheader" className="vs-brand text-[color:var(--amber)]">VS Stage Pro</span>
           </div>
           {COMPARISON.map((r) => (
             <div key={r.topic} className="vs-compare-row" role="row">

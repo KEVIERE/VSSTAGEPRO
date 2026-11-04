@@ -309,7 +309,7 @@ export default function PricingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2.5 group">
             <VsLogo size={24} />
-            <span className="text-white font-semibold text-sm tracking-tight">VS Stage Pro</span>
+            <span className="vs-brand text-white text-sm">VS Stage Pro</span>
           </a>
 
           <div className="flex items-center gap-3 sm:gap-4">

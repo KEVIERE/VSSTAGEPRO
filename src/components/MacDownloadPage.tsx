@@ -137,7 +137,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-12 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2.5 group">
             <VsLogo size={24} />
-            <span className="text-white font-semibold text-sm tracking-tight">VS Stage Pro</span>
+            <span className="vs-brand text-white text-sm">VS Stage Pro</span>
           </a>
 
           <div className="flex items-center gap-4">
@@ -434,7 +434,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
             <VsLogo size={24} />
-            <span className="font-bold text-white">VS Stage Pro</span>
+            <span className="vs-brand text-white">VS Stage Pro</span>
             <span className="text-[#6e6e73]">© 2026 Todos os direitos reservados.</span>
           </div>
 

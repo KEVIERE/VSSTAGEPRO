@@ -98,7 +98,7 @@ export default function SiteIntro({ onReveal, onDone }: { onReveal: () => void; 
           <SegmentDisplay text={beat ? String(beat) : ' '} className={`vs-intro-digit ${beat === 4 ? 'text-[#3ee26e]' : 'text-[#ffab1f]'}`} label="Contagem" />
         </div>
 
-        <p className="vs-intro-word font-stage">VS Stage Pro</p>
+        <p className="vs-intro-word vs-brand">VS Stage Pro</p>
       </div>
 
       <button type="button" className="vs-intro-skip" onClick={(e) => { e.stopPropagation(); finish(); }}>

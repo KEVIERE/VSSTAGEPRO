@@ -142,7 +142,7 @@ export default function AdminPage() {
         <div className="flex items-center gap-2.5 px-4 h-14 border-b border-logic-border">
           <VsLogo size={30} />
           <div className="leading-tight">
-            <p className="text-sm font-semibold">VS Stage Pro</p>
+            <p className="vs-brand text-sm">VS Stage Pro</p>
             <p className="text-2xs text-logic-text-muted tracking-wider">ADMINISTRAÇÃO</p>
           </div>
         </div>
