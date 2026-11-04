@@ -45,6 +45,13 @@ verify_jwt = true
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.pix-checkout]
+verify_jwt = true
+
+# o Asaas não manda login do Supabase: a função confere o header asaas-access-token
+[functions.asaas-webhook]
+verify_jwt = false
+
 [functions.signup-phone]
 verify_jwt = false
 

@@ -19,6 +19,7 @@ import {
   MessageCircle,
   Mic2,
   MonitorPlay,
+  QrCode,
   Radio,
   ShieldCheck,
   Sparkles,
@@ -33,6 +34,8 @@ import { supportWhatsAppUrl } from '@/lib/support';
 import WhatsAppButton from './WhatsAppButton';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
+import PixCheckout from '@/components/PixCheckout';
+import { AccessCard } from '@/components/access/AccessChrome';
 
 export type Plan = 'monthly' | 'yearly';
 
@@ -94,7 +97,7 @@ const PRICING_FAQS = [
   },
   {
     q: 'Quais são as formas de pagamento aceitas?',
-    a: 'O processamento é feito pela Stripe com padrão bancário internacional de segurança. São aceitos cartões de crédito das principais bandeiras nacionais e internacionais com ativação imediata.',
+    a: 'PIX ou cartão de crédito. No PIX (processado pelo Asaas), a assinatura é liberada sozinha assim que o pagamento cai: o plano mensal libera 1 mês e o anual libera 1 ano, e para continuar basta pagar um novo PIX. No cartão (processado pela Stripe), aceitamos as principais bandeiras nacionais e internacionais, com renovação automática.',
   },
   {
     q: 'Se eu trocar de Mac ou formatar, perco minha assinatura?',
@@ -116,6 +119,21 @@ export default function PricingPage() {
   const [authSuccessMsg, setAuthSuccessMsg] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  // Forma escolhida antes do login: depois de entrar, segue para ela
+  const [pendingMethod, setPendingMethod] = useState<'card' | 'pix'>('card');
+  // Plano do PIX aberto (mostra o QR Code)
+  const [pixPlan, setPixPlan] = useState<Plan | null>(null);
+
+  const handleStartPix = async (plan: Plan) => {
+    setSelectedPlan(plan);
+    const { data } = await supabase.auth.getSession();
+    if (!data.session?.user) {
+      setPendingMethod('pix');
+      setAuthModalOpen(true);
+      return;
+    }
+    setPixPlan(plan);
+  };
 
   useEffect(() => {
     document.documentElement.style.overflow = 'auto';
@@ -147,6 +165,7 @@ export default function PricingPage() {
       const { data: sessionData } = await supabase.auth.getSession();
       if (!sessionData.session?.user) {
         // Usuário não está logado: abre modal para cadastrar/entrar e depois ir ao checkout
+        setPendingMethod('card');
         setAuthModalOpen(true);
         setCheckoutBusy(false);
         return;
@@ -268,6 +287,13 @@ export default function PricingPage() {
         if (signInData.session) {
           setCurrentUserEmail(signInData.session.user.email ?? email);
         }
+      }
+
+      // Sessão pronta e escolheu PIX: mostra o QR Code aqui mesmo
+      if (pendingMethod === 'pix') {
+        setAuthModalOpen(false);
+        setPixPlan(selectedPlan);
+        return;
       }
 
       // Sessão pronta: inicia checkout imediatamente no Stripe
@@ -450,6 +476,13 @@ export default function PricingPage() {
                   )}
                   <span>Assinar Plano Mensal ({MONTHLY_PRICE}/mês)</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleStartPix('monthly')}
+                  className="console-key mt-3 w-full h-11 text-[1rem] flex items-center justify-center gap-2"
+                >
+                  <span className="console-led is-on-amber" /> <QrCode size={16} /> Pagar com PIX
+                </button>
               </div>
             </div>
 
@@ -544,6 +577,13 @@ export default function PricingPage() {
                   )}
                   <span>Assinar Plano Anual ({YEARLY_MONTH_EQUIV}/mês)</span>
                   <ArrowRight size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStartPix('yearly')}
+                  className="console-key mt-3 w-full h-11 text-[1rem] flex items-center justify-center gap-2"
+                >
+                  <span className="console-led is-on-amber" /> <QrCode size={16} /> Pagar com PIX
                 </button>
               </div>
             </div>
@@ -723,6 +763,40 @@ export default function PricingPage() {
       </footer>
 
       <WhatsAppButton message="Olá! Tenho dúvidas sobre os planos do VS Stage Pro." />
+
+      {/* PIX: QR Code e confirmação automática, no módulo da mesa (igual ao programa) */}
+      {pixPlan && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md apple-fade-in overflow-y-auto"
+          onClick={() => setPixPlan(null)}
+        >
+          <AccessCard
+            role="dialog" aria-modal="true" aria-label="Pagamento PIX" width={420} className="max-w-full"
+            onClick={(e) => e.stopPropagation()}
+            label="Pagamento PIX"
+            status={(
+              <button className="console-key w-7 h-6 flex items-center justify-center" onClick={() => setPixPlan(null)} aria-label="Fechar">
+                <X size={13} />
+              </button>
+            )}
+          >
+            <div className="px-6 pt-6 pb-6">
+              <h2 className="font-stage font-bold text-[1.6rem] leading-none text-logic-text text-center mb-5">Pague com PIX</h2>
+              <PixCheckout
+                key={pixPlan}
+                plan={pixPlan}
+                onBack={() => setPixPlan(null)}
+                paidNote={(
+                  <span>
+                    Abra o VS Stage Pro no seu Mac e entre com <span className="text-logic-text">{currentUserEmail ?? 'seu e-mail'}</span>.
+                    {' '}Ainda não instalou? <a href="#baixar" className="text-logic-lcd-amber underline">Baixe aqui</a>.
+                  </span>
+                )}
+              />
+            </div>
+          </AccessCard>
+        </div>
+      )}
 
       {/* MODAL DE AUTENTICAÇÃO PARA CHECKOUT */}
       {authModalOpen && (
@@ -914,7 +988,9 @@ export default function PricingPage() {
             )}
 
             <div className="mt-5 text-center text-2xs text-apple-text-secondary">
-              Pagamento 100% criptografado e seguro processado pela Stripe.
+              {pendingMethod === 'pix'
+                ? 'Depois de entrar, o QR Code do PIX aparece aqui mesmo.'
+                : 'Pagamento 100% criptografado e seguro processado pela Stripe.'}
             </div>
           </div>
         </div>

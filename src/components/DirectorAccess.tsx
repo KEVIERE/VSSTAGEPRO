@@ -1,7 +1,7 @@
 import { adminApi } from '@/components/admin/adminApi';
 import { authRedirect } from '@/lib/authRedirect';
 import { useEffect, useState } from 'react';
-import { BadgeCheck, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
+import { BadgeCheck, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, QrCode, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
 import { AccessCard, AccessFoot, AccessNotice, AccessStage, AccessStatus, AccessTitle, FootKey, TrialClock } from '@/components/access/AccessChrome';
@@ -629,7 +629,10 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     const statusText = loading ? 'Conferindo sua conta…'
       : isActive
         ? (license.partner ? 'Você é Parceiro VS Stage Pro (Endorse). Acesso completo liberado.'
-          : license.plan === 'promo' ? 'Seu bônus de acesso está ativo.' : 'Sua assinatura está ativa.')
+          : license.plan === 'promo' ? 'Seu bônus de acesso está ativo.'
+            : license.subscription === 'pix' && license.current_period_end
+              ? `Sua assinatura está ativa até ${new Date(license.current_period_end).toLocaleDateString('pt-BR')}.`
+              : 'Sua assinatura está ativa.')
         : isTrial ? 'Você está no teste grátis.' : null;
     return (
       <AccessStage>
@@ -714,6 +717,34 @@ export function TrialBadge({ license }: { license: License | null }) {
         className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold"
       >
         <BadgeCheck size={11} /> Parceiro · Endorse
+      </span>
+    );
+  }
+  // PIX não renova sozinho: nos últimos 7 dias mostra quanto falta e o atalho para renovar
+  if (license?.status === 'active' && license.subscription === 'pix' && license.current_period_end) {
+    const left = new Date(license.current_period_end).getTime() - now;
+    if (left > 7 * 24 * 3600000) return null;
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          title="A assinatura paga por PIX não renova sozinha"
+          className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold tabular-nums"
+        >
+          <Timer size={11} /> Assinatura: {formatRemaining(left)}
+        </span>
+        <button
+          type="button" onClick={() => setOpen(true)}
+          className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber text-black text-2xs font-bold hover:brightness-110 transition"
+        >
+          <QrCode size={11} /> Renovar
+        </button>
+        {open && (
+          <SubscribeDialog
+            onClose={() => setOpen(false)}
+            title="Renove sua assinatura"
+            subtitle="O PIX não renova sozinho. O tempo novo entra depois do que ainda falta."
+          />
+        )}
       </span>
     );
   }
