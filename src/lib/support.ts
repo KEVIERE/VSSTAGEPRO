@@ -12,3 +12,6 @@ export function supportWhatsAppUrl(message?: string): string {
   const text = message?.trim();
   return `https://wa.me/${SUPPORT_WHATSAPP_NUMBER}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 }
+
+/** Mensagem pronta de quem chama o suporte pelo site. */
+export const SITE_SUPPORT_MESSAGE = 'Olá! Vim pelo site do VS Stage Pro e gostaria de tirar uma dúvida.';

@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Download, Globe, Wifi } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import WhatsAppButton from './WhatsAppButton';
+import { SITE_SUPPORT_MESSAGE, supportWhatsAppUrl } from '@/lib/support';
 import SiteIntro from './SiteIntro';
 import { IMac, IPhone, MacBook, Tablet } from './Devices';
 import { MaestroTyping, ToolVisual } from './ToolVisuals';
@@ -92,12 +93,12 @@ const NAV_LINKS = [
 function Nav() {
   return (
     <header className="vs-nav">
-      <div className="vs-wrap h-12 flex items-center gap-6">
+      <div className="vs-wrap h-14 flex items-center gap-6">
         <a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }} className="flex items-center gap-2.5 shrink-0">
           <VsLogo size={26} />
           <span className="vs-wordmark">VS Stage Pro</span>
         </a>
-        <nav className="hidden lg:flex items-center gap-6 mx-auto text-[0.82rem]" aria-label="Seções do site">
+        <nav className="hidden lg:flex items-center gap-7 mx-auto text-[0.875rem]" aria-label="Seções do site">
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id)} className="vs-nav-link">{l.label}</a>
           ))}
@@ -255,6 +256,7 @@ function Highlights() {
     <section ref={section} className={`vs-hl ${pinned ? 'is-pinned' : 'vs-section pb-0'}`} aria-labelledby="destaques-title">
       <div className={pinned ? 'vs-sticky' : undefined}>
         <div className="w-full">
+      <div className="vs-wrap"><Kicker label="Destaques" n={1} /></div>
       <div className="vs-wrap flex items-end justify-between gap-6 mb-10">
         <h2 id="destaques-title" className="vs-display vs-h2 max-w-[14em]">Seis razões para levar o VS Stage ao palco.</h2>
         <div className="hidden sm:flex gap-2 shrink-0">
@@ -332,6 +334,7 @@ function ShowScene() {
       <div className="vs-sticky">
         <div className="vs-wrap vs-scene-grid">
           <div>
+            <Kicker label="Modo Show" n={2} />
             <h2 id="show-title" className="vs-display vs-h2">Modo Show.</h2>
             <p className="vs-lead mt-4">A tela que trabalha por você quando as luzes acendem e não existe segunda chance.</p>
             <div className="flex gap-2 mt-8 mb-6" aria-hidden="true">
@@ -444,6 +447,7 @@ function AiScene() {
       <div className="vs-sticky">
         <div className="vs-wrap vs-ai-grid">
           <div>
+            <Kicker label="Inteligência artificial" n={4} />
             <h2 id="ia-title" className="vs-display vs-h2 vs-h2-side">Suba a música pronta. Receba o VS.</h2>
             <p className="vs-body mt-5 max-w-[34em] text-[1.05rem]">
               Não achou a multitrack daquela música que todo mundo canta? Mande só o áudio mixado. A IA separa a música e entrega
@@ -504,12 +508,27 @@ function Points({ items, led = 'amber', className = '' }: { items: { title: stri
   );
 }
 
-function SectionHead({ id, title, children }: { id: string; title: string; children?: ReactNode }) {
+// Abertura de cada seção: linha fina com o nome à esquerda e o número à direita, como a
+// serigrafia que separa os módulos de uma mesa
+function Kicker({ label, n }: { label: string; n: number }) {
   return (
-    <div className="max-w-[46rem]">
-      <h2 id={id} className="vs-display vs-h2">{title}</h2>
-      {children && <p className="vs-lead mt-5">{children}</p>}
-    </div>
+    <p className="vs-kicker">
+      <span className="vs-led is-amber" aria-hidden="true" />
+      {label}
+      <span className="vs-kicker-n" aria-hidden="true">{String(n).padStart(2, '0')}</span>
+    </p>
+  );
+}
+
+function SectionHead({ id, title, kicker, n, children }: { id: string; title: string; kicker: string; n: number; children?: ReactNode }) {
+  return (
+    <>
+      <Kicker label={kicker} n={n} />
+      <div className="max-w-[46rem]">
+        <h2 id={id} className="vs-display vs-h2">{title}</h2>
+        {children && <p className="vs-lead mt-5">{children}</p>}
+      </div>
+    </>
   );
 }
 
@@ -519,7 +538,7 @@ function TimelineSection() {
   return (
     <section className="vs-section" aria-labelledby="timeline-title">
       <div className="vs-wrap">
-        <SectionHead id="timeline-title" title="Cada parte da música vira um botão.">
+        <SectionHead id="timeline-title" kicker="Timeline" n={5} title="Cada parte da música vira um botão.">
           Marque intro, verso, refrão, ponte e solo. No show, um toque repete o refrão, pula a ponte ou segura um loop enquanto
           o momento pedir, sempre no tempo e sem nenhum corte fora do lugar.
         </SectionHead>
@@ -580,7 +599,7 @@ function MixerSection() {
   return (
     <section id="mixer" className="vs-section pt-0" aria-labelledby="mixer-title">
       <div className="vs-wrap">
-        <SectionHead id="mixer-title" title="Uma mesa de som de verdade.">
+        <SectionHead id="mixer-title" kicker="Mixer" n={7} title="Uma mesa de som de verdade.">
           Faders, medidores em dB, master e timecode com o visual de uma mesa analógica: qualquer técnico entende de primeira, e
           qualquer músico aprende em minutos.
         </SectionHead>
@@ -612,7 +631,7 @@ function MaestroSection() {
   return (
     <section id="maestro" className="vs-section pt-0" aria-labelledby="maestro-title">
       <div className="vs-wrap">
-        <SectionHead id="maestro-title" title="Um maestro que fala por você.">
+        <SectionHead id="maestro-title" kicker="Maestro com IA" n={6} title="Um maestro que fala por você.">
           Escreva a regência e a inteligência artificial transforma o texto em voz, encaixada no tempo da música: a contagem, as
           preparações, as viradas e os avisos que a banda precisa ouvir no fone. Você dirige o show sem tirar as mãos do teclado.
         </SectionHead>
@@ -637,7 +656,7 @@ function BandSection() {
     <section id="banda" className="vs-section overflow-hidden" aria-labelledby="banda-title">
       <div className="vs-wrap vs-band-grid">
         <div className="vs-band-head">
-          <SectionHead id="banda-title" title="A banda inteira na mesma página.">
+          <SectionHead id="banda-title" kicker="Área do Músico" n={8} title="A banda inteira na mesma página.">
             Cada músico abre a Área do Músico no próprio celular ou tablet e acompanha você em tempo real: a música no ar, a
             próxima, o tom e o BPM. No Modo show, a partitura dele ocupa a tela inteira e troca sozinha quando a música muda. Sem
             papel voando, sem pasta, sem ninguém perguntando qual é a próxima.
@@ -664,7 +683,7 @@ function TvSection() {
   return (
     <section id="tv" className="vs-section pt-0" aria-labelledby="tv-title">
       <div className="vs-wrap">
-        <SectionHead id="tv-title" title="A letra na TV, um instante antes de cantar.">
+        <SectionHead id="tv-title" kicker="TV do palco" n={9} title="A letra na TV, um instante antes de cantar.">
           O teleprompter usa os mesmos displays do programa: relógio, tempo de show, a música no ar e a próxima com tom e BPM, a
           playlist do show e a letra, que aparece um instante antes da hora de cantar. O produtor técnico controla tudo pelo
           tablet, conectado direto ao computador do diretor.
@@ -721,14 +740,14 @@ function OfflineSection() {
   return (
     <section className="vs-section pt-0" aria-labelledby="offline-title">
       <div className="vs-wrap">
-        <SectionHead id="offline-title" title="Sem internet? O show continua." />
+        <SectionHead id="offline-title" kicker="Rede local" n={10} title="Sem internet? O show continua." />
         <div className="mt-12 grid md:grid-cols-2 gap-5">
-          <div className="vs-panel rounded-[1.4rem] p-[clamp(1.5rem,3vw,2.4rem)]">
+          <div className="vs-panel vs-card p-[clamp(1.5rem,3vw,2.4rem)]">
             <div className="flex items-center gap-3 text-[color:var(--green)]"><Wifi size={22} /><span className="vs-display text-[1.6rem] text-[color:var(--cream)]">Rede local</span></div>
             <p className="vs-body mt-3">Computador, celulares, tablets e TV no mesmo Wi-Fi, mesmo sem um único sinal de internet. Tudo responde na hora, e nada sai do palco.</p>
             <div className="mt-6 max-w-[22rem]"><NetDiagram online={false} /></div>
           </div>
-          <div className="vs-panel rounded-[1.4rem] p-[clamp(1.5rem,3vw,2.4rem)]">
+          <div className="vs-panel vs-card p-[clamp(1.5rem,3vw,2.4rem)]">
             <div className="flex items-center gap-3 text-[color:var(--amber)]"><Globe size={22} /><span className="vs-display text-[1.6rem] text-[color:var(--cream)]">Show online</span></div>
             <p className="vs-body mt-3">Quando quiser, publique o show: os músicos acompanham pela internet de casa, da sala de ensaio ou da estrada, com convite e aprovação sua.</p>
             <div className="mt-6 max-w-[22rem]"><NetDiagram online /></div>
@@ -745,7 +764,7 @@ function NewsSection() {
   return (
     <section id="novidades" className="vs-section pt-0" aria-labelledby="novidades-title">
       <div className="vs-wrap">
-        <SectionHead id="novidades-title" title="Novidades desta versão.">
+        <SectionHead id="novidades-title" kicker="Novidades" n={11} title="Novidades desta versão.">
           O VS Stage Pro evolui o tempo todo, ouvindo quem está no palco. Estas chegaram agora, sem custo extra para quem assina.
         </SectionHead>
         <ul className="vs-news mt-12">
@@ -770,7 +789,7 @@ function CompareSection() {
   return (
     <section id="por-que" className="vs-section pt-0" aria-labelledby="compare-title">
       <div className="vs-wrap">
-        <SectionHead id="compare-title" title="Feito para tocar, não para gravar.">
+        <SectionHead id="compare-title" kicker="Palco × estúdio" n={12} title="Feito para tocar, não para gravar.">
           Programas de estúdio foram feitos para gravar e editar com calma. O palco não tem calma: tem pressa, luz baixa e zero
           margem para erro. Foi para esse lugar que o VS Stage Pro nasceu.
         </SectionHead>
@@ -802,7 +821,7 @@ function ToolsSection() {
   return (
     <section id="ferramentas" className="vs-section pt-0" aria-labelledby="tools-title">
       <div className="vs-wrap">
-        <SectionHead id="tools-title" title="Inúmeras ferramentas. Um só objetivo: o show perfeito.">
+        <SectionHead id="tools-title" kicker="Ferramentas" n={3} title="Inúmeras ferramentas. Um só objetivo: o show perfeito.">
           Cada recurso do VS Stage nasceu de um aperto real de quem toca ao vivo. Menos cliques, menos risco e mais tempo para o
           que importa: a música.
         </SectionHead>
@@ -826,7 +845,7 @@ function PlansSection() {
   return (
     <section id="precos" className="vs-section pt-0" aria-labelledby="precos-title">
       <div className="vs-wrap">
-        <SectionHead id="precos-title" title="Um preço simples.">
+        <SectionHead id="precos-title" kicker="Planos" n={13} title="Um preço simples.">
           Todas as ferramentas liberadas em qualquer plano, sem versão capada. Teste 48 horas antes de decidir, sem cartão.
         </SectionHead>
         <div className="vs-plans mt-12">
@@ -854,7 +873,7 @@ function FaqSection() {
   return (
     <section className="vs-section pt-0" aria-labelledby="faq-title">
       <div className="vs-wrap">
-        <SectionHead id="faq-title" title="Perguntas frequentes." />
+        <SectionHead id="faq-title" kicker="Dúvidas" n={14} title="Perguntas frequentes." />
         <div className="vs-faq mt-10 max-w-[60rem]">
           {FAQS.map((f) => (
             <details key={f.q}>
@@ -889,23 +908,55 @@ function FinalCta() {
   );
 }
 
+const FOOTER_COLS: { title: string; links: { label: string; id?: string; go?: () => void }[] }[] = [
+  { title: 'Produto', links: [
+    { label: 'Ferramentas', id: 'ferramentas' }, { label: 'Modo Show', id: 'modo-show' }, { label: 'IA', id: 'ia' },
+    { label: 'Maestro', id: 'maestro' }, { label: 'Mixer', id: 'mixer' },
+  ] },
+  { title: 'Palco', links: [
+    { label: 'Área do Músico', id: 'banda' }, { label: 'TV do palco', id: 'tv' }, { label: 'Novidades', id: 'novidades' },
+    { label: 'Palco × estúdio', id: 'por-que' },
+  ] },
+  { title: 'Assinatura', links: [
+    { label: 'Preços', id: 'precos' }, { label: 'Planos', go: goPlans }, { label: 'Teste grátis de 48 horas', go: goDownload },
+  ] },
+];
+
 function Footer() {
   return (
-    <footer className="border-t border-[color:var(--line)] pt-12 pb-28 text-[0.85rem] text-[color:var(--muted)]">
+    <footer className="vs-footer">
       <div className="vs-wrap">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-[color:var(--line)]">
-          <div className="flex items-center gap-3">
-            <VsLogo size={28} />
-            <span className="vs-display text-[1.25rem] text-[color:var(--cream)]">VS Stage Pro</span>
+        <div className="vs-footer-grid">
+          <div className="vs-footer-brand">
+            <div className="flex items-center gap-3">
+              <VsLogo size={30} />
+              <span className="vs-wordmark">VS Stage Pro</span>
+            </div>
+            <p className="mt-4 max-w-[19rem]">O primeiro motor de áudio construído exclusivamente para palco.</p>
+            {/* O contato fica no botão "Fale conosco" (pedido do dono: sem o número à mostra) */}
+            <a href={supportWhatsAppUrl(SITE_SUPPORT_MESSAGE)} target="_blank" rel="noopener noreferrer" className="vs-key vs-key-sm vs-key-steel mt-6">
+              <span className="vs-led is-green" aria-hidden="true" />Fale conosco
+            </a>
           </div>
-          <nav className="flex flex-wrap gap-x-6 gap-y-2" aria-label="Rodapé">
-            {NAV_LINKS.map((l) => (
-              <a key={l.id} href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id)} className="hover:text-[color:var(--cream)] transition-colors">{l.label}</a>
-            ))}
-          </nav>
+          {FOOTER_COLS.map((col) => (
+            <nav key={col.title} aria-label={col.title}>
+              <p className="vs-footer-title">{col.title}</p>
+              <ul className="mt-4 space-y-2.5">
+                {col.links.map((l) => (
+                  <li key={l.label}>
+                    {l.id
+                      ? <a href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id!)} className="vs-footer-link">{l.label}</a>
+                      : <button type="button" onClick={l.go} className="vs-footer-link">{l.label}</button>}
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ))}
         </div>
-        {/* O contato fica só no botão "Fale conosco" do canto da tela (pedido do dono: sem o número à mostra) */}
-        <p className="pt-8">© 2026 VS Stage Pro. Todos os direitos reservados.</p>
+        <div className="vs-footer-base">
+          <p>© 2026 VS Stage Pro. Todos os direitos reservados.</p>
+          <p>Para macOS Sonoma e Sequoia, em Macs com Apple Silicon.</p>
+        </div>
       </div>
     </footer>
   );
