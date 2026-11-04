@@ -107,9 +107,26 @@ export function saveBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-/** Palpite do chip pelo nome da placa de vídeo; Intel aparece como Intel/AMD. */
+const UA_ARCH_LS = 'vs-mac-arch';
+export const UA_ARCH_EVENT = 'vs-mac-arch';
+
+/**
+ * Palpite do chip para destacar o instalador certo.
+ *
+ * Ordem das tentativas (a primeira que responder vale):
+ * 1. `navigator.userAgentData` (Chrome, Edge, Brave): entrega "arm" no Apple Silicon e
+ *    "x86" no Intel de forma direta.
+ * 2. Nome da placa de vídeo pelo WebGL.
+ * Sem certeza, devolve null: a página mostra os dois sem destaque, em vez de destacar o
+ * errado (foi assim que um Mac de chip Apple acabou com o instalador de Intel, que fica
+ * lento por rodar traduzido).
+ */
 export function guessMacArch(): 'arm64' | 'x64' | null {
   if (!/Mac/i.test(navigator.platform || navigator.userAgent)) return null;
+
+  const fromHints = guessFromUserAgentData();
+  if (fromHints) return fromHints;
+
   try {
     const gl = document.createElement('canvas').getContext('webgl');
     const ext = gl?.getExtension('WEBGL_debug_renderer_info');
@@ -117,5 +134,29 @@ export function guessMacArch(): 'arm64' | 'x64' | null {
     if (/Apple M\d|Apple GPU/i.test(renderer)) return 'arm64';
     if (/Intel|AMD|Radeon|NVIDIA/i.test(renderer)) return 'x64';
   } catch { /* sem WebGL */ }
+  return null;
+}
+
+/** `navigator.userAgentData` é assíncrono; aqui só lemos o que o navegador já guardou. */
+function guessFromUserAgentData(): 'arm64' | 'x64' | null {
+  const nav = navigator as Navigator & {
+    userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }> };
+  };
+  // A leitura síncrona (brands/platform) não traz a arquitetura, então guardamos o resultado
+  // da consulta assíncrona assim que ela chega e reaproveitamos nas próximas aberturas.
+  try {
+    const cached = localStorage.getItem(UA_ARCH_LS);
+    if (cached === 'arm64' || cached === 'x64') return cached;
+  } catch { /* sem storage */ }
+
+  nav.userAgentData?.getHighEntropyValues?.(['architecture'])
+    .then(({ architecture }) => {
+      const arch = architecture === 'arm' ? 'arm64' : architecture === 'x86' ? 'x64' : null;
+      if (!arch) return;
+      try { localStorage.setItem(UA_ARCH_LS, arch); } catch { /* sem storage */ }
+      // Avisa a página para recalcular o destaque sem recarregar.
+      window.dispatchEvent(new Event(UA_ARCH_EVENT));
+    })
+    .catch(() => { /* navegador não responde: fica sem destaque */ });
   return null;
 }

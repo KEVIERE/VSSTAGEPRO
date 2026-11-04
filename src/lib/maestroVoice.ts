@@ -722,5 +722,9 @@ async function refreshStale(): Promise<void> {
 }
 
 if (typeof window !== 'undefined' && window.vsDesktop?.maestroSpeak) {
-  window.setInterval(() => { void refreshStale(); }, 10_000);
+  // O timer fica consultando a música aberta a cada 10 s a vida toda. Numa tela escondida
+  // (janela minimizada, outra aba) o trabalho não adianta e só gasta pilha: só roda visível.
+  window.setInterval(() => {
+    if (document.visibilityState === 'visible') void refreshStale();
+  }, 10_000);
 }

@@ -169,6 +169,9 @@ export interface UpdateInfo {
   direction: 'upgrade' | 'downgrade';
   // Marcada pelo admin: o app fica bloqueado (tela cheia, sem fechar) até atualizar.
   required: boolean;
+  // O programa instalado é o do processador errado (Intel num Mac com chip Apple): a
+  // atualização só troca pelo instalador certo, igual à versão.
+  archSwap?: boolean;
 }
 
 /**

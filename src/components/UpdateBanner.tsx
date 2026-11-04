@@ -105,9 +105,11 @@ export default function UpdateBanner() {
     }
   };
 
-  const message = info.direction === 'upgrade'
-    ? `Uma nova versão do VS Stage (${info.version}) está disponível.`
-    : `Há uma atualização de manutenção disponível (versão ${info.version}).`;
+  const message = info.archSwap
+    ? `O VS Stage está rodando no modo lento (programa de Intel no chip Apple). A versão ${info.version}, feita para o seu Mac, está disponível.`
+    : info.direction === 'upgrade'
+      ? `Uma nova versão do VS Stage (${info.version}) está disponível.`
+      : `Há uma atualização de manutenção disponível (versão ${info.version}).`;
 
   if (info.required) {
     return (

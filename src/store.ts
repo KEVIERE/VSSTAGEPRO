@@ -338,7 +338,15 @@ interface StoreActions {
 
 export type Store = ProjectState & ProjectStateExt & StoreActions;
 
-export const HISTORY_LIMIT = Number.POSITIVE_INFINITY;
+/**
+ * Quantas ações o Desfazer guarda.
+ *
+ * Antes era infinito e cada ação guarda uma cópia do projeto inteiro (faixas, clipes,
+ * músicas, blocos). Medido num show de 40 músicas com 600 clipes: 83 KB por ação. Depois de
+ * uma tarde editando, passava de 200 MB só de histórico, e o programa ia ficando lento até
+ * travar. 300 ações cobrem um show inteiro com folga (o LyricsEditor usa 200 para as letras).
+ */
+export const HISTORY_LIMIT = 300;
 
 let entrySeq = 0;
 function newEntryId(): string {

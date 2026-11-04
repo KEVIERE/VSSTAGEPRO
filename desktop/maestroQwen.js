@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 const { floatToWav, removeDcOffset, splitWords, trimSilence, wavSeconds } = require('./maestroAudio');
 const download = require('./maestroVoiceDownload');
+const { isAppleSilicon } = require('./machineArch');
 
 const HELPER = 'vs-maestro-voz';
 
@@ -66,9 +67,9 @@ function qwenVoiceFor(wanted) {
 // ---------------------------------------------------------------------------------------------
 // Onde estão as coisas
 
-/** O MLX só roda em Mac com chip Apple (o app Intel rodando no chip Apple também fica de fora). */
+/** O MLX só roda em Mac com chip Apple. Um app Intel traduzido no chip Apple também roda. */
 function supported() {
-  return process.platform === 'darwin' && process.arch === 'arm64';
+  return process.platform === 'darwin' && isAppleSilicon();
 }
 
 /** Pasta com o programa de voz e as vozes: dentro do app instalado ou, em desenvolvimento, aqui. */

@@ -4,6 +4,15 @@
 
 Responda sempre em português do Brasil. O dono do projeto só entende pt-BR.
 
+## Maneira de trabalhar
+
+- Ler os arquivos antes de escrever. Não reler o que não mudou.
+- Raciocínio completo, resposta curta.
+- Não abrir arquivo acima de 100 KB sem necessidade.
+- Sem abertura bajuladora, sem despedida prolixa.
+- Sem emoji e sem travessão (—).
+- Não inventar API, versão, flag, SHA de commit ou nome de pacote. Conferir no código ou na documentação antes de afirmar.
+
 ## Repositório
 
 - GitHub: `KEVIERE/VSSTAGEPRO`. **O repositório é público**: nunca coloque chaves, senhas ou tokens em arquivos do projeto. Os segredos de publicação ficam em GitHub → Settings → Secrets and variables → Actions.

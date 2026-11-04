@@ -19,7 +19,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { DownloadError, downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
+import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
 
@@ -79,7 +79,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
   const [manifest, setManifest] = useState<MacManifest | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const [suggested] = useState(guessMacArch);
+  const [suggested, setSuggested] = useState(guessMacArch);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -89,6 +89,14 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
       .then(setManifest)
       .catch(() => setLoadError(true));
     return () => abortRef.current?.abort();
+  }, []);
+
+  // O chip pode ser confirmado depois de a página abrir (consulta assíncrona do navegador):
+  // o destaque do instalador certo se ajusta sem recarregar.
+  useEffect(() => {
+    const refresh = () => setSuggested(guessMacArch());
+    window.addEventListener(UA_ARCH_EVENT, refresh);
+    return () => window.removeEventListener(UA_ARCH_EVENT, refresh);
   }, []);
 
   const start = async (build: MacBuild) => {

@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* A fonte Inter vem do link do index.html, junto com as fontes de letra (ver o comentário lá):
+   um pedido só, e sem travar a primeira pintura. Antes havia aqui um @import do Google Fonts,
+   que o navegador precisa baixar ANTES de desenhar qualquer coisa, somando mais um atraso de
+   rede em cada abertura do programa. */
 
 @tailwind base;
 @tailwind components;

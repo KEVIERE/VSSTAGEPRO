@@ -190,7 +190,10 @@ function queueProjectPath(filePath) {
   deliverPendingProject();
 }
 
-const SPLASH_MIN_MS = 3800;
+// A abertura (splash.html) canta a contagem 1-2-3-4, uma batida por etapa, e a última ("Pronto")
+// cai em 2650 ms. Esperar 3800 ms deixava a tela parada em "Pronto" por mais de um segundo à toa:
+// o app já estava pronto. 2900 ms deixa a contagem terminar e sai logo em seguida.
+const SPLASH_MIN_MS = 2900;
 const SPLASH_EXIT_MS = 600;
 const SPLASH_MAX_MS = 15000;
 

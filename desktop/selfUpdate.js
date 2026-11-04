@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const os = require('os');
+const { machineArch } = require('./machineArch');
 
 const execFileAsync = promisify(execFile);
 
@@ -45,8 +46,18 @@ function sha256File(filePath) {
   });
 }
 
+/**
+ * Instalador certo para este Mac: o do processador de verdade.
+ * Antes usava `process.arch`, então um Mac Silicon com o programa de Intel instalado
+ * (rodando traduzido) se atualizava sempre para o Intel de novo e nunca saía do lento.
+ */
 function archForThisMac() {
-  return process.arch === 'arm64' ? 'arm64' : 'x64';
+  return machineArch();
+}
+
+/** Este programa é o de Intel rodando traduzido num Mac com chip Apple? */
+function isTranslatedProcess() {
+  return machineArch() === 'arm64' && process.arch !== 'arm64';
 }
 
 /** Compara "1.2.10" vs "1.2.9": 1 se a for maior, -1 se for menor, 0 se igual. */
@@ -93,11 +104,20 @@ async function checkForUpdate(_supabaseUrl) {
     // Mesmo número de versão: só é "mudança" se o build publicado for diferente do
     // instalado (ex.: republicou o mesmo 1.1.17 com outro build, ou só trocou a
     // obrigatoriedade). Sem isso o app ignorava republicações da própria versão.
-    if (cmp === 0 && Number(manifest.build) === currentBuild()) return null;
+    //
+    // Exceção: este processo é o programa de Intel rodando traduzido num Mac com chip
+    // Apple. Aí a versão é a mesma mas o programa está errado, então troca mesmo assim
+    // pelo do chip (é o que tira a lentidão). Sem isso o app nunca sairia do Intel.
+    const wrongChip = isTranslatedProcess();
+    if (cmp === 0 && Number(manifest.build) === currentBuild() && !wrongChip) return null;
     const build = manifest.builds.find((b) => b.arch === archForThisMac());
     if (!build) return null;
-    const direction = cmp !== 0 ? (cmp > 0 ? 'upgrade' : 'downgrade') : (Number(manifest.build) > currentBuild() ? 'upgrade' : 'downgrade');
-    return { version: manifest.version, build, base, direction, required: manifest.required === true };
+    // Programa do processador errado instalado: é sempre "atualizar", nunca "voltar",
+    // mesmo com a versão publicada igual ou mais baixa que a instalada.
+    const direction = wrongChip
+      ? 'upgrade'
+      : cmp !== 0 ? (cmp > 0 ? 'upgrade' : 'downgrade') : (Number(manifest.build) > currentBuild() ? 'upgrade' : 'downgrade');
+    return { version: manifest.version, build, base, direction, required: manifest.required === true, archSwap: wrongChip };
   } catch {
     return null;
   }
