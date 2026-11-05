@@ -25,6 +25,9 @@ END $$;
 -- Signature changed (added discount/stripe columns): drop the old 6-arg version first,
 -- otherwise Postgres keeps both as an ambiguous overload.
 DROP FUNCTION IF EXISTS admin_promo_create(text, text, int, int, timestamptz, text);
+-- O banco em uso já tinha esta versão de 9 argumentos, criada fora das migrações: sem apagar
+-- antes, o CREATE falhava com "already exists with same argument types".
+DROP FUNCTION IF EXISTS admin_promo_create(text, text, int, int, timestamptz, text, int, text, text);
 
 CREATE FUNCTION admin_promo_create(
   p_code text, p_kind text, p_value int, p_max_uses int DEFAULT NULL,
