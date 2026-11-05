@@ -28,8 +28,8 @@
     position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden;
     border-radius: 14px; background: #24282d;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
-    animation: cardIn 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    transition: opacity 480ms ease 120ms;
+    animation: cardIn 290ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition: opacity 260ms ease 70ms;
   }
   .leaving .card { opacity: 0; }
   .rail, .foot {
@@ -65,20 +65,20 @@
 
   .scene {
     position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px;
-    transition: transform 700ms cubic-bezier(0.6, 0, 0.2, 1), opacity 500ms ease 100ms;
+    transition: transform 380ms cubic-bezier(0.6, 0, 0.2, 1), opacity 280ms ease 60ms;
   }
   .leaving .scene { transform: scale(1.8); opacity: 0; }
 
   /* Logo oficial se desenhando */
   .logo-wrap { position: relative; width: 98px; height: 98px; }
   .logo { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .logo-pop { transform-box: fill-box; transform-origin: center; animation: logoPop 850ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-  .wave-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 1150ms cubic-bezier(0.65, 0, 0.35, 1) 250ms both; }
-  .wave-spec-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 1150ms cubic-bezier(0.65, 0, 0.35, 1) 270ms both; }
-  .tip-left { animation: tipFade 400ms ease-out 250ms both; }
-  .tip-right { animation: tipFade 400ms ease-out 1350ms both; }
-  .play-pop { transform-box: fill-box; transform-origin: 48% 50%; animation: playSpring 850ms cubic-bezier(0.34, 1.5, 0.64, 1) 1150ms both; }
-  .ring { position: absolute; inset: -7%; border-radius: 27%; border: 2px solid rgba(255, 171, 31, 0.45); pointer-events: none; animation: ring 550ms ease-out forwards; }
+  .logo-pop { transform-box: fill-box; transform-origin: center; animation: logoPop 470ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .wave-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 630ms cubic-bezier(0.65, 0, 0.35, 1) 140ms both; }
+  .wave-spec-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 630ms cubic-bezier(0.65, 0, 0.35, 1) 150ms both; }
+  .tip-left { animation: tipFade 220ms ease-out 140ms both; }
+  .tip-right { animation: tipFade 220ms ease-out 740ms both; }
+  .play-pop { transform-box: fill-box; transform-origin: 48% 50%; animation: playSpring 470ms cubic-bezier(0.34, 1.5, 0.64, 1) 630ms both; }
+  .ring { position: absolute; inset: -7%; border-radius: 27%; border: 2px solid rgba(255, 171, 31, 0.45); pointer-events: none; animation: ring 300ms ease-out forwards; }
   .ring.go { border-color: rgba(62, 226, 110, 0.5); }
 
   /* Visor da contagem: LEDs 1-4, display de 7 segmentos e a etapa do carregamento */
@@ -87,7 +87,7 @@
     border-radius: 8px; background-color: var(--lcd);
     background-image: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
     box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.9), 0 0 0 1px #2d3238, 0 1px 0 rgba(255, 255, 255, 0.05);
-    animation: fadeIn 350ms ease-out 150ms both;
+    animation: fadeIn 190ms ease-out 80ms both;
   }
   .leds { display: flex; gap: 7px; }
   .leds .led { width: 8px; height: 8px; }
@@ -101,7 +101,7 @@
   .is-go .digit, .is-go .status { color: var(--green); }
   .is-go .status { text-shadow: 0 0 8px rgba(62, 226, 110, 0.45); }
 
-  .word { margin: 2px 0 0; font-family: 'Outfit', 'Barlow Semi Condensed', sans-serif; font-weight: 600; font-size: 19px; line-height: 1; letter-spacing: -0.01em; color: var(--cream); animation: word 600ms ease-out 1300ms both; }
+  .word { margin: 2px 0 0; font-family: 'Outfit', 'Barlow Semi Condensed', sans-serif; font-weight: 600; font-size: 19px; line-height: 1; letter-spacing: -0.01em; color: var(--cream); animation: word 330ms ease-out 720ms both; }
 
   @keyframes cardIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
   @keyframes logoPop { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
@@ -458,10 +458,10 @@
 
   // Cada batida da contagem é uma etapa do carregamento
   const STEPS = [
-    { at: 550, text: 'Carregando motor de áudio...' },
-    { at: 1250, text: 'Preparando timecode e periféricos...' },
-    { at: 1950, text: 'Abrindo o show...' },
-    { at: 2650, text: 'Pronto' },
+    { at: 300, text: 'Carregando motor de áudio...' },
+    { at: 690, text: 'Preparando timecode e periféricos...' },
+    { at: 1070, text: 'Abrindo o show...' },
+    { at: 1460, text: 'Pronto' },
   ];
   const leds = [...document.querySelectorAll('.leds .led')];
   const count = document.getElementById('count');

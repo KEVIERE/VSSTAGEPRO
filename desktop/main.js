@@ -20,7 +20,9 @@ const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.
 
 // Origem fixa para o app guardar preferências e sessão entre aberturas.
 protocol.registerSchemesAsPrivileged([
-  { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } },
+  // codeCache guarda o código já compilado pelo V8 dos arquivos servidos por este esquema: nas
+  // aberturas seguintes o programa não compila o JS inteiro de novo.
+  { scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true, codeCache: true } },
 ]);
 
 let win = null;
@@ -191,10 +193,10 @@ function queueProjectPath(filePath) {
 }
 
 // A abertura (splash.html) canta a contagem 1-2-3-4, uma batida por etapa, e a última ("Pronto")
-// cai em 2650 ms. Esperar 3800 ms deixava a tela parada em "Pronto" por mais de um segundo à toa:
-// o app já estava pronto. 2900 ms deixa a contagem terminar e sai logo em seguida.
-const SPLASH_MIN_MS = 2900;
-const SPLASH_EXIT_MS = 600;
+// cai em 1460 ms. Esperar além disso deixa a tela parada à toa: o app já estava pronto.
+// 1550 ms deixa a contagem terminar e sai logo em seguida.
+const SPLASH_MIN_MS = 1550;
+const SPLASH_EXIT_MS = 380;
 const SPLASH_MAX_MS = 15000;
 
 function createSplash() {
@@ -249,8 +251,8 @@ function finishSplash(force) {
   setTimeout(() => {
     if (!splash || splash.isDestroyed()) { showMain(); return; }
     splash.webContents.executeJavaScript("window.postMessage('vs:leave', '*')").catch(() => {});
-    setTimeout(showMain, 200);
-    setTimeout(() => { if (splash && !splash.isDestroyed()) splash.close(); }, SPLASH_EXIT_MS + 200);
+    setTimeout(showMain, 120);
+    setTimeout(() => { if (splash && !splash.isDestroyed()) splash.close(); }, SPLASH_EXIT_MS + 120);
   }, wait);
 }
 
@@ -473,7 +475,9 @@ if (hasSingleInstance) app.whenReady().then(() => {
   session.defaultSession.setPermissionCheckHandler((_wc, permission, origin) => permission !== 'fileSystem' || fromApp(origin));
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(permission !== 'fileSystem' || fromApp(wc.getURL())));
 
-  initAntiTamper();
+  // O antiTamper lê e calcula o hash do app.asar: fica fora do caminho da abertura, senão a
+  // janela nasce com a tela presa (ver readIntegrityAsync em antiTamper.js).
+  setImmediate(() => initAntiTamper());
 
   createSplash();
   createWindow();

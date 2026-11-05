@@ -40,14 +40,12 @@ function getHardwareId() {
 }
 
 /**
- * Calcula o hash SHA-256 do pacote executável app.asar.
- * Também detecta se o cracker descompactou o ASAR em uma pasta 'app/' para editar o código.
+ * Confere o que não depende do conteúdo do pacote: pasta app/ descompactada (técnica de crack)
+ * e app.asar ausente. Responde na hora, sem ler o arquivo.
+ * Devolve `asarPath` quando há um pacote para conferir.
  */
-function inspectAppIntegrity() {
-  if (!app.isPackaged) {
-    return { tampered: false, asarSha: null, reason: null };
-  }
-
+function checkStructure() {
+  if (!app.isPackaged) return { done: { tampered: false, asarSha: null, reason: null } };
   try {
     const resources = process.resourcesPath;
     const asarPath = path.join(resources, 'app.asar');
@@ -56,54 +54,139 @@ function inspectAppIntegrity() {
     // Sinal 1: Cracker descompactou o ASAR em uma pasta 'app/' para rodar código alterado
     if (fs.existsSync(unpackedDir) && fs.statSync(unpackedDir).isDirectory()) {
       return {
-        tampered: true,
-        asarSha: null,
-        reason: 'Estrutura alterada: pasta app/ descompactada detectada no diretório Resources (técnica clássica de crack)',
+        done: {
+          tampered: true,
+          asarSha: null,
+          reason: 'Estrutura alterada: pasta app/ descompactada detectada no diretório Resources (técnica clássica de crack)',
+        },
       };
     }
 
     // Sinal 2: O arquivo app.asar não existe
     if (!fs.existsSync(asarPath)) {
       return {
-        tampered: true,
-        asarSha: null,
-        reason: 'Pacote app.asar ausente no diretório de recursos da aplicação',
+        done: {
+          tampered: true,
+          asarSha: null,
+          reason: 'Pacote app.asar ausente no diretório de recursos da aplicação',
+        },
       };
     }
 
-    // Sinal 3: Cálculo do SHA-256 real do app.asar
-    const buf = fs.readFileSync(asarPath);
-    const asarSha = crypto.createHash('sha256').update(buf).digest('hex');
+    return { asarPath, resources };
+  } catch {
+    return { done: { tampered: false, asarSha: null, reason: null } };
+  }
+}
 
-    // Confere com o build-info.json se houver hash registrado
-    const buildInfoPath = path.join(resources, 'build-info.json');
-    if (fs.existsSync(buildInfoPath)) {
-      try {
-        const info = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8'));
-        if (info.expectedAsarSha && info.expectedAsarSha !== asarSha) {
-          return {
-            tampered: true,
-            asarSha,
-            reason: `Assinatura de integridade incompatível (esperado: ${info.expectedAsarSha.slice(0, 12)}..., atual: ${asarSha.slice(0, 12)}...)`,
-          };
-        }
-      } catch {
-        /* ignore parse error */
+/** Compara o hash calculado com o registrado no build-info.json, se houver. */
+function compareWithBuildInfo(resources, asarSha) {
+  const buildInfoPath = path.join(resources, 'build-info.json');
+  if (fs.existsSync(buildInfoPath)) {
+    try {
+      const info = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8'));
+      if (info.expectedAsarSha && info.expectedAsarSha !== asarSha) {
+        return {
+          tampered: true,
+          asarSha,
+          reason: `Assinatura de integridade incompatível (esperado: ${info.expectedAsarSha.slice(0, 12)}..., atual: ${asarSha.slice(0, 12)}...)`,
+        };
       }
+    } catch {
+      /* ignore parse error */
     }
+  }
+  return { tampered: false, asarSha, reason: null };
+}
 
-    return { tampered: false, asarSha, reason: null };
-  } catch (e) {
+/**
+ * Calcula o hash SHA-256 do pacote executável app.asar.
+ * Também detecta se o cracker descompactou o ASAR em uma pasta 'app/' para editar o código.
+ * Versão síncrona: usada como reserva quando não há como rodar em processo separado.
+ */
+function inspectAppIntegrity() {
+  const s = checkStructure();
+  if (s.done) return s.done;
+  try {
+    return compareWithBuildInfo(s.resources, computeAsarShaSync(s.asarPath));
+  } catch {
     return { tampered: false, asarSha: null, reason: null };
   }
 }
 
 /**
+ * Hash SHA-256 do app.asar, calculado fora do processo principal.
+ *
+ * Ler e calcular esse hash aqui travava o processo principal por ~200 ms a cada batida do
+ * heartbeat, e é ele quem desenha a janela: o programa abria com a tela presa. Em processo
+ * separado, o resultado é o mesmo e a janela nasce livre. Sem processo disponível, cai no
+ * cálculo de antes.
+ */
+const integrityWorkerSource = `
+const { parentPort, workerData } = require('node:worker_threads');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+try {
+  const buf = fs.readFileSync(workerData.asarPath);
+  parentPort.postMessage({ asarSha: crypto.createHash('sha256').update(buf).digest('hex') });
+} catch (e) {
+  parentPort.postMessage({ error: String(e && e.message) });
+}
+`;
+
+function hashAsar(asarPath) {
+  return new Promise((resolve, reject) => {
+    let Worker;
+    try {
+      ({ Worker } = require('node:worker_threads'));
+    } catch {
+      resolve(computeAsarShaSync(asarPath));
+      return;
+    }
+    const w = new Worker(integrityWorkerSource, { eval: true, workerData: { asarPath } });
+    let settled = false;
+    w.once('message', (msg) => {
+      settled = true;
+      w.terminate().catch(() => {});
+      if (msg && msg.asarSha) resolve(msg.asarSha);
+      else reject(new Error((msg && msg.error) || 'hash falhou'));
+    });
+    w.once('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+    w.once('exit', () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('hash encerrou sem resposta'));
+    });
+  });
+}
+
+function computeAsarShaSync(asarPath) {
+  const buf = fs.readFileSync(asarPath);
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+/**
  * Envia o sinal de integridade/heartbeat silencioso para o Supabase.
  */
-function sendHeartbeat(isFirst = false) {
+/** Integridade sem travar o processo principal: o hash sai num processo separado. */
+async function readIntegrityAsync() {
+  const s = checkStructure();
+  if (s.done) return s.done;
+  try {
+    return compareWithBuildInfo(s.resources, await hashAsar(s.asarPath));
+  } catch {
+    // sem processo separado disponível: faz aqui mesmo, como antes
+    return inspectAppIntegrity();
+  }
+}
+
+async function sendHeartbeat(isFirst = false) {
   const hw = getHardwareId();
-  const integrity = inspectAppIntegrity();
+  const integrity = await readIntegrityAsync();
   const runningMinutes = Math.floor((Date.now() - startTime) / 60000);
 
   // Se o programa está rodando há mais de 10 minutos sem login ativo, marca bypass
@@ -174,10 +257,10 @@ function initAntiTamper() {
   });
 
   // Primeiro heartbeat após 10 segundos da inicialização (dá tempo da rede estabilizar)
-  setTimeout(() => sendHeartbeat(true), 10000);
+  setTimeout(() => sendHeartbeat(true).catch(() => { /* silencioso */ }), 10000);
 
   // Heartbeats periódicos a cada 30 minutos
-  setInterval(() => sendHeartbeat(false), 30 * 60 * 1000);
+  setInterval(() => sendHeartbeat(false).catch(() => { /* silencioso */ }), 30 * 60 * 1000);
 }
 
 module.exports = {
