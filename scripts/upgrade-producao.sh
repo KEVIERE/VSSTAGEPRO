@@ -61,7 +61,14 @@ echo "branch enviada"
 
 # ---------------------------------------------------------------- 3. banco
 etapa "3. Aplicando as migrações no banco de produção"
-supabase link --project-ref "$PROJECT_REF" || falhou "supabase link falhou. Se for 'Access token not provided', rode: supabase login"
+LINK_OUT=$(supabase link --project-ref "$PROJECT_REF" 2>&1)
+echo "$LINK_OUT"
+if echo "$LINK_OUT" | grep -qi "paused"; then
+  falhou "o projeto Supabase está PAUSADO. Nada foi publicado no site (esta é a ordem certa: banco antes do site).
+  Despause em: https://supabase.com/dashboard/project/$PROJECT_REF
+  Depois rode este script de novo."
+fi
+echo "$LINK_OUT" | grep -q "FALHOU\|error" && falhou "supabase link falhou. Se for 'Access token not provided', rode: supabase login"
 supabase db push || falhou "supabase db push falhou. Nada foi publicado no site."
 echo "banco atualizado"
 
