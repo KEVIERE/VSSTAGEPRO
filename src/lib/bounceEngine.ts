@@ -7,7 +7,7 @@ import { DiskFullError, openFileTarget, openFolderTarget, type ExportTarget } fr
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
 import { evaluateFadeCurve } from '@/types';
-import { integratedLoudness, truePeak } from '@/lib/loudness';
+import { analyzeKey, analyzeLoudness } from '@/lib/audioAnalysis';
 import { songLevelGain } from '@/lib/songLevel';
 import { gainToFader } from '@/lib/faderScale';
 import { ANTI_CLIP_CEILING, limitInPlace } from '@/lib/peakLimiter.js';
@@ -553,8 +553,8 @@ function multitrackJobs(song: Song, state: ProjectState, cancelled: () => boolea
 export async function measureSongLoudness(song: Song, state: ProjectState, cancelled: () => boolean = () => false): Promise<{ lufs: number; peak: number }> {
   const unity = state.tracks.map((t) => ({ ...t, volume: 0.8, antiClip: false }));
   const buf = await withSongAudio(song.id, () => renderOffline(song, unity, state.clips, state.lrMasterActive, undefined, false, cancelled, 0.8));
-  const channels = Array.from({ length: buf.numberOfChannels }, (_, c) => buf.getChannelData(c));
-  return { lufs: integratedLoudness(channels, buf.sampleRate), peak: truePeak(channels) };
+  // o cálculo (~0,7 s por música no M2) vai para o worker: a tela e o streaming do disco seguem livres
+  return analyzeLoudness(buf);
 }
 
 /** Fader master desta música no mix (LR/show contínuo): com o volume igual ligado, já nivelada. */
@@ -564,19 +564,14 @@ function masterFor(state: ProjectState, songId: string): number {
 }
 
 /**
- * Mix só das faixas melódicas (sem bateria, percussão, click e maestro), faders em 0 dB, sem o
- * tom/BPM ajustados: é o que a IA de tom analisa. Mono para a análise.
+ * Tom da música pela IA: mix só das faixas melódicas (sem bateria, percussão, click e maestro),
+ * faders em 0 dB, sem o tom/BPM ajustados. A mixagem para mono e a análise rodam no worker.
  */
-export async function renderMelodicMono(song: Song, state: ProjectState): Promise<{ mono: Float32Array; sampleRate: number }> {
+export async function detectSongKey(song: Song, state: ProjectState): Promise<{ key: string; confident: boolean } | null> {
   const unity = state.tracks.map((t) => ({ ...t, volume: 0.8, antiClip: false }));
   const plain: Song = { ...song, bpmAdjust: 0, tuner: 0, medley: undefined };
   const buf = await withSongAudio(song.id, () => renderOffline(plain, unity, state.clips, false, (t) => isMelodicTrack(t, unity), false));
-  const mono = new Float32Array(buf.length);
-  for (let c = 0; c < buf.numberOfChannels; c++) {
-    const ch = buf.getChannelData(c);
-    for (let i = 0; i < ch.length; i++) mono[i] += ch[i] / buf.numberOfChannels;
-  }
-  return { mono, sampleRate: buf.sampleRate };
+  return analyzeKey(buf);
 }
 
 /** Mix master de uma música; se falhar (memória apertada), libera o áudio dela e tenta mais uma vez. */

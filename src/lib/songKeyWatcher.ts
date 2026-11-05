@@ -3,8 +3,7 @@
 // à mão (song.musicKey) sempre vale por cima do detectado.
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
-import { renderMelodicMono } from '@/lib/bounceEngine';
-import { detectKey } from '@/lib/musicKey';
+import { detectSongKey } from '@/lib/bounceEngine';
 import { loudnessSignature } from '@/lib/songLevel';
 
 let running = false;
@@ -35,15 +34,14 @@ async function run() {
     do {
       again = false;
       for (const id of pending()) {
-        // o Play e a exportação têm a vez
-        while (audioEngine.isStarting()) await new Promise((r) => setTimeout(r, 300));
+        // o Play tem a vez, e o começo da música no ar também (o disco ainda está entregando)
+        while (audioEngine.isSettling()) await new Promise((r) => setTimeout(r, 300));
         const st = useStore.getState();
         const song = st.songs.find((s) => s.id === id);
         if (!song || song.musicKey) continue;
         const sig = loudnessSignature(id, st.clips);
         try {
-          const { mono, sampleRate } = await renderMelodicMono(song, st);
-          const r = detectKey(mono, sampleRate);
+          const r = await detectSongKey(song, st);
           if (r) useStore.getState().setSongDetectedKey(id, { key: r.key, sig });
           else failed.set(id, sig);
         } catch (err) {

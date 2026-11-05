@@ -28,6 +28,8 @@ export const MAGIC_SUM_GAIN = 0.5;
 // Trecho lido do disco antes de largar (~0,7 s): pequeno para o Play sair rápido; o leitor
 // antecipado já está buscando o que vem depois enquanto ele toca.
 const START_WINDOW_FRAMES = 1 << 15;
+// Depois de um Play, por quanto tempo as análises de fundo esperam (ver isSettling).
+const SETTLE_MS = 5000;
 
 import { faderToGain } from '@/lib/faderScale';
 import { lateClipIds, setDiskLag } from '@/lib/diskLag';
@@ -1204,12 +1206,25 @@ class AudioEngine {
     return this.startsInFlight > 0;
   }
 
+  // Quando o último Play terminou de largar. Nos segundos seguintes o disco ainda está entregando
+  // o começo de cada faixa, e essa entrega depende da thread da tela.
+  private lastStartAt = 0;
+
+  /**
+   * Largando, ou logo depois de largar: as análises de fundo (volume igual, IA de tom) esperam.
+   * Antes elas só esperavam o Play e podiam rodar no começo de uma música no meio do show.
+   */
+  isSettling(ms = SETTLE_MS): boolean {
+    return this.startsInFlight > 0 || performance.now() - this.lastStartAt < ms;
+  }
+
   async playSong(songId: string, startOffset = 0, options?: { fastSeek?: boolean }) {
     this.startsInFlight++;
     try {
       await this.startSong(songId, startOffset, options);
     } finally {
       this.startsInFlight--;
+      this.lastStartAt = performance.now();
     }
   }
 

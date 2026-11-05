@@ -41,8 +41,8 @@ async function run() {
       for (const id of todo) {
         const st = useStore.getState();
         if (!st.levelMatch) break;
-        // o Play tem a vez
-        while (audioEngine.isStarting()) await new Promise((r) => setTimeout(r, 200));
+        // o Play tem a vez, e o começo da música no ar também (o disco ainda está entregando)
+        while (audioEngine.isSettling()) await new Promise((r) => setTimeout(r, 200));
         const song = st.songs.find((s) => s.id === id);
         if (!song || validLoudness(st, id)) { done++; continue; }
         const sig = loudnessSignature(id, st.clips);
