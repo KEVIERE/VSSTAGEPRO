@@ -1,5 +1,5 @@
 import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { FileText, Radio, X } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
@@ -34,12 +34,14 @@ import UpdateBanner from '@/components/UpdateBanner';
 import EmailConfirmedPage from '@/components/EmailConfirmedPage';
 import ResetPasswordPage from '@/components/ResetPasswordPage';
 import { emailLinkType, supabase } from '@/lib/supabaseClient';
-import MacDownloadPage from '@/components/MacDownloadPage';
-import SalesPage from '@/components/sales/SalesPage';
-import PricingPage from '@/components/sales/PricingPage';
+// Páginas só do site (vendas, planos, download, admin, retorno da assinatura): o programa do
+// diretor nunca abre nenhuma delas, então ficam fora do carregamento da abertura.
+const MacDownloadPage = lazy(() => import('@/components/MacDownloadPage'));
+const SalesPage = lazy(() => import('@/components/sales/SalesPage'));
+const PricingPage = lazy(() => import('@/components/sales/PricingPage'));
+const SubscriptionReturn = lazy(() => import('@/components/SubscriptionReturn'));
+const AdminPage = lazy(() => import('@/components/admin/AdminPage'));
 import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
-import SubscriptionReturn from '@/components/SubscriptionReturn';
-import AdminPage from '@/components/admin/AdminPage';
 import MobileShowRemote from '@/components/MobileShowRemote';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog';
@@ -60,6 +62,11 @@ import { clearShowAudio } from '@/lib/prompterAudio';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
 import { startSongKeyWatcher } from '@/lib/songKeyWatcher';
+
+// Enquanto chega o código de uma página do site: só o fundo, sem piscar branco.
+function SitePageFallback() {
+  return <div className="min-h-screen bg-black" />;
+}
 
 function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' {
   const { pathname, hash, search } = window.location;
@@ -207,7 +214,7 @@ function App() {
   if (route === 'download') {
     return (
       <ErrorBoundary>
-        <MacDownloadPage />
+        <Suspense fallback={<SitePageFallback />}><MacDownloadPage /></Suspense>
       </ErrorBoundary>
     );
   }
@@ -235,28 +242,28 @@ function App() {
   if (route === 'admin') {
     return (
       <ErrorBoundary>
-        <AdminPage />
+        <Suspense fallback={<SitePageFallback />}><AdminPage /></Suspense>
       </ErrorBoundary>
     );
   }
   if (route === 'subscribed') {
     return (
       <ErrorBoundary>
-        <SubscriptionReturn />
+        <Suspense fallback={<SitePageFallback />}><SubscriptionReturn /></Suspense>
       </ErrorBoundary>
     );
   }
   if (route === 'pricing') {
     return (
       <ErrorBoundary>
-        <PricingPage />
+        <Suspense fallback={<SitePageFallback />}><PricingPage /></Suspense>
       </ErrorBoundary>
     );
   }
   if (route === 'sales') {
     return (
       <ErrorBoundary>
-        <SalesPage />
+        <Suspense fallback={<SitePageFallback />}><SalesPage /></Suspense>
       </ErrorBoundary>
     );
   }

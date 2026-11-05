@@ -1,4 +1,12 @@
-import { guess } from 'web-audio-beat-detector';
+// O detector de BPM (e a standardized-audio-context que vem com ele, ~77 KB) só é usado ao
+// importar e ao separar músicas: fica fora do carregamento da abertura e é buscado na 1ª vez.
+type Guess = typeof import('web-audio-beat-detector').guess;
+let guessPromise: Promise<Guess> | null = null;
+function loadGuess(): Promise<Guess> {
+  guessPromise ??= import('web-audio-beat-detector').then((m) => m.guess);
+  return guessPromise;
+}
+const guess: Guess = async (...args) => (await loadGuess())(...args);
 import type { ClipAudio } from '@/lib/audioLibrary';
 
 const MIN_BPM = 70;
