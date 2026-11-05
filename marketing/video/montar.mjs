@@ -39,7 +39,9 @@ const args = [
 if (audio) {
   args.push('-i', audio);
   // A narração começa no quadro zero; o loudnorm deixa o volume no padrão de web.
-  args.push('-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-c:a', 'aac', '-b:a', '192k');
+  // O apad completa o áudio até o fim do vídeo, para o -shortest não cortar o vídeo
+  // quando a narração é mais curta que ele.
+  args.push('-af', 'apad,loudnorm=I=-16:TP=-1.5:LRA=11', '-c:a', 'aac', '-b:a', '192k');
 }
 
 args.push(

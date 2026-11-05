@@ -1,145 +1,104 @@
-// Cena 4 (22,6 a 32,6 s): Modo Show. Displays grandes: tocando, próxima e o relógio.
+// Cena 4 (22,6 a 32,6 s): Modo Show no palco. A tela real, com a câmera indo no display
+// do restante, nos cartões de Tocando/Próxima e nos modos de condução.
 import sharp from '/Users/jonatha/Documents/VS STAGE PROJECT/project/node_modules/sharp/lib/index.js';
-import { C, W, H, titulo, apoio, svg, texto, seg, easeOutCubic, easeOutExpo, easeInOutCubic, clamp } from '../lib/core.mjs';
+import { W, H, seg, easeOutCubic, easeInOutCubic, texto, clamp } from '../lib/core.mjs';
 import { textoEm } from '../lib/camadas.mjs';
-import { fundo, escurecer } from '../lib/cena.mjs';
-import { displayRestante, cartaoMusica, teclaRotulo, painel } from '../lib/pecas.mjs';
-import { LCD, trilho } from '../lib/mesa.mjs';
+import { fundoVideo, escurecer, telaDoPrograma, esmaecerTodas, V, FONTE } from '../lib/cena3.mjs';
 
 export const inicio = 22.6;
 export const fim = 32.6;
 
+// Pontos de interesse na captura do Modo Show (em fração da imagem).
+// A captura 3-modo-show.png é o painel: display grande em cima, cartões no meio.
+const PLANOS = [
+  { janela: { fx: 0.5, fy: 0.42, fw: 1.0, fh: 1.0 }, legenda: 'O show inteiro numa tela' },
+  { janela: { fx: 0.42, fy: 0.3, fw: 0.55, fh: 0.55 }, legenda: 'Quanto falta para acabar' },
+  { janela: { fx: 0.55, fy: 0.55, fw: 0.6, fh: 0.6 }, legenda: 'Tocando e próxima' },
+  { janela: { fx: 0.5, fy: 0.75, fw: 0.75, fh: 0.55 }, legenda: 'Contínuo, por bloco ou uma a uma' },
+];
+
 export async function desenhar(t) {
-  const camadas = await fundo(t, { etiqueta: 'MODO SHOW', indice: 4, cor: C.green, haloCor: C.green, forca: 0.12 });
+  const camadas = await fundoVideo(t, { etiqueta: 'MODO SHOW', indice: 4 });
   const local = t - inicio;
   const saida = seg(t, fim - 0.5, fim);
+  const dur = fim - inicio;
 
   // Título.
-  const tl = await titulo('Todo o show', 84, C.cream);
-  const c1 = await textoEm(tl, { x: 56, y: 200 + (1 - easeOutCubic(seg(t, inicio + 0.1, inicio + 0.7))) * 20, opacidade: easeOutCubic(seg(t, inicio + 0.1, inicio + 0.7)) });
+  const p1 = easeOutCubic(seg(t, inicio + 0.1, inicio + 0.7));
+  const l1 = await texto('Todo o show', 72, { familia: FONTE, peso: '700', cor: V.texto });
+  const c1 = await textoEm(l1, { x: 56, y: 150 + (1 - p1) * 16, opacidade: p1 });
   if (c1) camadas.push(c1);
-  const tl2 = await titulo('em uma única tela.', 84, C.green);
-  const c2 = await textoEm(tl2, { x: 56, y: 296 + (1 - easeOutCubic(seg(t, inicio + 0.3, inicio + 0.9))) * 20, opacidade: easeOutCubic(seg(t, inicio + 0.3, inicio + 0.9)) });
+
+  const p2 = easeOutCubic(seg(t, inicio + 0.3, inicio + 0.9));
+  const l2 = await texto('em uma única tela.', 72, { familia: FONTE, peso: '700', cor: V.verde });
+  const c2 = await textoEm(l2, { x: 56, y: 240 + (1 - p2) * 16, opacidade: p2 });
   if (c2) camadas.push(c2);
 
-  // Painel do Modo Show (o de verdade, na proporção do programa).
-  const px = 40;
-  const py = 470;
-  const pw = 1000;
-  const ph = 1180;
+  // A tela real, com a câmera passando por quatro enquadramentos.
+  const pTela = easeOutCubic(seg(t, inicio + 0.5, inicio + 1.2));
+  if (pTela > 0.01) {
+    // qual trecho está no ar e quanto dele já passou
+    const porPlano = (dur - 1.4) / PLANOS.length;
+    const idx = clamp(Math.floor((local - 0.6) / porPlano), 0, PLANOS.length - 1);
+    const dentro = clamp(((local - 0.6) - idx * porPlano) / porPlano);
+    const atual = PLANOS[idx];
+    const proximo = PLANOS[Math.min(PLANOS.length - 1, idx + 1)];
 
-  camadas.push({ input: await painel(pw, ph), left: px, top: py });
-  camadas.push({
-    input: await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="52">${trilho(0, 0, pw, 52)}</svg>`)).png().toBuffer(),
-    left: px,
-    top: py,
-  });
-
-  // Lâmpada "no ar" piscando devagar.
-  const lamp = Math.sin(local * 3) > -0.3 ? 1 : 0.35;
-  camadas.push({
-    input: await svg(`<circle cx="6" cy="6" r="6" fill="${C.red}" opacity="${lamp}"/>`, 12, 12),
-    left: px + 18,
-    top: py + 20,
-  });
-  const tm = await texto('Modo show', 21, { familia: 'Barlow Semi Condensed', peso: '600', cor: '#e7e2d6' });
-  const c3 = await textoEm(tm, { x: px + 34, y: py + 13 });
-  if (c3) camadas.push(c3);
-
-  // Relógio do show, andando (mm:ss).
-  const segundos = Math.floor(local * 1.6);
-  const relogio = `${String(Math.floor(segundos / 60)).padStart(2, '0')}:${String(segundos % 60).padStart(2, '0')}`;
-  const tr = await texto(relogio, 20, { familia: 'Menlo', peso: 'bold', cor: C.amber });
-  const c4 = await textoEm(tr, { x: px + pw - 18, y: py + 14, ancora: 'end' });
-  if (c4) camadas.push(c4);
-
-  // Display do restante (conta para baixo).
-  const restante = Math.max(0, 192 - Math.floor(local * 4));
-  const tempoTxt = `-${Math.floor(restante / 60)}:${String(restante % 60).padStart(2, '0')}`;
-  const pDisp = easeOutCubic(seg(t, inicio + 0.55, inicio + 1.25));
-  if (pDisp > 0.01) {
-    const camadasDisp = await displayRestante({
-      w: pw - 60,
-      h: 320,
-      tempo: restante <= 15 ? tempoTxt : tempoTxt,
-      nome: 'Oceanos',
-      cor: restante <= 15 ? LCD.red : LCD.green,
-      x: px + 30,
-      y: py + 80,
+    const tw = 992;
+    const th = 860;
+    const telas = await telaDoPrograma({
+      captura: 'modoShow',
+      x: 44,
+      y: 400,
+      w: tw,
+      h: th,
+      janela: atual.janela,
+      janelaFim: proximo.janela,
+      // a câmera só se move na segunda metade do trecho (a primeira mostra parada)
+      progresso: clamp((dentro - 0.35) / 0.65),
     });
-    for (const c of camadasDisp) camadas.push(await fade(c, pDisp));
-  }
+    for (const c of await esmaecerTodas(telas, pTela)) camadas.push(c);
 
-  // Cartões Tocando e Próxima.
-  const pCards = easeOutCubic(seg(t, inicio + 1.5, inicio + 2.2));
-  if (pCards > 0.01) {
-    const cTocando = await cartaoMusica({
-      w: pw - 60,
-      h: 190,
-      etiqueta: 'TOCANDO',
-      nome: 'Oceanos',
-      tom: 'D',
-      bpm: '72',
-      cor: LCD.green,
-      progresso: clamp(local / 14),
-      x: px + 30,
-      y: py + 430,
-    });
-    for (const c of cTocando) camadas.push(await fade(c, pCards));
-
-    const cProx = await cartaoMusica({
-      w: pw - 60,
-      h: 190,
-      etiqueta: 'PRÓXIMA',
-      nome: 'Nada Além do Sangue',
-      tom: 'B',
-      bpm: '68',
-      cor: LCD.amber,
-      progresso: 0,
-      x: px + 30,
-      y: py + 646,
-    });
-    for (const c of cProx) camadas.push(await fade(c, pCards));
-  }
-
-  // Três modos de conduzir, com a trava de segurança.
-  const pTeclas = easeOutCubic(seg(t, inicio + 2.4, inicio + 3.1));
-  if (pTeclas > 0.01) {
-    const larguras = [300, 300, 300];
-    const rotulos = ['CONTÍNUO', 'POR BLOCO', 'UMA A UMA'];
-    const acesa = ['green', null, null];
-    let x = px + 30;
-    for (let i = 0; i < 3; i++) {
-      const camadasTecla = await teclaRotulo({ w: larguras[i], h: 70, rotulo: rotulos[i], acesa: acesa[i], x, y: py + 880 });
-      for (const c of camadasTecla) camadas.push(await fade(c, pTeclas));
-      x += larguras[i] + 14;
+    // A legenda do enquadramento no ar.
+    const pLeg = easeOutCubic(seg(t, inicio + 1.2, inicio + 1.8));
+    if (pLeg > 0.01) {
+      const leg = await texto(atual.legenda, 30, { familia: FONTE, peso: '600', cor: V.texto });
+      const cl = await textoEm(leg, { x: 44, y: 1300, opacidade: pLeg });
+      if (cl) camadas.push(cl);
+      const barra = await sharp(
+        Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="4" height="36"><rect width="4" height="36" rx="2" fill="${V.verde}"/></svg>`),
+      )
+        .png()
+        .toBuffer();
+      camadas.push({ input: barra, left: 26, top: 1304 });
     }
-    const trava = await teclaRotulo({ w: 952, h: 70, rotulo: 'TRAVA DE SEGURANÇA LIGADA', acesa: 'amber', x: px + 30, y: py + 970 });
-    for (const c of trava) camadas.push(await fade(c, pTeclas));
   }
 
-  // Nota: nada de internet.
-  const pNota = easeOutCubic(seg(t, inicio + 3.4, inicio + 4.1));
-  if (pNota > 0.01) {
-    const nota = await apoio('Funciona sem internet, pela rede do palco.', 30, C.dim);
-    const c = await textoEm(nota, { x: W / 2, y: py + ph - 96, opacidade: pNota, ancora: 'middle' });
-    if (c) camadas.push(c);
+  // Os quatro pontos que o Modo Show resolve.
+  const itens = [
+    'O que está tocando, aceso',
+    'O que vem depois, antes da hora',
+    'Quanto falta para acabar',
+    'Trava de segurança contra corte errado',
+  ];
+  for (let i = 0; i < itens.length; i++) {
+    const ap = easeOutCubic(seg(t, inicio + 3.4 + i * 0.16, inicio + 3.9 + i * 0.16));
+    if (ap <= 0.01) continue;
+    const y = 1380 + i * 78;
+    const bol = await sharp(
+      Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"><circle cx="8" cy="8" r="4" fill="${V.verde}" opacity="${ap.toFixed(2)}"/></svg>`),
+    )
+      .png()
+      .toBuffer();
+    camadas.push({ input: bol, left: 44, top: y + 12 });
+    const it = await texto(itens[i], 30, { familia: FONTE, peso: '500', cor: V.texto });
+    const ci = await textoEm(it, { x: 76, y, opacidade: ap });
+    if (ci) camadas.push(ci);
   }
 
   if (saida > 0) {
     const c = await escurecer(easeInOutCubic(saida));
     if (c) camadas.push(c);
   }
-
   return camadas;
-}
-
-/** Aplica opacidade numa camada pronta (para cuidar da entrada dos blocos). */
-async function fade(camada, p) {
-  if (!camada || p >= 0.995) return camada;
-  const meta = await sharp(camada.input).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-  const a = Math.max(0, Math.min(1, p));
-  for (let k = 3; k < meta.data.length; k += 4) meta.data[k] = Math.round(meta.data[k] * a);
-  const buf = await sharp(meta.data, { raw: { width: meta.info.width, height: meta.info.height, channels: 4 } }).png().toBuffer();
-  return { input: buf, left: camada.left, top: camada.top };
 }

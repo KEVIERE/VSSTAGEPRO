@@ -1,0 +1,44 @@
+{
+  "c1": {
+    "arquivo": "c1.mp3",
+    "duracao": 2.078005,
+    "texto": "Isso aqui é o VS Stage Pro.",
+    "pausaDepois": 0.5
+  },
+  "c2": {
+    "arquivo": "c2.mp3",
+    "duracao": 3.766667,
+    "texto": "Trocar de música no meio do show não pode ser um sufoco.",
+    "pausaDepois": 0.45
+  },
+  "c3": {
+    "arquivo": "c3.mp3",
+    "duracao": 11.843492,
+    "texto": "Você joga a música pronta. A inteligência artificial separa voz, click, bateria, baixo, guitarra, teclado e o resto, mede o andamento e monta tudo na grade.",
+    "pausaDepois": 0.45
+  },
+  "c4": {
+    "arquivo": "c4.mp3",
+    "duracao": 7.149433,
+    "texto": "No palco, o Modo Show deixa tudo à vista: o que está tocando, o que vem depois e quanto falta para acabar.",
+    "pausaDepois": 0.45
+  },
+  "c5": {
+    "arquivo": "c5.mp3",
+    "duracao": 7.036145,
+    "texto": "A banda recebe a partitura no celular, e o cantor vê a letra na TV, trocando sozinhos a cada música.",
+    "pausaDepois": 0.45
+  },
+  "c6": {
+    "arquivo": "c6.mp3",
+    "duracao": 7.683719,
+    "texto": "E ainda tem mesa de som de verdade: medidores, anti-clip em cada canal e master com inteligência artificial.",
+    "pausaDepois": 0.45
+  },
+  "c7": {
+    "arquivo": "c7.mp3",
+    "duracao": 7.745261,
+    "texto": "VS Stage Pro. Faça o seu próximo show com a banda inteira na mesma página. Quarenta e oito horas grátis.",
+    "pausaDepois": 0
+  }
+}
