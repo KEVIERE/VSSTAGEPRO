@@ -14,6 +14,15 @@
   manifest/publicado-por/data em vez de inserir outra.
 */
 
+-- A tabela já tem linhas repetidas (é o próprio problema acima). A regra de linha única
+-- não entra com duplicatas, então fica só a linha mais recente de cada versão+build.
+DELETE FROM app_releases a
+USING app_releases b
+WHERE a.version = b.version
+  AND a.build = b.build
+  AND (a.published_at, a.id) < (b.published_at, b.id);
+
+ALTER TABLE app_releases DROP CONSTRAINT IF EXISTS app_releases_version_build_key;
 ALTER TABLE app_releases ADD CONSTRAINT app_releases_version_build_key UNIQUE (version, build);
 
 CREATE OR REPLACE FUNCTION admin_release_record(p_version text, p_build int, p_manifest jsonb, p_by uuid) RETURNS void

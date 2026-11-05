@@ -7,6 +7,7 @@ ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS stripe_coupon_id text;
 ALTER TABLE promo_codes ADD COLUMN IF NOT EXISTS stripe_promotion_code_id text;
 ALTER TABLE promo_codes DROP CONSTRAINT IF EXISTS promo_codes_kind_check;
 ALTER TABLE promo_codes ADD CONSTRAINT promo_codes_kind_check CHECK (kind IN ('trial_hours', 'free_days', 'discount'));
+ALTER TABLE promo_codes DROP CONSTRAINT IF EXISTS promo_codes_discount_percent_check;
 ALTER TABLE promo_codes ADD CONSTRAINT promo_codes_discount_percent_check CHECK (discount_percent IS NULL OR (discount_percent > 0 AND discount_percent <= 100));
 
 CREATE OR REPLACE FUNCTION admin_delete_user(p_user uuid) RETURNS void
