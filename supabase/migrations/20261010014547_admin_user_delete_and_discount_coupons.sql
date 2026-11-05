@@ -24,12 +24,22 @@ END $$;
 
 -- Signature changed (added discount/stripe columns): drop the old 6-arg version first,
 -- otherwise Postgres keeps both as an ambiguous overload.
-DROP FUNCTION IF EXISTS admin_promo_create(text, text, int, int, timestamptz, text);
--- O banco em uso já tinha esta versão de 9 argumentos, criada fora das migrações: sem apagar
--- antes, o CREATE falhava com "already exists with same argument types".
-DROP FUNCTION IF EXISTS admin_promo_create(text, text, int, int, timestamptz, text, int, text, text);
+-- O banco em uso já tinha uma versão desta função criada fora das migrações, e o CREATE
+-- falhava com "already exists with same argument types". Apagar por assinatura exata não
+-- bastou, então apaga todas as versões pelo nome, no schema public, antes de criar.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT p.oid::regprocedure AS sig
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname = 'admin_promo_create'
+  LOOP
+    EXECUTE 'DROP FUNCTION ' || r.sig;
+  END LOOP;
+END $$;
 
-CREATE FUNCTION admin_promo_create(
+CREATE OR REPLACE FUNCTION public.admin_promo_create(
   p_code text, p_kind text, p_value int, p_max_uses int DEFAULT NULL,
   p_expires_at timestamptz DEFAULT NULL, p_note text DEFAULT NULL,
   p_discount_percent int DEFAULT NULL, p_stripe_coupon_id text DEFAULT NULL,
