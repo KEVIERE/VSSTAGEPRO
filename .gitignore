@@ -39,3 +39,9 @@ desktop/maestro-voice-engine/*
 desktop/maestro-voice-helper/build/
 desktop/maestro-voice-helper/.build/
 desktop/maestro-voice-helper/.swiftpm/
+
+# Vídeo de divulgação: os quadros intermediários e o áudio gerado não vão para o repositório
+# (repare com: node marketing/video/render.mjs --todos --out quadros)
+marketing/video/quadros/
+marketing/video/narracao/*.mp3
+marketing/video/.chrome/
