@@ -14,7 +14,8 @@
 set -u
 
 BRANCH="feat/saidas-estereo"
-PROJECT_REF="xfpkftewsxaxycdwwnnv"
+# Projeto em uso desde 26/10/2026. O antigo, xfpkftewsxaxycdwwnnv (vs-stage), está bloqueado.
+PROJECT_REF="eknjqqiamuztomdygalv"
 FUNCTIONS=("prompter-audio" "admin-promote" "admin-releases")
 
 cd "$(dirname "$0")/.." || exit 1
@@ -69,7 +70,8 @@ if echo "$LINK_OUT" | grep -qi "paused"; then
   Depois rode este script de novo."
 fi
 echo "$LINK_OUT" | grep -q "FALHOU\|error" && falhou "supabase link falhou. Se for 'Access token not provided', rode: supabase login"
-supabase db push || falhou "supabase db push falhou. Nada foi publicado no site."
+# O CLI 3.x aponta para o banco local por padrão; sem --remote ele procura o Docker.
+supabase db push --remote || falhou "supabase db push falhou. Nada foi publicado no site."
 echo "banco atualizado"
 
 # ---------------------------------------------------------------- 4. edge functions
