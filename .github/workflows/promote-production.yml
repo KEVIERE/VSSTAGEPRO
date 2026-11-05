@@ -30,12 +30,21 @@ jobs:
               "📦 *Versão base:* \`v${VERSION}\` (Build ${BUILD_NUM})" \
               "🕒 *Horário:* ${NOW} (Horário de Brasília)" \
               "⏳ *Etapas:* Compilando Site Oficial, Staging e gerando instaladores Mac (.dmg ARM64 + Intel)...")
-            curl -s -X POST \
+            RESP=$(curl -s -w '\n%{http_code}' -X POST \
               -H "Authorization: Bearer $SUPABASE_KEY" \
               -H "apikey: $SUPABASE_KEY" \
               -H "Content-Type: application/json" \
               --data "$(jq -n --arg m "$MSG" '{message: $m}')" \
-              "$SUPABASE_URL/functions/v1/telegram-alert" || true
+              "$SUPABASE_URL/functions/v1/telegram-alert")
+            CODE=$(printf '%s' "$RESP" | tail -n1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+            if [ "$CODE" = "200" ]; then
+              echo "Aviso de inicio enviado no Telegram."
+            else
+              # Nao derruba o upgrade por causa do aviso, mas deixa o motivo no log em vez de
+              # esconder a falha atras de um || true (foi assim que o 403 passou despercebido).
+              echo "::warning::Aviso de inicio NAO foi para o Telegram (HTTP $CODE): $BODY"
+            fi
           fi
 
   site:
@@ -88,10 +97,17 @@ jobs:
                 "🕒 *Horário:* ${NOW} (Brasília)" \
                 "Verifique os logs detalhados na aba Actions do GitHub.")
             fi
-            curl -s -X POST \
+            RESP=$(curl -s -w '\n%{http_code}' -X POST \
               -H "Authorization: Bearer $SUPABASE_KEY" \
               -H "apikey: $SUPABASE_KEY" \
               -H "Content-Type: application/json" \
               --data "$(jq -n --arg m "$MSG" '{message: $m}')" \
-              "$SUPABASE_URL/functions/v1/telegram-alert" || true
+              "$SUPABASE_URL/functions/v1/telegram-alert")
+            CODE=$(printf '%s' "$RESP" | tail -n1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+            if [ "$CODE" = "200" ]; then
+              echo "Aviso de conclusao enviado no Telegram."
+            else
+              echo "::warning::Aviso de conclusao NAO foi para o Telegram (HTTP $CODE): $BODY"
+            fi
           fi

@@ -44,14 +44,48 @@ export async function sendTelegram(text: string): Promise<{ ok: boolean; error?:
   }
 }
 
+/**
+ * Compara contra todas as chaves de serviço que o projeto conhece.
+ *
+ * Antes só a `SUPABASE_SERVICE_ROLE_KEY` valia, e ela é a chave legada. Quando o projeto trocou
+ * as chaves (05/11/2026), o workflow continuou enviando a legada: a função respondia 403
+ * `not_allowed` e nenhum aviso de upgrade chegava no Telegram. Aqui a lista cobre a legada e as
+ * `sb_secret_*`, para a troca de chaves não derrubar o aviso de novo.
+ */
+function serviceKeys(): string[] {
+  const keys = [
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    Deno.env.get("SUPABASE_SECRET_KEY"),          // sb_secret_* (nome novo do secret)
+    Deno.env.get("SUPABASE_SECRET_KEYS"),         // lista em JSON, como o runtime já expõe
+  ];
+  const out: string[] = [];
+  for (const raw of keys) {
+    if (!raw) continue;
+    const v = raw.trim();
+    if (!v) continue;
+    if (v.startsWith("[")) {
+      try {
+        for (const item of JSON.parse(v) as unknown[]) {
+          const val = typeof item === "string" ? item : (item as { key?: string })?.key;
+          if (typeof val === "string" && val.trim()) out.push(val.trim());
+        }
+        continue;
+      } catch {
+        continue;
+      }
+    }
+    out.push(v);
+  }
+  return out;
+}
+
 async function isAuthorized(req: Request): Promise<boolean> {
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return false;
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
-  // 1. Service role key (chamadas internas de outros Edge Functions)
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (serviceKey && token === serviceKey) return true;
+  // 1. Chave de serviço (chamadas internas: outros Edge Functions e o workflow de upgrade)
+  if (serviceKeys().includes(token)) return true;
 
   // 2. Usuário com papel de administrador
   const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
