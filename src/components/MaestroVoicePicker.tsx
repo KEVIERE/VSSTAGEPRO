@@ -66,9 +66,9 @@ function VoiceChip({ label, title, selected, onChoose, demo, onDemo, demoDisable
 }
 
 /**
- * Escolha da voz do Maestro por IA: as duas vozes padrão (Feminina e Masculina, a voz de IA do
- * próprio Mac) e, logo abaixo, os pacotes de vozes online (Google Gemini e ElevenLabs). Cada voz
- * tem um ▶ para ouvir um exemplo antes de gerar.
+ * Escolha da voz do Maestro por IA: as vozes do próprio Mac (Feminina, Masculina e Henrique) e,
+ * logo abaixo, os pacotes de vozes online (Google Gemini e ElevenLabs). Cada voz tem um ▶ para ouvir
+ * um exemplo antes de gerar.
  */
 export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, labelClass = 'w-12' }: MaestroVoicePickerProps) {
   const [open, setOpen] = useState(() => savedOpen() || isOnlineVoice(voice));
@@ -117,7 +117,7 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
   const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
   const selected = (id: string) => voice === id || voice === `qwen:${id}`;
   // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
-  const legacy = !!voice && !isPresetVoice(voice) && !/^qwen:(feminina|masculina|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
+  const legacy = !!voice && !isPresetVoice(voice) && !/^qwen:(feminina|masculina|henrique|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
 
   return (
     <>
@@ -128,7 +128,7 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
             <VoiceChip
               key={p.id}
               label={<>{p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}</>}
-              title={p.id === 'cubas' || p.id === 'keven'
+              title={p.id === 'henrique'
                 ? `Voz ${p.label}: voz gravada de uma pessoa real, copiada por IA no próprio Mac (sem internet)`
                 : `Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
               selected={selected(p.id)}

@@ -25,7 +25,7 @@ import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
 
 /** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
-export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'cubas' | 'keven', string> = { feminina: 'IA', masculina: 'IA', cubas: 'IA', keven: 'IA' };
+export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'henrique', string> = { feminina: 'IA', masculina: 'IA', henrique: 'IA' };
 
 /** Nome curto de uma voz ("Eddy (Português (Brasil))" → "Eddy"). */
 export function shortVoiceName(name: string): string {
@@ -34,7 +34,7 @@ export function shortVoiceName(name: string): string {
 
 /** A voz é uma das padrão (os botões Feminina/Masculina)? */
 export function isPresetVoice(voice: string | undefined): boolean {
-  return voice === 'feminina' || voice === 'masculina' || voice === 'cubas' || voice === 'keven';
+  return voice === 'feminina' || voice === 'masculina' || voice === 'henrique';
 }
 
 /** Rótulo da voz escolhida numa marcação. */
@@ -42,8 +42,11 @@ export function voiceLabel(voice: string | undefined): string {
   if (!voice) return '—';
   if (voice === 'feminina') return 'Feminina';
   if (voice === 'masculina') return 'Masculina';
+  if (voice === 'henrique') return 'Henrique';
+  // vozes que saíram do seletor: marcações antigas continuam mostrando o nome que tinham
   if (voice === 'cubas' || voice === 'qwen:cubas') return 'Cubas';
   if (voice === 'keven' || voice === 'qwen:keven') return 'Keven';
+  if (voice === 'qwen:henrique') return 'Henrique';
   if (voice === 'qwen:feminina') return 'Feminina';
   if (voice === 'qwen:masculina') return 'Masculina';
   const online = onlineVoiceLabel(voice);
@@ -125,8 +128,8 @@ export function lastVoice(): string {
   try { v = localStorage.getItem(LAST_VOICE_KEY); } catch { /* sem armazenamento: fica a padrão */ }
   // só as vozes oferecidas hoje: uma voz do Mac escolhida antes pelo nome volta para a padrão
   if (v === 'masculina' || v === 'qwen:masculina') return 'masculina';
-  if (v === 'cubas' || v === 'qwen:cubas') return 'cubas';
-  if (v === 'keven' || v === 'qwen:keven') return 'keven';
+  if (v === 'henrique' || v === 'qwen:henrique') return 'henrique';
+  // Cubas e Keven saíram do seletor: volta para a voz feminina
   if (v && onlineVoiceById(v)) return v;
   return 'feminina';
 }

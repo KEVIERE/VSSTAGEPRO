@@ -29,15 +29,21 @@ function fresh(env = {}) {
 const tmpDir = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `vs-qwen-${name}-`));
 const { qwen } = fresh();
 
-test('feminina, masculina, cubas e keven viram as vozes de IA; voz do Mac não é de IA', () => {
-  assert.equal(qwen.qwenVoiceFor('cubas').ref, 'cubas');
-  assert.equal(qwen.qwenVoiceFor('qwen:cubas').name, 'Cubas (IA)');
-  assert.equal(qwen.qwenVoiceFor('keven').ref, 'keven');
-  assert.equal(qwen.qwenVoiceFor('qwen:keven').name, 'Keven (IA)');
+test('feminina, masculina e henrique viram as vozes de IA; voz do Mac não é de IA', () => {
+  assert.equal(qwen.qwenVoiceFor('henrique').ref, 'henrique');
+  assert.equal(qwen.qwenVoiceFor('qwen:henrique').name, 'Henrique (IA)');
   assert.equal(qwen.qwenVoiceFor('feminina').ref, 'feminina');
   assert.equal(qwen.qwenVoiceFor('masculina').ref, 'masculina');
   assert.equal(qwen.qwenVoiceFor('qwen:masculina').gender, 'masculina');
   assert.equal(qwen.qwenVoiceFor('Luciana'), null);
+});
+
+test('cubas e keven saíram do seletor, mas marcações antigas ainda acham a voz delas', () => {
+  assert.equal(qwen.qwenVoiceFor('cubas').ref, 'cubas');
+  assert.equal(qwen.qwenVoiceFor('qwen:cubas').retired, true);
+  assert.equal(qwen.qwenVoiceFor('keven').ref, 'keven');
+  const offered = qwen.OFFERED_VOICES.map((v) => v.id);
+  assert.deepEqual(offered, ['qwen:feminina', 'qwen:masculina', 'qwen:henrique']);
 });
 
 test('rótulo de compasso vira só o número ("A1" não é "a um")', () => {
@@ -130,7 +136,7 @@ function fakeEngine() {
   const engine = tmpDir('motor');
   fs.writeFileSync(path.join(engine, 'vs-maestro-voz'), FAKE_HELPER, { mode: 0o755 });
   fs.mkdirSync(path.join(engine, 'voices'));
-  for (const v of ['feminina', 'masculina', 'cubas', 'keven']) {
+  for (const v of ['feminina', 'masculina', 'henrique']) {
     fs.writeFileSync(path.join(engine, 'voices', `${v}.wav`), 'x');
     fs.writeFileSync(path.join(engine, 'voices', `${v}.txt`), 'Boa noite, pessoal!\n');
   }

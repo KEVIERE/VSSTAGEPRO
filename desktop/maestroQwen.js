@@ -4,7 +4,7 @@
 //   maestro-voice-engine. O app abre o programa uma vez; ele carrega o modelo e atende as falas
 //   uma de cada vez. Depois de 10 min sem falas o programa fecha e a memória volta (~2 GB).
 // - O modelo (~1,8 GB) é baixado uma vez, em silêncio (maestroVoiceDownload.js).
-// - As duas vozes (feminina e masculina) foram criadas por IA e não pertencem a ninguém: cada uma
+// - Feminina e masculina foram criadas por IA e não pertencem a ninguém: cada uma
 //   é um trecho de referência de ~8 s com o texto dele (maestro-voice-engine/voices).
 // - Só roda em Mac com chip Apple (o MLX não roda em Intel). Fora disso, a fala sai com a voz do
 //   Mac (maestroVoice.js).
@@ -26,10 +26,14 @@ const HELPER = 'vs-maestro-voz';
 const QWEN_VOICES = [
   { id: 'qwen:feminina', name: 'Voz feminina (IA)', gender: 'feminina', ref: 'feminina' },
   { id: 'qwen:masculina', name: 'Voz masculina (IA)', gender: 'masculina', ref: 'masculina' },
-  // a voz do dono do projeto (gravada por ele, 02/11/2026): o motor copia o timbre e o sotaque dela
-  { id: 'qwen:cubas', name: 'Cubas (IA)', gender: 'masculina', ref: 'cubas' },
-  // voz do Keven (gravada em 03/11/2026, trecho corrido de ~9 s): o motor copia o timbre e o sotaque dela
-  { id: 'qwen:keven', name: 'Keven (IA)', gender: 'masculina', ref: 'keven' },
+  // voz do Henrique (gravação de 05/11/2026, trecho corrido de ~9 s): o motor copia o timbre e o
+  // sotaque dela.
+  { id: 'qwen:henrique', name: 'Henrique (IA)', gender: 'masculina', ref: 'henrique' },
+  // Cubas e Keven saíram do seletor (05/11/2026), mas continuam aqui: um projeto salvo com
+  // marcações nessas vozes ainda tem de falar com o mesmo timbre. Quando não houver mais projeto
+  // antigo em uso, estas duas entradas e os .wav delas saem de maestro-voices.
+  { id: 'qwen:cubas', name: 'Cubas (IA)', gender: 'masculina', ref: 'cubas', retired: true },
+  { id: 'qwen:keven', name: 'Keven (IA)', gender: 'masculina', ref: 'keven', retired: true },
 ];
 
 /** Fala comum: se não couber na marcação, acelera até aqui. Nunca desacelera (sobra silêncio). */
@@ -55,14 +59,15 @@ const CACHE_MAX_FILES = 400;
 /** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
 const CACHE_VERSION = 6;
 
-/** A voz pedida: 'feminina'/'masculina'/'cubas'/'keven' ou o id de uma voz de IA. */
+/** A voz pedida: 'feminina'/'masculina'/'henrique' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
-  if (wanted === 'feminina') return QWEN_VOICES[0];
-  if (wanted === 'masculina') return QWEN_VOICES[1];
-  if (wanted === 'cubas') return QWEN_VOICES[2];
-  if (wanted === 'keven') return QWEN_VOICES[3];
-  return QWEN_VOICES.find((v) => v.id === wanted) ?? null;
+  const short = { feminina: 'qwen:feminina', masculina: 'qwen:masculina', henrique: 'qwen:henrique', cubas: 'qwen:cubas', keven: 'qwen:keven' };
+  const id = short[wanted] ?? wanted;
+  return QWEN_VOICES.find((v) => v.id === id) ?? null;
 }
+
+/** As vozes que o seletor mostra (as aposentadas ficam só para marcações antigas). */
+const OFFERED_VOICES = QWEN_VOICES.filter((v) => !v.retired);
 
 // ---------------------------------------------------------------------------------------------
 // Onde estão as coisas
@@ -80,7 +85,7 @@ function engineDir() {
     path.join(__dirname, 'maestro-voice-engine'),
   ].filter(Boolean);
   return candidates.find((d) => fs.existsSync(path.join(d, HELPER))
-    && QWEN_VOICES.every((v) => fs.existsSync(path.join(d, 'voices', `${v.ref}.wav`)))) ?? null;
+    && OFFERED_VOICES.every((v) => fs.existsSync(path.join(d, 'voices', `${v.ref}.wav`)))) ?? null;
 }
 
 /** Pasta do modelo: a baixada pelo app ou, em desenvolvimento, a de VS_MAESTRO_MODEL_DIR. */
@@ -451,6 +456,7 @@ function render({ text, voice, span, pace, group }) {
 
 module.exports = {
   QWEN_VOICES,
+  OFFERED_VOICES,
   qwenVoiceFor,
   supported,
   engineDir,
