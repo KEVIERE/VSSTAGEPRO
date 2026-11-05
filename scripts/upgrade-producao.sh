@@ -38,10 +38,10 @@ command -v gh >/dev/null 2>&1 || falhou "gh não encontrado. Instale com: brew i
 command -v supabase >/dev/null 2>&1 || falhou "supabase CLI não encontrado. Instale com: brew install supabase/tap/supabase"
 
 gh auth status >/dev/null 2>&1 || falhou "gh sem login válido. Rode: gh auth refresh -h github.com -s workflow"
-SUPABASE_ACCESS_TOKEN="${SUPABASE_ACCESS_TOKEN:-}"
-if [ -z "$SUPABASE_ACCESS_TOKEN" ] && [ ! -f "$HOME/.supabase/access-token" ]; then
-  falhou "Supabase CLI sem login. Rode: supabase login"
-fi
+# O CLI 3.x guarda a sessão no keychain do macOS, não em ~/.supabase/access-token (como as
+# versões antigas faziam). Por isso não dá para checar arquivo: quem diz se o login vale é o
+# `supabase link`, logo abaixo, que falha com mensagem clara quando a sessão expirou.
+supabase --version >/dev/null 2>&1 || falhou "o Supabase CLI não roda. Se aparecer 'FileSystem.writeFile ~/.supabase/telemetry.json', rode: export SUPABASE_TELEMETRY=false"
 
 echo "branch:  $ATUAL"
 echo "projeto: $PROJECT_REF"
@@ -61,7 +61,7 @@ echo "branch enviada"
 
 # ---------------------------------------------------------------- 3. banco
 etapa "3. Aplicando as migrações no banco de produção"
-supabase link --project-ref "$PROJECT_REF" || falhou "supabase link falhou"
+supabase link --project-ref "$PROJECT_REF" || falhou "supabase link falhou. Se for 'Access token not provided', rode: supabase login"
 supabase db push || falhou "supabase db push falhou. Nada foi publicado no site."
 echo "banco atualizado"
 
