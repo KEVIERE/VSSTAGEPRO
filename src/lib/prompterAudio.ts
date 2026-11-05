@@ -72,9 +72,37 @@ export async function deleteShowReferences(showId: string, directorKey: string):
   return callPrompterFn<ClearedAudio>({ action: 'delete_show', show: showId, key: directorKey });
 }
 
-export async function directorReferenceStatus(showId: string, directorKey: string): Promise<Map<string, string | null>> {
-  const res = await callPrompterFn<{ files: { songId: string; updatedAt: string | null }[] }>({ action: 'status', show: showId, key: directorKey });
-  return new Map((Array.isArray(res.files) ? res.files : []).map((f) => [f.songId, f.updatedAt]));
+export interface ReferenceStatus {
+  /** songId -> updatedAt do arquivo no storage. */
+  files: Map<string, string | null>;
+  /** O produtor salvou as letras: o áudio já cumpriu o papel e vai sair (ou já saiu). */
+  releasedAt: string | null;
+  /** O produtor pediu o repertório de novo. */
+  requestedAt: string | null;
+}
+
+export async function directorReferenceStatus(showId: string, directorKey: string): Promise<ReferenceStatus> {
+  const res = await callPrompterFn<{
+    files: { songId: string; updatedAt: string | null }[];
+    released_at?: string | null;
+    requested_at?: string | null;
+  }>({ action: 'status', show: showId, key: directorKey });
+  return {
+    files: new Map((Array.isArray(res.files) ? res.files : []).map((f) => [f.songId, f.updatedAt])),
+    releasedAt: typeof res.released_at === 'string' ? res.released_at : null,
+    requestedAt: typeof res.requested_at === 'string' ? res.requested_at : null,
+  };
+}
+
+/** O produtor pede o repertório de novo (o áudio volta e sai da liberação). */
+export async function producerRequestRepertoire(code: string): Promise<void> {
+  await callPrompterFn({ action: 'request', code });
+}
+
+/** O diretor pega o pedido do produtor. Devolve o carimbo, ou null se não há pedido. */
+export async function directorTakeRepertoireRequest(showId: string, directorKey: string): Promise<string | null> {
+  const res = await callPrompterFn<{ requested_at?: string | null }>({ action: 'take_request', show: showId, key: directorKey });
+  return typeof res.requested_at === 'string' ? res.requested_at : null;
 }
 
 export interface ProducerReference { url: string; updatedAt: string | null }

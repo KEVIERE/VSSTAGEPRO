@@ -737,8 +737,10 @@ function DirectorApp({ license }: { license: License }) {
         {(lyricsSync.received || local.lyricsReceived !== null) && (() => {
           const songs = lyricsSync.received?.songs ?? local.lyricsReceived ?? 0;
           const dismiss = () => { lyricsSync.dismiss(); local.dismissLyrics(); };
-          // O diretor confirma que as letras ficaram prontas: guarda o projeto e o áudio de
-          // referência sai do storage (o produtor deixa de vê-lo na aba Letras).
+          // O produtor salvou as letras. Guardar o projeto é o que o programa tinha de fazer;
+          // o áudio de referência sai do storage sozinho, 10 minutos depois, sem ninguém
+          // precisar apertar OK (ver releaseExpiredAudio na Edge Function). Se o diretor quiser
+          // apagar na hora, ainda pode.
           const confirm = async () => {
             saveCurrentProject();
             const show = broadcast.show;
@@ -754,20 +756,20 @@ function DirectorApp({ license }: { license: License }) {
             <span className={`console-led shrink-0 ${audioFreed !== null ? 'is-on-green' : 'is-on-amber animate-pulse'}`} />
             <FileText size={13} className={`shrink-0 ${audioFreed !== null ? 'text-logic-lcd-green' : 'text-logic-lcd-amber'}`} />
             <span className={`console-legend shrink-0 ${audioFreed !== null ? '!text-logic-lcd-green' : '!text-logic-lcd-amber'}`}>
-              {audioFreed !== null ? 'Letras confirmadas' : 'Letras prontas'}
+              {audioFreed !== null ? 'Letras salvas' : 'Letras prontas'}
             </span>
             <span className="flex-1 truncate text-[12px] text-logic-text-dim">
               {audioFreed !== null
                 ? `Áudio de referência liberado — ${formatMb(audioFreed)}. O produtor deixa de ver as músicas para ouvir.`
-                : `O produtor técnico avisou que as letras estão prontas (${songs} ${songs === 1 ? 'música' : 'músicas'}).`}
+                : `O produtor técnico salvou as letras (${songs} ${songs === 1 ? 'música' : 'músicas'}). O áudio de referência sai do servidor sozinho em 10 minutos.`}
             </span>
             {audioFreed === null && (
               <button
                 className="console-key is-lit-amber h-6 px-3 text-[11px] shrink-0"
                 onClick={confirm}
-                title="Confirma as letras e libera o áudio de referência enviado ao produtor"
+                title="Guarda o projeto e libera o áudio de referência agora, sem esperar os 10 minutos"
               >
-                OK
+                Liberar agora
               </button>
             )}
             <button className="console-key flex items-center justify-center w-6 h-6 shrink-0" onClick={() => { dismiss(); setAudioFreed(null); }} aria-label="Fechar aviso">

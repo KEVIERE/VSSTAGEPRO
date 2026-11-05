@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Music2, Play, RefreshCw } from 'lucide-react';
 import SongLyricsEditor, { type SaveStatus } from '@/components/prompter/SongLyricsEditor';
 import LyricsProjectBar from '@/components/prompter/LyricsProjectBar';
+import RepertoireRequest from '@/components/prompter/RepertoireRequest';
 import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { producerRequestLyricsSave, producerSaveLyrics } from '@/lib/prompterApi';
@@ -152,8 +153,13 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   const song = songs.find((s) => s.id === songId) ?? null;
   const liveSnap = useMemo(() => ({ ...snap, prompter: state }), [snap, state]);
 
+  const comLetra = songs.filter((s) => pagesOf(s.id).length > 0).length;
+
   return (
     <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)] items-start">
+      <div className="md:col-span-2 order-first">
+        <RepertoireRequest code={code} semLetra={songs.length - comLetra} total={songs.length} />
+      </div>
       <LyricsProjectBar snap={snap} state={state} update={update} onSave={saveToProject} />
       <aside className="console-face border-2 border-black rounded-lg p-2 md:sticky md:top-0 md:max-h-[calc(100vh-104px)] md:overflow-y-auto logic-scroll shadow-lg">
         <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-8 rounded-t flex items-center gap-2 border-b-2 border-black">

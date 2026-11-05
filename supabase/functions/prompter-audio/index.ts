@@ -10,6 +10,9 @@ const BUCKET = "prompter-audio";
 const LOGO_BUCKET = "show-logos";
 const LOGO_TTL_S = 60 * 60 * 6;
 const PLAY_TTL_S = 60 * 60 * 3;
+// Folga entre o produtor salvar as letras e o áudio sair do storage. Dá tempo de o produtor
+// perceber um erro de digitação e ouvir a música de novo, sem segurar espaço por horas.
+const RELEASE_GRACE_MS = 10 * 60 * 1000;
 const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -32,6 +35,34 @@ async function directorOk(show: unknown, key: unknown): Promise<boolean> {
 
 async function showForProducer(code: unknown): Promise<string | null> {
   return showForCode(code, false);
+}
+
+/** Marca de liberação e de pedido do show, lidas pela chave do diretor. */
+async function repertoireState(showId: string) {
+  const { data, error } = await admin
+    .from("shows")
+    .select("produced_audio_released_at, repertoire_requested_at")
+    .eq("id", showId)
+    .maybeSingle();
+  if (error) throw error;
+  return {
+    releasedAt: (data?.produced_audio_released_at as string | null) ?? null,
+    requestedAt: (data?.repertoire_requested_at as string | null) ?? null,
+  };
+}
+
+/**
+ * Se o produtor salvou as letras e a folga já passou, o áudio de referência sai do storage.
+ * Roda antes das ações do diretor e do produtor, então a limpeza acontece sozinha, sem depender
+ * de alguém apertar "OK". Um pedido novo de repertório zera a marca e o arquivo deixa de ser
+ * apagado antes de subir de novo.
+ */
+async function releaseExpiredAudio(showId: string) {
+  const { releasedAt, requestedAt } = await repertoireState(showId);
+  if (!releasedAt) return null;
+  if (requestedAt) return null;
+  if (Date.now() - Date.parse(releasedAt) < RELEASE_GRACE_MS) return null;
+  return removeShowFiles(showId, [BUCKET]);
 }
 
 async function showForCode(code: unknown, allowScreen: boolean): Promise<string | null> {
@@ -109,8 +140,16 @@ Deno.serve(async (req: Request) => {
       if (!(await directorOk(body.show, body.key))) return json({ error: "forbidden" }, 403);
       const showId = body.show as string;
       if (body.action === "status") {
+        // Antes de responder, aplica a liberação vencida: o programa do diretor deixa de ver
+        // (e de reenviar) o áudio que já cumpriu o papel.
+        await releaseExpiredAudio(showId).catch(() => null);
         const files = await listFiles(showId);
-        return json({ files: files.map(({ songId, updatedAt, size }) => ({ songId, updatedAt, size })) });
+        const st = await repertoireState(showId);
+        return json({
+          files: files.map(({ songId, updatedAt, size }) => ({ songId, updatedAt, size })),
+          released_at: st.releasedAt,
+          requested_at: st.requestedAt,
+        });
       }
       if (typeof body.song !== "string" || !ID_RE.test(body.song)) return json({ error: "bad_request" }, 400);
       const ext = body.format === "mp3" ? "mp3" : "wav";
@@ -175,9 +214,38 @@ Deno.serve(async (req: Request) => {
       return json(res);
     }
 
+    // O produtor pede o repertório de novo (depois de ter salvado e o áudio ter sido liberado):
+    // o programa do diretor pega o pedido e reenvia.
+    if (body.action === "request") {
+      const showId = await showForProducer(body.code);
+      if (!showId) return json({ error: "invalid_code" }, 403);
+      const { data, error } = await admin
+        .from("shows")
+        .update({ repertoire_requested_at: new Date().toISOString(), produced_audio_released_at: null })
+        .eq("id", showId)
+        .select("repertoire_requested_at")
+        .maybeSingle();
+      if (error) return json({ error: "request_failed" }, 500);
+      return json({ ok: true, requested_at: data?.repertoire_requested_at ?? null });
+    }
+
+    // O diretor pega o pedido do produtor. Devolve e apaga a marca: uma ação por pedido.
+    if (body.action === "take_request") {
+      if (!(await directorOk(body.show, body.key))) return json({ error: "forbidden" }, 403);
+      const showId = body.show as string;
+      const st = await repertoireState(showId);
+      if (!st.requestedAt) return json({ requested_at: null });
+      const { error } = await admin.from("shows").update({ repertoire_requested_at: null }).eq("id", showId);
+      if (error) return json({ error: "request_failed" }, 500);
+      return json({ requested_at: st.requestedAt });
+    }
+
     if (body.action === "list") {
       const showId = await showForProducer(body.code);
       if (!showId) return json({ error: "invalid_code" }, 403);
+      // Antes de listar, aplica a liberação vencida: o produtor deixa de ver o áudio que já
+      // cumpriu o papel, e a pasta vazia não faz o diretor reenviar (ver useReferenceAutoSync).
+      await releaseExpiredAudio(showId).catch(() => null);
       const files = await listFiles(showId);
       if (files.length === 0) return json({ files: [] });
       const { data, error } = await admin.storage.from(BUCKET).createSignedUrls(files.map((f) => f.path), PLAY_TTL_S);
