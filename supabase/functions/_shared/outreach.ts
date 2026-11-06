@@ -196,20 +196,22 @@ export function escapeHtml(text: string): string {
  */
 export function renderEmailHtml(body: string, vars: Vars, footerHtml = ''): string {
   const filled = fillVars(body ?? '', vars);
+  // Cada parágrafo é um bloco de texto; linha simples vira <br> dentro dele.
   const paragraphs = filled.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   const paragraphsHtml = paragraphs.map((p) => {
     const escaped = escapeHtml(p);
-    // Link no texto: âmbar, a mesma cor do accent da tela.
+    // Link no texto: âmbar, a cor de ação do resto do e-mail.
     const withLinks = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      (_m, label: string, url: string) => `<a href="${url}" style="color:${SKIN.ambar};text-decoration:none;font-weight:600;">${label}</a>`);
+      (_m, label: string, url: string) => `<a href="${url}" style="color:${SKIN.acento.acao};text-decoration:none;font-weight:600;">${label}</a>`);
     // Negrito em creme cheio: o texto normal é creme fraco, então o realce aparece.
-    const withBold = withLinks.replace(/\*\*([^*]+)\*\*/g, `<strong style="color:${SKIN.creme};">$1</strong>`);
+    const withBold = withLinks.replace(/\*\*([^*]+)\*\*/g, `<strong style="color:${SKIN.creme};font-weight:600;">$1</strong>`);
     const withItalic = withBold.replace(/(^|[\s(])_([^_]+)_(?=[\s.,;:!?)]|$)/g, '$1<em>$2</em>');
     const html = withItalic.replace(/\n/g, '<br>');
     return paragrafo(html);
-  }).join('\n        ');
+  }).join('\n          ');
 
-  return moldura(paragraphsHtml, { rodape: footerHtml || undefined });
+  // Comunicação é mensagem de serviço, não alerta: verde, o acento de confirmação.
+  return moldura(paragraphsHtml, { tipo: 'confirmacao', rodape: footerHtml || undefined });
 }
 
 /** Rodapé do e-mail em massa: endereço e o link de sair. Exigência de e-mail em massa. */

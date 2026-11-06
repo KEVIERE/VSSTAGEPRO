@@ -1,53 +1,58 @@
 <!-- Modelo "Redefinir senha". Variável: {{ .ConfirmationURL }} -->
-<!-- Estilo da frente de equipamento: ver supabase/functions/_shared/emailSkin.ts -->
-<div style="background-color:#111316;padding:28px 12px;margin:0;">
+<!-- Estilo em supabase/functions/_shared/emailSkin.ts (mesma pele do e-mail em massa). -->
+<div style="background-color:#111316;padding:26px 12px;margin:0;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
-             style="width:100%;max-width:480px;background-color:#1b1e22;border:1px solid #0b0d0f;border-radius:4px;overflow:hidden;">
+             style="width:100%;max-width:480px;background-color:#1b1e22;border:1px solid #0b0d0f;border-radius:5px;overflow:hidden;">
 
-        <!-- Marca centralizada -->
+        <!-- Marca: logo e o nome na fonte do site (Outfit 600, com queda para a do sistema) -->
         <tr>
-          <td style="padding:30px 28px 22px;background-color:#24282d;" align="center">
-            <img src="https://vsstagepro.com.br/email-logo.png" alt="VS Stage Pro" width="60" height="60"
-                 style="display:block;margin:0 auto;" />
+          <td colspan="2" style="padding:32px 28px 26px;background-color:#20242a;" align="center">
+            <img src="https://vsstagepro.com.br/email-logo.png" alt="VS Stage Pro" width="56" height="56" style="display:block;margin:0 auto 14px;border:0;" />
+            <div style="font-family:'Outfit',Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;font-weight:600;letter-spacing:.01em;color:#e7e2d6;line-height:1;">VS STAGE PRO</div>
           </td>
         </tr>
 
-        <!-- Linha gravada -->
-        <tr><td style="padding:0;height:1px;line-height:1px;font-size:0;background-color:#0b0d0f;"></td></tr>
-
         <tr>
-          <td style="padding:24px 28px 6px;background-color:#1b1e22;" align="left">
+          <!-- Faixa do acento: a cor diz o tipo de mensagem -->
+          <td width="3" style="width:3px;background-color:#ffab1f;font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:26px 26px 4px;background-color:#1b1e22;" align="left">
 {{ if eq .RedirectTo "https://vsstagepro.com.br/?musico=1" "https://www.vsstagepro.com.br/?musico=1" "https://vsstagepro.com.br/staging/?musico=1" }}
-            <h1 style="margin:0 0 12px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:19px;line-height:1.35;color:#e7e2d6;font-weight:600;">Nova senha da Área do Músico</h1>
-            <p style="margin:0 0 22px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.65;color:#a7a297;">Recebemos um pedido para criar uma nova senha na sua conta de músico do VS Stage Pro. Clique abaixo, escolha a nova senha e volte para suas cifras e partituras. O link vale por 1 hora.</p>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;">
+            <h1 style="margin:0 0 10px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:1.35;color:#e7e2d6;font-weight:600;">Nova senha da Área do Músico</h1>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.62;color:#a7a297;">Recebemos um pedido para criar uma nova senha na sua conta de músico. Escolha a nova senha e volte para suas cifras e partituras.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 20px;">
               <tr><td align="center" style="border-radius:4px;background-color:#ffab1f;border:1px solid #c8850f;border-bottom-width:2px;">
-                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:11px 26px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#1a1204;text-decoration:none;">Criar nova senha</a>
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#1a1204;text-decoration:none;">Criar nova senha</a>
               </td></tr>
             </table>
 {{ else }}
-            <h1 style="margin:0 0 12px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:19px;line-height:1.35;color:#e7e2d6;font-weight:600;">Redefinir sua senha</h1>
-            <p style="margin:0 0 22px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.65;color:#a7a297;">Recebemos um pedido para criar uma nova senha na sua conta do VS Stage Pro. Clique abaixo para escolher a nova senha. O link vale por 1 hora.</p>
-            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;">
+            <h1 style="margin:0 0 10px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:1.35;color:#e7e2d6;font-weight:600;">Redefinir sua senha</h1>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.62;color:#a7a297;">Recebemos um pedido para criar uma nova senha na sua conta. Escolha a nova senha na próxima tela.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 20px;">
               <tr><td align="center" style="border-radius:4px;background-color:#ffab1f;border:1px solid #c8850f;border-bottom-width:2px;">
-                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:11px 26px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:700;color:#1a1204;text-decoration:none;">Criar nova senha</a>
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#1a1204;text-decoration:none;">Criar nova senha</a>
               </td></tr>
             </table>
 {{ end }}
-            <p style="margin:0 0 6px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;font-weight:600;letter-spacing:.06em;color:#6f6c66;">Se o botão não funcionar, copie este link</p>
-            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 18px;">
-              <tr><td style="padding:11px 12px;background-color:#0c0e0d;border:1px solid #000;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;color:#d8d3c6;word-break:break-all;">{{ .ConfirmationURL }}</td></tr>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+              <tr><td style="padding:10px 12px;background-color:#0c0e0d;border:1px solid #000;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;color:#d8d3c6;word-break:break-all;"><span style="color:#6f6c66;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;">Se o botão não abrir, copie este endereço:</span><br />{{ .ConfirmationURL }}</td></tr>
             </table>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6c66;">O link vale por 1 hora e só pode ser usado uma vez.</p>
           </td>
         </tr>
 
-        <!-- Linha gravada e rodapé -->
-        <tr><td style="padding:0;height:1px;line-height:1px;font-size:0;background-color:#0b0d0f;"></td></tr>
         <tr>
-          <td style="padding:16px 28px 20px;background-color:#24282d;" align="left">
-            <p style="margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;line-height:1.6;color:#6f6c66;">Não foi você quem pediu? Ignore este e-mail: sua senha continua a mesma.</p>
+          <td colspan="2" style="padding:0;background-color:#1b1e22;height:1px;" height="1">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="height:1px;line-height:1px;font-size:0;background-color:#0b0d0f;"></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td width="3" style="width:3px;background-color:#ffab1f;font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:18px 26px 22px;background-color:#1b1e22;" align="left">
+            <p style="margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6c66;">Não foi você quem pediu? Ignore este e-mail: sua senha continua a mesma.</p>
           </td>
         </tr>
       </table>
