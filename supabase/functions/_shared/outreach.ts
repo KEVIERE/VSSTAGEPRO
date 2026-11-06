@@ -4,6 +4,7 @@
 //
 // Tudo aqui é função pura para poder ser testado sem rede: token de descadastro, assinatura
 // da Twilio, montagem do texto, lotes.
+import { moldura, paragrafo, SKIN } from './emailSkin.ts';
 
 export type Channel = 'email' | 'whatsapp';
 
@@ -80,7 +81,9 @@ export type UnsubCheck =
 export async function verifyUnsubToken(secret: string, token: string): Promise<UnsubCheck> {
   const parts = (token ?? '').split('.');
   if (parts.length !== 4 || parts[0] !== UNSUB_VERSION) return { ok: false, error: 'bad_format' };
-  const [, channel, encodedAddress, encodedMac] = parts;
+  // A assinatura não é extraída aqui de propósito: a conferência abaixo compara o token
+  // inteiro, reconstruído, em vez de recomputar o MAC em separado.
+  const [, channel, encodedAddress] = parts;
   if (channel !== 'email' && channel !== 'whatsapp') return { ok: false, error: 'bad_channel' };
   if (!secret) return { ok: false, error: 'bad_signature' };
 
@@ -196,39 +199,26 @@ export function renderEmailHtml(body: string, vars: Vars, footerHtml = ''): stri
   const paragraphs = filled.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
   const paragraphsHtml = paragraphs.map((p) => {
     const escaped = escapeHtml(p);
+    // Link no texto: âmbar, a mesma cor do accent da tela.
     const withLinks = escaped.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-      (_m, label: string, url: string) => `<a href="${url}" style="color:#30d158;text-decoration:none;font-weight:600;">${label}</a>`);
-    const withBold = withLinks.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#eaeaea;">$1</strong>');
+      (_m, label: string, url: string) => `<a href="${url}" style="color:${SKIN.ambar};text-decoration:none;font-weight:600;">${label}</a>`);
+    // Negrito em creme cheio: o texto normal é creme fraco, então o realce aparece.
+    const withBold = withLinks.replace(/\*\*([^*]+)\*\*/g, `<strong style="color:${SKIN.creme};">$1</strong>`);
     const withItalic = withBold.replace(/(^|[\s(])_([^_]+)_(?=[\s.,;:!?)]|$)/g, '$1<em>$2</em>');
     const html = withItalic.replace(/\n/g, '<br>');
-    return `<p style="margin:0 0 16px;font-size:14px;line-height:1.65;color:#9a9a9a;">${html}</p>`;
+    return paragrafo(html);
   }).join('\n        ');
 
-  return `<!doctype html>
-<html lang="pt-BR"><body style="margin:0;padding:0;background:#0a0b0d;">
-<div style="background:#0a0b0d;padding:40px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table role="presentation" width="100%" style="max-width:440px;margin:0 auto;background:#17181c;border:1px solid #2c2f38;border-radius:16px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.5);">
-    <tr><td style="padding:0;height:4px;background:linear-gradient(90deg,#f59e0b,#22c55e);"></td></tr>
-    <tr>
-      <td style="padding:36px 32px 28px;text-align:center;">
-        <img src="https://vsstagepro.com.br/icon-192.png" alt="VS Stage Pro" width="64" height="64" style="display:block;margin:0 auto 16px;border-radius:14px;border:1px solid #2c2f38;" />
-        <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#30d158;font-weight:700;margin-bottom:20px;">VS STAGE PRO</div>
-        <div style="text-align:left;">
-        ${paragraphsHtml}
-        </div>
-      </td>
-    </tr>
-    ${footerHtml ? `<tr><td style="padding:16px 32px 24px;border-top:1px solid #23252b;text-align:center;">${footerHtml}</td></tr>` : ''}
-  </table>
-</div>
-</body></html>`;
+  return moldura(paragraphsHtml, { rodape: footerHtml || undefined });
 }
 
 /** Rodapé do e-mail em massa: endereço e o link de sair. Exigência de e-mail em massa. */
 export function unsubscribeFooter(unsubUrl: string): string {
-  return `<p style="margin:0;font-size:11px;line-height:1.7;color:#55555a;">
+  // Rodapé na paleta da mesa: creme mudo para o texto, creme fraco para o link. Antes usava
+  // cinza neutro (#55555a), que era da estética anterior.
+  return `<p style="margin:0;font-family:Inter,-apple-system,Segoe UI,Roboto,sans-serif;font-size:11px;line-height:1.7;color:${SKIN.cremeMudo};">
           Você recebeu este e-mail porque tem uma conta no VS Stage Pro.<br>
-          <a href="${escapeHtml(unsubUrl)}" style="color:#6b6b6b;text-decoration:underline;">Não quero mais receber mensagens</a>
+          <a href="${escapeHtml(unsubUrl)}" style="color:${SKIN.cremeFraco};text-decoration:underline;">Não quero mais receber mensagens</a>
         </p>`;
 }
 
