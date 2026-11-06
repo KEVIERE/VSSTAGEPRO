@@ -73,14 +73,40 @@ def separate_model(model_dir, in_path, out_dir):
 
 
 def separate(in_path, out_dir):
-    """Separa a bateria e devolve os segundos processados."""
+    """Separa a bateria e deixa um WAV por peça com os nomes que o app procura."""
     drumsep = import_drumsep()
     os.makedirs(out_dir, exist_ok=True)
 
     drumsep.separate(in_path, output_dir=out_dir)
 
-    # O drumsep grava kick/snare/hihat/cymbals/toms; confere o que realmente saiu.
-    achadas = [p for p in PIECES if find_piece(out_dir, p)]
+    # O drumsep grava kick.wav / snare.wav / hihat.wav / cymbals.wav / toms.wav, mas o app
+    # (drumPieces.js) lê bumbo.wav / caixa.wav / chimbal.wav / pratos.wav / tons.wav. Sem esta
+    # renomeação ele lia uma pasta cheia e concluía "O separador não devolveu as peças da
+    # bateria" — que era o erro que aparecia na tela do produtor.
+    achadas = []
+    for piece in PIECES:
+        origem = find_piece(out_dir, piece)
+        if not origem:
+            continue
+        destino = os.path.join(out_dir, piece + ".wav")
+        if os.path.abspath(origem) != os.path.abspath(destino):
+            if os.path.exists(destino):
+                os.remove(destino)
+            os.rename(origem, destino)
+        achadas.append(piece)
+
+    # Limpa só os nomes ESTRANGEIROS do drumsep (kick.wav, snare.wav...). O nome final de cada
+    # peça ("bumbo", "caixa"...) também aparece em DRUMSEP_NAMES, então comparar contra PIECES
+    # é o que evita apagar o arquivo que acabamos de renomear.
+    for restos in DRUMSEP_NAMES.values():
+        for nome in restos:
+            if nome in PIECES:
+                continue
+            for ext in (".wav", ".flac"):
+                caminho = os.path.join(out_dir, nome + ext)
+                if os.path.isfile(caminho):
+                    os.remove(caminho)
+
     if not achadas:
         fail("O separador não devolveu as peças da bateria.")
     return {"pieces": achadas}

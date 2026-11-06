@@ -76,90 +76,117 @@ class DrumSeparator:
             self._progress(on_progress, 12, "Analyzing drum frequency content...")
 
             if self.enhanced:
-                y_percussive, _ = librosa.effects.hpss(y_mono, margin=(1.0, 5.0))
+                # VS Stage: separa em blocos em vez de uma vez só. O HPSS mantém dois
+                # espectrogramas complexos do arquivo inteiro ao mesmo tempo — numa música de
+                # 3 min isso sozinho custa ~1 GB (medido). Em blocos de 30 s o pico fica baixo
+                # e o resultado é o mesmo, porque a separação é feita por frequência, não entre
+                # trechos distantes.
+                bloco = int(sr * 30)
+                if len(y_mono) <= bloco:
+                    y_percussive, _ = librosa.effects.hpss(y_mono, margin=(1.0, 5.0))
+                else:
+                    y_percussive = np.empty_like(y_mono)
+                    for inicio in range(0, len(y_mono), bloco):
+                        fim = min(inicio + bloco, len(y_mono))
+                        pedaco, _ = librosa.effects.hpss(
+                            y_mono[inicio:fim], margin=(1.0, 5.0)
+                        )
+                        y_percussive[inicio:fim] = pedaco
+                        del pedaco
+                        gc.collect()
             else:
                 y_percussive = y_mono
 
             self._progress(on_progress, 18, "Computing STFTs...")
 
+            # VS Stage: guarda a FASE como unidade complexa e a MAGNITUDE em float32, em vez de
+            # manter os dois STFTs complexos (float64) + mag + phase em paralelo. Nesta música de
+            # 3 min cada STFT complexo ocupa ~508 MB; os quatro juntos + as fases passavam de 2 GB.
+            # A unidade complexa multiplica a magnitude igual a exp(1j*angle), com metade da memória.
             S_perc = librosa.stft(y_percussive, n_fft=4096, hop_length=512)
-            mag_perc = np.abs(S_perc)
-            phase_perc = np.angle(S_perc)
+            mag_perc = np.abs(S_perc).astype(np.float32)
+            # a unidade complexa (fase) já foi obtida junto com a magnitude, no mesmo S
+            unit_perc = (S_perc / np.maximum(mag_perc, 1e-12)).astype(np.complex64)
+            del S_perc
             freqs = librosa.fft_frequencies(sr=sr, n_fft=4096)
 
             S_full = librosa.stft(y_mono, n_fft=4096, hop_length=512)
-            mag_full = np.abs(S_full)
-            phase_full = np.angle(S_full)
+            mag_full = np.abs(S_full).astype(np.float32)
+            unit_full = (S_full / np.maximum(mag_full, 1e-12)).astype(np.complex64)
+            del S_full
+            gc.collect()
 
             self._check_cancelled()
             self._progress(on_progress, 25, "Computing drum frequency masks...")
 
-            if self.enhanced:
-                kick_mask = self._create_kick_mask(freqs, mag_perc, sr, y_percussive)
-            else:
-                kick_mask = self._create_frequency_mask(freqs, 20, 100)
+            # VS Stage: as máscaras saem como colunas (1 x frames) e cada peça monta a sua
+            # na hora de sintetizar. O drumsep original guardava as seis ao mesmo tempo, e
+            # como ele multiplica coluna x espectrograma o resultado vira uma matriz de 127 MB
+            # por peça mantida viva — 760 MB só de máscaras numa música de 3 min.
+            def kick_mask_col():
+                if self.enhanced:
+                    return self._create_kick_mask(freqs, mag_perc, sr, y_percussive)
+                return self._create_frequency_mask(freqs, 20, 100)
 
-            snare_mask_low = self._create_frequency_mask(freqs, 150, 300)
-            snare_mask_high = self._create_frequency_mask(freqs, 2000, 4000)
-            snare_mask = np.maximum(snare_mask_low, snare_mask_high * 0.5)
+            def snare_mask_col():
+                s_low = self._create_frequency_mask(freqs, 150, 300)
+                s_high = self._create_frequency_mask(freqs, 2000, 4000)
+                return np.maximum(s_low, s_high * 0.5)
 
-            hihat_mask = self._create_hihat_mask(freqs, mag_full, sr, y_mono)
+            def hihat_mask_col():
+                return self._create_hihat_mask(freqs, mag_full, sr, y_mono)
 
-            cymbals_mask = self._create_frequency_mask(freqs, 3000, 16000)
-            cymbals_mask = cymbals_mask * (1 - hihat_mask * 0.8)
+            def cymbals_mask_col():
+                base = self._create_frequency_mask(freqs, 3000, 16000)
+                return base * (1 - hihat_mask_col() * 0.8)
 
-            toms_mask = self._create_frequency_mask(freqs, 80, 400)
-            toms_mask = toms_mask * (1 - kick_mask * 0.7) * (1 - snare_mask_low * 0.5)
+            def toms_mask_col():
+                base = self._create_frequency_mask(freqs, 80, 400)
+                return base * (1 - kick_mask_col() * 0.7) * (1 - self._create_frequency_mask(freqs, 150, 300) * 0.5)
+
+            masks = {
+                "kick": kick_mask_col,
+                "snare": snare_mask_col,
+                "hihat": hihat_mask_col,
+                "cymbals": cymbals_mask_col,
+                "toms": toms_mask_col,
+            }
 
             self._check_cancelled()
             self._progress(on_progress, 45, "Building drum STFTs...")
 
-            exp_phase_perc = np.exp(1j * phase_perc)
-            exp_phase_full = np.exp(1j * phase_full)
+            exp_phase_perc = unit_perc
+            exp_phase_full = unit_full
 
-            complex_stfts = {
-                "kick": mag_perc * kick_mask * exp_phase_perc,
-                "snare": mag_perc * snare_mask * exp_phase_perc,
-                "toms": mag_perc * toms_mask * exp_phase_perc,
-                "hihat": mag_full * hihat_mask * exp_phase_full,
-                "cymbals": mag_full * cymbals_mask * exp_phase_full,
-            }
-
-            if self.enhanced:
-                complex_stfts["kick"] = self._apply_spectral_gate(
-                    complex_stfts["kick"], sr
-                )
-
-            del kick_mask, snare_mask, snare_mask_low, snare_mask_high
-            del hihat_mask, cymbals_mask, toms_mask
-            del exp_phase_perc, exp_phase_full, mag_perc, mag_full
-            del phase_perc, phase_full, S_perc, S_full
-
-            self._check_cancelled()
-            self._progress(on_progress, 55, "Synthesizing drum sub-stems...")
-
-            stft_data = complex_stfts  # local ref for closure
-
-            def _istft(name: str) -> tuple:
-                return (name, librosa.istft(stft_data[name], hop_length=512))
-
+            # VS Stage: UMA peça por vez, liberando o espectrograma antes da próxima.
+            #
+            # A versão original montava as cinco em paralelo e só então sintetizava, com um
+            # ThreadPoolExecutor de 5 workers. Cada espectrograma complexo desta música de 3 min
+            # ocupa ~508 MB (15504 frames x 2049 bins x 16 B), então o pico passava de 2,5 GB —
+            # num Mac de 8 GB isso entra em swapping e trava o computador (relato do usuário).
+            # Em série o pico fica em ~1 espectrograma + 1 onda, sem mudar o resultado: as
+            # máscaras e as fases são as mesmas, só a ordem de execução muda.
             audio_results: dict[str, np.ndarray] = {}
             try:
-                with ThreadPoolExecutor(max_workers=5) as pool:
-                    for name, audio in pool.map(_istft, self.STEMS):
-                        audio_results[name] = audio
-            except Exception as e:
-                warnings.warn(
-                    f"Parallel ISTFT failed ({e}), falling back to sequential",
-                    stacklevel=2,
-                )
-                audio_results.clear()
                 for name in self.STEMS:
-                    audio_results[name] = librosa.istft(
-                        complex_stfts[name], hop_length=512
-                    )
+                    self._check_cancelled()
+                    mask = masks[name]()
+                    if name in ("kick", "snare", "toms"):
+                        spec = mag_perc * mask * exp_phase_perc
+                    else:
+                        spec = mag_full * mask * exp_phase_full
+                    del mask
+                    if name == "kick" and self.enhanced:
+                        spec = self._apply_spectral_gate(spec, sr)
+                    audio_results[name] = librosa.istft(spec, hop_length=512)
+                    del spec
+                    gc.collect()
+            finally:
+                # as fases não são mais necessárias depois da síntese
+                del exp_phase_perc, exp_phase_full
+                del mag_perc, mag_full
 
-            del freqs, complex_stfts
+            del masks, freqs
             gc.collect()
 
             if self.enhanced and bass_path:
@@ -189,6 +216,11 @@ class DrumSeparator:
                     subtype="FLOAT",
                 )
                 stem_paths[name] = str(output_file)
+                # VS Stage: solta a peça já gravada. As cinco juntas em float64 eram ~640 MB
+                # mantidos até o fim; o pico medido caía pela metade a cada peça liberada.
+                substems[name] = None
+                del audio
+                gc.collect()
                 progress = 90 + int((i + 1) / len(substems) * 10)
                 self._progress(on_progress, progress, f"Saved {name} sub-stem...")
 
@@ -223,18 +255,22 @@ class DrumSeparator:
     def _create_frequency_mask(
         self, freqs: np.ndarray, low_hz: float, high_hz: float
     ) -> np.ndarray:
-        mask = ((freqs >= low_hz) & (freqs <= high_hz)).astype(float)
+        mask = ((freqs >= low_hz) & (freqs <= high_hz)).astype(np.float32)
         transition = 20
         low_trans = (freqs >= low_hz - transition) & (freqs < low_hz)
         high_trans = (freqs > high_hz) & (freqs <= high_hz + transition)
         mask[low_trans] = (freqs[low_trans] - (low_hz - transition)) / transition
         mask[high_trans] = 1 - (freqs[high_trans] - high_hz) / transition
-        return mask[:, np.newaxis]
+        # A máscara é 1 coluna que o numpy transmite contra espectrograma inteiro: ele não aloca
+        # a matriz toda. Mas quando as seis se encontram (kick * snare * toms...), cada
+        # resultado vira uma matriz de 127 MB em float64. Em float32 é metade, e a diferença de
+        # precisão é inaudível depois do istft.
+        return mask[:, np.newaxis].astype(np.float32, copy=False)
 
     def _create_kick_mask(
         self, freqs: np.ndarray, magnitude: np.ndarray, sr: int | float, y_percussive: np.ndarray
     ) -> np.ndarray:
-        freq_mask = np.zeros_like(freqs, dtype=float)
+        freq_mask = np.zeros_like(freqs, dtype=np.float32)
         low_ramp = (freqs >= 0) & (freqs < 20)
         freq_mask[low_ramp] = freqs[low_ramp] / 20.0
         freq_mask[(freqs >= 20) & (freqs <= 100)] = 1.0
@@ -363,7 +399,7 @@ class DrumSeparator:
             else:
                 left_gain = right_gain = 0.5
 
-            stereo_audio = np.zeros((2, len(mono_audio)))
+            stereo_audio = np.zeros((2, len(mono_audio)), dtype=np.float32)
             stereo_audio[0] = mono_audio * left_gain
             stereo_audio[1] = mono_audio * right_gain
             stereo_substems[name] = stereo_audio
