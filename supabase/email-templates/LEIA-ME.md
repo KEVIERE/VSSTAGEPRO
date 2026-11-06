@@ -26,3 +26,25 @@ DMARC em enforcement (`p=quarantine` ou `p=reject`; hoje o domínio usa `p=none`
 - o registro DNS `default._bimi.vsstagepro.com.br`.
 
 O `logo-nova.svg` do site não serve para BIMI: usa 9 filtros e 1 máscara, que o formato proíbe.
+
+## Topo em imagem
+
+O topo dos cinco pontos de envio é uma imagem: a captura real do mixer (`public/site/mixer.jpg`)
+com a marca fundida nela por degradê. Gerada por
+
+```bash
+node scripts/gerar-topo-email.mjs
+```
+
+e servida pelo site em `public/email-topo.jpg` (960px de largura, o dobro da coluna de 480).
+Se a captura ou a logo mudarem, basta rodar o script de novo.
+
+## Armadilha das duas colunas
+
+A tabela do e-mail tem duas colunas por causa da faixa de acento de 3px na borda esquerda.
+Qualquer `<tr>` que ocupe a largura toda precisa de `colspan="2"`, senão a célula cai na
+coluna estreita e o conteúdo é esmagado — foi assim que a imagem do topo saiu a 3px de
+largura, e antes disso a logo saiu 183px fora do centro.
+
+Ao mexer no HTML, meça a largura exibida no navegador, não confie na aparência da captura:
+`document.querySelector('img').getBoundingClientRect().width`.
