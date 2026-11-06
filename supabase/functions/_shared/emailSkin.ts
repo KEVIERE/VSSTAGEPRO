@@ -62,18 +62,22 @@ function faixa(tipo: Tipo): string {
   return `<td width="3" style="width:3px;background-color:${SKIN.acento[tipo]};font-size:0;line-height:0;">&nbsp;</td>`;
 }
 
-/** A marca: logo centralizada e o nome embaixo, na fonte do site. */
-function marca(): string {
-  // O site escreve o nome em Outfit 600 (ver .vs-wordmark). Num e-mail, webfont não chega:
-  // nenhum cliente baixa fonte externa por segurança. Então a família vem em cascata —
-  // Outfit se a máquina tiver, senão Inter, senão a fonte do sistema. O que sempre se
-  // preserva é o peso 600, que dá o desenho do wordmark.
+/**
+ * O topo: uma imagem só, com o console do programa e a marca fundida nela.
+ *
+ * Antes eram duas coisas: logo em HTML e nome em HTML. Virou uma imagem porque é assim que
+ * o e-mail fica profissional no tamanho real — a captura do mixer dá contexto ao produto em
+ * vez de só identificar o remetente, e a marca fica sobre ela, sem ocupar altura extra.
+ *
+ * A imagem é gerada por script a partir de `public/site/mixer.jpg` e `public/email-logo.png`
+ * (ver `scripts/gerar-topo-email.mjs`), servida pelo site e hospedada em 960px de largura.
+ */
+function topo(): string {
   return `<tr>
-    <td colspan="2" style="padding:32px 28px 26px;background-color:${SKIN.topo};" align="center">
-      <img src="https://vsstagepro.com.br/email-logo.png" alt="VS Stage Pro" width="56" height="56"
-           style="display:block;margin:0 auto 14px;border:0;" />
-      <div style="font-family:'Outfit',${SANS};font-size:15px;font-weight:600;letter-spacing:.01em;
-                  color:${SKIN.creme};line-height:1;">VS STAGE PRO</div>
+    <td style="padding:0;background-color:${SKIN.painel};font-size:0;line-height:0;" align="center">
+      <img src="https://vsstagepro.com.br/email-topo.jpg" alt="VS Stage Pro — console com as faixas do show"
+           width="960" height="360"
+           style="display:block;width:100%;max-width:960px;height:auto;border:0;" />
     </td>
   </tr>`;
 }
@@ -116,7 +120,7 @@ export function moldura(
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${LARGURA}"
              style="width:100%;max-width:${LARGURA}px;background-color:${SKIN.painel};border:1px solid ${SKIN.gravado};border-radius:5px;overflow:hidden;">
-        ${marca()}
+        ${topo()}
         <tr>
           ${faixa(tipo)}
           <td style="padding:26px 26px 4px;background-color:${SKIN.painel};" align="left">
