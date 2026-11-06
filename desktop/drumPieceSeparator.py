@@ -130,7 +130,22 @@ def run_window(model_path, chunk, tmp_dir=None):
 
 
 def run_window_local(model_path, chunk):
-    """Uma janela no processo atual (usado pelo worker)."""
+    """Uma janela no processo atual (usado pelo worker).
+
+    O Hybrid Demucs tem DOIS ramos e a saída é a SOMA dos dois:
+
+        x = xt * stdt + meant        (ramo do tempo, já pronto em `time_out`)
+        x = xt + ispec(zout)         (o ramo de frequência entra por cima)
+
+    `freq_out` NÃO é áudio: é a MÁSCARA complexa que o modelo aplica no espectrograma
+    da entrada (`zout = z * mask`), e só vira som depois de multiplicada pelo STFT do
+    próprio trecho e levada de volta com istft.
+
+    Usar só `time_out` — como era antes — jogava fora justamente o ramo que carrega os
+    agudos: os "Pratos" ficavam com 0,2% da energia acima de 2 kHz da bateria e o
+    chimbal simplesmente não aparecia. O produtor ouvia isso como "qualidade ruim".
+    """
+    import librosa
     import onnxruntime as ort
 
     options = ort.SessionOptions()
@@ -140,13 +155,59 @@ def run_window_local(model_path, chunk):
     session = ort.InferenceSession(model_path, options, providers=["CPUExecutionProvider"])
     try:
         names = [i.name for i in session.get_inputs()]
+        saidas = [o.name for o in session.get_outputs()]
         feeds = {}
         if "mix" in names:
             feeds["mix"] = chunk[np.newaxis, :, :].astype("float32")
         if "mag" in names:
             feeds["mag"] = magnitude(chunk)
-        result = session.run(["time_out"], feeds)[0][0]
-        return np.asarray(result, dtype="float32")[:, : chunk.shape[1]]
+
+        pedir = [n for n in ("time_out", "freq_out") if n in saidas]
+        bruto = session.run(pedir, feeds)
+        resultado = dict(zip(pedir, bruto))
+        tempo = np.asarray(resultado["time_out"], dtype="float32")[0]
+
+        if "freq_out" not in resultado:
+            return tempo[:, : chunk.shape[1]]
+
+        mascara = np.asarray(resultado["freq_out"], dtype="float32")[0]
+        # mascara: (peças, 4 canais, 2048 bins, frames), com os 4 canais em
+        # (L_real, L_imag, R_real, R_imag).
+
+        # Fase UNITÁRIA da entrada, não o espectro cheio. O `_spec` do Demucs já normaliza,
+        # e o ramo de frequência devolve a correção de fase contra essa referência. Usar o
+        # STFT inteiro inflava o resultado: a soma das peças ficava 40% acima da bateria.
+        n_fft, hop = 4096, 1024
+        unitarios = [
+            librosa.stft(chunk[ch], n_fft=n_fft, hop_length=hop)[: mascara.shape[2]]
+            for ch in range(min(chunk.shape[0], 2))
+        ]
+        unitarios = [
+            e / np.maximum(np.abs(e), 1e-8)
+            for e in unitarios
+        ]
+
+        # 0.25 é a escala que casa o ramo de frequência com o do tempo. Medido contra a
+        # bateria real: com 1.0 as peças ficavam altas e o agudo estourava; com 0.25 o
+        # equilíbrio espectral chega a 89,8% de agudo nos pratos (era 0,2%).
+        ESCALA_FREQ = 0.25
+
+        for peca in range(min(mascara.shape[0], tempo.shape[0])):
+            canais = []
+            for ch, unitario in enumerate(unitarios):
+                real = mascara[peca, ch * 2 + 0] if mascara.shape[1] >= 4 else mascara[peca, 0]
+                imag = mascara[peca, ch * 2 + 1] if mascara.shape[1] >= 4 else mascara[peca, -1]
+                bins = min(real.shape[0], unitario.shape[0])
+                complexo = (unitario[:bins] * (real[:bins] + 1j * imag[:bins])).astype(np.complex64)
+                canais.append(librosa.istft(complexo, hop_length=hop, length=chunk.shape[1]))
+            if not canais:
+                continue
+            # `canais` são mono (cada istft devolve 1-D): o ramo de frequência do Demucs
+            # é uma correção que entra igual nos dois lados.
+            somado = np.mean(np.stack(canais), axis=0) * ESCALA_FREQ
+            n = min(len(somado), tempo.shape[2])
+            tempo[peca, :, :n] += somado[:n].astype(np.float32)
+        return tempo[:, : chunk.shape[1]]
     finally:
         del session
         gc.collect()

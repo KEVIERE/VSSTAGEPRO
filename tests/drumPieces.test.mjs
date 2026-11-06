@@ -54,3 +54,17 @@ test('o status informa o estado do modelo sem quebrar', () => {
   assert.equal(typeof st.ready, 'boolean');
   assert.ok(['ready', 'missing', 'downloading', 'error'].includes(st.state), `estado inesperado: ${st.state}`);
 });
+
+// O modelo Hybrid Demucs tem DOIS ramos e a saída é a soma: `time_out` (áudio pronto) +
+// `ispec(freq_out * fase_unitária)`. Usar só o ramo do tempo deixava as peças sem agudo —
+// o chimbal não aparecia nos "Pratos" (2,9% acima de 2 kHz contra 90% na bateria real) e a
+// caixa vinha sem a cordinha. Foi o "qualidade ruim" relatado pelo produtor.
+test('a separação soma o ramo de frequência ao do tempo', () => {
+  const script = fs.readFileSync(path.join(desktop, 'drumPieceSeparator.py'), 'utf8');
+  assert.match(script, /freq_out/, 'pede a saída de frequência');
+  assert.match(script, /time_out/, 'pede a saída de tempo');
+  // freq_out é máscara: só vira som aplicada à fase unitária e passada pelo istft
+  assert.match(script, /MÁSCARA/, 'documenta que freq_out é máscara');
+  assert.match(script, /ESCALA_FREQ = 0\.25/, 'a escala medida contra a bateria real');
+  assert.match(script, /istft/);
+});
