@@ -18,6 +18,11 @@ const SCREEN_CODE = 'TELA';
 const ROLES = new Set(['musician', 'producer', 'screen', 'remote']);
 // Caminho da área (músico, produtor, tela, controle remoto celular) no link.
 const PATH = { musician: 'musico', producer: 'produtor', screen: 'tela', remote: 'show' };
+// Logo da banda na Rede Local: o celular do produtor manda a imagem para cá, sem passar pela
+// nuvem (lá a função exige a chave do diretor e devolvia 403 para quem entra pela rede).
+const LOGO_MAX = 5 * 1024 * 1024;
+const LOGO_TYPES = { 'image/png': 'png', 'image/svg+xml': 'svg', 'image/jpeg': 'jpg' };
+const LOGO_FILE = 'logo-local';
 
 function newPin(other) {
   let pin;
@@ -91,6 +96,50 @@ class LocalServer {
 
   persist(data = { pins: this.pins, prompter: this.prompter }) {
     try { fs.writeFileSync(this.storePath, JSON.stringify(data), { mode: 0o600 }); } catch { /* sem disco: segue em memória */ }
+  }
+
+  // ---------- logo da banda (Rede Local) ----------
+
+  get logoDir() { return path.join(path.dirname(this.storePath), 'rede-local-logo'); }
+
+  logoFile() {
+    for (const ext of Object.values(LOGO_TYPES)) {
+      const file = path.join(this.logoDir, `${LOGO_FILE}.${ext}`);
+      try {
+        if (fs.existsSync(file)) return file;
+      } catch { /* sem disco */ }
+    }
+    return null;
+  }
+
+  /** `{ url, updatedAt }` no mesmo formato que a nuvem devolve, mas servido por aqui. */
+  logoInfo() {
+    const file = this.logoFile();
+    if (!file) return { url: null, updatedAt: null };
+    let mtime = null;
+    try { mtime = fs.statSync(file).mtime.toISOString(); } catch { /* sem disco */ }
+    const ext = path.extname(file).slice(1);
+    const type = Object.keys(LOGO_TYPES).find((k) => LOGO_TYPES[k] === ext) || 'image/png';
+    return { url: `/${PATH.producer}/logo/atual?v=${mtime ? Date.parse(mtime) : 0}`, updatedAt: mtime, type };
+  }
+
+  saveLogo(buffer, contentType) {
+    const ext = LOGO_TYPES[contentType];
+    if (!ext || !buffer || buffer.length === 0 || buffer.length > LOGO_MAX) return false;
+    try {
+      fs.mkdirSync(this.logoDir, { recursive: true });
+      this.removeLogo();
+      fs.writeFileSync(path.join(this.logoDir, `${LOGO_FILE}.${ext}`), buffer, { mode: 0o644 });
+      return true;
+    } catch { return false; }
+  }
+
+  removeLogo() {
+    try {
+      for (const f of fs.readdirSync(this.logoDir)) {
+        if (f.startsWith(`${LOGO_FILE}.`)) fs.unlinkSync(path.join(this.logoDir, f));
+      }
+    } catch { /* pasta nem existe ainda */ }
   }
 
   get running() { return !!this.server?.listening; }
@@ -282,7 +331,19 @@ class LocalServer {
     const url = new URL(req.url, 'http://local');
     if (url.pathname.startsWith('/api/local/')) return this.api(req, res, url.pathname.slice('/api/local/'.length));
     if (req.method !== 'GET' && req.method !== 'HEAD') return this.json(res, 405, { error: 'method' });
+    // A logo trocada pelo produtor na rede local. Fica fora de /api para o <img> apontar direto.
+    if (url.pathname === `/${PATH.producer}/logo/atual`) return this.serveLogo(req, res);
     return this.serveStatic(req, res, url.pathname);
+  }
+
+  serveLogo(req, res) {
+    const file = this.logoFile();
+    if (!file) return this.json(res, 404, { error: 'no_logo' });
+    const ext = path.extname(file).slice(1);
+    const type = Object.keys(LOGO_TYPES).find((k) => LOGO_TYPES[k] === ext) || 'image/png';
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    if (req.method === 'HEAD') return res.end();
+    return fs.createReadStream(file).on('error', () => res.end()).pipe(res);
   }
 
   serveStatic(req, res, pathname) {
@@ -348,6 +409,7 @@ class LocalServer {
         show,
         prompter: this.prompter,
         join_qr: joinQr,
+        logo: this.logoInfo(),
         lyrics,
         lyrics_save: { requested_at: this.lyricsSave.requestedAt, saved_at: this.lyricsSave.savedAt },
         server_now: now,
@@ -375,6 +437,22 @@ class LocalServer {
       this.prompter = body.prompter;
       this.persist();
       return this.json(res, 200, { ok: true });
+    }
+
+    // Logo da banda trocada pelo produtor na rede local. A chave de autorização do arquivo é o
+    // próprio PIN do produtor, conferido na sessão de quem está mandando.
+    if (route === 'logo') {
+      const type = String(body.type || body.contentType || '');
+      const data = typeof body.data === 'string' ? body.data : '';
+      if (!LOGO_TYPES[type] || !data) return this.json(res, 400, { error: 'bad_request' });
+      const buffer = Buffer.from(data, 'base64');
+      if (!this.saveLogo(buffer, type)) return this.json(res, 400, { error: 'bad_request' });
+      return this.json(res, 200, { ok: true, logo: this.logoInfo() });
+    }
+
+    if (route === 'logo-remove') {
+      this.removeLogo();
+      return this.json(res, 200, { ok: true, logo: this.logoInfo() });
     }
 
     if (route === 'lyrics') {

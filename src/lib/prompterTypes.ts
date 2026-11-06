@@ -107,6 +107,8 @@ export interface PrompterSnapshot {
   server_now: string;
   /** QR code de entrada dos músicos na Rede Local (só vem quando a opção está ligada). */
   joinQr?: string | null;
+  /** Logo da banda servida pela Rede Local (na nuvem ela vem por `prompter-audio`). */
+  logo?: { url: string; updatedAt: string | null } | null;
 }
 
 export const PAGE_KINDS: { id: PageKind; label: string; color: string }[] = [

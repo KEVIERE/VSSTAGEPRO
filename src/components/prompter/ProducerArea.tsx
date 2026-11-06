@@ -36,7 +36,7 @@ export default function ProducerArea() {
   const [tab, setTab] = useState<Tab>('screen');
   const feed = usePrompterFeed(code, producerState);
   const ctl = usePrompterControl(code, feed.snap?.prompter ?? null);
-  const logoUrl = useShowLogo(feed.snap ? code : null);
+  const logoUrl = useShowLogo(feed.snap ? code : null, feed.snap?.logo ?? null);
 
   useEffect(() => {
     localStorage.removeItem('vs_producer_code');

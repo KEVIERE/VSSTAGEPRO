@@ -4,10 +4,19 @@ import { isLocalClient } from '@/lib/localNetwork';
 
 const LOGO_REFRESH_MS = 60_000;
 
-export function useShowLogo(code: string | null): string | null {
+/**
+ * Endereço da logo da banda.
+ *
+ * Na Rede Local ela vem no próprio estado (`snap.logo`), servida pelo Mac do diretor: a função da
+ * nuvem exige a chave do diretor e respondia 403 para quem entrava pela rede, então o produtor e a
+ * TV ficavam sem logo. `localLogo` é o que `producerState`/`screenState` acabaram de devolver.
+ */
+export function useShowLogo(code: string | null, localLogo?: { url: string; updatedAt: string | null } | null): string | null {
   const [logo, setLogo] = useState<{ url: string; updatedAt: string | null } | null>(null);
+  const local = isLocalClient();
+
   useEffect(() => {
-    if (!code || isLocalClient()) return;
+    if (!code || local) return;
     let cancelled = false;
     const load = async () => {
       try {
@@ -22,6 +31,8 @@ export function useShowLogo(code: string | null): string | null {
     load();
     const id = window.setInterval(load, LOGO_REFRESH_MS);
     return () => { cancelled = true; window.clearInterval(id); };
-  }, [code]);
+  }, [code, local]);
+
+  if (local) return localLogo?.url ?? null;
   return logo?.url ?? null;
 }

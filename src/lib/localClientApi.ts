@@ -54,7 +54,7 @@ export function localPrompterState(role: 'producer' | 'screen', pin: string) {
   return withSession(role, pin, role === 'screen' ? 'Tela do palco' : 'Produtor', (t) => call('state', {}, t));
 }
 
-export function localProducerPost(pin: string, path: 'prompter' | 'lyrics' | 'lyrics-save', body: unknown) {
+export function localProducerPost(pin: string, path: 'prompter' | 'lyrics' | 'lyrics-save' | 'logo' | 'logo-remove', body: unknown) {
   return withSession('producer', pin, 'Produtor', (t) => call(path, { method: 'POST', body: JSON.stringify(body) }, t));
 }
 

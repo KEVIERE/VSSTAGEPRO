@@ -22,6 +22,7 @@ function toSnapshot(obj: Record<string, unknown>): PrompterSnapshot {
   const lyrics = Array.isArray(obj.lyrics) ? obj.lyrics : [];
   const setlist = show.setlist && Array.isArray(show.setlist.songs) ? show.setlist : null;
   const save = (obj.lyrics_save && typeof obj.lyrics_save === 'object' ? obj.lyrics_save : {}) as Record<string, unknown>;
+  const logo = (obj.logo && typeof obj.logo === 'object' ? obj.logo : {}) as Record<string, unknown>;
   return {
     show: {
       name: String(show.name ?? ''),
@@ -43,6 +44,10 @@ function toSnapshot(obj: Record<string, unknown>): PrompterSnapshot {
     },
     server_now: String(obj.server_now ?? ''),
     joinQr: typeof obj.join_qr === 'string' && obj.join_qr.startsWith('data:image/') ? obj.join_qr : null,
+    // Só a Rede Local devolve a logo junto do estado: na nuvem ela vem por `prompter-audio`.
+    logo: typeof logo.url === 'string' && logo.url
+      ? { url: logo.url, updatedAt: typeof logo.updatedAt === 'string' ? logo.updatedAt : null }
+      : null,
   };
 }
 
