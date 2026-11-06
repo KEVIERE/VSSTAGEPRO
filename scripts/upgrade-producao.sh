@@ -16,7 +16,7 @@ set -u
 BRANCH="feat/saidas-estereo"
 # Projeto em uso desde 26/10/2026. O antigo, xfpkftewsxaxycdwwnnv (vs-stage), está bloqueado.
 PROJECT_REF="eknjqqiamuztomdygalv"
-FUNCTIONS=("prompter-audio" "admin-promote" "admin-releases")
+FUNCTIONS=("prompter-audio" "admin-promote" "admin-releases" "outreach-send" "outreach-unsubscribe" "twilio-inbound")
 
 cd "$(dirname "$0")/.." || exit 1
 SO_BACKEND=0

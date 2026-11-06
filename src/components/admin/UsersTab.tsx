@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, BadgeCheck, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
+import { AlertTriangle, BadgeCheck, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, Mail, MessageCircle, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { adminApi, dateTime, num, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
-import type { AdminUser, UserState } from '@/components/admin/adminApi';
+import type { AdminUser, OutreachPerson, UserState } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
 
 function EmailBadge({ confirmedAt }: { confirmedAt: string | null | undefined }) {
@@ -135,7 +135,7 @@ function CompCountdown({ user, partner }: { user: AdminUser; partner: boolean })
   );
 }
 
-export default function UsersTab() {
+export default function UsersTab({ onCompose }: { onCompose?: (person: OutreachPerson) => void }) {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
   const [state, setState] = useState<'' | UserState>('');
@@ -265,13 +265,14 @@ export default function UsersTab() {
         <UserDrawer
           user={selected} partner={partners.has(selected.id)} onClose={() => setSelected(null)}
           onChanged={async () => { await Promise.all([load(), loadPartners()]); }}
+          onCompose={onCompose}
         />
       )}
     </div>
   );
 }
 
-function UserDrawer({ user, partner, onClose, onChanged }: { user: AdminUser; partner: boolean; onClose: () => void; onChanged: () => Promise<void> }) {
+function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: AdminUser; partner: boolean; onClose: () => void; onChanged: () => Promise<void>; onCompose?: (person: OutreachPerson) => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [hours, setHours] = useState('');
@@ -350,6 +351,36 @@ function UserDrawer({ user, partner, onClose, onChanged }: { user: AdminUser; pa
               {msg.text}
             </div>
           )}
+
+          <Section icon={MessageCircle} title="Falar com esta pessoa"
+            hint="Abre a aba de Comunicação com esta conta já escolhida. O envio individual fica no mesmo histórico dos envios em massa, e quem pediu para não receber não aparece aqui."
+          >
+            <div className="space-y-2">
+              <div className="grid grid-cols-[4rem_1fr] gap-x-3 gap-y-1 text-xs">
+                <span className="text-logic-text-muted">E-mail</span>
+                <span className="truncate">{user.email}</span>
+                <span className="text-logic-text-muted">Telefone</span>
+                <span className={user.phone ? '' : 'text-logic-text-muted'}>
+                  {user.phone ?? 'não cadastrado, então o WhatsApp não tem para onde enviar'}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  className={btnPrimary} disabled={!onCompose}
+                  onClick={() => { onCompose?.({ user_id: user.id, address: user.email, name: user.name, state: user.state }); onClose(); }}
+                >
+                  <Mail size={13} /> Enviar e-mail
+                </button>
+                <button
+                  className={btnGhost} disabled={!onCompose || !user.phone}
+                  title={user.phone ? undefined : 'Esta conta não tem telefone no cadastro'}
+                  onClick={() => { onCompose?.({ user_id: user.id, address: user.phone!, name: user.name, state: user.state }); onClose(); }}
+                >
+                  <MessageCircle size={13} /> Enviar no WhatsApp
+                </button>
+              </div>
+            </div>
+          </Section>
 
           <Section icon={Clock} title="Prazo do teste grátis" hint="Soma ou tira dias a partir do fim atual do teste (ou de agora, se já acabou).">
             <div className="flex flex-wrap gap-1.5">

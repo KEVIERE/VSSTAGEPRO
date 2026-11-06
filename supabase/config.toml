@@ -63,3 +63,14 @@ verify_jwt = false
 
 [functions.health-check]
 verify_jwt = false
+
+[functions.outreach-send]
+verify_jwt = true
+
+# O descadastro chega por link de e-mail, sem login: a autenticação é o token HMAC assinado.
+[functions.outreach-unsubscribe]
+verify_jwt = false
+
+# Webhook da Twilio: a autenticação é o header X-Twilio-Signature, não um JWT do Supabase.
+[functions.twilio-inbound]
+verify_jwt = false

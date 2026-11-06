@@ -32,6 +32,8 @@ export type AdminUser = {
   id: string;
   email: string;
   name: string | null;
+  /** Telefone do cadastro (formato +55DDDNÚMERO). Vem do admin_users e é o que o WhatsApp usa. */
+  phone: string | null;
   created_at: string;
   last_sign_in_at: string | null;
   email_confirmed_at: string | null;
@@ -194,6 +196,135 @@ async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
   return data as T;
 }
 
+// ─── Tipos da Comunicação ────────────────────────────────────────────────────
+
+export type OutreachChannel = 'email' | 'whatsapp';
+
+export type OutreachPerson = { user_id: string; address: string; name: string | null; state: UserState };
+
+export type OutreachAudience = {
+  channel: OutreachChannel;
+  eligible: number;
+  sem_contato: number;
+  email_invalido: number;
+  descadastrado: number;
+  by_state: Partial<Record<UserState, number>>;
+  sample: OutreachPerson[];
+};
+
+export type OutreachCampaign = {
+  id: string;
+  channel: OutreachChannel;
+  title: string | null;
+  subject: string | null;
+  status: 'draft' | 'running' | 'paused' | 'done' | 'canceled';
+  total: number;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  created_by_email: string | null;
+  sent: number;
+  failed: number;
+  skipped: number;
+  pending: number;
+  /** A execução morreu sem soltar o lease: o histórico mostra "interrompida". */
+  stalled: boolean;
+};
+
+export type OutreachRecipientRow = {
+  id: number;
+  address: string;
+  name: string | null;
+  status: 'pending' | 'sending' | 'sent' | 'failed' | 'skipped';
+  provider_id: string | null;
+  error: string | null;
+  attempts: number;
+  sent_at: string | null;
+};
+
+export type OutreachDetail = {
+  campaign: OutreachCampaign & { body: string; variables: string[]; content_sid: string | null; reply_to: string | null };
+  counts: { sent: number; failed: number; skipped: number; pending: number };
+  recipients: OutreachRecipientRow[];
+};
+
+export type OutreachTemplate = {
+  id: string;
+  name: string;
+  channel: OutreachChannel;
+  subject: string | null;
+  body: string;
+  variables: string[];
+  twilio_content_sid: string | null;
+  approval_status: 'draft' | 'pending' | 'approved' | 'rejected' | 'paused' | 'unknown';
+  approval_category: 'UTILITY' | 'MARKETING' | 'AUTHENTICATION' | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OutreachChannelState = {
+  last_sent_at: string | null;
+  sender_sid: string | null;
+  sender_status: string | null;
+  sender_display_name: string | null;
+  sender_checked_at: string | null;
+};
+
+export type OutreachSenderInfo = {
+  ok: true;
+  phone: string | null;
+  online: boolean;
+  sender: {
+    sid: string | null;
+    status: string | null;
+    displayName: string | null;
+    displayNameStatus: string | null;
+    pendingDisplayName: string | null;
+    offlineReasons: string[];
+  } | null;
+};
+
+export type OutreachRunResult = {
+  ok?: boolean;
+  paused?: boolean;
+  done?: boolean;
+  canceled?: boolean;
+  sent?: number;
+  failed?: number;
+  left?: number;
+  eta?: string | null;
+  runToken?: string;
+  error?: string;
+};
+
+/** Estado da mensagem pronta de WhatsApp, em português, para a tela. */
+export const APPROVAL_LABEL: Record<OutreachTemplate['approval_status'], string> = {
+  draft: 'Não enviada ao WhatsApp',
+  pending: 'Em análise pelo WhatsApp',
+  approved: 'Aprovada',
+  rejected: 'Recusada',
+  paused: 'Pausada',
+  unknown: 'Estado desconhecido',
+};
+
+export const APPROVAL_CLS: Record<OutreachTemplate['approval_status'], string> = {
+  draft: 'bg-logic-text-muted/15 text-logic-text-muted',
+  pending: 'bg-logic-lcd-amber/15 text-logic-lcd-amber',
+  approved: 'bg-logic-lcd-green/15 text-logic-lcd-green',
+  rejected: 'bg-logic-lcd-red/15 text-logic-lcd-red',
+  paused: 'bg-logic-lcd-amber/15 text-logic-lcd-amber',
+  unknown: 'bg-logic-text-muted/15 text-logic-text-muted',
+};
+
+export const CAMPAIGN_LABEL: Record<OutreachCampaign['status'], string> = {
+  draft: 'Rascunho',
+  running: 'Enviando',
+  paused: 'Pausada',
+  done: 'Concluída',
+  canceled: 'Cancelada',
+};
+
 export const adminApi = {
   isAdmin: () => call<boolean>('is_admin'),
   overview: (days: number) => call<Overview>('admin_overview', { p_days: days }),
@@ -266,6 +397,57 @@ export const adminApi = {
   unblockHardware: (hwId: string) => call<void>('admin_unblock_hardware', { p_hw_id: hwId }),
   funnel: (days = 30) => call<FunnelData>('admin_funnel', { p_days: days }),
   timeline: (limit = 100) => call<TimelineEvent[]>('admin_timeline', { p_limit: limit }),
+
+  // ─── Comunicação (e-mail em massa e WhatsApp) ──────────────────────────────
+  outreachAudience: (channel: OutreachChannel, state: string) =>
+    call<OutreachAudience>('admin_outreach_audience', { p_channel: channel, p_state: state || null }),
+  outreachAudienceList: (channel: OutreachChannel, state: string, limit = 1000) =>
+    call<OutreachPerson[]>('admin_outreach_audience_list', { p_channel: channel, p_state: state || null, p_limit: limit }),
+  outreachCreate: (p: {
+    channel: OutreachChannel; template: string | null; subject?: string | null; body?: string | null;
+    contentSid?: string | null; variables?: string[]; title?: string | null; state?: string | null;
+    replyTo?: string | null; addresses?: string[] | null; audience?: Record<string, unknown>;
+  }) =>
+    call<{ id: string; total: number; skipped: Array<{ address: string; reason: string }> }>('admin_outreach_create', {
+      p_channel: p.channel, p_template: p.template, p_subject: p.subject ?? null, p_body: p.body ?? null,
+      p_content_sid: p.contentSid ?? null, p_variables: p.variables ?? [], p_title: p.title ?? null,
+      p_state: p.state ?? null, p_reply_to: p.replyTo ?? null, p_addresses: p.addresses ?? null,
+      p_audience: p.audience ?? {},
+    }),
+  outreachList: (limit = 30) => call<OutreachCampaign[]>('admin_outreach_list', { p_limit: limit }),
+  outreachDetail: (campaign: string, onlyFailed = false) =>
+    call<OutreachDetail>('admin_outreach_detail', { p_campaign: campaign, p_only_failed: onlyFailed }),
+  outreachPause: (campaign: string) => callEdgeFn<{ ok: true }>('outreach-send', { action: 'pause', campaignId: campaign }),
+  outreachCancel: (campaign: string) => callEdgeFn<{ ok: true }>('outreach-send', { action: 'cancel', campaignId: campaign }),
+  outreachRun: (p: { campaignId: string; runToken?: string | null }) =>
+    callEdgeFn<OutreachRunResult>('outreach-send', { action: 'run', ...p }),
+  outreachTemplates: (channel?: OutreachChannel) =>
+    call<OutreachTemplate[]>('admin_outreach_templates', { p_channel: channel ?? null }),
+  outreachTemplateSave: (p: {
+    id: string | null; name: string; channel: OutreachChannel; subject: string | null; body: string;
+    variables: string[]; approvalCategory: string | null; active: boolean;
+  }) =>
+    call<string>('admin_outreach_template_save', {
+      p_id: p.id, p_name: p.name, p_channel: p.channel, p_subject: p.subject, p_body: p.body,
+      p_variables: p.variables, p_approval_category: p.approvalCategory, p_active: p.active,
+    }),
+  outreachTemplateDelete: (id: string) => call<void>('admin_outreach_template_delete', { p_id: id }),
+  outreachTemplateCreate: (templateId: string) =>
+    callEdgeFn<{ ok: true; contentSid: string }>('outreach-send', { action: 'template-create', templateId }),
+  outreachTemplateApprove: (templateId: string) =>
+    callEdgeFn<{ ok: true; status: string }>('outreach-send', { action: 'template-approve', templateId }),
+  outreachTemplateStatus: (templateId: string) =>
+    callEdgeFn<{ ok: true; status: string; raw: string }>('outreach-send', { action: 'template-status', templateId }),
+  outreachChannelState: () => call<Record<string, OutreachChannelState>>('admin_outreach_channel_state'),
+  outreachSenderStatus: () => callEdgeFn<OutreachSenderInfo>('outreach-send', { action: 'sender-status' }),
+  outreachSenderRegister: (p: { phone: string; displayName: string; wabaId: string; method: 'sms' | 'voice' }) =>
+    callEdgeFn<{ ok: true; sid: string; status: string }>('outreach-send', { action: 'sender-register', ...p }),
+  outreachSenderVerify: (p: { sid: string; code: string }) =>
+    callEdgeFn<OutreachSenderInfo>('outreach-send', { action: 'sender-verify', ...p }),
+  outreachOptouts: (channel?: OutreachChannel) =>
+    call<Array<{ channel: OutreachChannel; address: string; reason: string | null; created_at: string }>>('admin_outreach_optout_list', { p_channel: channel ?? null }),
+  outreachOptoutRemove: (channel: OutreachChannel, address: string) =>
+    call<void>('admin_outreach_optout_remove', { p_channel: channel, p_address: address }),
 };
 
 async function callReleasesFn<T = { ok: true }>(payload: Record<string, unknown>): Promise<T> {
