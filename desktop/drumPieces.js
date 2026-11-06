@@ -127,22 +127,39 @@ async function ensureModel() {
 // ---------------------------------------------------------------------------------------------
 // Python com ONNX Runtime
 
-/** Python que já tem onnxruntime instalado (o do motor de IA é o preferido). */
-function findPython() {
-  const candidates = [
-    // motor de IA embutido (vem com o instalador)
-    process.resourcesPath && path.join(process.resourcesPath, 'ai-engine', 'python', 'bin', 'python3'),
+/**
+ * Todos os Pythons que podem servir, na ordem de preferência (o do motor de IA vem primeiro).
+ *
+ * A ordem importa: o primeiro que EXISTE pode não ter o onnxruntime — o Python 3.14 do sistema
+ * não tem (a 1.20.1 é a última com pacote universal2 e não existe para 3.14). Ficar só no
+ * primeiro que existe dava "Não foi possível preparar a separação da bateria agora", porque o
+ * pip falhava ao instalar e o código desistia sem tentar os outros.
+ */
+function pythonCandidates() {
+  const appPython = process.resourcesPath
+    ? path.join(process.resourcesPath, 'ai-engine', 'python', 'bin', 'python3')
+    : null;
+  return [
+    appPython, // embutido no instalador (o que tem tudo pronto)
+    // o do app instalado em /Applications, mesmo rodando em modo de desenvolvimento
+    '/Applications/VS Stage.app/Contents/Resources/ai-engine/python/bin/python3',
     path.join(__dirname, 'ai-engine', 'python', 'bin', 'python3'),
     path.join(os.homedir(), 'Library', 'Application Support', 'VS Stage', 'ai-engine', 'python', 'bin', 'python3'),
-    '/Library/Frameworks/Python.framework/Versions/Current/bin/python3',
-    '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3',
     '/Library/Frameworks/Python.framework/Versions/3.13/bin/python3',
     '/Library/Frameworks/Python.framework/Versions/3.12/bin/python3',
     '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
+    '/Library/Frameworks/Python.framework/Versions/3.10/bin/python3',
+    '/Library/Frameworks/Python.framework/Versions/Current/bin/python3',
+    '/Library/Frameworks/Python.framework/Versions/3.14/bin/python3',
     '/opt/homebrew/bin/python3',
     '/usr/local/bin/python3',
-  ].filter(Boolean);
-  return candidates.find((p) => { try { return fs.existsSync(p); } catch { return false; } }) ?? null;
+    path.join(os.homedir(), '.local/bin/python3'),
+  ].filter(Boolean).filter((p, i, all) => all.indexOf(p) === i);
+}
+
+/** O primeiro Python que existe no disco (usado só como último recurso). */
+function findPython() {
+  return pythonCandidates().find((p) => { try { return fs.existsSync(p); } catch { return false; } }) ?? null;
 }
 
 function runCapture(cmd, args, timeoutMs) {
@@ -170,23 +187,44 @@ async function installRuntime(python) {
   return r.ok;
 }
 
+/**
+ * Acha um Python que consiga rodar o modelo: primeiro os que já têm o runtime, depois tenta
+ * instalar em cada um até um dar certo. Devolve { python } ou { why }.
+ */
+async function pickPython(onProgress) {
+  const candidates = pythonCandidates().filter((p) => { try { return fs.existsSync(p); } catch { return false; } });
+  if (!candidates.length) return { why: 'O Python do motor de IA não está instalado neste Mac.' };
+
+  // 1. Algum já tem tudo pronto? (o embutido no instalador tem)
+  for (const python of candidates) {
+    if (await hasRuntime(python)) return { python };
+  }
+
+  // 2. Instala no primeiro em que der certo. O pip falha no 3.14 (sem pacote do onnxruntime),
+  //    então tentar só o primeiro deixava a separação impossível sem motivo.
+  onProgress?.('Instalando o componente de separação da bateria (uma vez só)...');
+  const errors = [];
+  for (const python of candidates) {
+    if (await installRuntime(python)) return { python };
+    const version = await runCapture(python, ['-V'], 5_000);
+    errors.push(`${python.replace(os.homedir(), '~')} (${version.out.trim() || 'versão desconhecida'})`);
+  }
+  return {
+    why: `Não foi possível preparar a separação da bateria. Nenhum Python deste Mac aceitou o componente de IA: ${errors.slice(0, 2).join('; ')}.`,
+  };
+}
+
 /** Prepara tudo: Python com o runtime, modelo baixado e o script no lugar. Devolve { ok, why }. */
 async function ensureReady(onProgress) {
-  const python = findPython();
-  if (!python) return { ok: false, why: 'O Python do motor de IA não está instalado neste Mac.' };
-
   onProgress?.('Preparando a separação da bateria (uma vez só)...');
-  if (!(await hasRuntime(python))) {
-    onProgress?.('Instalando o componente de separação da bateria...');
-    if (!(await installRuntime(python))) {
-      return { ok: false, why: 'Não foi possível preparar a separação da bateria agora.' };
-    }
-  }
+  const picked = await pickPython(onProgress);
+  if (!picked.python) return { ok: false, why: picked.why };
+
   onProgress?.('Baixando o modelo de separação da bateria (uma vez só)...');
   if (!(await ensureModel())) {
     return { ok: false, why: 'O modelo da bateria não terminou de baixar. A música vem com a bateria inteira.' };
   }
-  return { ok: true, python };
+  return { ok: true, python: picked.python };
 }
 
 // ---------------------------------------------------------------------------------------------

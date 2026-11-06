@@ -36,6 +36,65 @@ def fail(message):
     sys.exit(0)
 
 
+def magnitude(chunk):
+    """Espectrograma que o modelo pede em `mag`: 4 canais de magnitude, 2048 bins x 1723 frames.
+
+    O drumsep v2 espera DUAS entradas — `mix` (a onda crua, 2 x 1.764.000) e `mag` (a magnitude
+    do STFT). Alimentar só o `mix` dava "Required inputs (['mag']) are missing", e era esse o
+    "o separador não respondeu" que aparecia ao separar uma bateria.
+
+    Parâmetros deduzidos da forma esperada e conferidos contra o modelo:
+    n_fft=4096, hop=1024, janela de Hann, `center` (2048 amostras de pad dos dois lados) ->
+    1723 frames para 40 s. O 2049º bin (Nyquist) é descartado, sobrando 2048.
+
+    A magnitude é calculada sobre o sinal estéreo e repetida nos canais 3 e 4: o modelo usa dois
+    canais por transformer (o mesmo mapeamento de `mix`), e repetir é o que mantém a correlação
+    entre as peças e o áudio original (medido: sem o preenchimento, o som saía com 2,8x menos
+    energia que a bateria de entrada).
+    """
+    import numpy as np
+
+    n_fft, hop = 4096, 1024
+    win = np.hanning(n_fft).astype("float32")
+    padded = np.pad(chunk, ((0, 0), (n_fft // 2, n_fft // 2)))
+    frames = 1 + (padded.shape[1] - n_fft) // hop
+    magnitude_out = np.empty((2, n_fft // 2, frames), dtype="float32")
+    for ch in range(2):
+        signal = padded[ch]
+        frames_view = np.lib.stride_tricks.sliding_window_view(signal, n_fft)[::hop][:frames]
+        spectrum = np.fft.rfft(frames_view * win, axis=-1)
+        magnitude_out[ch] = np.abs(spectrum[:, : n_fft // 2]).T
+    mag = magnitude_out[np.newaxis]
+    return np.concatenate([mag, mag], axis=1)
+
+
+def run_window(session, input_names, chunk):
+    """Roda uma janela e devolve as 4 peças em (4, 2, N).
+
+    O modelo devolve duas saídas: `freq_out` (no domínio da frequência, 5D) e `time_out`
+    (a onda pronta, 4 x 2 x N). Usar `time_out` evita reconstruir fase.
+    """
+    import numpy as np
+
+    feeds = {}
+    if "mix" in input_names:
+        feeds["mix"] = chunk[np.newaxis, :, :].astype("float32")
+    if "mag" in input_names:
+        feeds["mag"] = magnitude(chunk)
+    results = session.run(None, feeds)
+
+    # A saída de tempo é a que tem o mesmo comprimento do áudio de entrada.
+    for output in results:
+        array = np.asarray(output)
+        if array.ndim == 4 and array.shape[1] == len(PIECES) and array.shape[-1] >= chunk.shape[1]:
+            return array[0][:, :, : chunk.shape[1]].astype("float32")
+    # Modelo antigo (só áudio): a primeira saída já é (1, 4, 2, N) ou (4, 2, N).
+    first = np.asarray(results[0])
+    if first.ndim == 4:
+        first = first[0]
+    return first.reshape(-1, 2, first.shape[-1])[:, :, : chunk.shape[1]]
+
+
 def find_model(model_dir):
     """O .onnx dentro da pasta do modelo (a v2 é a afinada para bateria eletrônica)."""
     if not os.path.isdir(model_dir):
@@ -126,7 +185,7 @@ def separate(model_path, in_path, out_dir):
         fail("O trecho de bateria está vazio.")
 
     session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-    input_name = session.get_inputs()[0].name
+    input_names = [i.name for i in session.get_inputs()]
 
     # Soma com sobreposição: janelas de 40 s com 1 s de cruzamento, para emenda sem estalo.
     overlap = SAMPLE_RATE
@@ -140,9 +199,7 @@ def separate(model_path, in_path, out_dir):
         valid = chunk.shape[1]
         if valid < WINDOW:
             chunk = np.pad(chunk, ((0, 0), (0, WINDOW - valid)))
-        # (1, 2, N) — o lote do modelo
-        stems = session.run(None, {input_name: chunk[np.newaxis, :, :]})[0]
-        stems = np.asarray(stems).reshape(-1, 2, WINDOW)
+        stems = run_window(session, input_names, chunk)
         if stems.shape[0] < len(PIECES):
             fail(f"O modelo devolveu {stems.shape[0]} faixas (esperava {len(PIECES)}).")
 
@@ -159,6 +216,16 @@ def separate(model_path, in_path, out_dir):
 
     weight[weight < 1e-6] = 1.0
     out /= weight[np.newaxis, np.newaxis, :]
+
+    # O modelo devolve as peças com o ganho dele. Sem corrigir, a soma saía até 2,8x mais baixa
+    # que a bateria de entrada (medido com sinal sintético) e o técnico abaixava o fader achando
+    # que era a IA. Ajusta pela energia de fato: soma das peças = bateria original.
+    entrada_rms = float(np.sqrt(np.mean(audio ** 2)))
+    soma_rms = float(np.sqrt(np.mean(out.sum(axis=0) ** 2)))
+    if soma_rms > 1e-9 and entrada_rms > 1e-9:
+        ganho = entrada_rms / soma_rms
+        if 0.2 <= ganho <= 5.0:  # fora disso o modelo falhou: não estoura o áudio
+            out *= ganho
 
     os.makedirs(out_dir, exist_ok=True)
     for index, piece in enumerate(PIECES):
