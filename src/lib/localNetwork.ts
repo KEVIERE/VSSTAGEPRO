@@ -67,8 +67,6 @@ export interface LocalBridge {
 export interface DrumPiecesResult {
   bumbo?: ArrayBuffer;
   caixa?: ArrayBuffer;
-  /** Chimbal separado dos pratos de condução (o drumsep separa os dois). */
-  chimbal?: ArrayBuffer;
   pratos?: ArrayBuffer;
   tons?: ArrayBuffer;
   why?: string;

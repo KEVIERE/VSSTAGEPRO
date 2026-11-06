@@ -1,14 +1,15 @@
-// Separação da BATERIA em peças (desktop/drumPieces.js): as peças oferecidas e a regra de que,
-// sem o separador, a música continua com a bateria inteira.
+// Separação da BATERIA em peças (desktop/drumPieces.js).
 //
-// O motor é o drumsep (github.com/cukas/drumsep, MIT), embutido em desktop/drumsep. É
-// processamento de sinal — não há modelo ONNX para baixar. O modelo anterior pedia 2,8 GB de RAM
-// por janela de 40 s e travava Macs de 8 GB (relato do usuário em 06/11/2026).
+// O motor é o modelo drumsep_v2 (ONNX), um Hybrid Demucs afinado para bateria. Foi tentado
+// trocá-lo pelo drumsep do cukas (processamento de sinal, leve), mas na música real ele jogou
+// a energia do bumbo nos tons e entregou a caixa sem agudos — qualidade não serviu.
+//
+// O que resolveu o travamento (2,8 GB num Mac de 8 GB) foi rodar cada janela de 40 s num
+// PROCESSO FILHO: o sistema recupera a memória quando ele termina. Ver drumPieceSeparator.py.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -16,38 +17,39 @@ const drumPieces = require('../desktop/drumPieces.js');
 
 const desktop = path.join(import.meta.dirname, '..', 'desktop');
 
-test('as peças: bumbo, caixa, chimbal, pratos e tons', () => {
-  assert.deepEqual(drumPieces.PIECES.map((p) => p.id), ['bumbo', 'caixa', 'chimbal', 'pratos', 'tons']);
-  assert.deepEqual(drumPieces.PIECES.map((p) => p.name), ['Bumbo', 'Caixa', 'Chimbal', 'Pratos', 'Tons']);
+test('as peças são bumbo, caixa, pratos e tons', () => {
+  assert.deepEqual(drumPieces.PIECES.map((p) => p.id), ['bumbo', 'caixa', 'pratos', 'tons']);
+  assert.deepEqual(drumPieces.PIECES.map((p) => p.name), ['Bumbo', 'Caixa', 'Pratos', 'Tons']);
   for (const p of drumPieces.PIECES) assert.match(p.file, /\.wav$/);
 });
 
-test('o drumsep está embutido, com a licença do projeto original', () => {
-  const dir = path.join(desktop, 'drumsep');
-  assert.ok(fs.existsSync(path.join(dir, 'separator.py')), 'separator.py do drumsep');
-  assert.ok(fs.existsSync(path.join(dir, '__init__.py')), '__init__.py do drumsep');
-  const license = fs.readFileSync(path.join(dir, 'LICENSE'), 'utf8');
-  assert.match(license, /MIT License/);
-  assert.match(license, /Nicolas Cukas/);
+test('o modelo é o drumsep v2 (o afinado para bateria), de licença livre', () => {
+  const { MODEL } = drumPieces;
+  assert.match(MODEL.file, /drumsep_v2\.onnx$/);
+  assert.match(MODEL.url, /^https:\/\/huggingface\.co\//);
+  assert.ok(MODEL.bytes > 300 * 1024 * 1024, 'o modelo tem cerca de 335 MB');
 });
 
-test('o script do separador não depende mais de modelo ONNX', () => {
+test('a inferência roda em processo filho (o que evita travar o Mac de 8 GB)', () => {
   const script = fs.readFileSync(path.join(desktop, 'drumPieceSeparator.py'), 'utf8');
-  assert.doesNotMatch(script, /onnxruntime/, 'não usa mais o runtime ONNX');
-  assert.match(script, /import drumsep/, 'usa o drumsep embutido');
-  // as peças que o script declara batem com as do app
-  assert.match(script, /PIECES = \("bumbo", "caixa", "chimbal", "pratos", "tons"\)/);
+  assert.match(script, /subprocess\.run/, 'a janela roda em subprocesso');
+  assert.match(script, /def run_window_local/, 'o worker tem a inferência local');
+  // as duas entradas obrigatórias do modelo
+  assert.match(script, /if "mag" in names/, 'envia a magnitude');
+  assert.match(script, /if "mix" in names/, 'envia a onda crua');
+  // a janela é fixa: o modelo recusa outro tamanho (conferido contra o .onnx)
+  assert.match(script, /WINDOW = 1764000/);
+  // sem isso a peça sai menor que a música e fica fora da grade
+  assert.match(script, /length=|np\.zeros\(\(len\(PIECES\), 2, total\)/);
 });
 
 test('sem o separador disponível, devolve o motivo e nenhuma peça', async () => {
-  const wav = Buffer.alloc(2048);
-  const out = await drumPieces.separateDrumPieces(wav);
-  // nesta máquina pode faltar Python com librosa: o contrato é devolver `why`, nunca lançar
+  const out = await drumPieces.separateDrumPieces(Buffer.alloc(2048));
   assert.equal(out.bumbo, undefined);
   assert.ok(typeof out.why === 'string' && out.why.length > 0, `esperado um motivo, veio ${JSON.stringify(out)}`);
 });
 
-test('o status informa o motor atual sem quebrar', () => {
+test('o status informa o estado do modelo sem quebrar', () => {
   const st = drumPieces.status();
   assert.equal(typeof st.ready, 'boolean');
   assert.ok(['ready', 'missing', 'downloading', 'error'].includes(st.state), `estado inesperado: ${st.state}`);

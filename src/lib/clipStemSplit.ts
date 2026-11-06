@@ -104,11 +104,11 @@ async function drumParts(input: AudioBuffer, onProgress: (p: StemSplitProgress) 
       ? `o modelo da bateria ainda está sendo baixado (${Math.round(status.progress)}%). Tente de novo em alguns minutos`
       : 'o modelo da bateria ainda não foi baixado. Conecte o Mac à internet e tente de novo');
   }
-  onProgress({ percent: 20, message: 'Separando a bateria em bumbo, caixa, chimbal, pratos e tons...' });
+  onProgress({ percent: 20, message: 'Separando a bateria em bumbo, caixa, pratos e tons...' });
   const drums = await toStereo44k(input);
   const result = await bridge(encodeWavPcm24(drums) as ArrayBuffer);
   if (cancelled) throw new Error(CANCELLED);
-  const ids = [['bumbo', 'Bumbo'], ['caixa', 'Caixa'], ['chimbal', 'Chimbal'], ['pratos', 'Pratos'], ['tons', 'Tons']] as const;
+  const ids = [['bumbo', 'Bumbo'], ['caixa', 'Caixa'], ['pratos', 'Pratos'], ['tons', 'Tons']] as const;
   const decoded = await Promise.all(ids.map(([id]) => decodeWav(result[id])));
   const parts: Part[] = [];
   decoded.forEach((buffer, i) => { if (buffer) parts.push({ stem: ids[i][0], parent: 'track-bateria', child: ids[i][1], buffer }); });
