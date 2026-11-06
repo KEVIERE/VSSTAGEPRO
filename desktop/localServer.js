@@ -313,6 +313,11 @@ class LocalServer {
     return (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   }
 
+  /** O pedido veio do próprio Mac (o programa aberto), não de um aparelho na rede. */
+  isLoopback(addr) {
+    return addr === '127.0.0.1' || addr === '::1' || addr === '';
+  }
+
   /**
    * Bloqueio por tentativas erradas, em janela deslizante de verdade.
    *
@@ -388,15 +393,17 @@ class LocalServer {
 
     if (route === 'login' && req.method === 'POST') {
       const addr = this.address(req);
-      if (this.tooManyFailures(addr)) {
-        // Diz quanto falta para liberar de novo. Antes só vinha "too_many_attempts", sem prazo,
-        // e o produtor ficava sem saber se a senha estava errada ou se era só espera.
+      // O bloqueio só vale para aparelho na rede (celular, tablet, TV). Quem está operando no
+      // próprio Mac do diretor nunca fica trancado: é ele que está no palco com a TV à vista.
+      // Antes o limite valia para o IP do link (`192.168.x.x:8080/produtor`), e o produtor
+      // recebia "muitas tentativas erradas" com o PIN certo, sem ter como sair.
+      if (!this.isLoopback(addr) && this.tooManyFailures(addr)) {
         const f = this.failures.get(addr);
         const waitMs = f ? Math.max(0, FAIL_WINDOW_MS - (Date.now() - f.last)) : 0;
         return this.json(res, 429, {
           error: 'too_many_attempts',
           retryInSec: Math.ceil(waitMs / 1000),
-          hint: 'Tentativas demais. Gere um PIN novo ou espere o tempo indicado.',
+          hint: 'Tentativas demais deste aparelho. Gere um PIN novo no programa ou aguarde.',
         });
       }
       const body = await this.readBody(req).catch(() => null);
