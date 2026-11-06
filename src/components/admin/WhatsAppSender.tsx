@@ -40,6 +40,8 @@ export default function WhatsAppSender() {
   const [method, setMethod] = useState<'sms' | 'voice'>('sms');
   const [code, setCode] = useState('');
   const [showRegister, setShowRegister] = useState(false);
+  /** O cartão nasce recolhido: sem Twilio, o caminho é o envio manual na lista. */
+  const [expanded, setExpanded] = useState(false);
 
   const load = async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -55,7 +57,10 @@ export default function WhatsAppSender() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  // Só consulta a Twilio quando o cartão é aberto: recolhido, a tela não faz chamada nenhuma
+  // para um provedor que nem está configurado. `info` de propósito fora das dependências:
+  // incluí-lo dispararia a consulta de novo a cada resposta.
+  useEffect(() => { if (expanded && !info) load(); }, [expanded]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const register = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,10 +99,43 @@ export default function WhatsAppSender() {
   const online = Boolean(info?.online);
   const pendingCode = status === 'PENDING_VERIFICATION' || status === 'VERIFYING' || status === 'DRAFT';
 
+  // Fechado por padrão: o dono do projeto decidiu não usar a Twilio por enquanto. O cartão
+  // inteiro aberto na tela empurrava para uma conta paga, quando o envio manual resolve o
+  // que ele precisa hoje. Fica aqui para quando a base justificar o envio automático.
+  if (!expanded) {
+    return (
+      <Panel
+        title="Envio automático pelo WhatsApp (opcional)"
+        actions={
+          <button type="button" className={btnGhost} onClick={() => setExpanded(true)}>
+            <MessageCircle size={12} /> Configurar
+          </button>
+        }
+      >
+        <div className="p-4">
+          <p className="text-2xs text-logic-text-muted leading-snug">
+            <span className="text-logic-text">Desligado.</span> Você envia pelo seu próprio WhatsApp, com o botão
+            <span className="text-logic-text"> Abrir no WhatsApp</span> em cada pessoa da lista, sem custo.
+          </p>
+          <p className="text-2xs text-logic-text-muted leading-snug mt-1.5">
+            O envio automático em massa exige conta paga na Twilio, número registrado no Console da Meta e
+            template aprovado. Nada disso é necessário para o envio manual, que já funciona. Se um dia a base
+            tiver gente demais para enviar à mão, é aqui que se liga o automático.
+          </p>
+        </div>
+      </Panel>
+    );
+  }
+
   return (
     <Panel
-      title="Remetente do WhatsApp"
-      actions={<button type="button" className={btnGhost} onClick={() => load()} aria-label="Atualizar"><RefreshCw size={13} className={loading ? 'animate-spin' : ''} /></button>}
+      title="Envio automático pelo WhatsApp (opcional)"
+      actions={
+        <>
+          <button type="button" className={btnGhost} onClick={() => load()} aria-label="Atualizar"><RefreshCw size={13} className={loading ? 'animate-spin' : ''} /></button>
+          <button type="button" className={btnGhost} onClick={() => setExpanded(false)}>Recolher</button>
+        </>
+      }
     >
       <div className="p-4 space-y-3">
         {error && <ErrorBox text={error} />}

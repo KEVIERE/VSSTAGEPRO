@@ -468,8 +468,9 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
 
                 {channel === 'whatsapp' && targetCount > 0 && (
                   <p className="text-2xs text-logic-text-muted">
-                    Tempo estimado de entrega: <span className="text-logic-text">{whatsappEtaText(targetCount)}</span>. O WhatsApp
-                    entrega cerca de uma mensagem a cada 3 segundos, então esta aba precisa ficar aberta.
+                    Pelo envio automático (Twilio), o tempo estimado seria{' '}
+                    <span className="text-logic-text">{whatsappEtaText(targetCount)}</span>, com esta aba aberta. Pelo botão
+                    de abrir a conversa, você envia {targetCount === 1 ? 'a mensagem' : 'as mensagens'} na hora, sem espera.
                   </p>
                 )}
 
@@ -510,15 +511,22 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
                 )}
 
                 {blockedBySender && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 text-xs text-logic-lcd-amber">
+                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-logic-border bg-logic-bg-deep/40 text-xs text-logic-text-dim">
                     <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                    <span>O número de WhatsApp ainda não está liberado no Twilio. Veja o cartão do remetente acima.</span>
+                    <span>
+                      O envio automático para todos depende da Twilio, que está desligada. Use o botão{' '}
+                      <span className="text-logic-text">Abrir no WhatsApp</span> em cada pessoa da lista acima: sem custo
+                      e sem configuração.
+                    </span>
                   </div>
                 )}
                 {senderCheckFailed && (
                   <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-logic-border bg-logic-bg-deep/40 text-xs text-logic-text-dim">
                     <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                    <span>Não foi possível consultar o número de WhatsApp agora. O envio continua bloqueado até a consulta responder.</span>
+                    <span>
+                      Não foi possível consultar o número na Twilio agora, então o envio automático continua bloqueado.
+                      O botão de abrir a conversa em cada pessoa não depende disso e segue funcionando.
+                    </span>
                   </div>
                 )}
 
