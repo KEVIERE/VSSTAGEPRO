@@ -108,7 +108,8 @@ const RPC: Record<string, (p?: Row) => unknown> = {
   admin_outreach_list: () => HISTORICO,
   admin_outreach_detail: () => DETALHE,
   admin_outreach_create: (p) => {
-    console.log('[rpc falsa] admin_outreach_create', p);
+    // Os endereços são o que interessa no teste de seleção: null = base inteira do filtro.
+    console.log('[rpc falsa] create addresses', JSON.stringify(p?.p_addresses ?? null), 'state', JSON.stringify(p?.p_state ?? null));
     return { id: 'c-nova', total: 1287, skipped: [] };
   },
   admin_outreach_channel_state: () => ({}),

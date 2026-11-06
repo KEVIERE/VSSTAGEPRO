@@ -164,7 +164,57 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
     if (!title) setTitle(t.name);
   };
 
-  const targetCount = individual ? 1 : (audience?.eligible ?? 0);
+  // ─── Seleção de destinatários ─────────────────────────────────────────────
+  // Três estados, para não trafegar milhares de endereços quando a escolha é "todos":
+  //   'all'    → vai todo mundo do filtro; entram as pessoas que aparecerem depois.
+  //   'except' → todo mundo do filtro menos as desmarcadas.
+  //   'only'   → só as marcadas.
+  // Desmarcar uma pessoa de "todos" vira 'except', e é isso que deixa a tela mostrar
+  // "todos, menos o fulano" sem precisar listar quem ficou.
+  const [selection, setSelection] = useState<{ mode: 'all' | 'except' | 'only'; ids: Set<string> }>({ mode: 'all', ids: new Set() });
+
+  // Trocar de filtro ou canal muda o conjunto, então a seleção antiga não vale mais.
+  useEffect(() => { setSelection({ mode: 'all', ids: new Set() }); }, [state, channel, individual?.user_id]);
+
+  const isChecked = (userId: string) =>
+    selection.mode === 'all' ? true : selection.mode === 'except' ? !selection.ids.has(userId) : selection.ids.has(userId);
+
+  const togglePerson = (userId: string) => {
+    setSelection((s) => {
+      const ids = new Set(s.ids);
+      if (s.mode === 'all') {
+        // Desmarcar de "todos": guarda só quem saiu.
+        ids.add(userId);
+        return { mode: ids.size === (people?.length ?? 0) ? 'only' : 'except', ids: ids.size === (people?.length ?? 0) ? new Set() : ids };
+      }
+      if (ids.has(userId)) ids.delete(userId); else ids.add(userId);
+      return { mode: s.mode, ids };
+    });
+  };
+
+  const selectAll = () => setSelection({ mode: 'all', ids: new Set() });
+  const selectNone = () => setSelection({ mode: 'only', ids: new Set() });
+
+  // Quantos vão receber de fato. Conta sobre a lista carregada; o servidor recalcula.
+  const selectedCount = !people
+    ? 0
+    : selection.mode === 'all'
+      ? people.length
+      : selection.mode === 'except'
+        ? people.filter((p) => !selection.ids.has(p.user_id)).length
+        : people.filter((p) => selection.ids.has(p.user_id)).length;
+
+  /** Endereços a enviar, ou null quando é a base inteira do filtro. */
+  const selectedAddresses = (): string[] | null => {
+    if (individual) return [individual.address];
+    if (!people) return null;
+    if (selection.mode === 'all') return null;
+    if (selection.mode === 'except') return people.filter((p) => !selection.ids.has(p.user_id)).map((p) => p.address);
+    return people.filter((p) => selection.ids.has(p.user_id)).map((p) => p.address);
+  };
+
+  // Quantos vão receber: a seleção manda. Sem seleção mexida, é a contagem do filtro.
+  const targetCount = individual ? 1 : selectedCount;
   // Só bloqueia quando a Twilio disse de fato que o remetente não está liberado.
   const blockedBySender = channel === 'whatsapp' && senderOnline === false;
   // No WhatsApp só libera o botão quando a Twilio confirmou que o remetente está online.
@@ -189,7 +239,8 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
     stoppedByUser.current = false;
     setProgress({ sent: 0, failed: 0, left: targetCount, eta: channel === 'whatsapp' ? whatsappEtaText(targetCount) : null });
     try {
-      const addresses = individual ? [individual.address] : null;
+      // null = usa a base inteira do filtro; lista = só esses endereços.
+      const addresses = selectedAddresses();
       const created = await adminApi.outreachCreate({
         channel,
         template: templateId || null,
@@ -453,8 +504,13 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
             ) : (
               <>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl font-bold tabular-nums">{num(individual ? 1 : (audience?.eligible ?? 0))}</span>
-                  <span className="text-xs text-logic-text-dim">{targetCount === 1 ? 'pessoa vai receber' : 'pessoas vão receber'}</span>
+                  <span className="text-3xl font-bold tabular-nums">{num(individual ? 1 : (people ? selectedCount : (audience?.eligible ?? 0)))}</span>
+                  <span className="text-xs text-logic-text-dim">
+                    {targetCount === 1 ? 'pessoa vai receber' : 'pessoas vão receber'}
+                    {!individual && people && selectedCount < people.length && (
+                      <span className="text-logic-text-muted"> · de {num(people.length)} no filtro</span>
+                    )}
+                  </span>
                   <button type="button" className={`${btnGhost} ml-auto`} onClick={loadAudience} aria-label="Recalcular"><RefreshCw size={12} className={loadingAudience ? 'animate-spin' : ''} /></button>
                 </div>
 
@@ -474,6 +530,24 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
                   </p>
                 )}
 
+                {!individual && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-2xs text-logic-text-muted">
+                      {selection.mode === 'all'
+                        ? 'Todos marcados'
+                        : selection.mode === 'except'
+                          ? `Todos, menos ${num(selection.ids.size)}`
+                          : `${num(selectedCount)} de ${num(people?.length ?? 0)} marcados`}
+                    </span>
+                    <button type="button" className={`${btnGhost} ml-auto`} onClick={selectAll} disabled={selection.mode === 'all'}>
+                      Marcar todos
+                    </button>
+                    <button type="button" className={btnGhost} onClick={selectNone} disabled={selectedCount === 0}>
+                      Desmarcar todos
+                    </button>
+                  </div>
+                )}
+
                 <div className="max-h-44 overflow-y-auto rounded-md border border-logic-border divide-y divide-logic-border/60">
                   {shownPeople.length === 0 ? (
                     <p className="px-3 py-6 text-center text-2xs text-logic-text-muted">Ninguém com contato válido neste filtro.</p>
@@ -483,7 +557,16 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
                     // e quando a pessoa tem telefone.
                     const manual = channel === 'whatsapp' ? personWhatsAppUrl(p.address, manualText(p, body)) : null;
                     return (
-                      <div key={p.user_id} className="flex items-center gap-2 px-3 py-1.5 text-2xs">
+                      <div key={p.user_id} className={`flex items-center gap-2 px-3 py-1.5 text-2xs ${isChecked(p.user_id) ? '' : 'opacity-45'}`}>
+                        {!individual && (
+                          <input
+                            type="checkbox"
+                            className="shrink-0 accent-[var(--logic-accent,#ffab1f)]"
+                            checked={isChecked(p.user_id)}
+                            onChange={() => togglePerson(p.user_id)}
+                            aria-label={`Enviar para ${p.name ?? p.address}`}
+                          />
+                        )}
                         <span className="truncate text-logic-text">{p.name ?? 'Sem nome'}</span>
                         <span className="truncate text-logic-text-muted">{p.address}</span>
                         {manual && (
