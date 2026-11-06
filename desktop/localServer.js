@@ -72,6 +72,10 @@ class LocalServer {
     const saved = this.load();
     this.pins = saved.pins;
     this.prompter = saved.prompter;
+    // Aparelhos que o diretor desconectou continuam desconectados depois de fechar o programa.
+    // Antes isso vivia só na memória e `start()` limpava a lista: os três aparelhos voltavam a
+    // aparecer conectados toda vez que o programa abria.
+    for (const k of saved.banned || []) this.banned.add(k);
   }
 
   load() {
@@ -83,7 +87,12 @@ class LocalServer {
           ...data.pins,
           remote: ok(data?.pins?.remote) ? data.pins.remote : data.pins.producer,
         };
-        return { pins, prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null };
+        const banned = Array.isArray(data.banned) ? data.banned.filter((k) => typeof k === 'string') : [];
+        return {
+          pins,
+          prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null,
+          banned,
+        };
       }
     } catch { /* primeira vez: cria PINs novos */ }
     const musician = newPin();
@@ -94,8 +103,9 @@ class LocalServer {
     return { pins, prompter: null };
   }
 
-  persist(data = { pins: this.pins, prompter: this.prompter }) {
-    try { fs.writeFileSync(this.storePath, JSON.stringify(data), { mode: 0o600 }); } catch { /* sem disco: segue em memória */ }
+  persist(data) {
+    const body = data || { pins: this.pins, prompter: this.prompter, banned: [...this.banned] };
+    try { fs.writeFileSync(this.storePath, JSON.stringify(body), { mode: 0o600 }); } catch { /* sem disco: segue em memória */ }
   }
 
   // ---------- logo da banda (Rede Local) ----------
@@ -146,10 +156,9 @@ class LocalServer {
 
   start() {
     if (this.server) return Promise.resolve();
-    // Religar a rede local é a saída que o próprio aviso sugere a quem ficou trancado; o
-    // bloqueio por IP não pode sobreviver a isso.
+    // Só a contagem de erros de PIN é zerada aqui. A lista de aparelhos desconectados pelo
+    // diretor é mantida: quem ele tirou não pode voltar a conectar por reabrir o programa.
     this.failures.clear();
-    this.banned.clear();
     return new Promise((resolve) => {
       const server = http.createServer((req, res) => this.handle(req, res).catch(() => this.json(res, 500, { error: 'server_error' })));
       let port = DEFAULT_PORT;
@@ -262,18 +271,30 @@ class LocalServer {
     const other = role === 'musician' ? this.pins.producer : this.pins.musician;
     this.pins = { ...this.pins, [role]: newPin(other) };
     for (const [token, s] of this.sessions) if (s.role === role) this.sessions.delete(token);
-    this.banned.clear();
-    // PIN novo é o socorro de quem ficou trancado: a contagem de erros tem que sair junto.
-    // Antes só `banned` era limpo, e o bloqueio de 5 minutos por IP continuava valendo.
+    // PIN novo é o socorro de quem ficou trancado: sai o bloqueio daquele papel e a contagem
+    // de erros. Os aparelhos desconectados dos OUTROS papéis continuam fora.
+    for (const k of [...this.banned]) if (k.startsWith(`${role}|`)) this.banned.delete(k);
     this.failures.clear();
     this.persist();
   }
 
-  // Desconecta e bloqueia o aparelho até gerar um PIN novo ou religar a rede local.
+  /**
+   * Desconecta e bloqueia o aparelho até gerar um PIN novo.
+   *
+   * O bloqueio vai para o disco: antes morria com o programa, e os aparelhos desconectados
+   * voltavam a aparecer conectados na próxima abertura. `start()` também precisa respeitar a
+   * lista — ele a limpa ao religar a rede local para destravar PIN, mas não ao abrir o programa.
+   */
   kick(clientId) {
+    let changed = false;
     for (const [token, s] of this.sessions) {
-      if (s.id === clientId) { this.sessions.delete(token); this.banned.add(`${s.role}|${s.address}`); }
+      if (s.id === clientId) {
+        this.sessions.delete(token);
+        this.banned.add(`${s.role}|${s.address}`);
+        changed = true;
+      }
     }
+    if (changed) this.persist();
   }
 
   ackLyricsSave() {
