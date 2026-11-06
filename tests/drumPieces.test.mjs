@@ -65,6 +65,10 @@ test('a separação soma o ramo de frequência ao do tempo', () => {
   assert.match(script, /time_out/, 'pede a saída de tempo');
   // freq_out é máscara: só vira som aplicada à fase unitária e passada pelo istft
   assert.match(script, /MÁSCARA/, 'documenta que freq_out é máscara');
-  assert.match(script, /ESCALA_FREQ = 0\.25/, 'a escala medida contra a bateria real');
+  // `cac=True`: freq_out já é o espectrograma complexo da fonte — o Demucs aplica o
+  // filtro de Wiener dentro do modelo. Multiplicar por fase unitária ou por uma escala
+  // inventada enchia a peça de chiado (23,8% entre 8 e 16 kHz contra 8,4% no caminho certo).
+  assert.match(script, /cac=True/, 'registra que o modelo roda com cac');
+  assert.match(script, /pad = hop \/\/ 2 \* 3/, 'o pad do _ispec do Demucs');
   assert.match(script, /istft/);
 });

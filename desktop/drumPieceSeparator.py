@@ -170,43 +170,35 @@ def run_window_local(model_path, chunk):
         if "freq_out" not in resultado:
             return tempo[:, : chunk.shape[1]]
 
-        mascara = np.asarray(resultado["freq_out"], dtype="float32")[0]
-        # mascara: (peças, 4 canais, 2048 bins, frames), com os 4 canais em
-        # (L_real, L_imag, R_real, R_imag).
+        espectro_freq = np.asarray(resultado["freq_out"], dtype="float32")[0]
+        # freq_out: (peças, 4 canais, 2048 bins, frames), com os 4 canais em
+        # (L_real, L_imag, R_real, R_imag). O modelo roda com `cac=True`, então isto JÁ é
+        # o espectrograma complexo da fonte — não é máscara para multiplicar.
 
-        # Fase UNITÁRIA da entrada, não o espectro cheio. O `_spec` do Demucs já normaliza,
-        # e o ramo de frequência devolve a correção de fase contra essa referência. Usar o
-        # STFT inteiro inflava o resultado: a soma das peças ficava 40% acima da bateria.
         n_fft, hop = 4096, 1024
-        unitarios = [
-            librosa.stft(chunk[ch], n_fft=n_fft, hop_length=hop)[: mascara.shape[2]]
-            for ch in range(min(chunk.shape[0], 2))
-        ]
-        unitarios = [
-            e / np.maximum(np.abs(e), 1e-8)
-            for e in unitarios
-        ]
+        pad = hop // 2 * 3            # 1536: o mesmo pad do `_spec`/`_ispec` do Demucs
+        le = hop * int(np.ceil(chunk.shape[1] / hop)) + 2 * pad
 
-        # 0.25 é a escala que casa o ramo de frequência com o do tempo. Medido contra a
-        # bateria real: com 1.0 as peças ficavam altas e o agudo estourava; com 0.25 o
-        # equilíbrio espectral chega a 89,8% de agudo nos pratos (era 0,2%).
-        ESCALA_FREQ = 0.25
-
-        for peca in range(min(mascara.shape[0], tempo.shape[0])):
+        for peca in range(min(espectro_freq.shape[0], tempo.shape[0])):
             canais = []
-            for ch, unitario in enumerate(unitarios):
-                real = mascara[peca, ch * 2 + 0] if mascara.shape[1] >= 4 else mascara[peca, 0]
-                imag = mascara[peca, ch * 2 + 1] if mascara.shape[1] >= 4 else mascara[peca, -1]
-                bins = min(real.shape[0], unitario.shape[0])
-                complexo = (unitario[:bins] * (real[:bins] + 1j * imag[:bins])).astype(np.complex64)
-                canais.append(librosa.istft(complexo, hop_length=hop, length=chunk.shape[1]))
+            for ch in range(min(chunk.shape[0], 2)):
+                real = espectro_freq[peca, ch * 2 + 0]
+                imag = espectro_freq[peca, ch * 2 + 1] if espectro_freq.shape[1] >= 4 else np.zeros_like(real)
+                complexo = (real + 1j * imag).astype(np.complex64)
+                # _ispec do Demucs: devolve o bin de Nyquist e 2 frames de pad dos dois lados
+                complexo = np.vstack([complexo, np.zeros((1, complexo.shape[1]), dtype=complexo.dtype)])
+                complexo = np.pad(complexo, ((0, 0), (2, 2)))
+                audio = librosa.istft(complexo, hop_length=hop, length=le)
+                canais.append(audio[pad: pad + chunk.shape[1]])
+
             if not canais:
                 continue
-            # `canais` são mono (cada istft devolve 1-D): o ramo de frequência do Demucs
-            # é uma correção que entra igual nos dois lados.
-            somado = np.mean(np.stack(canais), axis=0) * ESCALA_FREQ
+            # O ramo de frequência entra SOMADO ao do tempo (x = xt + _ispec(zout)). Não há
+            # escala a inventar: aplicar 0.25 ou usar fase unitária enchia a peça de chiado
+            # (medido: 22,5% de energia entre 8 e 16 kHz, contra 8,8% aqui e 19,7% na bateria).
+            somado = np.mean(np.stack(canais), axis=0).astype(np.float32)
             n = min(len(somado), tempo.shape[2])
-            tempo[peca, :, :n] += somado[:n].astype(np.float32)
+            tempo[peca, :, :n] += somado[:n]
         return tempo[:, : chunk.shape[1]]
     finally:
         del session
