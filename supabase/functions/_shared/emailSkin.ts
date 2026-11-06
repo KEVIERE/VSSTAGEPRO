@@ -1,16 +1,17 @@
 // Pele dos e-mails: o painel frontal de um equipamento da linha VS Stage.
 //
 // O que este arquivo desenha não é "um cartão escuro com um botão". É a frente de um
-// aparelho: marca centralizada no topo, linha gravada separando as seções, texto alinhado
-// à esquerda como legenda serigrafada, e uma única tecla âmbar, a ação.
+// aparelho: plaquinha com a marca no canto, linha gravada separando as seções, texto
+// alinhado à esquerda como legenda serigrafada, e uma única tecla âmbar, a ação.
 //
-// Regras que valem aqui (e que já custaram desenhos anteriores):
+// Regras que valem aqui (e que já custaram um desenho anterior):
 //  - a logo aparece sozinha; um rebaixo em volta dela fazia parecer ícone dentro de ícone,
 //    porque a própria arte já é um squircle;
 //  - nada de barra colorida no topo: não existe na frente de nenhum equipamento;
-//  - nada de nome escrito embaixo da logo nem de frase de efeito: a arte já identifica;
-//  - o miolo fica à esquerda (legenda de painel); só a marca fica centralizada;
-//  - verde só diz estado, nunca decora.
+//  - nada de tudo centralizado: legenda de painel é alinhada à esquerda;
+//  - verde só diz estado, nunca decora;
+//  - letra espaçada em caixa alta só na plaquinha da marca, que é onde o aparelho de
+//    verdade imprime o nome e o modelo.
 //
 // Limite de cliente de e-mail: Gmail e Outlook ignoram folha de estilo no <head>, sombra em
 // <div> e parte dos gradientes. Só sobrevive o que está em style="" na própria tag, e a
@@ -46,16 +47,25 @@ export function regua(): string {
 }
 
 /**
- * Plaquinha: a marca centralizada, so a logo.
- *
- * Sem nome escrito e sem a linha de modelo: a arte ja identifica o programa, e repetir o
- * nome embaixo dela so ocupava espaco. Centralizada porque e o unico elemento do topo.
+ * Plaquinha: a marca no canto esquerdo, como está impressa na frente do aparelho.
+ * Logo à esquerda, nome e linha de modelo ao lado. Alinhado à esquerda porque é assim que
+ * equipamento de áudio se identifica.
  */
 export function plaquinha(): string {
   return `<tr>
-    <td style="padding:30px 28px 22px;background-color:${SKIN.painelAlto};" align="center">
-      <img src="https://vsstagepro.com.br/email-logo.png" alt="VS Stage Pro" width="60" height="60"
-           style="display:block;margin:0 auto;" />
+    <td style="padding:26px 28px 20px;background-color:${SKIN.painelAlto};" align="left">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="padding:0 14px 0 0;" valign="middle">
+          <img src="https://vsstagepro.com.br/email-logo.png" alt="VS Stage Pro" width="44" height="44"
+               style="display:block;" />
+        </td>
+        <td valign="middle" style="padding:0;">
+          <div style="font-family:${SANS};font-size:13px;font-weight:700;letter-spacing:.1em;
+                      color:${SKIN.creme};line-height:1.2;">VS STAGE PRO</div>
+          <div style="font-family:${SANS};font-size:10px;font-weight:400;letter-spacing:.04em;
+                      color:${SKIN.cremeMudo};line-height:1.4;padding-top:3px;">Motor de áudio para teatro</div>
+        </td>
+      </tr></table>
     </td>
   </tr>`;
 }
