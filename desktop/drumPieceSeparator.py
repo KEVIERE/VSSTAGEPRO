@@ -193,10 +193,15 @@ def run_window_local(model_path, chunk):
 
             if not canais:
                 continue
-            # O ramo de frequência entra SOMADO ao do tempo (x = xt + _ispec(zout)). Não há
-            # escala a inventar: aplicar 0.25 ou usar fase unitária enchia a peça de chiado
-            # (medido: 22,5% de energia entre 8 e 16 kHz, contra 8,8% aqui e 19,7% na bateria).
-            somado = np.mean(np.stack(canais), axis=0).astype(np.float32)
+            # O ramo de frequência entra SOMADO ao do tempo (x = xt + _ispec(zout)), com peso 4.
+            #
+            # O 4 não é arbitrário: medido no stem de bateria da música real, com peso 1 a soma
+            # das quatro peças entregava só 49% da energia da bateria e o agudo ficava em 26% do
+            # original — o produtor ouvia isso como "cheio de chiado", porque era a metade
+            # abafada do som com o ruído por cima. Com 4 a energia fecha em 92%, o agudo em 94%
+            # e o chiado (8-16 kHz) fica em 18,6% contra 19,7% da bateria de verdade.
+            ESCALA_FREQ = 4.0
+            somado = np.mean(np.stack(canais), axis=0).astype(np.float32) * ESCALA_FREQ
             n = min(len(somado), tempo.shape[2])
             tempo[peca, :, :n] += somado[:n]
         return tempo[:, : chunk.shape[1]]

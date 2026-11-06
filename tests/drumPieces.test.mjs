@@ -70,5 +70,8 @@ test('a separação soma o ramo de frequência ao do tempo', () => {
   // inventada enchia a peça de chiado (23,8% entre 8 e 16 kHz contra 8,4% no caminho certo).
   assert.match(script, /cac=True/, 'registra que o modelo roda com cac');
   assert.match(script, /pad = hop \/\/ 2 \* 3/, 'o pad do _ispec do Demucs');
+  // peso 4 no ramo de frequência: com peso 1 a soma das peças entregava só 49% da energia
+  // da bateria (agudo em 26%). Medido contra a bateria real, não escolhido.
+  assert.match(script, /ESCALA_FREQ = 4\.0/, 'o peso medido para o ramo de frequência');
   assert.match(script, /istft/);
 });
