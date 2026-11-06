@@ -313,16 +313,27 @@ class LocalServer {
     return (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   }
 
+  /**
+   * Bloqueio por tentativas erradas, em janela deslizante de verdade.
+   *
+   * O contador antigo congelava o `since` no primeiro erro. Depois de 8 erros, cada nova
+   * tentativa caía no ramo que zera para 1 e reinicia a janela, então o endereço ficava preso
+   * em `too_many_attempts` e a espera nunca acabava de forma previsível. O produtor via "senha
+   * errada" com o PIN certo, no palco. Agora o `since` é o horário do erro mais recente: passada
+   * a janela sem errar, o contador morre e o PIN volta a valer.
+   */
   tooManyFailures(addr) {
     const f = this.failures.get(addr);
-    if (!f || Date.now() - f.since > FAIL_WINDOW_MS) return false;
+    if (!f) return false;
+    if (Date.now() - f.last > FAIL_WINDOW_MS) { this.failures.delete(addr); return false; }
     return f.count >= FAIL_LIMIT;
   }
 
   noteFailure(addr) {
     const f = this.failures.get(addr);
-    if (!f || Date.now() - f.since > FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, since: Date.now() });
-    else f.count += 1;
+    const now = Date.now();
+    if (!f || now - f.last > FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, last: now });
+    else { f.count += 1; f.last = now; }
   }
 
   session(req) {
@@ -381,7 +392,7 @@ class LocalServer {
         // Diz quanto falta para liberar de novo. Antes só vinha "too_many_attempts", sem prazo,
         // e o produtor ficava sem saber se a senha estava errada ou se era só espera.
         const f = this.failures.get(addr);
-        const waitMs = f ? Math.max(0, FAIL_WINDOW_MS - (Date.now() - f.since)) : 0;
+        const waitMs = f ? Math.max(0, FAIL_WINDOW_MS - (Date.now() - f.last)) : 0;
         return this.json(res, 429, {
           error: 'too_many_attempts',
           retryInSec: Math.ceil(waitMs / 1000),
