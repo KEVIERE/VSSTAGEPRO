@@ -146,6 +146,10 @@ class LocalServer {
 
   start() {
     if (this.server) return Promise.resolve();
+    // Religar a rede local é a saída que o próprio aviso sugere a quem ficou trancado; o
+    // bloqueio por IP não pode sobreviver a isso.
+    this.failures.clear();
+    this.banned.clear();
     return new Promise((resolve) => {
       const server = http.createServer((req, res) => this.handle(req, res).catch(() => this.json(res, 500, { error: 'server_error' })));
       let port = DEFAULT_PORT;
@@ -259,6 +263,9 @@ class LocalServer {
     this.pins = { ...this.pins, [role]: newPin(other) };
     for (const [token, s] of this.sessions) if (s.role === role) this.sessions.delete(token);
     this.banned.clear();
+    // PIN novo é o socorro de quem ficou trancado: a contagem de erros tem que sair junto.
+    // Antes só `banned` era limpo, e o bloqueio de 5 minutos por IP continuava valendo.
+    this.failures.clear();
     this.persist();
   }
 
