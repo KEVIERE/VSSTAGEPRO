@@ -74,7 +74,7 @@ function faixa(tipo: Tipo): string {
  */
 function topo(): string {
   return `<tr>
-    <td style="padding:0;background-color:${SKIN.painel};font-size:0;line-height:0;" align="center">
+    <td colspan="2" style="padding:0;background-color:${SKIN.painel};font-size:0;line-height:0;" align="center">
       <img src="https://vsstagepro.com.br/email-topo.jpg" alt="VS Stage Pro — console com as faixas do show"
            width="960" height="360"
            style="display:block;width:100%;max-width:960px;height:auto;border:0;" />
