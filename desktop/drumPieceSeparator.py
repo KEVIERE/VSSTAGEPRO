@@ -57,8 +57,6 @@ def magnitude(chunk):
     entre as peças e o áudio original (medido: sem o preenchimento, o som saía com 2,8x menos
     energia que a bateria de entrada).
     """
-    import numpy as np
-
     n_fft, hop = 4096, 1024
     win = np.hanning(n_fft).astype("float32")
     padded = np.pad(chunk, ((0, 0), (n_fft // 2, n_fft // 2)))
@@ -74,9 +72,7 @@ def magnitude(chunk):
 
 
 WORKER = """
-import subprocess
 import sys
-import tempfile
 import numpy as np
 sys.path.insert(0, sys.argv[3])
 import drumPieceSeparator as d
@@ -135,7 +131,6 @@ def run_window(model_path, chunk, tmp_dir=None):
 
 def run_window_local(model_path, chunk):
     """Uma janela no processo atual (usado pelo worker)."""
-    import numpy as np
     import onnxruntime as ort
 
     options = ort.SessionOptions()
@@ -174,7 +169,6 @@ def find_model(model_dir):
 
 def load_wav(path):
     """WAV → float32 estéreo a 44,1 kHz. Usa soundfile (vem no motor) e cai para o aifc/wave."""
-    import numpy as np
     try:
         import soundfile as sf
         data, rate = sf.read(path, dtype="float32", always_2d=True)
@@ -218,7 +212,6 @@ def load_wav(path):
 
 def write_wav(path, channels):
     """float32 (2, N) → WAV 24 bits (a mesma resolução que o resto do app usa para os stems)."""
-    import numpy as np
     try:
         import soundfile as sf
         sf.write(path, channels.T, SAMPLE_RATE, subtype="PCM_24")
@@ -237,10 +230,11 @@ def write_wav(path, channels):
         w.writeframes(raw)
 
 
-def separate(model_path, in_path, out_dir):
-    import numpy as np
-    import numpy as np
-    import onnxruntime as ort
+def separate(model_dir, in_path, out_dir):
+    """`model_dir` é a pasta do modelo; `find_model` escolhe o .onnx dentro dela."""
+    model_path = find_model(model_dir)
+    if not model_path:
+        fail("O modelo de separação da bateria não foi encontrado.")
 
     audio = load_wav(in_path)
     total = audio.shape[1]
@@ -303,14 +297,13 @@ def main():
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
-    model_path = find_model(args.model)
-    if not model_path:
+    if not find_model(args.model):
         fail("O modelo de separação da bateria não foi encontrado.")
     if not os.path.isfile(args.inp):
         fail("A faixa da bateria não foi encontrada.")
 
     try:
-        seconds = separate(model_path, args.inp, args.out)
+        seconds = separate(args.model, args.inp, args.out)
     except Exception as err:  # noqa: BLE001 — o app lê a mensagem
         fail(f"Falha ao separar a bateria: {err}")
 
