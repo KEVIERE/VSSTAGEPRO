@@ -448,6 +448,8 @@ function buildMenu() {
 
 if (hasSingleInstance) app.whenReady().then(() => {
   buildMenu();
+  // Restos de atualizações que morreram no meio deixavam o .dmg (≈400 MB) em /tmp para sempre.
+  selfUpdate.cleanLeftovers();
   server = new LocalServer({
     webRoot,
     storePath: path.join(app.getPath('userData'), 'rede-local.json'),

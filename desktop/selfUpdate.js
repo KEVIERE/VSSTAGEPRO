@@ -95,6 +95,9 @@ function currentBuild() {
  */
 const UPDATES_BASE = 'https://download.vsstagepro.com.br/';
 
+/** Pasta da atualização em andamento agora (a limpeza não pode apagá-la). */
+let currentWork = '';
+
 async function checkForUpdate(_supabaseUrl) {
   try {
     const base = UPDATES_BASE;
@@ -130,6 +133,7 @@ async function checkForUpdate(_supabaseUrl) {
  */
 async function downloadAndInstall({ build, base }, onProgress) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-update-'));
+  currentWork = work;
   const dmgPath = path.join(work, build.file);
   try {
     const out = fs.createWriteStream(dmgPath);
@@ -201,4 +205,29 @@ function relaunchFromPath(appPath) {
   app.exit(0);
 }
 
-module.exports = { checkForUpdate, downloadAndInstall, relaunchFromPath };
+/**
+ * Apaga as pastas `vs-update-*` que sobraram de tentativas anteriores.
+ *
+ * `downloadAndInstall` já limpa a sua pasta no `finally`, mas quando o processo morre no meio
+ * (app fechado, Mac reiniciado, `.dmg` travado) o `.dmg` de ~400 MB fica para trás em `/tmp`.
+ * Em 05/11/2026 havia seis pastas assim, somando 2,4 GB. Roda uma vez, ao abrir o programa.
+ */
+function cleanLeftovers() {
+  let removed = 0;
+  try {
+    const dir = os.tmpdir();
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith('vs-update-')) continue;
+      // Pasta de uma atualização em andamento agora não pode ser apagada.
+      if (name === path.basename(currentWork)) continue;
+      try {
+        fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+        removed += 1;
+      } catch { /* em uso por outro processo: fica para a próxima */ }
+    }
+  } catch { /* sem acesso ao /tmp */ }
+  if (removed > 0) console.log(`Limpeza: ${removed} pasta(s) de atualização antiga removida(s).`);
+  return removed;
+}
+
+module.exports = { checkForUpdate, downloadAndInstall, relaunchFromPath, cleanLeftovers };
