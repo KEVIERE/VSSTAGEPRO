@@ -29,6 +29,9 @@ const MODEL = {
 const PIECES = [
   { id: 'bumbo', name: 'Bumbo', file: 'bumbo.wav' },
   { id: 'caixa', name: 'Caixa', file: 'caixa.wav' },
+  // O chimbal saiu de graça: o drumsep já separa hi-hat dos pratos de condução. Antes os dois
+  // vinham juntos em "Pratos" e o técnico não tinha como abaixar só o chimbal.
+  { id: 'chimbal', name: 'Chimbal', file: 'chimbal.wav' },
   { id: 'pratos', name: 'Pratos', file: 'pratos.wav' },
   { id: 'tons', name: 'Tons', file: 'tons.wav' },
 ];
@@ -175,15 +178,17 @@ function runCapture(cmd, args, timeoutMs) {
   });
 }
 
-/** O Python sabe rodar o modelo? (onnxruntime + numpy + soundfile.) */
+/**
+ * O Python sabe rodar a separação? Agora são numpy + librosa + soundfile — o drumsep é
+ * processamento de sinal, sem modelo ONNX (que pedia onnxruntime e 2,8 GB por janela).
+ */
 async function hasRuntime(python) {
-  const r = await runCapture(python, ['-c', 'import onnxruntime, numpy; import soundfile'], 25_000);
+  const r = await runCapture(python, ['-c', 'import numpy, librosa, soundfile'], 40_000);
   return r.ok;
 }
 
 async function installRuntime(python) {
-  // 1.20.1 é a última com pacote universal2 para macOS: serve para Intel e para chip Apple
-  const r = await runCapture(python, ['-m', 'pip', 'install', '--quiet', '--no-cache-dir', 'onnxruntime==1.20.1', 'numpy', 'soundfile'], 600_000);
+  const r = await runCapture(python, ['-m', 'pip', 'install', '--quiet', '--no-cache-dir', 'numpy', 'librosa', 'soundfile'], 900_000);
   return r.ok;
 }
 
@@ -214,16 +219,16 @@ async function pickPython(onProgress) {
   };
 }
 
-/** Prepara tudo: Python com o runtime, modelo baixado e o script no lugar. Devolve { ok, why }. */
+/**
+ * Prepara tudo: Python com as dependências e o script no lugar. Devolve { ok, python } ou { ok:false, why }.
+ *
+ * Não há mais modelo para baixar: o drumsep é processamento de sinal (ver desktop/drumsep).
+ * O `--model` continua na chamada do script só para não quebrar versões antigas.
+ */
 async function ensureReady(onProgress) {
   onProgress?.('Preparando a separação da bateria (uma vez só)...');
   const picked = await pickPython(onProgress);
   if (!picked.python) return { ok: false, why: picked.why };
-
-  onProgress?.('Baixando o modelo de separação da bateria (uma vez só)...');
-  if (!(await ensureModel())) {
-    return { ok: false, why: 'O modelo da bateria não terminou de baixar. A música vem com a bateria inteira.' };
-  }
   return { ok: true, python: picked.python };
 }
 
@@ -249,16 +254,16 @@ async function separateDrumPieces(drumsWav, onProgress) {
     const inputPath = path.join(workDir, 'bateria.wav');
     await fsp.writeFile(inputPath, drumsWav);
 
-    onProgress?.('Separando a bateria em bumbo, caixa, pratos e tons...');
+    onProgress?.('Separando a bateria em bumbo, caixa, chimbal, pratos e tons...');
     const started = Date.now();
     const result = await new Promise((resolve) => {
       let out = '';
-      const child = spawn(ready.python, ['-I', script, '--model', baseDir(), '--in', inputPath, '--out', outDir], {
+      const child = spawn(ready.python, ['-I', script, '--in', inputPath, '--out', outDir], {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TMPDIR: os.tmpdir() },
       });
-      // uma música de 4 min leva alguns minutos no processador: sem teto curto
-      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, 30 * 60_000);
+      // o drumsep leva segundos por música; 10 min é teto de segurança para não pendurar a tela
+      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, 10 * 60_000);
       child.stdout.on('data', (c) => { out += c.toString(); });
       child.stderr.on('data', (c) => { out += c.toString(); });
       child.on('error', () => { clearTimeout(timer); resolve({ ok: false, why: 'Não foi possível abrir o separador.' }); });

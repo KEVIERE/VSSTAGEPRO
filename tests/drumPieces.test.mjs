@@ -1,5 +1,9 @@
-// Separação da BATERIA em peças (desktop/drumPieces.js): as peças oferecidas, o encaixe na pasta
-// Bateria e a regra de que, sem o modelo, a música continua com a bateria inteira.
+// Separação da BATERIA em peças (desktop/drumPieces.js): as peças oferecidas e a regra de que,
+// sem o separador, a música continua com a bateria inteira.
+//
+// O motor é o drumsep (github.com/cukas/drumsep, MIT), embutido em desktop/drumsep. É
+// processamento de sinal — não há modelo ONNX para baixar. O modelo anterior pedia 2,8 GB de RAM
+// por janela de 40 s e travava Macs de 8 GB (relato do usuário em 06/11/2026).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -10,59 +14,41 @@ import path from 'node:path';
 const require = createRequire(import.meta.url);
 const drumPieces = require('../desktop/drumPieces.js');
 
-test('as peças são exatamente as do Moises: bumbo, caixa, pratos e tons', () => {
-  assert.deepEqual(drumPieces.PIECES.map((p) => p.id), ['bumbo', 'caixa', 'pratos', 'tons']);
-  assert.deepEqual(drumPieces.PIECES.map((p) => p.name), ['Bumbo', 'Caixa', 'Pratos', 'Tons']);
+const desktop = path.join(import.meta.dirname, '..', 'desktop');
+
+test('as peças: bumbo, caixa, chimbal, pratos e tons', () => {
+  assert.deepEqual(drumPieces.PIECES.map((p) => p.id), ['bumbo', 'caixa', 'chimbal', 'pratos', 'tons']);
+  assert.deepEqual(drumPieces.PIECES.map((p) => p.name), ['Bumbo', 'Caixa', 'Chimbal', 'Pratos', 'Tons']);
   for (const p of drumPieces.PIECES) assert.match(p.file, /\.wav$/);
 });
 
-test('o modelo é o drumsep v2 (o afinado para bateria), de licença livre', () => {
-  const { MODEL } = drumPieces;
-  assert.match(MODEL.file, /drumsep_v2\.onnx$/);
-  assert.match(MODEL.url, /^https:\/\/huggingface\.co\//);
-  assert.ok(MODEL.bytes > 300 * 1024 * 1024, 'o modelo tem cerca de 335 MB');
+test('o drumsep está embutido, com a licença do projeto original', () => {
+  const dir = path.join(desktop, 'drumsep');
+  assert.ok(fs.existsSync(path.join(dir, 'separator.py')), 'separator.py do drumsep');
+  assert.ok(fs.existsSync(path.join(dir, '__init__.py')), '__init__.py do drumsep');
+  const license = fs.readFileSync(path.join(dir, 'LICENSE'), 'utf8');
+  assert.match(license, /MIT License/);
+  assert.match(license, /Nicolas Cukas/);
 });
 
-test('sem o modelo baixado, o status diz que não está pronto e nada quebra', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-drumsep-'));
-  process.env.VS_DRUMSEP_HOME = home;
-  try {
-    const st = drumPieces.status();
-    assert.equal(st.ready, false);
-    assert.equal(st.state, 'missing');
-    assert.equal(st.progress, 0);
-    assert.equal(drumPieces.isReady(), false);
-    // o caminho do modelo fica na pasta escolhida
-    assert.equal(drumPieces.modelPath(), path.join(home, 'drumsep_v2.onnx'));
-  } finally {
-    delete process.env.VS_DRUMSEP_HOME;
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+test('o script do separador não depende mais de modelo ONNX', () => {
+  const script = fs.readFileSync(path.join(desktop, 'drumPieceSeparator.py'), 'utf8');
+  assert.doesNotMatch(script, /onnxruntime/, 'não usa mais o runtime ONNX');
+  assert.match(script, /import drumsep/, 'usa o drumsep embutido');
+  // as peças que o script declara batem com as do app
+  assert.match(script, /PIECES = \("bumbo", "caixa", "chimbal", "pratos", "tons"\)/);
 });
 
-test('modelo pequeno demais (download pela metade) não conta como pronto', () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-drumsep-'));
-  process.env.VS_DRUMSEP_HOME = home;
-  try {
-    fs.writeFileSync(drumPieces.modelPath(), Buffer.alloc(1024 * 1024)); // 1 MB
-    assert.equal(drumPieces.isReady(), false, 'um arquivo de 1 MB não serve');
-  } finally {
-    delete process.env.VS_DRUMSEP_HOME;
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+test('sem o separador disponível, devolve o motivo e nenhuma peça', async () => {
+  const wav = Buffer.alloc(2048);
+  const out = await drumPieces.separateDrumPieces(wav);
+  // nesta máquina pode faltar Python com librosa: o contrato é devolver `why`, nunca lançar
+  assert.equal(out.bumbo, undefined);
+  assert.ok(typeof out.why === 'string' && out.why.length > 0, `esperado um motivo, veio ${JSON.stringify(out)}`);
 });
 
-test('o separador responde com JSON de erro quando falta o modelo, sem lançar', async () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-drumsep-'));
-  process.env.VS_DRUMSEP_HOME = home;
-  try {
-    const wav = Buffer.alloc(2048);
-    const out = await drumPieces.separateDrumPieces(wav);
-    // sem python/onnxruntime/modelo nesta máquina, devolve o motivo e nenhuma peça
-    assert.equal(out.bumbo, undefined);
-    assert.ok(typeof out.why === 'string' && out.why.length > 0, `esperado um motivo, veio ${JSON.stringify(out)}`);
-  } finally {
-    delete process.env.VS_DRUMSEP_HOME;
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+test('o status informa o motor atual sem quebrar', () => {
+  const st = drumPieces.status();
+  assert.equal(typeof st.ready, 'boolean');
+  assert.ok(['ready', 'missing', 'downloading', 'error'].includes(st.state), `estado inesperado: ${st.state}`);
 });
