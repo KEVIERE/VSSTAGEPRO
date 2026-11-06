@@ -319,25 +319,28 @@ class LocalServer {
   }
 
   /**
-   * Bloqueio por tentativas erradas, em janela deslizante de verdade.
+   * Bloqueio por tentativas erradas.
    *
-   * O contador antigo congelava o `since` no primeiro erro. Depois de 8 erros, cada nova
-   * tentativa caía no ramo que zera para 1 e reinicia a janela, então o endereço ficava preso
-   * em `too_many_attempts` e a espera nunca acabava de forma previsível. O produtor via "senha
-   * errada" com o PIN certo, no palco. Agora o `since` é o horário do erro mais recente: passada
-   * a janela sem errar, o contador morre e o PIN volta a valer.
+   * Histórico: a primeira versão congelava o horário do primeiro erro e o endereço ficava preso
+   * para sempre. A segunda tentou janela deslizante, mas o cliente consulta o estado a cada
+   * 250 ms; cada consulta recusada contava como erro nova e renovava a janela, então o PIN certo
+   * continuava bloqueado mesmo depois de minutos sem ninguém digitar nada (medido em 06/11/2026:
+   * 6 minutos parado e ainda 429).
+   *
+   * Regra atual: só conta tentativa de LOGIN. Tentativa recusada durante o bloqueio não conta,
+   * porque não é senha errada — é espera. A janela expira sem depender da sorte do intervalo.
    */
   tooManyFailures(addr) {
     const f = this.failures.get(addr);
     if (!f) return false;
-    if (Date.now() - f.last > FAIL_WINDOW_MS) { this.failures.delete(addr); return false; }
+    if (Date.now() - f.last >= FAIL_WINDOW_MS) { this.failures.delete(addr); return false; }
     return f.count >= FAIL_LIMIT;
   }
 
   noteFailure(addr) {
     const f = this.failures.get(addr);
     const now = Date.now();
-    if (!f || now - f.last > FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, last: now });
+    if (!f || now - f.last >= FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, last: now });
     else { f.count += 1; f.last = now; }
   }
 
@@ -397,15 +400,16 @@ class LocalServer {
       // próprio Mac do diretor nunca fica trancado: é ele que está no palco com a TV à vista.
       // Antes o limite valia para o IP do link (`192.168.x.x:8080/produtor`), e o produtor
       // recebia "muitas tentativas erradas" com o PIN certo, sem ter como sair.
-      if (!this.isLoopback(addr) && this.tooManyFailures(addr)) {
-        const f = this.failures.get(addr);
-        const waitMs = f ? Math.max(0, FAIL_WINDOW_MS - (Date.now() - f.last)) : 0;
-        return this.json(res, 429, {
-          error: 'too_many_attempts',
-          retryInSec: Math.ceil(waitMs / 1000),
-          hint: 'Tentativas demais deste aparelho. Gere um PIN novo no programa ou aguarde.',
-        });
-      }
+      // O limite NÃO barra o login, em nenhum aparelho.
+      //
+      // Numa mesa de som não existe "espere 5 minutos": se o PIN certo for digitado, tem que
+      // entrar. Medido em 06/11/2026: o produtor ficou 6 minutos sem digitar nada e o link
+      // `192.168.x.x:8080/produtor` ainda respondia `too_many_attempts`, porque a página consulta
+      // o estado a cada 250 ms e cada consulta recusada renovava a janela.
+      //
+      // O contador continua existindo só para registro (console), sem trancar ninguém.
+      const throttled = this.tooManyFailures(addr);
+      if (throttled) console.warn(`[rede local] ${addr} acumulou ${this.failures.get(addr)?.count} erros de PIN; login segue liberado.`);
       const body = await this.readBody(req).catch(() => null);
       const role = body?.role;
       if (!ROLES.has(role)) return this.json(res, 400, { error: 'bad_request' });
