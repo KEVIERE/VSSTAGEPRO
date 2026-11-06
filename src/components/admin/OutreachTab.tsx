@@ -4,6 +4,8 @@ import {
   Pause, Play, RefreshCw, Send, Users, X,
 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
+import { personWhatsAppUrl } from '@/lib/support';
+import { fillVars } from '../../../supabase/functions/_shared/outreach';
 import { renderEmailHtml } from '../../../supabase/functions/_shared/outreach';
 import {
   adminApi, CAMPAIGN_LABEL, dateTime, num,
@@ -474,13 +476,35 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
                 <div className="max-h-44 overflow-y-auto rounded-md border border-logic-border divide-y divide-logic-border/60">
                   {shownPeople.length === 0 ? (
                     <p className="px-3 py-6 text-center text-2xs text-logic-text-muted">Ninguém com contato válido neste filtro.</p>
-                  ) : shownPeople.map((p) => (
-                    <div key={p.user_id} className="flex items-center gap-2 px-3 py-1.5 text-2xs">
-                      <span className="truncate text-logic-text">{p.name ?? 'Sem nome'}</span>
-                      <span className="truncate text-logic-text-muted">{p.address}</span>
-                    </div>
-                  ))}
+                  ) : shownPeople.map((p) => {
+                    // Caminho sem custo: abre a conversa desta pessoa no WhatsApp com o texto
+                    // preenchido, para conferir e enviar na mão. Só aparece no canal WhatsApp
+                    // e quando a pessoa tem telefone.
+                    const manual = channel === 'whatsapp' ? personWhatsAppUrl(p.address, manualText(p, body)) : null;
+                    return (
+                      <div key={p.user_id} className="flex items-center gap-2 px-3 py-1.5 text-2xs">
+                        <span className="truncate text-logic-text">{p.name ?? 'Sem nome'}</span>
+                        <span className="truncate text-logic-text-muted">{p.address}</span>
+                        {manual && (
+                          <a
+                            href={manual} target="_blank" rel="noopener noreferrer"
+                            className="ml-auto shrink-0 inline-flex items-center gap-1 px-2 h-6 rounded bg-logic-bg-elevated text-[10px] font-semibold text-logic-text hover:bg-logic-bg-panel-light transition"
+                            title="Abre esta conversa no WhatsApp com o texto pronto, para você enviar"
+                          >
+                            <MessageCircle size={10} className="text-[#25d366]" /> Abrir no WhatsApp
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
+                {channel === 'whatsapp' && (
+                  <p className="text-[10px] text-logic-text-muted leading-snug">
+                    Com o botão <span className="text-logic-text">Abrir no WhatsApp</span> você envia pelo seu próprio
+                    WhatsApp, sem custo por mensagem e sem precisar de conta de API. É o caminho indicado para poucas pessoas.
+                    O botão acima, para todos, depende do número liberado no Twilio.
+                  </p>
+                )}
                 {(people?.length ?? 0) > 40 && !individual && (
                   <p className="text-[10px] text-logic-text-muted">Mostrando 40 de {num(people!.length)}. Todos entram no envio.</p>
                 )}
@@ -630,6 +654,15 @@ function MiniStat({ label, value }: { label: string; value: number }) {
       <p className={`text-sm font-bold tabular-nums ${value > 0 ? 'text-logic-text' : 'text-logic-text-muted'}`}>{num(value)}</p>
     </div>
   );
+}
+
+/**
+ * Texto que vai para a conversa manual: o mesmo do composer, com as variáveis já trocadas
+ * pelo dado da pessoa. Sem isso, o admin abriria a conversa com "{{nome}}" no lugar do nome.
+ */
+function manualText(p: OutreachPerson, body: string): string {
+  const vars = { nome: p.name ?? 'você' };
+  return fillVars(body, vars);
 }
 
 /** Código de erro do provedor em uma frase que o dono do projeto entende. */

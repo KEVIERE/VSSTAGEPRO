@@ -100,7 +100,10 @@ const DETALHE = {
 
 const RPC: Record<string, (p?: Row) => unknown> = {
   admin_outreach_audience: () => ({ ...AUDIENCIA, channel: cenario === 'whatsapp' || cenario === 'online' ? 'whatsapp' : 'email' }),
-  admin_outreach_audience_list: () => PESSOAS,
+  // No WhatsApp o endereço é o telefone: é o que o botão de conversa manual usa.
+  admin_outreach_audience_list: (p) => (p?.p_channel === 'whatsapp'
+    ? PESSOAS.map((x, i) => ({ ...x, address: ['+5511985393676', '+5511912345678', '+5511977776666', '+5511955554444', '+5511933332222'][i] }))
+    : PESSOAS),
   admin_outreach_templates: (p) => MODELOS.filter((m) => !p?.p_channel || m.channel === p.p_channel),
   admin_outreach_list: () => HISTORICO,
   admin_outreach_detail: () => DETALHE,

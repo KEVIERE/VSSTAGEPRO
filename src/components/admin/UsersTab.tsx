@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, BadgeCheck, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, Mail, MessageCircle, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
+import { personWhatsAppUrl } from '@/lib/support';
 import { adminApi, dateTime, num, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
 import type { AdminUser, OutreachPerson, UserState } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
@@ -378,6 +379,18 @@ function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: Ad
                 >
                   <MessageCircle size={13} /> Enviar no WhatsApp
                 </button>
+                {user.phone && (
+                  // Caminho sem custo: abre a conversa no WhatsApp com o texto pronto. Não
+                  // depende de conta de API, de template aprovado nem de número liberado.
+                  <a
+                    className={btnGhost}
+                    href={personWhatsAppUrl(user.phone, `Oi, ${user.name ?? ''}!`.replace('Oi, !', 'Oi!')) ?? '#'}
+                    target="_blank" rel="noopener noreferrer"
+                    title="Abrir a conversa no WhatsApp com uma saudação pronta, sem custo por mensagem"
+                  >
+                    <ExternalLink size={13} /> Abrir conversa
+                  </a>
+                )}
               </div>
             </div>
           </Section>
