@@ -370,7 +370,17 @@ class LocalServer {
 
     if (route === 'login' && req.method === 'POST') {
       const addr = this.address(req);
-      if (this.tooManyFailures(addr)) return this.json(res, 429, { error: 'too_many_attempts' });
+      if (this.tooManyFailures(addr)) {
+        // Diz quanto falta para liberar de novo. Antes só vinha "too_many_attempts", sem prazo,
+        // e o produtor ficava sem saber se a senha estava errada ou se era só espera.
+        const f = this.failures.get(addr);
+        const waitMs = f ? Math.max(0, FAIL_WINDOW_MS - (Date.now() - f.since)) : 0;
+        return this.json(res, 429, {
+          error: 'too_many_attempts',
+          retryInSec: Math.ceil(waitMs / 1000),
+          hint: 'Tentativas demais. Gere um PIN novo ou espere o tempo indicado.',
+        });
+      }
       const body = await this.readBody(req).catch(() => null);
       const role = body?.role;
       if (!ROLES.has(role)) return this.json(res, 400, { error: 'bad_request' });
