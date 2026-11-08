@@ -67,8 +67,10 @@ export interface LocalBridge {
 export interface DrumPiecesResult {
   bumbo?: ArrayBuffer;
   caixa?: ArrayBuffer;
-  pratos?: ArrayBuffer;
   tons?: ArrayBuffer;
+  /** Chimbal separado dos pratos de condução (o MDX23C devolve os dois isolados). */
+  chimbal?: ArrayBuffer;
+  pratos?: ArrayBuffer;
   why?: string;
 }
 
@@ -135,7 +137,7 @@ declare global {
       }>;
       /** Para a separação por IA em andamento (botão Cancelar do diálogo). */
       cancelStemSeparation?: () => Promise<boolean>;
-      /** Separa a bateria já isolada em peças (bumbo, caixa, pratos, tons). */
+      /** Separa a bateria já isolada em peças (bumbo, caixa, tons, chimbal, pratos). */
       separateDrumPieces?: (drumsWav: ArrayBuffer) => Promise<DrumPiecesResult>;
       /** Se a separação da bateria está pronta (modelo baixado e runtime instalado). */
       drumPiecesStatus?: () => Promise<{ ready: boolean; state: string; progress: number; error?: string | null }>;

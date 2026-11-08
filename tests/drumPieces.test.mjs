@@ -1,11 +1,12 @@
 // Separação da BATERIA em peças (desktop/drumPieces.js).
 //
-// O motor é o modelo drumsep_v2 (ONNX), um Hybrid Demucs afinado para bateria. Foi tentado
-// trocá-lo pelo drumsep do cukas (processamento de sinal, leve), mas na música real ele jogou
-// a energia do bumbo nos tons e entregou a caixa sem agudos — qualidade não serviu.
+// O motor é o MDX23C do DrumSep (jarredou), em OpenVINO IR. É a família que o Moises usa e a de
+// maior SDR disponível abertamente (bumbo 16,66 / caixa 11,53 / toms 12,33).
 //
-// O que resolveu o travamento (2,8 GB num Mac de 8 GB) foi rodar cada janela de 40 s num
-// PROCESSO FILHO: o sistema recupera a memória quando ele termina. Ver drumPieceSeparator.py.
+// Histórico que importa: antes usávamos o `drumsep_v2.onnx`, um fine-tune de bateria ELETRÔNICA.
+// Na bateria acústica real ele dava correlação 0,9483, vazava 0,7 a 0,87 entre as peças (não
+// separava: fatiava frequências) e deixava os pratos com 0,2% do agudo — o chimbal não aparecia.
+// Era isso o "chiado" e a "qualidade ruim" que o produtor relatou.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -17,30 +18,43 @@ const drumPieces = require('../desktop/drumPieces.js');
 
 const desktop = path.join(import.meta.dirname, '..', 'desktop');
 
-test('as peças são bumbo, caixa, pratos e tons', () => {
-  assert.deepEqual(drumPieces.PIECES.map((p) => p.id), ['bumbo', 'caixa', 'pratos', 'tons']);
-  assert.deepEqual(drumPieces.PIECES.map((p) => p.name), ['Bumbo', 'Caixa', 'Pratos', 'Tons']);
+test('as peças são bumbo, caixa, tons, chimbal e pratos', () => {
+  assert.deepEqual(
+    drumPieces.PIECES.map((p) => p.id),
+    ['bumbo', 'caixa', 'tons', 'chimbal', 'pratos'],
+  );
+  assert.deepEqual(
+    drumPieces.PIECES.map((p) => p.name),
+    ['Bumbo', 'Caixa', 'Tons', 'Chimbal', 'Pratos'],
+  );
   for (const p of drumPieces.PIECES) assert.match(p.file, /\.wav$/);
 });
 
-test('o modelo é o drumsep v2 (o afinado para bateria), de licença livre', () => {
+test('o modelo é o MDX23C em OpenVINO, com o pipeline de 3 redes', () => {
   const { MODEL } = drumPieces;
-  assert.match(MODEL.file, /drumsep_v2\.onnx$/);
-  assert.match(MODEL.url, /^https:\/\/huggingface\.co\//);
-  assert.ok(MODEL.bytes > 300 * 1024 * 1024, 'o modelo tem cerca de 335 MB');
+  assert.match(MODEL.name, /MDX23C/);
+  assert.match(MODEL.base, /^https:\/\/huggingface\.co\//);
+  // pre (STFT) → fwd (rede) → post (iSTFT): o STFT não exporta para ONNX por causa dos complexos
+  assert.deepEqual(MODEL.files, ['mdx23c_pre', 'mdx23c_fwd', 'mdx23c_post']);
+  assert.ok(MODEL.bytes > 150 * 1024 * 1024, 'o modelo tem cerca de 215 MB');
 });
 
-test('a inferência roda em processo filho (o que evita travar o Mac de 8 GB)', () => {
+test('o separador roda o pipeline correto e devolve as 5 peças na ordem do modelo', () => {
   const script = fs.readFileSync(path.join(desktop, 'drumPieceSeparator.py'), 'utf8');
-  assert.match(script, /subprocess\.run/, 'a janela roda em subprocesso');
-  assert.match(script, /def run_window_local/, 'o worker tem a inferência local');
-  // as duas entradas obrigatórias do modelo
-  assert.match(script, /if "mag" in names/, 'envia a magnitude');
-  assert.match(script, /if "mix" in names/, 'envia a onda crua');
-  // a janela é fixa: o modelo recusa outro tamanho (conferido contra o .onnx)
-  assert.match(script, /WINDOW = 1764000/);
-  // sem isso a peça sai menor que a música e fica fora da grade
-  assert.match(script, /length=|np\.zeros\(\(len\(PIECES\), 2, total\)/);
+  // o segmento é fixo: `pre` só aceita este tamanho
+  assert.match(script, /SEGMENTO = 523776/);
+  // normalização por segmento: sem ela a saída vem com amplitude errada por ordens de grandeza
+  assert.match(script, /normalizado = \(pedaco - media\) \/ \(desvio \+ 1e-8\)/);
+  // a ordem das peças NÃO pode mudar: foi conferida com tom puro de 60 Hz e de 10 kHz
+  assert.match(script, /PIECES = \("bumbo", "caixa", "tons", "chimbal", "pratos"\)/);
+  // sobreposição entre segmentos, senão a emenda estala
+  assert.match(script, /SOBREPOSICAO = 0\.25/);
+});
+
+test('o runtime checado é o OpenVINO, não o ONNX Runtime', () => {
+  const js = fs.readFileSync(path.join(desktop, 'drumPieces.js'), 'utf8');
+  assert.match(js, /import openvino, numpy/);
+  assert.doesNotMatch(js, /onnxruntime==1\.20\.1/);
 });
 
 test('sem o separador disponível, devolve o motivo e nenhuma peça', async () => {
@@ -53,25 +67,4 @@ test('o status informa o estado do modelo sem quebrar', () => {
   const st = drumPieces.status();
   assert.equal(typeof st.ready, 'boolean');
   assert.ok(['ready', 'missing', 'downloading', 'error'].includes(st.state), `estado inesperado: ${st.state}`);
-});
-
-// O modelo Hybrid Demucs tem DOIS ramos e a saída é a soma: `time_out` (áudio pronto) +
-// `ispec(freq_out * fase_unitária)`. Usar só o ramo do tempo deixava as peças sem agudo —
-// o chimbal não aparecia nos "Pratos" (2,9% acima de 2 kHz contra 90% na bateria real) e a
-// caixa vinha sem a cordinha. Foi o "qualidade ruim" relatado pelo produtor.
-test('a separação soma o ramo de frequência ao do tempo', () => {
-  const script = fs.readFileSync(path.join(desktop, 'drumPieceSeparator.py'), 'utf8');
-  assert.match(script, /freq_out/, 'pede a saída de frequência');
-  assert.match(script, /time_out/, 'pede a saída de tempo');
-  // freq_out é máscara: só vira som aplicada à fase unitária e passada pelo istft
-  assert.match(script, /MÁSCARA/, 'documenta que freq_out é máscara');
-  // `cac=True`: freq_out já é o espectrograma complexo da fonte — o Demucs aplica o
-  // filtro de Wiener dentro do modelo. Multiplicar por fase unitária ou por uma escala
-  // inventada enchia a peça de chiado (23,8% entre 8 e 16 kHz contra 8,4% no caminho certo).
-  assert.match(script, /cac=True/, 'registra que o modelo roda com cac');
-  assert.match(script, /pad = hop \/\/ 2 \* 3/, 'o pad do _ispec do Demucs');
-  // peso 4 no ramo de frequência: com peso 1 a soma das peças entregava só 49% da energia
-  // da bateria (agudo em 26%). Medido contra a bateria real, não escolhido.
-  assert.match(script, /ESCALA_FREQ = 4\.0/, 'o peso medido para o ramo de frequência');
-  assert.match(script, /istft/);
 });

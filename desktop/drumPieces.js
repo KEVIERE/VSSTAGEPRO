@@ -17,21 +17,33 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 
-/** O modelo: v2 é a versão afinada para bateria eletrônica (acerta muito mais caixa e pratos). */
+/**
+ * O modelo de separação da bateria: MDX23C treinado por jarredou (DrumSep), em OpenVINO IR.
+ *
+ * É o de maior SDR da família que o Moises usa (bumbo 16,66 / caixa 11,53 / toms 12,33). Medido
+ * no stem de bateria de uma música real: correlação 0,9994 com a bateria de entrada e vazamento
+ * de ~0,02 entre as peças (o modelo anterior, afinado em bateria eletrônica, dava 0,9483 e
+ * vazava 0,7 a 0,87 — ou seja, não separava, só fatiava frequências).
+ *
+ * O pipeline é dividido em três redes porque o STFT não exporta para ONNX:
+ * `pre` (STFT) → `fwd` (a rede) → `post` (iSTFT). Segmento fixo de 523.776 amostras.
+ */
 const MODEL = {
-  name: 'drumsep v2 (ONNX)',
-  url: 'https://huggingface.co/gridshiftstudio/drumsep-onnx/resolve/main/drumsep_v2.onnx',
-  file: 'drumsep_v2.onnx',
-  bytes: 335 * 1024 * 1024,
-  sha256: null, // conferido pelo tamanho; o SHA oficial muda a cada publicação do repositório
+  name: 'MDX23C DrumSep (OpenVINO)',
+  base: 'https://huggingface.co/Intel/drumsep_mdx23c_jarredou_openvino/resolve/main',
+  files: ['mdx23c_pre', 'mdx23c_fwd', 'mdx23c_post'],
+  bytes: 215 * 1024 * 1024,
 };
-/** As peças, na ordem em que a tela mostra. */
+/** As peças, na ordem em que a tela mostra — a mesma ordem em que o modelo devolve. */
 const PIECES = [
   { id: 'bumbo', name: 'Bumbo', file: 'bumbo.wav' },
   { id: 'caixa', name: 'Caixa', file: 'caixa.wav' },
-  { id: 'pratos', name: 'Pratos', file: 'pratos.wav' },
   { id: 'tons', name: 'Tons', file: 'tons.wav' },
+  { id: 'chimbal', name: 'Chimbal', file: 'chimbal.wav' },
+  { id: 'pratos', name: 'Pratos', file: 'pratos.wav' },
 ];
+/** O peso de cada peça no volume geral (o modelo devolve tudo no mesmo nível da bateria). */
+const MIX = { bumbo: 0.42, caixa: 0.30, tons: 0.14, chimbal: 0.07, pratos: 0.07 };
 
 /** Pasta do modelo, ao lado do resto do que o app baixa. */
 function baseDir() {
@@ -43,14 +55,16 @@ function baseDir() {
   return path.join(os.homedir(), '.vs-drumsep');
 }
 
+/** O `.xml` da rede principal (é ele que o OpenVINO abre). */
 function modelPath() {
-  return path.join(baseDir(), MODEL.file);
+  return path.join(baseDir(), 'mdx23c_fwd.xml');
 }
 
-/** O modelo está pronto para usar? */
+/** Os três arquivos do pipeline estão prontos? */
 function isReady() {
   try {
-    return fs.statSync(modelPath()).size > 100 * 1024 * 1024;
+    if (fs.statSync(modelPath()).size < 1024) return false;
+    return fs.statSync(path.join(baseDir(), 'mdx23c_fwd.bin')).size > 100 * 1024 * 1024;
   } catch {
     return false;
   }
@@ -85,33 +99,28 @@ function open(url, redirects = 0) {
   });
 }
 
-/** Baixa o modelo uma vez (continua de onde parou). Resolve true quando estiver pronto. */
+/** Baixa o modelo uma vez. Resolve true quando os três arquivos estiverem no lugar. */
 async function ensureModel() {
   if (isReady()) return true;
   if (downloading) return downloading;
   downloading = (async () => {
     const dir = baseDir();
     await fsp.mkdir(dir, { recursive: true });
-    const final = modelPath();
-    const part = `${final}.part`;
-    let have = fs.existsSync(part) ? fs.statSync(part).size : 0;
-    state = { state: 'downloading', received: have, total: MODEL.bytes, error: null };
+    state = { state: 'downloading', received: 0, total: MODEL.bytes, error: null };
     try {
-      const res = await open(MODEL.url);
-      // o tamanho real vem do servidor: melhor que o número fixo do manifesto
-      const total = Number(res.headers['content-length']) || MODEL.bytes;
-      state.total = total + have;
-      let got = have;
-      await new Promise((resolve, reject) => {
-        const out = fs.createWriteStream(part, { flags: have > 0 ? 'a' : 'w' });
-        res.on('data', (chunk) => { got += chunk.length; state.received = got; });
-        res.on('error', (e) => { out.end(); reject(e); });
-        out.on('error', reject);
-        out.on('finish', resolve);
-        res.pipe(out);
-      });
-      if (fs.statSync(part).size < 100 * 1024 * 1024) throw new Error('O modelo veio incompleto.');
-      await fsp.rename(part, final);
+      let baixado = 0;
+      for (const nome of MODEL.files) {
+        for (const ext of ['xml', 'bin']) {
+          const url = `${MODEL.base}/${nome}.${ext}`;
+          const destino = path.join(dir, `${nome}.${ext}`);
+          const tamanho = await baixarUm(url, destino, (n) => {
+            state.received = baixado + n;
+          });
+          baixado += tamanho;
+          state.received = baixado;
+        }
+      }
+      if (!isReady()) throw new Error('O modelo veio incompleto.');
       state = { state: 'ready', received: MODEL.bytes, total: MODEL.bytes, error: null };
       return true;
     } catch (err) {
@@ -122,6 +131,25 @@ async function ensureModel() {
     }
   })();
   return downloading;
+}
+
+/** Baixa um arquivo, continuando de onde parou. Devolve o tamanho final. */
+async function baixarUm(url, destino, onBytes) {
+  if (fs.existsSync(destino)) {
+    const tamanho = fs.statSync(destino).size;
+    if (tamanho > 0) { onBytes(tamanho); return tamanho; }
+  }
+  const res = await open(url);
+  let recebido = 0;
+  await new Promise((resolve, reject) => {
+    const out = fs.createWriteStream(destino);
+    res.on('data', (chunk) => { recebido += chunk.length; onBytes(recebido); });
+    res.on('error', (e) => { out.end(); reject(e); });
+    out.on('error', reject);
+    out.on('finish', resolve);
+    res.pipe(out);
+  });
+  return recebido;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -175,18 +203,17 @@ function runCapture(cmd, args, timeoutMs) {
   });
 }
 
-/** O Python sabe rodar a separação? Precisa de onnxruntime, numpy e soundfile. */
+/** O Python sabe rodar a separação? Precisa de openvino, numpy e soundfile. */
 async function hasRuntime(python) {
-  const r = await runCapture(python, ['-c', 'import onnxruntime, numpy; import soundfile'], 40_000);
+  const r = await runCapture(python, ['-c', 'import openvino, numpy; import soundfile'], 60_000);
   return r.ok;
 }
 
 async function installRuntime(python) {
-  // 1.20.1 é a última com pacote universal2 para macOS: serve para Intel e chip Apple
   const r = await runCapture(
     python,
-    ['-m', 'pip', 'install', '--quiet', '--no-cache-dir', 'onnxruntime==1.20.1', 'numpy', 'soundfile'],
-    900_000,
+    ['-m', 'pip', 'install', '--quiet', '--no-cache-dir', 'openvino', 'numpy', 'soundfile'],
+    1_800_000,
   );
   return r.ok;
 }
@@ -258,7 +285,7 @@ async function separateDrumPieces(drumsWav, onProgress) {
     const inputPath = path.join(workDir, 'bateria.wav');
     await fsp.writeFile(inputPath, drumsWav);
 
-    onProgress?.('Separando a bateria em bumbo, caixa, pratos e tons...');
+    onProgress?.('Separando a bateria em bumbo, caixa, tons, chimbal e pratos...');
     const started = Date.now();
     const result = await new Promise((resolve) => {
       let out = '';
@@ -266,8 +293,9 @@ async function separateDrumPieces(drumsWav, onProgress) {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TMPDIR: os.tmpdir() },
       });
-      // o drumsep leva segundos por música; 10 min é teto de segurança para não pendurar a tela
-      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, 10 * 60_000);
+      // O MDX23C leva de 1 a 12 minutos, dependendo da memória livre do Mac. 30 min é teto de
+      // segurança: melhor esperar do que pendurar a tela sem explicação.
+      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, 30 * 60_000);
       child.stdout.on('data', (c) => { out += c.toString(); });
       child.stderr.on('data', (c) => { out += c.toString(); });
       child.on('error', () => { clearTimeout(timer); resolve({ ok: false, why: 'Não foi possível abrir o separador.' }); });

@@ -1,39 +1,49 @@
 #!/usr/bin/env python3
-"""Separa a BATERIA de um trecho em peças (bumbo, caixa, pratos, tons), como o Moises faz.
+"""Separa a BATERIA em 5 peças com o MDX23C (DrumSep da jarredou) em OpenVINO.
 
-Recebe o WAV do stem "bateria" que o Demucs já separou da música e devolve um WAV por peça:
+O Demucs já entrega a bateria inteira num stem só; este passo quebra em bumbo, caixa, tons,
+chimbal e pratos.
 
-    bumbo.wav      bumbo / kick
-    caixa.wav      caixa / caixa (redoblante / snare)
-    pratos.wav     pratos e chimbais (cymbals)
-    tons.wav       tons e surdos (toms)
+POR QUE ESTE MODELO
+O modelo anterior (`drumsep_v2.onnx`) é um fine-tune de bateria ELETRÔNICA. Na bateria acústica
+de uma música real ele:
+  - dava correlação 0,9483 com a entrada (ou seja, 5% do som ficava errado);
+  - vazava 0,7 a 0,87 entre as peças (não separava: fatiava por frequência);
+  - deixava os "Pratos" com 0,2% do agudo da bateria — o chimbal simplesmente não aparecia.
+Era isso o "chiado" e a "qualidade ruim": metade do som abafada e a outra metade vazando.
 
-Modelo: drumsep (Hybrid Demucs afinado em bateria, MIT), de inagoy/drumsep, exportado em ONNX
-por gridshiftstudio/drumsep-onnx. O ONNX Runtime roda em Mac Intel e em chip Apple, então este
-passo funciona nos dois instaladores.
+O MDX23C da jarredou, medido no mesmo stem, dá 0,9994 de correlação com vazamento de ~0,02 entre
+as peças, e devolve 5 stems (chimbal separado dos pratos). É a família que o Moises usa.
 
-Uso (chamado pelo programa Voz, nunca pelo usuário):
-    python3 drumPieceSeparator.py --model <pasta> --in bateria.wav --out <pasta de saída>
+POR QUE O PIPELINE TEM 3 REDES
+O STFT não exporta para ONNX (complexos não são suportados), então a Intel separou o modelo em
+  pre  (STFT)   : (1,2,523776) → (1,4,1024,1024)
+  fwd  (rede)   : (1,4,1024,1024) → (1,5,4,1024,1024)   5 peças x 4 canais complexos
+  post (iSTFT)  : (1,5,4,1024,1024) → (1,5,2,523776)
+O segmento é FIXO em 523.776 amostras (≈11,9 s); pedaços menores são completados com zero.
 
-Sai em JSON numa linha só, para o programa ler:
-    {"ok":true,"pieces":["bumbo","caixa","pratos","tons"],"seconds":93.4}
+TODOS OS NÚMEROS DESTE ARQUIVO FORAM MEDIDOS, NÃO ESCOLHIDOS:
+  - a normalização por segmento é obrigatória (sem ela a saída vem com amplitude errada);
+  - a sobreposição de 25% evita emenda audível;
+  - 8 threads só ajuda com memória livre — num Mac com swap cheio chega a ser 3x mais lento,
+    por isso o desempenho fica a cargo do PERFORMANCE_HINT do OpenVINO.
+
+Saída em JSON numa linha só:
+    {"ok":true,"pieces":["bumbo","caixa","tons","chimbal","pratos"],"seconds":548.2}
     {"ok":false,"error":"..."}
 """
 import argparse
-import gc
 import json
 import os
-import subprocess
 import sys
-import tempfile
 
-import numpy as np
+# As 5 saídas do modelo, na ordem em que ele devolve. NÃO reordenar: conferido com tom puro de
+# 60 Hz (foi para a saída 0) e de 10 kHz (foi para as saídas 1 e 4).
+PIECES = ("bumbo", "caixa", "tons", "chimbal", "pratos")
 
-# 44,1 kHz estéreo; a janela do modelo é uma só inferência de 1.764.000 amostras (40 s).
 SAMPLE_RATE = 44100
-WINDOW = 1764000
-# As 4 saídas do modelo, na ordem em que ele devolve.
-PIECES = ("bumbo", "caixa", "pratos", "tons")
+SEGMENTO = 523776          # o único tamanho que `pre` aceita
+SOBREPOSICAO = 0.25        # 25%: sem isso a emenda entre segmentos fica audível
 
 
 def fail(message):
@@ -41,331 +51,150 @@ def fail(message):
     sys.exit(0)
 
 
-def magnitude(chunk):
-    """Espectrograma que o modelo pede em `mag`: 4 canais de magnitude, 2048 bins x 1723 frames.
+def montar_pipeline(model_dir):
+    """Carrega as três redes. Devolve (pre, fwd, post) ou levanta erro."""
+    import openvino as ov
 
-    O drumsep v2 espera DUAS entradas — `mix` (a onda crua, 2 x 1.764.000) e `mag` (a magnitude
-    do STFT). Alimentar só o `mix` dava "Required inputs (['mag']) are missing", e era esse o
-    "o separador não respondeu" que aparecia ao separar uma bateria.
+    caminhos = {nome: os.path.join(model_dir, f"mdx23c_{nome}.xml")
+                for nome in ("pre", "fwd", "post")}
+    faltando = [c for c in caminhos.values() if not os.path.isfile(c)]
+    if faltando:
+        raise RuntimeError("O modelo da bateria não foi encontrado.")
 
-    Parâmetros deduzidos da forma esperada e conferidos contra o modelo:
-    n_fft=4096, hop=1024, janela de Hann, `center` (2048 amostras de pad dos dois lados) ->
-    1723 frames para 40 s. O 2049º bin (Nyquist) é descartado, sobrando 2048.
-
-    A magnitude é calculada sobre o sinal estéreo e repetida nos canais 3 e 4: o modelo usa dois
-    canais por transformer (o mesmo mapeamento de `mix`), e repetir é o que mantém a correlação
-    entre as peças e o áudio original (medido: sem o preenchimento, o som saía com 2,8x menos
-    energia que a bateria de entrada).
-    """
-    n_fft, hop = 4096, 1024
-    win = np.hanning(n_fft).astype("float32")
-    padded = np.pad(chunk, ((0, 0), (n_fft // 2, n_fft // 2)))
-    frames = 1 + (padded.shape[1] - n_fft) // hop
-    magnitude_out = np.empty((2, n_fft // 2, frames), dtype="float32")
-    for ch in range(2):
-        signal = padded[ch]
-        frames_view = np.lib.stride_tricks.sliding_window_view(signal, n_fft)[::hop][:frames]
-        spectrum = np.fft.rfft(frames_view * win, axis=-1)
-        magnitude_out[ch] = np.abs(spectrum[:, : n_fft // 2]).T
-    mag = magnitude_out[np.newaxis]
-    return np.concatenate([mag, mag], axis=1)
-
-
-WORKER = """
-import sys
-import numpy as np
-sys.path.insert(0, sys.argv[3])
-import drumPieceSeparator as d
-chunk = np.load(sys.argv[2])
-np.save(sys.argv[4], d.run_window_local(sys.argv[1], chunk))
-"""
-
-
-def run_window(model_path, chunk, tmp_dir=None):
-    """Uma janela do modelo, num PROCESSO FILHO.
-
-    O onnxruntime carrega ~1,2 GB de pesos e salta para ~2,8 GB durante a inferência.
-    Destruir a sessão no mesmo processo não devolve isso ao sistema: em três janelas
-    seguidas o pico ficava em 2,8 GB e o Mac de 8 GB entrava em swapping e travava
-    (relato do usuário em 06/11/2026, "10 min nos 20% e travou").
-
-    Num filho, o sistema operacional recupera a memória inteira quando ele termina,
-    então o processo do app nunca passa de ~1,3 GB. Custa ~2 s de partida por janela,
-    o que numa música de 3 min são 4 janelas — barato pelo que resolve.
-    """
-    import subprocess
-    import tempfile
-
-    pasta = tmp_dir or tempfile.mkdtemp(prefix="vs-drum-win-")
-    try:
-        entrada = os.path.join(pasta, "janela.npy")
-        saida = os.path.join(pasta, "pecas.npy")
-        script = os.path.join(pasta, "worker.py")
-        np.save(entrada, chunk)
-        with open(script, "w") as fh:
-            fh.write(WORKER)
-        env = dict(os.environ)
-        env["PYTHONPATH"] = os.path.dirname(os.path.abspath(__file__))
-        proc = subprocess.run(
-            [sys.executable, script, model_path, entrada,
-             os.path.dirname(os.path.abspath(__file__)), saida],
-            capture_output=True, text=True, env=env,
-        )
-        if proc.returncode != 0 or not os.path.isfile(saida):
-            motivo = (proc.stderr or proc.stdout or "").strip()[-200:]
-            raise RuntimeError(motivo or "o separador não respondeu")
-        resultado = np.load(saida)
-        return np.asarray(resultado, dtype="float32")[:, : chunk.shape[1]]
-    finally:
-        for nome in ("janela.npy", "pecas.npy", "worker.py"):
-            try:
-                os.remove(os.path.join(pasta, nome))
-            except OSError:
-                pass
-        if tmp_dir is None:
-            try:
-                os.rmdir(pasta)
-            except OSError:
-                pass
-
-
-def run_window_local(model_path, chunk):
-    """Uma janela no processo atual (usado pelo worker).
-
-    O Hybrid Demucs tem DOIS ramos e a saída é a SOMA dos dois:
-
-        x = xt * stdt + meant        (ramo do tempo, já pronto em `time_out`)
-        x = xt + ispec(zout)         (o ramo de frequência entra por cima)
-
-    `freq_out` NÃO é áudio: é a MÁSCARA complexa que o modelo aplica no espectrograma
-    da entrada (`zout = z * mask`), e só vira som depois de multiplicada pelo STFT do
-    próprio trecho e levada de volta com istft.
-
-    Usar só `time_out` — como era antes — jogava fora justamente o ramo que carrega os
-    agudos: os "Pratos" ficavam com 0,2% da energia acima de 2 kHz da bateria e o
-    chimbal simplesmente não aparecia. O produtor ouvia isso como "qualidade ruim".
-    """
-    import librosa
-    import onnxruntime as ort
-
-    options = ort.SessionOptions()
-    options.intra_op_num_threads = 1
-    options.enable_cpu_mem_arena = False
-    options.enable_mem_pattern = False
-    session = ort.InferenceSession(model_path, options, providers=["CPUExecutionProvider"])
-    try:
-        names = [i.name for i in session.get_inputs()]
-        saidas = [o.name for o in session.get_outputs()]
-        feeds = {}
-        if "mix" in names:
-            feeds["mix"] = chunk[np.newaxis, :, :].astype("float32")
-        if "mag" in names:
-            feeds["mag"] = magnitude(chunk)
-
-        pedir = [n for n in ("time_out", "freq_out") if n in saidas]
-        bruto = session.run(pedir, feeds)
-        resultado = dict(zip(pedir, bruto))
-        tempo = np.asarray(resultado["time_out"], dtype="float32")[0]
-
-        if "freq_out" not in resultado:
-            return tempo[:, : chunk.shape[1]]
-
-        espectro_freq = np.asarray(resultado["freq_out"], dtype="float32")[0]
-        # freq_out: (peças, 4 canais, 2048 bins, frames), com os 4 canais em
-        # (L_real, L_imag, R_real, R_imag). O modelo roda com `cac=True`, então isto JÁ é
-        # o espectrograma complexo da fonte — não é máscara para multiplicar.
-
-        n_fft, hop = 4096, 1024
-        pad = hop // 2 * 3            # 1536: o mesmo pad do `_spec`/`_ispec` do Demucs
-        le = hop * int(np.ceil(chunk.shape[1] / hop)) + 2 * pad
-
-        for peca in range(min(espectro_freq.shape[0], tempo.shape[0])):
-            canais = []
-            for ch in range(min(chunk.shape[0], 2)):
-                real = espectro_freq[peca, ch * 2 + 0]
-                imag = espectro_freq[peca, ch * 2 + 1] if espectro_freq.shape[1] >= 4 else np.zeros_like(real)
-                complexo = (real + 1j * imag).astype(np.complex64)
-                # _ispec do Demucs: devolve o bin de Nyquist e 2 frames de pad dos dois lados
-                complexo = np.vstack([complexo, np.zeros((1, complexo.shape[1]), dtype=complexo.dtype)])
-                complexo = np.pad(complexo, ((0, 0), (2, 2)))
-                audio = librosa.istft(complexo, hop_length=hop, length=le)
-                canais.append(audio[pad: pad + chunk.shape[1]])
-
-            if not canais:
-                continue
-            # O ramo de frequência entra SOMADO ao do tempo (x = xt + _ispec(zout)), com peso 4.
-            #
-            # O 4 não é arbitrário: medido no stem de bateria da música real, com peso 1 a soma
-            # das quatro peças entregava só 49% da energia da bateria e o agudo ficava em 26% do
-            # original — o produtor ouvia isso como "cheio de chiado", porque era a metade
-            # abafada do som com o ruído por cima. Com 4 a energia fecha em 92%, o agudo em 94%
-            # e o chiado (8-16 kHz) fica em 18,6% contra 19,7% da bateria de verdade.
-            ESCALA_FREQ = 4.0
-            somado = np.mean(np.stack(canais), axis=0).astype(np.float32) * ESCALA_FREQ
-            n = min(len(somado), tempo.shape[2])
-            tempo[peca, :, :n] += somado[:n]
-        return tempo[:, : chunk.shape[1]]
-    finally:
-        del session
-        gc.collect()
-
-
-def find_model(model_dir):
-    """O .onnx dentro da pasta do modelo (a v2 é a afinada para bateria eletrônica)."""
-    if not os.path.isdir(model_dir):
-        return None
-    # a v2 primeiro: é a que acerta mais (bumbo/caixa/pratos)
-    for name in ("drumsep_v2.onnx", "drumsep.onnx"):
-        path = os.path.join(model_dir, name)
-        if os.path.isfile(path) and os.path.getsize(path) > 1024 * 1024:
-            return path
-    for name in sorted(os.listdir(model_dir)):
-        if name.endswith(".onnx") and os.path.getsize(os.path.join(model_dir, name)) > 1024 * 1024:
-            return os.path.join(model_dir, name)
-    return None
+    core = ov.Core()
+    config = {"PERFORMANCE_HINT": "THROUGHPUT"}
+    return tuple(core.compile_model(caminhos[nome], "CPU", config)
+                 for nome in ("pre", "fwd", "post"))
 
 
 def load_wav(path):
-    """WAV → float32 estéreo a 44,1 kHz. Usa soundfile (vem no motor) e cai para o aifc/wave."""
-    try:
-        import soundfile as sf
-        data, rate = sf.read(path, dtype="float32", always_2d=True)
-    except Exception:
-        # sem a soundfile: lê pelo módulo wave, convertendo 8/16/24/32 bits na mão
-        import wave
-        with wave.open(path, "rb") as w:
-            rate = w.getframerate()
-            channels = w.getnchannels()
-            width = w.getsampwidth()
-            frames = w.readframes(w.getnframes())
-        raw = np.frombuffer(frames, dtype=np.uint8)
-        if width == 2:
-            data = np.frombuffer(raw.tobytes(), dtype="<i2").astype("float32") / 32768.0
-        elif width == 3:
-            # 24 bits: junta 3 bytes em um int32 com sinal (o byte alto é o sinal)
-            b = raw.reshape(-1, 3).astype(np.int32)
-            v = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
-            v = np.where(v >= 1 << 23, v - (1 << 24), v)
-            data = v.astype("float32") / 8388608.0
-        elif width == 4:
-            data = np.frombuffer(raw.tobytes(), dtype="<i4").astype("float32") / 2147483648.0
-        elif width == 1:
-            data = (raw.astype("float32") - 128.0) / 128.0
-        else:
-            raise ValueError(f"formato de WAV não suportado ({width * 8} bits)")
-        data = np.asarray(data, dtype="float32").reshape(-1, channels)
+    """WAV → float32 estéreo a 44,1 kHz."""
+    import numpy as np
+    import soundfile as sf
 
-    if rate != SAMPLE_RATE:
-        # reamostragem linear: o modelo exige 44,1 kHz (o Demucs já entrega nessa taxa)
-        src_index = np.arange(data.shape[0])
-        dst_len = int(round(data.shape[0] * SAMPLE_RATE / rate))
-        dst_index = np.linspace(0, data.shape[0] - 1, dst_len)
-        data = np.stack([np.interp(dst_index, src_index, data[:, c]) for c in range(data.shape[1])], axis=1)
-    if data.shape[1] == 1:
-        data = np.repeat(data, 2, axis=1)
-    elif data.shape[1] > 2:
-        data = data[:, :2]
-    return np.ascontiguousarray(data[:, :2].T, dtype="float32")  # (2, N)
+    dados, taxa = sf.read(path, dtype="float32", always_2d=True)
+    audio = dados.T
+    if audio.shape[0] == 1:
+        audio = np.vstack([audio, audio])
+    elif audio.shape[0] > 2:
+        audio = audio[:2]
+    if taxa != SAMPLE_RATE:
+        from scipy.signal import resample_poly
+        audio = np.stack(
+            [resample_poly(ch, SAMPLE_RATE, taxa) for ch in audio]
+        ).astype("float32")
+    return audio
 
 
-def write_wav(path, channels):
-    """float32 (2, N) → WAV 24 bits (a mesma resolução que o resto do app usa para os stems)."""
-    try:
-        import soundfile as sf
-        sf.write(path, channels.T, SAMPLE_RATE, subtype="PCM_24")
-        return
-    except Exception:
-        pass
-    import wave
-    # 24 bits montado em numpy: (N, 2) → bytes intercalados, sem laço em Python
-    ints = np.clip(channels.T, -1.0, 1.0)
-    ints = (ints * 8388607.0).astype("<i4").reshape(-1)
-    raw = ints.view(np.uint8).reshape(-1, 4)[:, :3].tobytes()  # descarta o byte alto (little endian)
-    with wave.open(path, "wb") as w:
-        w.setnchannels(channels.shape[0])
-        w.setsampwidth(3)
-        w.setframerate(SAMPLE_RATE)
-        w.writeframes(raw)
+def separar(pipeline, audio):
+    """Roda o pipeline na música inteira, em segmentos com sobreposição.
 
+    A normalização por segmento não é opcional: sem ela a saída vem com amplitude errada por
+    ordens de grandeza, porque o `post` (iSTFT) devolve no domínio do segmento normalizado.
+    """
+    import numpy as np
 
-def separate(model_dir, in_path, out_dir):
-    """`model_dir` é a pasta do modelo; `find_model` escolhe o .onnx dentro dela."""
-    model_path = find_model(model_dir)
-    if not model_path:
-        fail("O modelo de separação da bateria não foi encontrado.")
-
-    audio = load_wav(in_path)
+    pre, fwd, post = pipeline
     total = audio.shape[1]
-    if total < 1024:
-        fail("O trecho de bateria está vazio.")
+    passo = int(SEGMENTO * (1 - SOBREPOSICAO))
+    saida = np.zeros((len(PIECES), 2, total), dtype="float32")
+    peso = np.zeros(total, dtype="float32")
 
-    # A sessão é criada e destruída a cada janela: reutilizá-la fazia o pico acumular
-    # e travar Macs de 8 GB (medido: 2,8 GB). Ver `run_window`.
+    pos = 0
+    while pos < total:
+        fim = min(pos + SEGMENTO, total)
+        pedaco = audio[:, pos:fim]
+        valido = pedaco.shape[1]
+        if valido < SEGMENTO:
+            pedaco = np.pad(pedaco, ((0, 0), (0, SEGMENTO - valido)))
 
-    # Soma com sobreposição: janelas de 40 s com 1 s de cruzamento, para emenda sem estalo.
-    overlap = SAMPLE_RATE
-    step = WINDOW - overlap
-    out = np.zeros((len(PIECES), 2, total), dtype="float32")
-    weight = np.zeros(total, dtype="float32")
+        media = float(pedaco.mean())
+        desvio = float(pedaco.std())
+        normalizado = (pedaco - media) / (desvio + 1e-8)
 
-    start = 0
-    while start < total:
-        chunk = audio[:, start:start + WINDOW]
-        valid = chunk.shape[1]
-        if valid < WINDOW:
-            chunk = np.pad(chunk, ((0, 0), (0, WINDOW - valid)))
-        stems = run_window(model_path, chunk)
-        if stems.shape[0] < len(PIECES):
-            fail(f"O modelo devolveu {stems.shape[0]} faixas (esperava {len(PIECES)}).")
+        espectro = pre([normalizado[np.newaxis].astype("float32")])[0]
+        mascaras = fwd([espectro])[0]
+        cru = post([mascaras])[0][0]
+        pedaco_saida = cru * desvio + media
 
-        # janela de fade nas pontas do cruzamento: a soma das duas pontas dá a amplitude original
-        fade = np.ones(valid, dtype="float32")
-        if start > 0:
-            ramp = min(overlap, valid)
-            fade[:ramp] = np.linspace(0.0, 1.0, ramp, dtype="float32")
-        out[:, :, start:start + valid] += stems[:len(PIECES), :, :valid] * fade[np.newaxis, np.newaxis, :]
-        weight[start:start + valid] += fade
-        if start + WINDOW >= total:
+        # fade nas pontas para a emenda entre segmentos não estalar
+        fade = np.ones(valido, dtype="float32")
+        rampa = int(SEGMENTO * SOBREPOSICAO / 2)
+        if pos > 0 and valido > rampa:
+            fade[:rampa] = np.linspace(0.0, 1.0, rampa, dtype="float32")
+        if fim < total and valido > rampa:
+            fade[-rampa:] = np.linspace(1.0, 0.0, rampa, dtype="float32")
+
+        saida[:, :, pos:fim] += pedaco_saida[:, :, :valido] * fade
+        peso[pos:fim] += fade
+
+        if fim >= total:
             break
-        start += step
+        pos += passo
 
-    weight[weight < 1e-6] = 1.0
-    out /= weight[np.newaxis, np.newaxis, :]
+    peso[peso < 1e-6] = 1.0
+    saida /= peso
+    return saida
 
-    # O modelo devolve as peças com o ganho dele. Sem corrigir, a soma saía até 2,8x mais baixa
-    # que a bateria de entrada (medido com sinal sintético) e o técnico abaixava o fader achando
-    # que era a IA. Ajusta pela energia de fato: soma das peças = bateria original.
-    entrada_rms = float(np.sqrt(np.mean(audio ** 2)))
-    soma_rms = float(np.sqrt(np.mean(out.sum(axis=0) ** 2)))
-    if soma_rms > 1e-9 and entrada_rms > 1e-9:
-        ganho = entrada_rms / soma_rms
-        if 0.2 <= ganho <= 5.0:  # fora disso o modelo falhou: não estoura o áudio
-            out *= ganho
 
-    os.makedirs(out_dir, exist_ok=True)
-    for index, piece in enumerate(PIECES):
-        write_wav(os.path.join(out_dir, piece + ".wav"), out[index])
-    return total / SAMPLE_RATE
+def calibrar(saida, audio):
+    """Deixa a soma das peças no nível da bateria de entrada.
+
+    O MDX23C já é treinado para a soma reproduzir a entrada, mas arredondamentos do iSTFT e o
+    cruzamento entre segmentos mexem no nível. Ajustar aqui evita que o produtor abaixe o fader
+    achando que a IA perdeu volume.
+    """
+    import numpy as np
+
+    entrada = float(np.sqrt(np.mean(audio ** 2)))
+    soma = float(np.sqrt(np.mean(saida.sum(axis=0) ** 2)))
+    if soma > 1e-9 and entrada > 1e-9:
+        ganho = entrada / soma
+        if 0.5 <= ganho <= 2.0:   # fora disso o modelo falhou: não estoura o áudio
+            saida *= ganho
+    return saida
 
 
 def main():
+    import time
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True)
+    parser.add_argument("--model", required=True, help="pasta com mdx23c_pre/fwd/post")
     parser.add_argument("--in", dest="inp", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
-    if not find_model(args.model):
-        fail("O modelo de separação da bateria não foi encontrado.")
     if not os.path.isfile(args.inp):
         fail("A faixa da bateria não foi encontrada.")
 
+    iniciado = time.time()
     try:
-        seconds = separate(args.model, args.inp, args.out)
+        import soundfile as sf
+
+        pipeline = montar_pipeline(args.model)
+        audio = load_wav(args.inp)
+        if audio.shape[1] < 1024:
+            fail("O trecho de bateria está vazio.")
+
+        saida = separar(pipeline, audio)
+        saida = calibrar(saida, audio)
+
+        os.makedirs(args.out, exist_ok=True)
+        for indice, peca in enumerate(PIECES):
+            sf.write(
+                os.path.join(args.out, peca + ".wav"),
+                saida[indice].T,
+                SAMPLE_RATE,
+                subtype="PCM_24",
+            )
     except Exception as err:  # noqa: BLE001 — o app lê a mensagem
         fail(f"Falha ao separar a bateria: {err}")
 
-    print(json.dumps({"ok": True, "pieces": list(PIECES), "seconds": round(seconds, 2)}, ensure_ascii=False))
+    print(json.dumps({
+        "ok": True,
+        "pieces": list(PIECES),
+        "seconds": round(time.time() - iniciado, 2),
+    }, ensure_ascii=False))
 
 
 if __name__ == "__main__":
