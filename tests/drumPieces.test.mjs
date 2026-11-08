@@ -68,3 +68,19 @@ test('o status informa o estado do modelo sem quebrar', () => {
   assert.equal(typeof st.ready, 'boolean');
   assert.ok(['ready', 'missing', 'downloading', 'error'].includes(st.state), `estado inesperado: ${st.state}`);
 });
+
+// O worklet de reprodução lê UMA amostra do áudio por frame de saída, sem reamostrar. Um buffer
+// de 44,1 kHz dentro de um AudioContext de 48 kHz toca 1,088x mais rápido — 4.875 ms de deriva
+// por minuto. Era esse o "as tracks não ficaram sincadas" relatado pelo produtor: as peças
+// nasciam a 44,1 kHz (é o que os modelos pedem) e eram guardadas com `putClipAudio`, que — ao
+// contrário de `openClipAudio`/`readWav` — não converte para a taxa do dispositivo.
+test('as peças separadas são convertidas para a taxa do dispositivo', () => {
+  const fonte = fs.readFileSync(path.join(desktop, '..', 'src', 'lib', 'clipStemSplit.ts'), 'utf8');
+  assert.match(fonte, /async function toDeviceRate\(/, 'existe a conversão para a taxa do dispositivo');
+  assert.match(fonte, /const peca = await toDeviceRate\(part\.buffer\)/, 'a peça passa pela conversão');
+  // WAV, picos, áudio guardado e o campo do clipe saem todos do buffer já convertido
+  assert.match(fonte, /encodeWavPcm24\(peca\)/, 'o WAV exportado usa o buffer convertido');
+  assert.match(fonte, /generateWaveformPeaks\(peca,/, 'os picos usam o buffer convertido');
+  assert.match(fonte, /putClipAudio\(id, clip\.songId, await toClipAudioAsync\(peca\)\)/, 'o áudio guardado usa o buffer convertido');
+  assert.match(fonte, /sampleRate: peca\.sampleRate/, 'o clipe guarda a taxa real do áudio');
+});

@@ -11,7 +11,7 @@
 // Roda só no app do Mac (IA local); nada passa pelo servidor.
 import { audioEngine } from '@/lib/audioEngine';
 import { clipAudioToBuffer, getClipAudio, getClipSource, putClipAudio, registerClipSource, toClipAudioAsync } from '@/lib/audioLibrary';
-import { decodeBlob, generateMarkers } from '@/lib/audioDecoder';
+import { decodeBlob, deviceSampleRate, generateMarkers } from '@/lib/audioDecoder';
 import { encodeWavPcm24 } from '@/lib/wavEncoder';
 import { cancelStemSeparation, classifyStem, trackForStem } from '@/lib/stemSeparator';
 import { useStore } from '@/store';
@@ -56,6 +56,27 @@ async function toStereo44k(input: AudioBuffer): Promise<AudioBuffer> {
   if (input.sampleRate === 44100 && input.numberOfChannels === 2) return input;
   const length = Math.max(1, Math.ceil(input.duration * 44100));
   const ctx = new OfflineAudioContext(2, length, 44100);
+  const src = ctx.createBufferSource();
+  src.buffer = input;
+  src.connect(ctx.destination);
+  src.start();
+  return ctx.startRendering();
+}
+
+/**
+ * Converte um buffer para a taxa de saída do dispositivo.
+ *
+ * O worklet de reprodução lê UMA amostra do áudio por frame de saída, sem reamostrar: um buffer
+ * a 44,1 kHz dentro de um contexto de 48 kHz toca 8,8% mais rápido (4.875 ms de deriva por
+ * minuto). Era esse o "peças vs música": as peças separadas nasciam a 44,1 kHz pelo modelo e
+ * eram guardadas com `putClipAudio`, que — ao contrário de `openClipAudio`/`readWav` — não
+ * converte para a taxa do dispositivo.
+ */
+async function toDeviceRate(input: AudioBuffer): Promise<AudioBuffer> {
+  const rate = deviceSampleRate();
+  if (input.sampleRate === rate) return input;
+  const length = Math.max(1, Math.round(input.duration * rate));
+  const ctx = new OfflineAudioContext(2, length, rate);
   const src = ctx.createBufferSource();
   src.buffer = input;
   src.connect(ctx.destination);
@@ -208,8 +229,12 @@ export async function splitClipStems(clipId: string, onProgress: (p: StemSplitPr
     for (const part of parts) {
       const trackId = trackForStem(part.parent, part.child);
       const id = `clip-${clip.songId}-split-${Date.now()}-${created}`;
-      const wavBlob = new Blob([encodeWavPcm24(part.buffer)], { type: 'audio/wav' });
-      const peaks = audioEngine.generateWaveformPeaks(part.buffer, Math.min(24000, Math.max(8000, Math.round(part.buffer.duration * 100))));
+      // Tudo — WAV, picos, áudio guardado e o campo do clipe — sai na taxa do dispositivo.
+      // Antes o WAV e o áudio ficavam a 44,1 kHz enquanto o clipe dizia 48 kHz, e o worklet
+      // tocava 8,8% rápido (deriva de 4.875 ms por minuto).
+      const peca = await toDeviceRate(part.buffer);
+      const wavBlob = new Blob([encodeWavPcm24(peca)], { type: 'audio/wav' });
+      const peaks = audioEngine.generateWaveformPeaks(peca, Math.min(24000, Math.max(8000, Math.round(peca.duration * 100))));
       const newClip: AudioClip = {
         // mesma posição, cortes, fades e volume do original: a soma das partes toca igual a ele
         ...clip,
@@ -218,8 +243,8 @@ export async function splitClipStems(clipId: string, onProgress: (p: StemSplitPr
         name: `${name} - ${part.child}`,
         fileName: `${name} - ${part.child}.wav`,
         filePath: URL.createObjectURL(wavBlob),
-        sampleRate: part.buffer.sampleRate,
-        channels: part.buffer.numberOfChannels,
+        sampleRate: peca.sampleRate,
+        channels: peca.numberOfChannels,
         markers: clip.markers?.length ? clip.markers : generateMarkers(clip.duration),
         routingMethod: 'ai',
         routingConfidence: 1,
@@ -229,7 +254,7 @@ export async function splitClipStems(clipId: string, onProgress: (p: StemSplitPr
         groupId: undefined,
       };
       registerClipSource(id, clip.songId, wavBlob);
-      putClipAudio(id, clip.songId, await toClipAudioAsync(part.buffer));
+      putClipAudio(id, clip.songId, await toClipAudioAsync(peca));
       store.addClip(newClip);
       names.push(part.child);
       created++;
