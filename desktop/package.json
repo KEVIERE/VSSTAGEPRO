@@ -40,6 +40,9 @@
       "maestro-voice-model.json",
       "drumPieceSeparator.py"
     ],
+    "asarUnpack": [
+      "drumPieceSeparator.py"
+    ],
     "extraResources": [
       {
         "from": "../dist",

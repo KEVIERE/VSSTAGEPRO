@@ -255,7 +255,9 @@ async function separateDrumPieces(drumsWav, onProgress) {
   const ready = await ensureReady(onProgress);
   if (!ready.ok) return { why: ready.why };
 
-  const script = path.join(__dirname, 'drumPieceSeparator.py');
+  // No app instalado o __dirname fica dentro do app.asar, que o Python não consegue abrir
+  // ("Not a directory"). O script vai desempacotado ao lado (asarUnpack no package.json).
+  const script = path.join(__dirname, 'drumPieceSeparator.py').replace(/app\.asar([\\/])/, 'app.asar.unpacked$1');
   if (!fs.existsSync(script)) return { why: 'O separador da bateria não veio nesta instalação.' };
 
   const workDir = path.join(os.tmpdir(), `vs-drums-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
