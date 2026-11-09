@@ -20,7 +20,7 @@ const { spawn } = require('child_process');
 /**
  * O modelo de separação da bateria: DrumSep (HDemucs afinado em bateria acústica), da ZFTurbo.
  *
- * Medido no stem de bateria de uma música real: correlação 0,9983 com a entrada. É treinado nas
+ * Medido no stem de bateria de uma música real: correlação 0,9984 com a entrada. É treinado nas
  * quatro peças de uma bateria de verdade (bombo, redoblante, platillos, toms), ao contrário do
  * `drumsep_v2.onnx` que estava aqui antes — aquele é fine-tune de bateria ELETRÔNICA e na
  * acústica dava 0,9483, vazava 0,7 a 0,87 entre as peças e sumia com o agudo.
@@ -103,7 +103,7 @@ async function ensureModel() {
     await fsp.mkdir(dir, { recursive: true });
     const final = modelPath();
     const part = `${final}.part`;
-    let have = fs.existsSync(part) ? fs.statSync(part).size : 0;
+    const have = fs.existsSync(part) ? fs.statSync(part).size : 0;
     state = { state: 'downloading', received: have, total: MODEL.bytes, error: null };
     try {
       const res = await open(MODEL.url);
@@ -273,7 +273,8 @@ async function separateDrumPieces(drumsWav, onProgress) {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TMPDIR: os.tmpdir() },
       });
-      // O ZFTurbo leva ~52 s por música num Mac com folga; 15 min é teto de segurança.
+      // O MDX23C leva de 1 a 12 minutos, dependendo da memória livre do Mac. 30 min é teto de
+      // segurança: melhor esperar do que pendurar a tela sem explicação.
       const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, 15 * 60_000);
       child.stdout.on('data', (c) => { out += c.toString(); });
       child.stderr.on('data', (c) => { out += c.toString(); });
