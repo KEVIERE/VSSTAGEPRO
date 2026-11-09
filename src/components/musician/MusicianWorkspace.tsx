@@ -59,7 +59,7 @@ function usePanelFocus() {
 }
 
 export default function MusicianWorkspace({
-  state, sync, sheets, backend, onSheetsChanged, onCreateAccount, status, logoutLabel, onLogout,
+  state, sync, sheets, backend, onSheetsChanged, onCreateAccount, status, onLogout,
 }: {
   state: MusicianState;
   sync: { lagMs: number; receivedAt: number };
@@ -69,7 +69,6 @@ export default function MusicianWorkspace({
   onCreateAccount: (() => void) | null;
   /** Shown in the middle of the top bar, e.g. the show name or the connection state. */
   status: ReactNode;
-  logoutLabel: string;
   onLogout: () => void;
 }) {
   const [now, setNow] = useState(Date.now());
@@ -187,7 +186,7 @@ export default function MusicianWorkspace({
       <div className="console-rail flex items-center justify-between gap-3 px-3 py-1.5">
         <div className="flex items-center gap-2 min-w-0">
           {/* foto de perfil: o diretor musical vê a mesma foto no programa */}
-          <ProfilePhotoButton backend={backend} name={state.musician.name} onMessage={setPhotoMsg} />
+          <ProfilePhotoButton backend={backend} name={state.musician.name} onMessage={setPhotoMsg} onLogout={onLogout} />
           {/* nome do músico na fita crepe, como o nome do canal na mesa */}
           <div className="min-w-0 flex items-center gap-2">
             <span className="console-tape px-2 py-1 !text-[12px] truncate max-w-[160px]">{state.musician.name}</span>
@@ -224,9 +223,6 @@ export default function MusicianWorkspace({
               </button>
             ))
           )}
-          <button className="console-key ml-1 h-8 px-2.5 text-[12px] hover:!text-logic-lcd-red" onClick={onLogout}>
-            {logoutLabel}
-          </button>
         </div>
       </div>
 

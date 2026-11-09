@@ -340,7 +340,10 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
           <div aria-hidden className={`absolute inset-0 flex items-center ${justify} pointer-events-none`}>
             <p
               key={`out-${leaving.id}`}
-              className="font-semibold whitespace-pre-line animate-[prompterLeave_420ms_ease-in_forwards]"
+              /* O antigo sobe e some em 320 ms. A entrada do novo espera esse
+                 tempo (animation-delay abaixo), então os dois trechos nunca
+                 ficam legíveis ao mesmo tempo. */
+              className="font-semibold whitespace-pre-line animate-[prompterLeave_320ms_ease-in_forwards]"
               style={{ fontSize: `${fitSize(leaving.text, p.fontScale)}cqh`, lineHeight: 1.2, color: p.lyricColor, fontFamily, textAlign: p.lyricAlign, transformOrigin: origin }}
               onAnimationEnd={() => { if (mem.current.prev === leaving) mem.current.prev = null; }}
             >
@@ -350,7 +353,10 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
         )}
         <p
           key={page.id}
-          className={`font-semibold whitespace-pre-line transition-colors duration-300 ${rose ? 'animate-[prompterRise_520ms_cubic-bezier(0.22,1,0.36,1)]' : 'animate-[prompterUp_260ms_ease-out]'}`}
+          /* Sequência, não cruzamento: o trecho novo só começa a aparecer depois
+             que o anterior saiu (320 ms de espera). Antes os dois dividiam a tela
+             no meio da troca, e as letras se misturavam por um instante. */
+          className={`font-semibold whitespace-pre-line transition-colors duration-300 ${rose ? 'animate-[prompterRise_420ms_cubic-bezier(0.22,1,0.36,1)_320ms_both]' : 'animate-[prompterUp_320ms_ease-out_320ms_both]'}`}
           style={{ fontSize: `${fitSize(page.text, p.fontScale)}cqh`, lineHeight: 1.2, color: p.lyricColor, fontFamily, textAlign: p.lyricAlign, transformOrigin: origin }}
         >
           {page.text}

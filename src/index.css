@@ -625,14 +625,19 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* A entrada comeca baixa e quase transparente: o texto novo so fica legivel
+   quando o anterior ja saiu, em vez de os dois se sobreporem no meio. */
 @keyframes prompterRise {
-  from { opacity: 0.32; transform: translateY(28cqh) scale(0.45); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  0%   { opacity: 0; transform: translateY(22cqh) scale(0.6); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* O trecho que sai sobe e some. A opacidade chega a zero junto com o fim da
+   animacao, para nao haver instante em que ele e o texto novo estejam
+   ambos legiveis na mesma area da tela. */
 @keyframes prompterLeave {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-12cqh) scale(0.9); }
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-9cqh) scale(0.95); }
 }
 
 @keyframes prompterNextIn {

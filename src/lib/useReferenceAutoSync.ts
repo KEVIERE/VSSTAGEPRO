@@ -117,8 +117,12 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       try {
         const at = await directorTakeRepertoireRequest(show.showId, show.directorKey);
         if (cancelled || !at) return;
-        const done = loadDoneLyrics(show.showId);
-        skipNext.current = new Set(done);
+        // O produtor pediu: o programa manda o show inteiro, com ou sem
+        // letra, sem ninguém precisar aceitar. A ideia é justamente não encher
+        // a tela de avisos: o pedido é atendido e pronto.
+        skipNext.current = null;
+        saveDoneLyrics(show.showId, []);
+        try { localStorage.removeItem(sigKey(show.showId)); } catch { /* ignore */ }
         setReleased(false);
         setRequestedAt(Date.parse(at));
         setSigs({});
@@ -195,6 +199,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   }, [show]);
 
   const dismissRequest = useCallback(() => setRequestedAt(null), []);
+
 
   const st = { songs, clips, tracks, playlistOrder, lrMasterActive } as ProjectState;
   const list = orderedSongs(st);

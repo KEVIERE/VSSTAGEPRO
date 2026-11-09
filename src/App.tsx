@@ -1,6 +1,6 @@
 import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { FileText, Radio, X } from 'lucide-react';
+import { Radio } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { startInstantStartBuilder } from '@/lib/instantStart';
@@ -58,7 +58,6 @@ import { usePendingRequests } from '@/lib/usePendingRequests';
 import JoinRequestsBanner from '@/components/JoinRequestsBanner';
 import StemSplitStatus from '@/components/StemSplitStatus';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
-import { clearShowAudio } from '@/lib/prompterAudio';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
 import { startSongKeyWatcher } from '@/lib/songKeyWatcher';
@@ -292,10 +291,6 @@ function DirectorApp({ license }: { license: License }) {
   const [prompterOpen, setPrompterOpen] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);
   const [aiSeparatorOpen, setAiSeparatorOpen] = useState(false);
-  // Confirmação das letras: guarda quantos bytes o áudio de referência liberou, para a barra
-  // mostrar o resultado e depois sumir.
-  const [audioFreed, setAudioFreed] = useState<number | null>(null);
-  const formatMb = (bytes: number) => `${(bytes / 1048576).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
   const broadcast = useLiveBroadcast();
   const local = useLocalBroadcast();
   const joinRequests = usePendingRequests(broadcast.show);
@@ -306,6 +301,17 @@ function DirectorApp({ license }: { license: License }) {
   const playlistMaximized = useStore((s) => s.playlistMaximized);
   const playlistVisible = useStore((s) => s.playlistVisible || s.showBpmTower || s.showTunerTower);
   const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
+
+  // Quando o produtor salva as letras, o programa guarda o projeto sozinho.
+  // Antes isso dependia de o diretor clicar em "Liberar agora" numa faixa que
+  // aparecia a cada abertura — e o áudio já sai do servidor em 10 minutos sem
+  // clique nenhum. Agora o trabalho acontece em silêncio e o aviso não aparece.
+  useEffect(() => {
+    if (!lyricsSync.received && local.lyricsReceived === null) return;
+    saveCurrentProject();
+    lyricsSync.confirm();
+    local.dismissLyrics();
+  }, [lyricsSync, local]);
 
   useFeatureTracking();
   useEffect(() => { if (showManagerOpen) trackFeature('show_manager'); }, [showManagerOpen]);
@@ -741,50 +747,6 @@ function DirectorApp({ license }: { license: License }) {
             </button>
           </div>
         )}
-        {(lyricsSync.received || local.lyricsReceived !== null) && (() => {
-          const songs = lyricsSync.received?.songs ?? local.lyricsReceived ?? 0;
-          const dismiss = () => { lyricsSync.dismiss(); local.dismissLyrics(); };
-          // O produtor salvou as letras. Guardar o projeto é o que o programa tinha de fazer;
-          // o áudio de referência sai do storage sozinho, 10 minutos depois, sem ninguém
-          // precisar apertar OK (ver releaseExpiredAudio na Edge Function). Se o diretor quiser
-          // apagar na hora, ainda pode.
-          const confirm = async () => {
-            saveCurrentProject();
-            const show = broadcast.show;
-            if (show) {
-              const res = await clearShowAudio(show.showId, show.directorKey).catch(() => null);
-              if (res) setAudioFreed(res.bytes);
-            }
-            lyricsSync.confirm();
-            local.dismissLyrics();
-          };
-          return (
-          <div className="console-rail flex items-center gap-3 px-3 h-9 border-b-2 border-black text-xs animate-[fadeIn_200ms_ease-out]">
-            <span className={`console-led shrink-0 ${audioFreed !== null ? 'is-on-green' : 'is-on-amber animate-pulse'}`} />
-            <FileText size={13} className={`shrink-0 ${audioFreed !== null ? 'text-logic-lcd-green' : 'text-logic-lcd-amber'}`} />
-            <span className={`console-legend shrink-0 ${audioFreed !== null ? '!text-logic-lcd-green' : '!text-logic-lcd-amber'}`}>
-              {audioFreed !== null ? 'Letras salvas' : 'Letras prontas'}
-            </span>
-            <span className="flex-1 truncate text-[12px] text-logic-text-dim">
-              {audioFreed !== null
-                ? `Áudio de referência liberado — ${formatMb(audioFreed)}. O produtor deixa de ver as músicas para ouvir.`
-                : `O produtor técnico salvou as letras (${songs} ${songs === 1 ? 'música' : 'músicas'}). O áudio de referência sai do servidor sozinho em 10 minutos.`}
-            </span>
-            {audioFreed === null && (
-              <button
-                className="console-key is-lit-amber h-6 px-3 text-[11px] shrink-0"
-                onClick={confirm}
-                title="Guarda o projeto e libera o áudio de referência agora, sem esperar os 10 minutos"
-              >
-                Liberar agora
-              </button>
-            )}
-            <button className="console-key flex items-center justify-center w-6 h-6 shrink-0" onClick={() => { dismiss(); setAudioFreed(null); }} aria-label="Fechar aviso">
-              <X size={11} />
-            </button>
-          </div>
-          );
-        })()}
 
         <div className="flex flex-1 overflow-hidden">
           {playlistMaximized ? (

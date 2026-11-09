@@ -133,7 +133,7 @@ export default function LocalMusicianArea() {
           {VERSION && <span className="text-logic-text-muted/70">· v{VERSION}</span>}
         </span>
       }
-      logoutLabel="Sair" onLogout={leave}
+      onLogout={leave}
     />
   );
 }

@@ -94,15 +94,35 @@ function rms(buffer: AudioBuffer): number {
   return n ? Math.sqrt(sum / n) : 0;
 }
 
-/** Sala = bateria original menos as peças (o que o modelo não pôs em nenhuma peça). */
+/**
+ * Sala = bateria original menos as peças (o que o modelo não pôs em nenhuma peça).
+ *
+ * A subtração só funciona amostra por amostra se as duas gravações estiverem na
+ * MESMA taxa e no mesmo instante. As peças vêm do modelo em 44,1 kHz, enquanto a
+ * bateria aqui já está na taxa do dispositivo — subtrair uma da outra desalinha
+ * tudo e o resto vira chiado. Por isso cada peça é reamostrada para a taxa da
+ * bateria antes de entrar na conta.
+ */
 function roomResidual(drums: AudioBuffer, pieces: AudioBuffer[]): AudioBuffer {
   const out = new AudioBuffer({ length: drums.length, numberOfChannels: drums.numberOfChannels, sampleRate: drums.sampleRate });
   for (let c = 0; c < drums.numberOfChannels; c++) {
     const res = new Float32Array(drums.getChannelData(c));
     for (const p of pieces) {
       const pc = p.getChannelData(Math.min(c, p.numberOfChannels - 1));
-      const n = Math.min(res.length, pc.length);
-      for (let i = 0; i < n; i++) res[i] -= pc[i];
+      // Fator de conversão quando a peça não está na taxa da bateria.
+      const step = p.sampleRate / drums.sampleRate;
+      const n = res.length;
+      for (let i = 0; i < n; i++) {
+        const pos = i * step;
+        const idx = Math.floor(pos);
+        if (idx >= pc.length) break;
+        // Interpolação linear: sem ela, mexer na taxa trocaria o desalinhamento
+        // por degraus audíveis.
+        const frac = pos - idx;
+        const a = pc[idx];
+        const b = idx + 1 < pc.length ? pc[idx + 1] : a;
+        res[i] -= a + (b - a) * frac;
+      }
     }
     out.copyToChannel(res, c);
   }

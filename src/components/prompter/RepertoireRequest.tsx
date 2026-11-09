@@ -76,8 +76,8 @@ export default function RepertoireRequest({ code, semLetra, total }: {
 
       <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
         {semLetra === 0
-          ? 'Todas as músicas já têm letra. As músicas para ouvir saem do servidor depois que você salva, para não ocupar espaço. Se precisar refazer alguma letra, peça o repertório de novo.'
-          : `As músicas descem sozinhas depois que você salva as letras. Faltam ${semLetra} ${semLetra === 1 ? 'música' : 'músicas'} sem letra: peça o repertório para ouvi-las.`}
+          ? 'Todas as músicas já têm letra. As músicas para ouvir saem do servidor depois que você salva, para não ocupar espaço. Se precisar refazer alguma letra, extraia o repertório de novo.'
+          : `As músicas descem sozinhas depois que você salva as letras. Faltam ${semLetra} ${semLetra === 1 ? 'música' : 'músicas'} sem letra: extraia o repertório para ouvi-las.`}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -87,7 +87,7 @@ export default function RepertoireRequest({ code, semLetra, total }: {
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-semibold disabled:opacity-50 transition-all active:scale-[0.98]"
         >
           {state === 'sending' ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          {state === 'sending' ? 'Pedindo...' : 'Solicitar repertório'}
+          {state === 'sending' ? 'Extraindo...' : 'Extrair repertório'}
         </button>
         {state === 'sent' && (
           <span className="flex items-center gap-1.5 text-xs text-logic-lcd-green"><Check size={13} /> Pedido enviado</span>

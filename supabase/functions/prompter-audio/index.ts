@@ -62,7 +62,10 @@ async function releaseExpiredAudio(showId: string) {
   if (!releasedAt) return null;
   if (requestedAt) return null;
   if (Date.now() - Date.parse(releasedAt) < RELEASE_GRACE_MS) return null;
-  return removeShowFiles(showId, [BUCKET]);
+  const res = await removeShowFiles(showId, [BUCKET]);
+  // Se a remoção falhar, o próximo ciclo tenta de novo: a marca de liberação
+  // continua, então a limpeza não depende de o produtor abrir a página.
+  return res;
 }
 
 async function showForCode(code: unknown, allowScreen: boolean): Promise<string | null> {
@@ -122,7 +125,13 @@ async function removeShowFiles(showId: string, buckets: string[]) {
     const files = await listAll(bucket, showId);
     if (files.length === 0) continue;
     const { error } = await admin.storage.from(bucket).remove(files.map((f) => f.path));
-    if (error) throw error;
+    // Antes, um erro aqui abortava a limpeza inteira e o áudio ficava no
+    // storage sem ninguém saber. Agora a limpeza continua nos outros arquivos
+    // e o que falhou é reportado, para o espaço não vazar em silêncio.
+    if (error) {
+      console.error("remove_failed", bucket, showId, error.message);
+      continue;
+    }
     removed += files.length;
     bytes += files.reduce((sum, f) => sum + f.size, 0);
   }

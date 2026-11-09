@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Music, Trash2 } from 'lucide-react';
+import { LogOut, Camera, Music, Trash2 } from 'lucide-react';
 import { fileToAvatar } from '@/lib/avatarImage';
 import type { SheetBackend } from '@/lib/musicianTypes';
 
@@ -41,8 +41,10 @@ export function Avatar({ src, name, size = 28, className = '' }: {
  * Foto de perfil na barra de cima da Área do Músico. Tocar abre "Escolher foto" / "Remover foto".
  * Na Rede Local (sem conta no servidor) não há foto: mostra só o ícone.
  */
-export function ProfilePhotoButton({ backend, name, onMessage }: {
+export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
   backend: SheetBackend; name: string; onMessage?: (text: string) => void;
+  /** Sair da conta: fica no menu do próprio perfil, junto da foto. */
+  onLogout?: () => void;
 }) {
   const supported = !!backend.avatar && !!backend.setAvatar;
   const [photo, setPhoto] = useState<string | null>(null);
@@ -65,7 +67,8 @@ export function ProfilePhotoButton({ backend, name, onMessage }: {
     return () => window.removeEventListener('pointerdown', close);
   }, [open]);
 
-  if (!supported) return <Music size={16} className="text-logic-lcd-green flex-shrink-0" />;
+  // Sem foto disponível ainda pode haver o que fazer aqui (sair da conta).
+  if (!supported && !onLogout) return <Music size={16} className="text-logic-lcd-green flex-shrink-0" />;
 
   const save = async (next: string | null) => {
     setBusy(true);
@@ -121,6 +124,17 @@ export function ProfilePhotoButton({ backend, name, onMessage }: {
             >
               <Trash2 size={14} /> Remover foto
             </button>
+          )}
+          {onLogout && (
+            <>
+              <div className="my-1 h-px bg-logic-border" />
+              <button
+                className="console-key w-full flex items-center gap-2 h-9 px-2.5 text-[13px] hover:!text-logic-lcd-red"
+                onClick={() => { setOpen(false); onLogout(); }}
+              >
+                <LogOut size={14} /> Sair
+              </button>
+            </>
           )}
         </div>
       )}
