@@ -4,34 +4,35 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Logic Pro dark theme palette
+        // Paleta do programa. Visual de mesa analógica: painel de aço pintado em grafite
+        // levemente azulado, e textos em creme, como a serigrafia impressa numa mesa de som.
         logic: {
-          // Backgrounds — near-black grays
-          bg: '#1a1a1a',
-          'bg-deep': '#0e0e0e',
-          'bg-panel': '#232323',
-          'bg-panel-light': '#2d2d2d',
-          'bg-elevated': '#3a3a3a',
-          // Borders
-          border: '#3a3a3a',
-          'border-light': '#4a4a4a',
-          'border-dark': '#111111',
-          // Text
-          text: '#e8e8e8',
-          'text-dim': '#999999',
-          'text-muted': '#666666',
+          // Fundos: aço pintado (do rebaixo mais fundo ao botão mais saltado)
+          bg: '#1b1e22',
+          'bg-deep': '#111316',
+          'bg-panel': '#24282d',
+          'bg-panel-light': '#2d3238',
+          'bg-elevated': '#383d44',
+          // Bordas
+          border: '#3b4148',
+          'border-light': '#4b525a',
+          'border-dark': '#0b0d0f',
+          // Texto: serigrafia creme
+          text: '#e7e2d6',
+          'text-dim': '#a7a297',
+          'text-muted': '#6f6c66',
           // Accent — Logic's blue
           accent: '#0a84ff',
           'accent-hover': '#3d9bff',
           'accent-dim': '#0066cc',
-          // LCD display
+          // Displays e LEDs
           lcd: {
-            bg: '#1c1c1c',
-            text: '#d4d4d4',
-            amber: '#ff9f0a',
-            green: '#30d158',
-            red: '#ff453a',
-            yellow: '#ffd60a',
+            bg: '#0c0e0d',
+            text: '#d8d3c6',
+            amber: '#ffab1f',
+            green: '#3ee26e',
+            red: '#ff4136',
+            yellow: '#ffd83d',
           },
           // Track colors
           track: {
@@ -42,9 +43,9 @@ export default {
           },
           // Faders / meters
           meter: {
-            green: '#30d158',
-            yellow: '#ffd60a',
-            red: '#ff453a',
+            green: '#3ee26e',
+            yellow: '#ffd83d',
+            red: '#ff4136',
           },
         },
         // Paleta extraída do CSS real de apple.com/logic-pro (overview.built.css):

@@ -13,6 +13,11 @@ export interface ShowLive {
   /** Música do medley tocando agora e a próxima que vai tocar */
   sliceName?: string | null;
   nextSliceName?: string | null;
+  /** Id da parte do medley tocando agora e da próxima (para trocar o caderno sozinho) */
+  sliceId?: string | null;
+  nextSliceId?: string | null;
+  /** Tuner (meios-tons) no ponto em que a música está: num medley, o da parte tocando */
+  tuner?: number | null;
 }
 
 export type SignalStatus = 'live' | 'nosignal' | 'ended';
@@ -33,7 +38,20 @@ export interface SetlistSong {
   baseBpm?: number | null;
   bpmAdjust?: number;
   tuner?: number;
+  /** Tom original da música (cifra curta); com o tuner vira o tom que soa. */
+  musicKey?: string;
   blockId: string | null;
+  /** Partes de um medley (música fatiada), em ordem; cada uma tem seu próprio caderno */
+  parts?: SetlistPart[];
+}
+
+export interface SetlistPart {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  /** false = o diretor pula esta parte */
+  enabled?: boolean;
 }
 
 export interface SetlistBlock {
@@ -90,6 +108,9 @@ export interface SheetBackend {
   songLyrics(songId: string): Promise<string[]>;
   colleagues(): Promise<ColleagueInfo[]>;
   share(sheetId: string, targets: string[]): Promise<number>;
+  /** Foto de perfil (só na Área do Músico online). */
+  avatar?(): Promise<string | null>;
+  setAvatar?(avatar: string | null): Promise<void>;
 }
 
 export type MemberStatus = 'pending' | 'approved' | 'blocked';

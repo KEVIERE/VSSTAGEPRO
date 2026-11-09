@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
@@ -10,16 +10,31 @@ import { masterMaestroClip } from '@/lib/voiceMastering';
 import { useMeterLevel } from '@/lib/meterBus';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import Playhead from '@/components/Playhead';
-import { formatRegionTime, freeSlotAt, suggestRegionStyle } from '@/lib/regions';
+import { formatRegionTime, freeSlotAt, presetColor, suggestRegionStyle } from '@/lib/regions';
+import { RegionNamePicker } from '@/components/LanePopover';
 import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
+import { NarrationLane, NARRATION_LANE_HEIGHT } from '@/components/NarrationLane';
+import { cursorTime, lastPitch, lastVoice } from '@/lib/maestroVoice';
+import { MAESTRO_IA_TRACK_ID, NARRATION_MIN_LENGTH, beatStartAt, placeNarration } from '@/lib/narrations';
+import NarrationDialog from '@/components/NarrationDialog';
+import CountInDialog, { type CountInTarget } from '@/components/CountInDialog';
 import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
 import { ClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
-import { barBeatLabel, snapTime, songGrid } from '@/lib/grid';
+import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 import { glueSelectedClips } from '@/lib/clipGlue';
+
+/**
+ * A coluna dos nomes das faixas e a régua de cima seguem a rolagem da timeline pelo próprio
+ * navegador (animação ligada à rolagem, em src/index.css): as três andam no mesmo quadro. Antes um
+ * código copiava a posição depois que a timeline já tinha rolado, e a coluna vinha atrasada.
+ * Navegador sem esse recurso: fica a cópia por código.
+ */
+const FOLLOW_SCROLL_CSS = typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
+  && CSS.supports('animation-timeline', '--vs-tl-y') && CSS.supports('timeline-scope', '--vs-tl-y');
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
 type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
@@ -168,6 +183,56 @@ function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | '
       title="Arraste para ajustar a altura de todas as faixas. ⌘+arraste: só esta faixa. Duplo clique: tamanho padrão (⌘ para só esta)."
     >
       <div className={`absolute left-0 right-0 h-px ${edge === 'top' ? 'top-0.5' : 'bottom-0.5'} bg-logic-border-dark opacity-0 group-hover/trackHeightHandle:opacity-100 group-hover/trackHeightHandle:bg-logic-accent transition-opacity`} />
+    </div>
+  );
+}
+
+/**
+ * Nome da régua do Maestro por IA na coluna das faixas (mesma altura da régua, para tudo ficar
+ * alinhado). Tem o mudo das falas e o botão de criar uma fala no beat do cursor.
+ */
+function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: () => void; onCount: () => void }) {
+  const count = useStore((s) => s.songs.find((sg) => sg.id === songId)?.narrations?.length ?? 0);
+  const iaTrack = useStore((s) => s.tracks.find((t) => t.id === MAESTRO_IA_TRACK_ID));
+  const toggleMute = useStore((s) => s.toggleMute);
+  // A altura acompanha o tamanho das faixas (zoom vertical), igual à régua do Maestro na timeline.
+  // Com altura fixa, TODA linha abaixo do Maestro saía deslocada da coluna dos nomes.
+  const zoomV = useStore((s) => s.zoomV);
+  return (
+    <div
+      className="flex items-center gap-1.5 border-b border-logic-border-dark bg-[#161b22] pr-2 text-2xs select-none"
+      style={{ height: `${Math.round(NARRATION_LANE_HEIGHT * zoomV)}px`, paddingLeft: '16px' }}
+      title={`Maestro por IA: falas escritas por você e geradas por voz (${count} nesta música). O som sai pela faixa Maestro (mesma saída e volume).`}
+    >
+      <Sparkles size={11} className="text-sky-300 shrink-0" />
+      <span className="font-semibold text-sky-200 whitespace-nowrap">Maestro IA</span>
+      <div className="flex-1" />
+      <button
+        className="h-5 w-5 rounded border border-sky-400/50 text-sky-200 hover:bg-sky-500/20 shrink-0 flex items-center justify-center"
+        onClick={(e) => { e.stopPropagation(); onCount(); }}
+        title="Contagem no click: 1, 2, 3, 4... a partir do tempo do cursor, um número em cada click da grade"
+        aria-label="Contagem no click a partir do cursor"
+      >
+        <ListOrdered size={11} />
+      </button>
+      <button
+        className="h-5 w-5 rounded border border-sky-400/50 text-sky-200 hover:bg-sky-500/20 shrink-0 flex items-center justify-center"
+        onClick={(e) => { e.stopPropagation(); onAdd(); }}
+        title="Nova fala começando no beat do cursor"
+        aria-label="Nova fala no beat do cursor"
+      >
+        <Plus size={11} />
+      </button>
+      {iaTrack && (
+        <button
+          className={`h-5 w-5 rounded border text-[9px] font-bold shrink-0 ${iaTrack.mute ? 'bg-logic-lcd-amber/30 border-logic-lcd-amber text-logic-lcd-amber' : 'border-logic-border-light text-logic-text-muted hover:text-logic-text'}`}
+          onClick={(e) => { e.stopPropagation(); toggleMute(iaTrack.id); }}
+          title={iaTrack.mute ? 'Falas do Maestro IA mudas: clique para ligar' : 'Deixar as falas do Maestro IA mudas'}
+          aria-pressed={iaTrack.mute}
+        >
+          M
+        </button>
+      )}
     </div>
   );
 }
@@ -1056,12 +1121,17 @@ function TimelineHorizontalScrollbar({
   scrollRef,
   timelineWidth,
   headerWidth,
+  zoomH,
   onDoubleClickFit,
+  onZoomTo,
 }: {
   scrollRef: React.RefObject<HTMLDivElement>;
   timelineWidth: number;
   headerWidth: number;
+  zoomH: number;
   onDoubleClickFit?: () => void;
+  /** Novo zoom (px/s) mantendo o instante `anchorTime` (s) no ponto `anchorX` (px) da tela. */
+  onZoomTo?: (zoom: number, anchorTime: number, anchorX: number) => void;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -1132,6 +1202,45 @@ function TimelineHorizontalScrollbar({
     window.addEventListener('pointercancel', up);
   };
 
+  // Alças nas pontas do controle (como no Logic/Reaper): arrastar uma ponta muda o zoom e a
+  // outra ponta fica parada no mesmo instante da música.
+  const handleEdgePointerDown = (side: 'left' | 'right') => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || !scrollRef.current || !barRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = scrollRef.current;
+    const barW = barRef.current.clientWidth || 1;
+    const zoom0 = zoomH;
+    const contentSec = Math.max(0.1, timelineWidth / zoom0);
+    const view = Math.max(10, el.clientWidth);
+    const leftTime = el.scrollLeft / zoom0;
+    const rightTime = (el.scrollLeft + view) / zoom0;
+    const thumb0 = Math.max(24, ratio * barW);
+    const startX = e.clientX;
+    let rafId: number | null = null;
+    const move = (ev: PointerEvent) => {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        const dx = ev.clientX - startX;
+        const thumb = Math.max(12, Math.min(barW, thumb0 + (side === 'right' ? dx : -dx)));
+        // largura do controle = parte visível da música: mais largo, menos zoom
+        const visibleSec = (thumb / barW) * contentSec;
+        const zoom = Math.max(1, Math.min(500, view / Math.max(0.05, visibleSec)));
+        if (side === 'right') onZoomTo?.(zoom, leftTime, 0);
+        else onZoomTo?.(zoom, rightTime, view);
+      });
+    };
+    const up = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  };
+
   // Clique na pista para pular para a posição
   const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || !barRef.current || !scrollRef.current) return;
@@ -1150,7 +1259,7 @@ function TimelineHorizontalScrollbar({
         e.stopPropagation();
         onDoubleClickFit?.();
       }}
-      title="Rolar timeline horizontalmente (duplo clique: ajustar zoom para caber a música inteira na tela)"
+      title="Rolar a timeline. Pontas do controle: zoom. Duplo clique: a música inteira cabe na tela (vale também para as próximas músicas que você selecionar, até mudar o zoom à mão)"
     >
       <div
         className="absolute top-1/2 -translate-y-1/2 h-[8px] rounded-full bg-[#3e3e3e] hover:bg-[#525252] active:bg-[#626262] border border-white/[0.08] shadow-sm cursor-grab active:cursor-grabbing transition-colors"
@@ -1164,7 +1273,19 @@ function TimelineHorizontalScrollbar({
           e.stopPropagation();
           onDoubleClickFit?.();
         }}
-      />
+      >
+        {(['left', 'right'] as const).map((side) => (
+          <div
+            key={side}
+            className={`absolute top-[-3px] bottom-[-3px] w-[7px] cursor-ew-resize group/edge ${side === 'left' ? 'left-0' : 'right-0'}`}
+            onPointerDown={handleEdgePointerDown(side)}
+            onDoubleClick={(e) => { e.stopPropagation(); onDoubleClickFit?.(); }}
+            title="Arraste para dar zoom na timeline"
+          >
+            <div className={`absolute top-1/2 -translate-y-1/2 h-[10px] w-[3px] rounded-full bg-white/35 group-hover/edge:bg-logic-accent ${side === 'left' ? 'left-[2px]' : 'right-[2px]'}`} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1208,9 +1329,15 @@ export default function TimelinePanel() {
   const timelinePanelRef = useRef<HTMLDivElement>(null);
   const [regionDrag, setRegionDrag] = useState<RegionDrag>(null);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
+  // Editor da marcação de fala do Maestro por IA (texto, voz e ritmo)
+  const [readingNarrationId, setReadingNarrationId] = useState<string | null>(null);
+  // Contagem do Maestro IA (1, 2, 3, 4... nos clicks da grade): nova ou editando uma existente
+  const [countTarget, setCountTarget] = useState<CountInTarget | null>(null);
+  const addNarration = useStore((s) => s.addNarration);
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
   // não conseguir sincronizar um trecho (ex.: medley com transições muito sutis ou sem click).
-  const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number } | null>(null);
+  const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number; editing?: boolean } | null>(null);
+  const [tempoDrag, setTempoDrag] = useState<{ from: number; to: number } | null>(null);
   const setTempoAt = useStore((s) => s.setTempoAt);
   const removeTempoAt = useStore((s) => s.removeTempoAt);
   const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
@@ -1242,6 +1369,21 @@ export default function TimelinePanel() {
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
+  const createNarration = useCallback((start: number, end: number) => {
+    if (!song) return;
+    const id = `narracao-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
+    const pitch = lastPitch();
+    addNarration(song.id, { id, text: '', voice: lastVoice(), start, end, status: 'pending', ...(pitch ? { pitch } : {}) });
+    setReadingNarrationId(id);
+  }, [song, addNarration]);
+  // "+ Fala": nasce no começo do beat em que o cursor está (ou no espaço livre mais perto)
+  const addNarrationAtCursor = useCallback(() => {
+    if (!song) return;
+    const at = beatStartAt(song, cursorTime(song.id) ?? 0);
+    const length = Math.min(2, Math.max(NARRATION_MIN_LENGTH, song.duration - at));
+    const start = placeNarration(song, '', at, length);
+    if (start !== null) createNarration(start, start + length);
+  }, [song, createNarration]);
   const isSongLoading = !!song && loadingSongIds.includes(song.id);
   const songClips = useMemo(() =>
     song ? clips.filter((c) => c.songId === song.id) : [],
@@ -1253,6 +1395,12 @@ export default function TimelinePanel() {
     );
   }, [songClips]);
   const grid = useMemo(() => songGrid(song, clickClip), [song, clickClip]);
+  // enquanto a plaquinha amarela é arrastada, a grade mostra a mudança de andamento no lugar novo
+  const shownGrid = useMemo(() => {
+    if (!grid?.tempoSegments || !tempoDrag) return grid;
+    const index = tempoChangeIndex(grid.tempoSegments, tempoDrag.from);
+    return index < 1 ? grid : { ...grid, tempoSegments: moveTempoChange(grid.tempoSegments, index, tempoDrag.to) };
+  }, [grid, tempoDrag]);
   const selectedSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
 
   const allVisibleTracks = useMemo(() => {
@@ -1442,7 +1590,7 @@ export default function TimelinePanel() {
             trimEnd: Math.max(0, (c.trimEnd ?? 0) - delta),
           },
         })));
-        audioEngine.invalidatePrepared(song?.id);
+        if (song && !audioEngine.refreshPreparedAfterEndCut(song.id)) audioEngine.invalidatePrepared(song.id);
       };
       el.addEventListener("pointermove", move);
       el.addEventListener("pointerup", up);
@@ -1610,6 +1758,9 @@ export default function TimelinePanel() {
     if (!cutMedleyAt(song, cursor)) setNoSpaceHint(true);
   };
 
+  // Botão Região: guarda o ponto do cursor e abre a janela de nomes (Intro, Refrão...); a região
+  // só é criada depois que a pessoa escolhe o nome.
+  const [regionSlot, setRegionSlot] = useState<{ songId: string; start: number; end: number } | null>(null);
   const handleAddRegionAtCursor = () => {
     if (!song) return;
     const st = useStore.getState();
@@ -1617,13 +1768,16 @@ export default function TimelinePanel() {
       ? audioEngine.getCurrentTime()
       : st.transport.currentTime;
     const slot = freeSlotAt(song, snapTime(cursor, grid, snapStep));
+    if (!slot) { setNoSpaceHint(true); return; }
+    setRegionSlot({ songId: song.id, ...slot });
+  };
+  const createRegionNamed = (name: string) => {
+    const slot = regionSlot;
+    setRegionSlot(null);
+    if (!song || !slot || slot.songId !== song.id) return;
     const id = `region-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
-    const style = suggestRegionStyle(song.regions ?? []);
-    if (slot && addSongRegion(song.id, { id, ...style, start: slot.start, end: slot.end, loop: false })) {
-      setEditingRegionId(id);
-    } else {
-      setNoSpaceHint(true);
-    }
+    const color = presetColor(name) ?? suggestRegionStyle(song.regions ?? []).color;
+    if (!addSongRegion(song.id, { id, name, color, start: slot.start, end: slot.end, loop: false })) setNoSpaceHint(true);
   };
 
   const trackHeight = Math.round(40 * zoomV);
@@ -1670,32 +1824,82 @@ export default function TimelinePanel() {
     setVisible((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
   }, []);
 
-  const handleScroll = useCallback(() => {
-    if (scrollRef.current) {
-      if (headerScrollRef.current) {
-        headerScrollRef.current.scrollLeft = scrollRef.current.scrollLeft;
-      }
-      if (trackHeadersRef.current) {
-        trackHeadersRef.current.scrollTop = scrollRef.current.scrollTop;
-      }
-    }
-    updateVisible();
-  }, [updateVisible]);
+  /**
+   * A coluna dos nomes anda junto com a timeline. Feito dentro do quadro de pintura (em vez de no
+   * evento de rolagem): o navegador desenha as duas no mesmo quadro, senão a coluna esquerda
+   * "ficava para trás" por um quadro a cada rolagem e o olho lia isso como folga.
+   */
+  const followRange = useRef({ x: -1, y: -1 });
+  /**
+   * Quanto a timeline rola no máximo, nos dois sentidos: é o tamanho do caminho que a coluna dos
+   * nomes e a régua andam junto (src/index.css). Muda com faixas, zoom e janela, e também durante a
+   * rolagem (a grade desenhada mais à frente aumenta a área rolável): por isso é conferido também a
+   * cada rolagem, mas só grava quando mudou.
+   */
+  const applyFollowRange = useCallback(() => {
+    const el = scrollRef.current;
+    const root = timelinePanelRef.current;
+    if (!el || !root) return;
+    const x = Math.max(0, el.scrollWidth - el.clientWidth);
+    const y = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (x !== followRange.current.x) root.style.setProperty('--vs-follow-max-x', String(x));
+    if (y !== followRange.current.y) root.style.setProperty('--vs-follow-max-y', String(y));
+    followRange.current = { x, y };
+  }, []);
 
+  const syncHeaders = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (FOLLOW_SCROLL_CSS) { applyFollowRange(); return; }
+    if (headerScrollRef.current && headerScrollRef.current.scrollLeft !== el.scrollLeft) {
+      headerScrollRef.current.scrollLeft = el.scrollLeft;
+    }
+    if (trackHeadersRef.current && trackHeadersRef.current.scrollTop !== el.scrollTop) {
+      trackHeadersRef.current.scrollTop = el.scrollTop;
+    }
+  }, [applyFollowRange]);
+
+  const handleScroll = useCallback(() => {
+    syncHeaders();
+    updateVisible();
+  }, [updateVisible, syncHeaders]);
+
+  // Rolar com dois dedos (pad) na coluna dos nomes: a rolagem é sempre a da timeline.
+  useEffect(() => {
+    const at = (e: Event) => {
+      syncHeaders();
+      updateVisible();
+    };
+    const heads = trackHeadersRef.current;
+    const main = scrollRef.current;
+    heads?.addEventListener('scroll', at, { passive: true });
+    main?.addEventListener('scroll', at, { passive: true });
+    return () => {
+      heads?.removeEventListener('scroll', at);
+      main?.removeEventListener('scroll', at);
+    };
+  }, [syncHeaders, updateVisible]);
+
+  // A coluna das faixas só existe com uma música aberta: o rolar com dois dedos é ligado sempre
+  // que ela aparece (antes era ligado uma vez só, na abertura — sem música ainda, nunca ligava).
+  const hasSong = !!song;
   useEffect(() => {
     const el = trackHeadersRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
+      // pinça / Ctrl + rolar é zoom (tratado no painel inteiro)
+      if (e.ctrlKey) return;
       e.preventDefault();
       if (scrollRef.current) {
         // Ao rolar em cima das tracks, rola estritamente na vertical (nunca na horizontal)
-        const delta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const raw = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+        const delta = e.deltaMode === 1 ? raw * 16 : e.deltaMode === 2 ? raw * el.clientHeight : raw;
         scrollRef.current.scrollTop += delta;
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [hasSong]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -1712,9 +1916,26 @@ export default function TimelinePanel() {
       el.scrollLeft = Math.max(0, anchor.time * zoomH - anchor.mouseX);
       zoomAnchorRef.current = null;
     }
-    if (el && headerScrollRef.current) headerScrollRef.current.scrollLeft = el.scrollLeft;
+    if (el && headerScrollRef.current && !FOLLOW_SCROLL_CSS) headerScrollRef.current.scrollLeft = el.scrollLeft;
     updateVisible();
   }, [zoomH, timelineWidth, updateVisible]);
+
+  // O caminho da coluna dos nomes e da régua acompanha faixas, zoom e tamanho da janela.
+  useEffect(() => {
+    if (!FOLLOW_SCROLL_CSS) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    followRange.current = { x: -1, y: -1 };
+    applyFollowRange();
+    const ro = new ResizeObserver(applyFollowRange);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [hasSong, timelineWidth, zoomH, applyFollowRange]);
+  // a grade e as ondas desenhadas mais à frente mudam a área rolável sem mudar o tamanho de nada
+  useLayoutEffect(() => {
+    if (FOLLOW_SCROLL_CSS) applyFollowRange();
+  }, [visible, applyFollowRange]);
 
   const zoomAround = useCallback((factor: number, mouseX: number) => {
     const el = scrollRef.current;
@@ -1831,57 +2052,86 @@ export default function TimelinePanel() {
     target.addEventListener('pointercancel', up);
   }, [zoomH, setCurrentTime, isPlaying, song, grid, snapStep]);
 
-  // Duplo clique na barra de rolagem horizontal: ajusta o zoom perfeitamente para preencher o espaço com a música inteira
-  const handleFitSongToScreen = useCallback(() => {
-    if (!song || song.duration <= 0.1 || !scrollRef.current) return;
+  // Duplo clique na barra de rolagem horizontal: a música inteira (até o último clipe) cabe na
+  // tela. Liga o modo "caber na tela": cada música selecionada depois também se ajusta sozinha,
+  // até a pessoa mudar o zoom à mão.
+  const fitModeRef = useRef(false);
+  const fitZoomRef = useRef<number | null>(null);
+  const fitToScreen = useCallback(() => {
+    if (!song || contentEnd <= 0.1 || !scrollRef.current) return;
     const clientW = scrollRef.current.clientWidth ?? 1000;
     const availableW = Math.max(300, clientW - 40);
-    const targetZoom = Math.max(1, Math.min(200, availableW / song.duration));
+    const targetZoom = Math.round(Math.max(1, Math.min(200, availableW / contentEnd)) * 100) / 100;
+    fitZoomRef.current = targetZoom;
     setZoomH(targetZoom);
-    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
-  }, [song, setZoomH]);
+    scrollRef.current.scrollLeft = 0;
+  }, [song, contentEnd, setZoomH]);
+  const handleFitSongToScreen = useCallback(() => {
+    fitModeRef.current = true;
+    fitToScreen();
+  }, [fitToScreen]);
+  useEffect(() => {
+    if (fitModeRef.current) fitToScreen();
+    // só ao trocar de música (ou ela mudar de tamanho), não a cada render
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song?.id, contentEnd]);
+  useEffect(() => {
+    // zoom diferente do ajustado = mexeram no zoom à mão: o modo desliga
+    if (fitModeRef.current && fitZoomRef.current !== null && Math.abs(zoomH - fitZoomRef.current) > 0.011) fitModeRef.current = false;
+  }, [zoomH]);
+  const zoomToAnchor = useCallback((zoom: number, anchorTime: number, anchorX: number) => {
+    zoomAnchorRef.current = { time: anchorTime, mouseX: anchorX };
+    setZoomH(Math.round(zoom * 100) / 100);
+  }, [setZoomH]);
 
   const gridStyle = grid ? {} : {
     backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx}px)`,
   };
 
   return (
-    <div ref={timelinePanelRef} className="flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative">
+    <div ref={timelinePanelRef} className={`flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative ${FOLLOW_SCROLL_CSS ? 'timeline-follow-scope' : ''}`}>
       <div className="flex bg-logic-bg-deep border-b border-logic-border-dark">
         <div className="flex flex-col border-r border-logic-border-dark shrink-0" style={{ width: `${HEADER_W}px` }}>
-          {/* Ações Rápidas: Cápsula Segmentada Unificada estilo Logic Pro 11 / Apple macOS */}
+          {/* Ações rápidas: teclas de mesa (Dividir, Medley, Regiões) */}
           <div className="h-10 flex items-center px-2 border-b border-logic-border-dark/60 bg-logic-bg-deep">
-            <div className="flex items-center w-full h-[28px] rounded-lg bg-black/50 border border-white/10 p-[2px] select-none gap-0.5">
+            <div className="flex items-center w-full h-[26px] select-none gap-1">
               <button
-                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
+                className="console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none"
                 onClick={handleSplitAtCursor}
                 disabled={!song || timelineLocked}
                 title="Dividir áudios selecionados no cursor (Split - atalho S)"
               >
-                <Scissors size={11} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <Scissors size={11} className="shrink-0" />
                 <span className="leading-none">Dividir</span>
               </button>
-              <div className="w-px h-3.5 bg-white/10 shrink-0" />
               <button
-                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
+                className="console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none"
                 onClick={handleCutMedleyAtCursor}
                 disabled={!song || timelineLocked}
                 title="Fatiar medley no cursor: separa uma música da outra"
               >
-                <ArrowLeftRight size={11} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
+                <ArrowLeftRight size={11} className="shrink-0" />
                 <span className="leading-none">Medley</span>
               </button>
-              <div className="w-px h-3.5 bg-white/10 shrink-0" />
               <button
-                className="flex-1 h-full rounded-[5px] flex items-center justify-center gap-1 px-1 text-[11px] font-medium text-zinc-300 hover:text-white hover:bg-white/[0.08] active:bg-white/[0.15] transition-all disabled:opacity-30 disabled:pointer-events-none group"
+                data-region-button
+                className={`console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none ${regionSlot ? 'is-lit-blue' : ''}`}
                 onClick={handleAddRegionAtCursor}
                 disabled={!song || timelineLocked}
-                title="Nova região de 4 compassos a partir do cursor"
+                title="Nova região no cursor: escolha Intro, Pré-refrão, Refrão, Ponte, Solo, Final ou escreva outro nome"
               >
-                <Plus size={12} className="shrink-0 text-zinc-400 group-hover:text-white transition-colors" />
-                <span className="leading-none">Regiões</span>
+                <Plus size={12} className="shrink-0" />
+                <span className="leading-none">Região</span>
               </button>
             </div>
+            {regionSlot && (
+              <RegionNamePicker
+                anchor="[data-region-button]"
+                title="Nova região"
+                onPick={createRegionNamed}
+                onClose={() => setRegionSlot(null)}
+              />
+            )}
           </div>
 
           {/* Linha 2: Navegação, Altura e Zoom Horizontal */}
@@ -1900,7 +2150,7 @@ export default function TimelinePanel() {
           </div>
         </div>
         <div ref={headerScrollRef} className="flex-1 overflow-hidden">
-          <div style={{ width: `${timelineWidth + 24}px` }}>
+          <div className={FOLLOW_SCROLL_CSS ? 'timeline-follow-x' : undefined} style={{ width: `${timelineWidth + 24}px` }}>
             {song ? (
               <MedleyLane song={song} zoomH={zoomH} />
             ) : (
@@ -1945,7 +2195,20 @@ export default function TimelinePanel() {
               }}
               title="Clique para posicionar cursor. Botão direito: cravar o andamento neste ponto (último recurso). Shift + botão direito: cravar início de compasso."
             >
-              {grid && song && <BarRulerLayer song={song} grid={grid} zoomH={zoomH} visible={visible} />}
+              {shownGrid && song && (
+                <BarRulerLayer
+                  song={song}
+                  grid={shownGrid}
+                  zoomH={zoomH}
+                  visible={visible}
+                  onTempoDrag={setTempoDrag}
+                  onEditTempo={({ time, bpm, x, y }) => {
+                    // a mudança fica exatamente no início do trecho com esse andamento
+                    const seg = grid?.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
+                    setManualTempoPoint({ time: seg?.startTime ?? time, x, y, existingBpm: bpm, editing: true });
+                  }}
+                />
+              )}
               {visibleTicks.map((tick) => (
                 <div
                   key={tick}
@@ -1970,9 +2233,12 @@ export default function TimelinePanel() {
             {/* Coluna da esquerda (Tracks): LARGURA FIXA, 100% IMÓVEL HORIZONTALMENTE */}
             <div
               ref={trackHeadersRef}
-              className="bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden overflow-y-hidden select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]"
+              className={`bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden ${FOLLOW_SCROLL_CSS ? 'overflow-y-hidden' : 'overflow-y-auto'} no-scrollbar select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]`}
               style={{ width: `${HEADER_W}px` }}
             >
+              <div className={FOLLOW_SCROLL_CSS ? 'timeline-follow-y' : undefined}>
+              {/* A primeira linha é a de timecode, alinhada com a primeira linha de áudios à direita.
+                  A MedleyLane e a RegionLane ficam no cabeçalho fixo de cima, não aqui. */}
               <TimecodeTrackRow songId={song.id} />
               {ROUTABLE_TRACKS.map((id) => {
                 const track = tracks.find((t) => t.id === id);
@@ -1988,8 +2254,17 @@ export default function TimelinePanel() {
                     />
                   );
                 }
+                if (track.id === 'track-maestro') {
+                  return (
+                    <div key={track.id}>
+                      <TrackRow track={track} depth={0} onContextMenu={handleOpenTrackMenu} />
+                      <MaestroIaHeader songId={song.id} onAdd={addNarrationAtCursor} onCount={() => setCountTarget({ kind: 'new', start: cursorTime(song.id) ?? 0 })} />
+                    </div>
+                  );
+                }
                 return <TrackRow key={track.id} track={track} depth={0} onContextMenu={handleOpenTrackMenu} />;
               })}
+              </div>
               <div
                 className="absolute top-0 right-0 bottom-0 w-1.5 -mr-0.5 z-50 cursor-col-resize group/widthHandle"
                 onPointerDown={handleHeaderWidthPointerDown}
@@ -2003,7 +2278,7 @@ export default function TimelinePanel() {
             {/* Coluna da direita (Timeline & Clipes): Rola horizontalmente e verticalmente */}
             <div
               ref={scrollRef}
-              className="flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10"
+              className={`flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10 ${FOLLOW_SCROLL_CSS ? 'timeline-follow-source' : ''}`}
               onScroll={handleScroll}
             >
               <div
@@ -2035,11 +2310,26 @@ export default function TimelinePanel() {
                   const isTc = track.id === TIMECODE_TRACK_ID;
                   const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
                   const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
+                  // Logo abaixo da faixa Maestro fica a régua do Maestro por IA (falas geradas por voz).
+                  // Ela acompanha a altura das faixas: com altura fixa, cada linha daqui para baixo
+                  // saía deslocada da coluna dos nomes assim que se mudava o tamanho das tracks.
+                  const isMaestroRow = track.id === 'track-maestro';
+                  const maestroLaneHeight = Math.round(NARRATION_LANE_HEIGHT * zoomV);
+                  // Pasta recolhida é só UMA linha na coluna dos nomes: as filhas não entram. Na
+                  // timeline ela fica com a altura de todas as filhas, senão tudo abaixo desalinha.
+                  const childCount = track.children?.length ?? 0;
+                  const mergedHeight = isFolder && collapsedFolders.has(track.id) && childCount > 0
+                    ? rowHeight + (track.children ?? []).reduce((sum, id) => {
+                        const child = tracks.find((t) => t.id === id);
+                        if (!child) return sum;
+                        return sum + Math.round((child.height ?? 40) * zoomV) + (child.id === 'track-maestro' ? maestroLaneHeight : 0);
+                      }, 0)
+                    : rowHeight;
                   return (
+                    <div key={track.id}>
                     <div
-                      key={track.id}
                       className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
-                      style={{ height: `${rowHeight}px` }}
+                      style={{ height: `${mergedHeight}px` }}
                     >
                       {trackClips.map((clip) => (
                         <ClipBlock
@@ -2061,10 +2351,22 @@ export default function TimelinePanel() {
                         <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} zoomH={zoomH} />
                       )}
                     </div>
+                    {isMaestroRow && (
+                      <NarrationLane
+                        song={song}
+                        zoomH={zoomH}
+                        height={maestroLaneHeight}
+                        visible={visible}
+                        onEdit={(n) => setReadingNarrationId(n.id)}
+                        onCreate={createNarration}
+                        onEditCount={(group) => setCountTarget({ kind: 'edit', group })}
+                      />
+                    )}
+                    </div>
                   );
                 })}
 
-                {grid && <GridLinesOverlay grid={grid} zoomH={zoomH} visible={visible} />}
+                {shownGrid && <GridLinesOverlay grid={shownGrid} zoomH={zoomH} visible={visible} />}
 
                 <RegionGuides song={song} zoomH={zoomH} drag={regionDrag} />
 
@@ -2108,12 +2410,14 @@ export default function TimelinePanel() {
           </span>
         </div>
 
-        {/* Scrollbar Horizontal da Timeline (sem alças de zoom, exclusivo a partir da aresta direita das faixas) */}
+        {/* Scrollbar Horizontal da Timeline, com alças de zoom nas pontas (a partir da aresta direita das faixas) */}
         <TimelineHorizontalScrollbar
           scrollRef={scrollRef}
           timelineWidth={timelineWidth}
           headerWidth={HEADER_W}
+          zoomH={zoomH}
           onDoubleClickFit={handleFitSongToScreen}
+          onZoomTo={zoomToAnchor}
         />
       </div>
 
@@ -2150,6 +2454,15 @@ export default function TimelinePanel() {
         />
       )}
 
+      {/* Editor da fala do Maestro por IA */}
+      {song && countTarget && (
+        <CountInDialog song={song} target={countTarget} onClose={() => setCountTarget(null)} />
+      )}
+      {song && readingNarrationId && (() => {
+        const n = (song.narrations ?? []).find((x) => x.id === readingNarrationId);
+        return n ? <NarrationDialog song={song} narration={n} onClose={() => setReadingNarrationId(null)} /> : null;
+      })()}
+
     </div>
   );
 }
@@ -2157,7 +2470,7 @@ export default function TimelinePanel() {
 // Último recurso manual: define/corrige o andamento (BPM) a partir de um ponto exato da régua,
 // para medleys ou trocas de andamento que a detecção automática do click não conseguiu identificar.
 function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
-  point: { time: number; x: number; y: number; existingBpm?: number };
+  point: { time: number; x: number; y: number; existingBpm?: number; editing?: boolean };
   onClose: () => void;
   onApply: (bpm: number) => void;
   onRemove: () => void;
@@ -2191,7 +2504,7 @@ function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="text-2xs font-semibold text-logic-text-dim uppercase tracking-wider mb-2">
-        Cravar andamento neste ponto
+        {point.editing ? 'Editar mudança de andamento' : 'Cravar andamento neste ponto'}
       </div>
       <div className="flex items-center gap-2">
         <input
@@ -2206,21 +2519,23 @@ function ManualTempoPopover({ point, onClose, onApply, onRemove }: {
         <span className="text-2xs text-logic-text-muted">BPM</span>
       </div>
       <p className="text-2xs text-logic-text-muted mt-2 leading-snug">
-        Último recurso: use só quando a sincronização automática não acertar este trecho (ex.: medley).
+        {point.editing
+          ? 'Digite o novo BPM a partir deste ponto, ou exclua a mudança (o trecho volta a seguir o andamento anterior).'
+          : 'Último recurso: use só quando a sincronização automática não acertar este trecho (ex.: medley).'}
       </p>
       <div className="flex gap-2 mt-3">
         <button
           onClick={submit}
           className="flex-1 h-8 rounded-md bg-logic-accent text-white text-xs font-semibold hover:brightness-110 transition"
         >
-          Cravar aqui
+          {point.editing ? 'Salvar' : 'Cravar aqui'}
         </button>
         <button
           onClick={onRemove}
           className="h-8 px-3 rounded-md border border-logic-border-light text-logic-text-dim text-xs font-semibold hover:text-logic-text hover:bg-logic-bg-elevated transition"
-          title="Remove a mudança de andamento manual mais próxima"
+          title={point.editing ? 'Exclui esta mudança de andamento' : 'Remove a mudança de andamento manual mais próxima'}
         >
-          Remover
+          {point.editing ? 'Excluir' : 'Remover'}
         </button>
       </div>
     </div>

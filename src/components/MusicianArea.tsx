@@ -4,6 +4,10 @@ import MusicianAccess from '@/components/MusicianAccess';
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
 import { serverLagMs } from '@/lib/liveClock';
 import { musicianState, musicianSheets, onlineSheetBackend } from '@/lib/musicianApi';
+import { clearLocalSession } from '@/lib/supabaseClient';
+
+// Mesma chave usada em MusicianAccess: o músico com conta fica lembrado aqui.
+const MEMBER_LS = 'vs_member_id';
 import type { MusicianState, SheetInfo } from '@/lib/musicianTypes';
 
 const CODE_LS = 'vs_musician_code';
@@ -149,6 +153,13 @@ export default function MusicianArea() {
 
   const handleLogout = () => {
     if (!isAccount) localStorage.removeItem(CODE_LS);
+    // O músico com conta precisa sair DE VERDADE. Antes o botão dizia
+    // "Meus shows" e não encerrava a sessão: reabrir a área já entrava na
+    // conta de novo. Aqui a sessão é limpa na hora, sem esperar a rede.
+    if (isAccount) {
+      try { localStorage.removeItem(MEMBER_LS); } catch { /* ignore */ }
+      clearLocalSession();
+    }
     setAccess({ claimCode: null, autoEnter: false, initialView: 'signin' });
     setCode('');
     setState(null);
@@ -194,7 +205,7 @@ export default function MusicianArea() {
       state={state} sync={sync} sheets={sheets} backend={backend}
       onSheetsChanged={reloadSheets} onCreateAccount={isAccount ? null : openCreateAccount}
       status={<span className="text-2xs text-logic-text-muted truncate block">{state.show.name}</span>}
-      logoutLabel={isAccount ? 'Meus shows' : 'Sair'} onLogout={handleLogout}
+      onLogout={handleLogout}
     />
   );
 }

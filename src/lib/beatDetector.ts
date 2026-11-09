@@ -1,4 +1,12 @@
-import { guess } from 'web-audio-beat-detector';
+// O detector de BPM (e a standardized-audio-context que vem com ele, ~77 KB) só é usado ao
+// importar e ao separar músicas: fica fora do carregamento da abertura e é buscado na 1ª vez.
+type Guess = typeof import('web-audio-beat-detector').guess;
+let guessPromise: Promise<Guess> | null = null;
+function loadGuess(): Promise<Guess> {
+  guessPromise ??= import('web-audio-beat-detector').then((m) => m.guess);
+  return guessPromise;
+}
+const guess: Guess = async (...args) => (await loadGuess())(...args);
 import type { ClipAudio } from '@/lib/audioLibrary';
 
 const MIN_BPM = 70;
@@ -62,10 +70,11 @@ function onsetsAt(audio: ClipAudio, env: Float32Array, hop: number, len: number,
   const times: number[] = [];
   const peaks: number[] = [];
   let last = -refractory;
-  for (let f = 1; f < env.length; f++) {
+  // começa no quadro 0: o primeiro click do VS costuma estar logo na primeira amostra do arquivo
+  for (let f = 0; f < env.length; f++) {
     if (f - last < refractory) continue;
-    if (env[f] < threshold || env[f - 1] >= threshold * 0.6) continue;
-    const base = (f - 1) * hop;
+    if (env[f] < threshold || (f > 0 && env[f - 1] >= threshold * 0.6)) continue;
+    const base = Math.max(0, f - 1) * hop;
     let exact = base;
     for (let i = 0; i < hop * 2 && base + i < len; i++) {
       const s = base + i;
@@ -121,6 +130,49 @@ function longestRun(times: number[], period: number): number[] {
   return cur.length > best.length ? cur : best;
 }
 
+// Tolerância de cada ataque em relação à grade: o click de um VS é exato, a amostra.
+const SECTION_TOL = 0.03;
+
+// Trecho do click que começa no ataque `from` e segue enquanto os ataques caem na mesma grade.
+// Para quando o andamento muda (medley): vários ataques seguidos fora da grade por mais de 3 tempos.
+// Batidas faltando e um ataque solto no meio (voz, virada) não encerram o trecho.
+function sectionFrom(times: number[], from: number): { idx: number[]; end: number; period: number } | null {
+  const rough = modePeriod(times.slice(from, from + 24));
+  if (!rough) return null;
+  const idx = [from];
+  let t0 = times[from];
+  let period = rough;
+  let off = 0;
+  let lastGood = times[from];
+  let i = from + 1;
+  for (; i < times.length; i++) {
+    const k = Math.round((times[i] - t0) / period);
+    if (k >= 1 && Math.abs(times[i] - (t0 + k * period)) < period * SECTION_TOL) {
+      idx.push(i);
+      off = 0;
+      lastGood = times[i];
+      const fit = idx.length >= 3 ? fitGrid(idx.map((j) => times[j]), period) : null;
+      if (fit) { period = fit.period; t0 = fit.t0; }
+    } else if (++off >= 3 && times[i] - lastGood > period * 3) {
+      break;
+    }
+  }
+  return { idx, end: i, period };
+}
+
+// Primeiro trecho regular do click (num medley, a primeira música). Um começo curto e
+// diferente (ex.: contagem em outro andamento) é pulado.
+function firstSection(times: number[]): { idx: number[]; period: number } | null {
+  let from = 0;
+  for (let tries = 0; tries < 6 && from < times.length - MIN_RUN; tries++) {
+    const sec = sectionFrom(times, from);
+    if (!sec) return null;
+    if (sec.idx.length >= MIN_RUN) return { idx: sec.idx, period: sec.period };
+    from = Math.max(from + 1, sec.end);
+  }
+  return null;
+}
+
 // Mínimos quadrados: cada ataque cai num índice inteiro da grade t0 + k*período.
 function fitGrid(times: number[], period: number): { period: number; t0: number; idx: number[] } | null {
   const origin = times[0];
@@ -172,9 +224,11 @@ function findDownbeat(times: number[], peaks: number[], t0: number, period: numb
 
 function tempoFromOnsets({ times, peaks }: Onsets, beatsPerBar: number): TempoResult | null {
   if (times.length < MIN_RUN + 4) return null;
-  const rough = modePeriod(times);
+  // O andamento é o do começo do click; só se não houver trecho regular no começo usa o maior trecho
+  const first = firstSection(times);
+  const rough = first ? first.period : modePeriod(times);
   if (!rough) return null;
-  const run = longestRun(times, rough);
+  const run = first?.idx ?? longestRun(times, rough);
   if (run.length < MIN_RUN) return null;
   let runTimes = run.map((i) => times[i]);
   let runPeaks = run.map((i) => peaks[i]);

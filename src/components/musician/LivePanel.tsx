@@ -1,6 +1,10 @@
-import { PenLine, Radio, WifiOff, UserPlus } from 'lucide-react';
+import { PenLine, WifiOff, UserPlus } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetInfo, ShowLive, SignalStatus } from '@/lib/musicianTypes';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
+import { songKeyLabel } from '@/lib/musicKey';
+import { isMedleySong, partKey } from '@/lib/medleySheets';
+import SegmentDisplay from '@/components/SegmentDisplay';
+import MetaReadout from '@/components/MetaReadout';
 
 export function formatTime(s: number): string {
   const total = Math.max(0, Math.round(s));
@@ -9,7 +13,7 @@ export function formatTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, '0')}`;
 }
 
-function bpmText(song: SetlistSong | null | undefined): string {
+export function bpmText(song: SetlistSong | null | undefined): string {
   if (!song) return '';
   if (song.baseBpm) {
     const adj = song.bpmAdjust ?? 0;
@@ -23,8 +27,106 @@ function toneText(tuner: number | undefined): string {
   return tuner === 0 ? 'Orig.' : `${tuner > 0 ? '+' : ''}${tuner}`;
 }
 
+/** Tom e BPM que estão valendo agora: na música tocando, os da parte no ar (o diretor manda). */
+function liveMeta(song: SetlistSong | null | undefined, live: ShowLive | null, playing: boolean) {
+  if (!song) return { key: '', bpm: '' };
+  const tuner = playing && typeof live?.tuner === 'number' ? live.tuner : song.tuner;
+  const bpm = playing && live?.bpm ? live.bpm : song.bpm;
+  return { key: songKeyLabel({ musicKey: song.musicKey, tuner }), bpm: bpm ? String(bpm) : '' };
+}
+
+/**
+ * Os dois displays da Área do Músico, iguais aos do programa: Tocando (verde) e Próxima (âmbar),
+ * com tom e BPM, o tempo que falta em 7 segmentos e a barra de LEDs.
+ */
+export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false }: {
+  lv: LiveView;
+  live: ShowLive | null;
+  currentSong: SetlistSong | null | undefined;
+  nextSong: SetlistSong | null | undefined;
+  /** Modo show: letras maiores e os dois displays lado a lado (na coluna da playlist, um embaixo do outro) */
+  big?: boolean;
+}) {
+  const isPlaying = lv.isPlaying && !!currentSong;
+  const nextName = isPlaying && live?.nextSliceName ? live.nextSliceName : nextSong?.name;
+  const hasNext = !!nextName;
+  const secondsLeft = currentSong
+    ? (currentSong.duration - lv.currentTime) * bpmAdjustToAlpha(currentSong.bpmAdjust ?? 0)
+    : Infinity;
+  const finalCountdown = isPlaying && secondsLeft <= 10 ? Math.max(0, Math.ceil(secondsLeft)) : null;
+  const progress = isPlaying ? Math.max(0, Math.min(1, lv.songProgress)) : 0;
+  const now = liveMeta(currentSong, live, isPlaying);
+  const next = liveMeta(nextSong, null, false);
+  const name = big ? 'text-2xl sm:text-3xl' : 'text-lg';
+  const seg = big ? 'h-7 sm:h-8' : 'h-5';
+
+  return (
+    <div className={`grid grid-cols-1 gap-2 ${big ? 'sm:grid-cols-2' : ''}`}>
+      <div className={`console-display px-3 py-2.5 flex flex-col gap-1.5 min-w-0 ${finalCountdown !== null ? '!border-logic-lcd-red/70' : ''}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className={`console-legend flex items-center gap-2 ${isPlaying ? '!text-logic-lcd-green' : ''}`}>
+            <span className={`console-led ${isPlaying ? 'is-on-green' : ''}`} />
+            Tocando
+            {currentSong && live?.sliceName && <span className="px-1 rounded-[2px] border border-current text-[9px] leading-[12px] tracking-[0.14em]">MEDLEY</span>}
+          </span>
+          <span className="flex items-center gap-3">
+            <MetaReadout label="Tom" value={isPlaying ? now.key : ''} tone="text-logic-lcd-amber" />
+            <MetaReadout label="BPM" value={isPlaying ? now.bpm : ''} tone="text-logic-lcd-text" />
+          </span>
+        </div>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex-1 min-w-0">
+            <span
+              key={currentSong?.id ?? ''}
+              className={`console-glow block font-semibold tracking-tight truncate animate-[fadeIn_250ms_ease-out] ${name} ${isPlaying ? 'text-logic-lcd-green' : 'text-logic-text-muted'}`}
+            >
+              {(currentSong && live?.sliceName ? live.sliceName : currentSong?.name) ?? '---'}
+            </span>
+            {currentSong && live?.sliceName && <p className="text-xs text-logic-text-dim truncate">{currentSong.name}</p>}
+          </div>
+          {isPlaying && Number.isFinite(secondsLeft) && (
+            <SegmentDisplay
+              text={`-${formatTime(secondsLeft)}`}
+              label={`Faltam ${formatTime(secondsLeft)}`}
+              className={`shrink-0 ${seg} ${finalCountdown !== null ? 'text-logic-lcd-red animate-pulse' : 'text-logic-lcd-green'}`}
+            />
+          )}
+        </div>
+        <div className={`led-bar h-1.5 rounded-[1px] ${finalCountdown !== null ? 'text-logic-lcd-red' : 'text-logic-lcd-green'}`}>
+          <div className="led-bar-fill transition-[width] duration-200 ease-linear" style={{ width: `${progress * 100}%` }} />
+        </div>
+        {finalCountdown !== null && <span className="sr-only" role="timer" aria-live="polite">Restam {finalCountdown}s</span>}
+      </div>
+
+      <div className="console-display px-3 py-2.5 flex flex-col gap-1.5 min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <span className={`console-legend flex items-center gap-2 ${hasNext ? '!text-logic-lcd-amber' : ''}`}>
+            <span className={`console-led ${hasNext ? 'is-on-amber' : ''}`} />
+            Próxima
+            {isPlaying && live?.nextSliceName && <span className="px-1 rounded-[2px] border border-current text-[9px] leading-[12px] tracking-[0.14em]">MEDLEY</span>}
+          </span>
+          <span className="flex items-center gap-3">
+            <MetaReadout label="Tom" value={hasNext && !live?.nextSliceName ? next.key : ''} tone="text-logic-lcd-amber" />
+            <MetaReadout label="BPM" value={hasNext && !live?.nextSliceName ? next.bpm : ''} tone="text-logic-lcd-text" />
+          </span>
+        </div>
+        <span
+          key={nextName ?? ''}
+          className={`console-glow block font-semibold tracking-tight truncate animate-[fadeIn_250ms_ease-out] ${name} ${hasNext ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}
+        >
+          {nextName ?? '---'}
+        </span>
+        {/* enche junto com a música tocando: quando completa, a próxima entra */}
+        <div className="led-bar h-1.5 rounded-[1px] text-logic-lcd-amber flex justify-end">
+          <div className="led-bar-fill transition-[width] duration-200 ease-linear" style={{ width: `${hasNext ? progress * 100 : 0}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LivePanel({
-  lv, live, currentSong, nextSong, orderedSongs, sheets, selectedSongId,
+  lv, live, currentSong, nextSong, orderedSongs, sheets, selectedSongId, livePartId,
   onSelectSong, onCreateAccount,
 }: {
   lv: LiveView;
@@ -34,69 +136,41 @@ export default function LivePanel({
   orderedSongs: SetlistSong[];
   sheets: SheetInfo[];
   selectedSongId: string | null;
+  /** Parte do medley tocando agora */
+  livePartId?: string | null;
   onSelectSong: (id: string) => void;
   onCreateAccount: (() => void) | null;
 }) {
   const isPlaying = lv.isPlaying;
   const hasNext = isPlaying && !!live?.nextSongId && !!nextSong;
-  const secondsLeft = currentSong
-    ? (currentSong.duration - lv.currentTime) * bpmAdjustToAlpha(currentSong.bpmAdjust ?? 0)
-    : Infinity;
-  const finalCountdown = isPlaying && !!currentSong && secondsLeft <= 10 ? Math.max(0, Math.ceil(secondsLeft)) : null;
-  const progress = Math.max(0, Math.min(1, lv.songProgress));
 
   const starts: number[] = [];
   orderedSongs.reduce((acc, s) => { starts.push(acc); return acc + s.duration; }, 0);
+  const cols = 'grid-cols-[34px_1fr_48px_60px] sm:grid-cols-[34px_1fr_48px_48px_56px_60px]';
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div className="flex flex-col gap-2 p-3 border-b border-logic-border-dark bg-logic-bg">
+      <div className="console-face flex flex-col gap-2 p-3 border-b border-black">
         <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} />
 
         {onCreateAccount && (
           <button
             onClick={onCreateAccount}
-            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-logic-accent/10 border border-logic-accent/40 text-left hover:bg-logic-accent/20 transition-colors"
+            className="console-key flex items-center gap-3 px-3 py-2 text-left !font-sans"
           >
             <UserPlus size={16} className="text-logic-accent flex-shrink-0" />
             <div className="min-w-0">
-              <p className="text-xs font-medium text-logic-text">Criar conta e manter minhas cifras</p>
-              <p className="text-2xs text-logic-text-muted truncate">Entre em qualquer aparelho, sem código.</p>
+              <p className="text-xs font-semibold text-logic-text">Criar conta e manter minhas cifras</p>
+              <p className="text-2xs font-normal text-logic-text-muted truncate">Entre em qualquer aparelho, sem código.</p>
             </div>
           </button>
         )}
 
-        <div className={`logic-lcd px-3 py-2 flex flex-col gap-2.5 transition-shadow duration-300 ${finalCountdown !== null ? 'shadow-[0_0_0_1px_rgba(255,69,58,0.5),0_0_18px_rgba(255,69,58,0.18)]' : ''}`}>
-          <div>
-            <NowNextBlock
-              label="Tocando"
-              badge={finalCountdown !== null ? `Restam ${finalCountdown}s` : undefined}
-              name={currentSong && live?.sliceName ? live.sliceName : currentSong?.name}
-              medley={currentSong && live?.sliceName ? currentSong.name : undefined}
-              active={isPlaying && !!currentSong}
-              color="#30d158"
-              meta={isPlaying ? bpmText(currentSong) : ''}
-            />
-            <div className="mt-1.5 h-1 rounded-full bg-black/40 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-[width] duration-200 ${finalCountdown !== null ? 'bg-logic-lcd-red' : 'bg-logic-lcd-green'}`}
-                style={{ width: `${isPlaying ? progress * 100 : 0}%` }}
-              />
-            </div>
-          </div>
-          <NowNextBlock
-            label="Próxima"
-            name={isPlaying && currentSong && live?.nextSliceName ? live.nextSliceName : hasNext ? nextSong?.name : undefined}
-            medley={isPlaying && currentSong && live?.nextSliceName ? currentSong.name : undefined}
-            active={hasNext || (isPlaying && !!live?.nextSliceName)}
-            color="#ff9f0a"
-            meta={hasNext ? bpmText(nextSong) : ''}
-          />
-        </div>
+        <NowNextDisplays lv={lv} live={live} currentSong={currentSong} nextSong={hasNext ? nextSong : null} />
       </div>
 
-      <div className="flex-1 overflow-y-auto logic-scroll">
-        <div className="sticky top-0 z-10 grid grid-cols-[28px_1fr_56px_64px] sm:grid-cols-[28px_1fr_56px_48px_56px_64px] gap-2 px-3 h-7 items-center bg-logic-bg-deep border-b border-logic-border-dark text-2xs uppercase tracking-wider text-logic-text-muted">
+      <div className="flex-1 overflow-y-auto logic-scroll bg-logic-bg-panel">
+        <div className={`console-rail console-legend sticky top-0 z-10 grid ${cols} gap-2 px-3 h-7 items-center`}>
           <span>#</span>
           <span>Música</span>
           <span className="text-right">BPM</span>
@@ -109,28 +183,56 @@ export default function LivePanel({
           const isNext = isPlaying && live?.nextSongId === song.id;
           const isSelected = selectedSongId === song.id;
           const hasSheet = sheets.some((s) => s.song_id === song.id);
+          const medley = isMedleySong(song);
           return (
+            <div key={song.id}>
             <button
-              key={song.id}
-              className={`relative w-full grid grid-cols-[28px_1fr_56px_64px] sm:grid-cols-[28px_1fr_56px_48px_56px_64px] gap-2 px-3 h-11 items-center text-left border-b border-logic-border-dark transition-colors duration-100
-                ${isCurrent ? 'bg-logic-lcd-green/10' : isNext ? 'bg-logic-lcd-amber/10' : 'hover:bg-logic-bg-panel-light'}
-                ${isSelected ? 'shadow-[inset_3px_0_0_#0a84ff]' : ''}`}
+              className={`cue-row relative w-full grid ${cols} gap-2 px-3 h-11 items-center text-left border-b border-black/60
+                ${isCurrent ? 'is-current' : isNext ? 'is-next' : isSelected ? 'is-selected' : ''}`}
               onClick={() => onSelectSong(song.id)}
             >
-              <span className="text-2xs font-mono text-logic-text-muted">{i + 1}</span>
+              <span className="flex items-center gap-1.5">
+                <span className={`console-led flex-shrink-0 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
+                <span className="font-stage text-[12px] tabular-nums text-logic-text-muted">{i + 1}</span>
+              </span>
               <span className="flex items-center gap-1.5 min-w-0">
-                <span className={`text-sm font-semibold truncate ${isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : 'text-logic-text'}`}>
+                <span className={`text-sm font-semibold truncate ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : 'text-logic-text'}`}>
                   {song.name}
                 </span>
                 {hasSheet && <PenLine size={12} className="text-logic-accent flex-shrink-0" />}
               </span>
-              <span className="text-xs font-mono text-right text-logic-text-dim tabular-nums">{bpmText(song) || '-'}</span>
-              <span className={`text-xs font-mono text-right hidden sm:block ${song.tuner ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`}>{toneText(song.tuner)}</span>
-              <span className="text-xs font-mono text-right text-logic-text hidden sm:block tabular-nums">{formatTime(song.duration)}</span>
-              <span className="text-xs font-mono text-right text-logic-text-muted tabular-nums">
+              <span className="font-stage text-[13px] text-right text-logic-text-dim tabular-nums">{bpmText(song) || '-'}</span>
+              <span className={`font-stage text-[13px] text-right hidden sm:block ${song.tuner ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`} title={song.tuner ? `Tuner ${song.tuner > 0 ? '+' : ''}${song.tuner}` : undefined}>{songKeyLabel(song) || toneText(song.tuner)}</span>
+              <span className="font-stage text-[13px] font-semibold text-right text-logic-text hidden sm:block tabular-nums">{formatTime(song.duration)}</span>
+              <span className="font-stage text-[13px] text-right text-logic-text-muted tabular-nums">
                 {isNext && live ? formatTime(lv.nextSongCountdown) : formatTime(starts[i])}
               </span>
             </button>
+            {medley && song.parts!.map((part, j) => {
+              const key = partKey(song.id, part.id);
+              const partNow = isCurrent && livePartId === part.id;
+              const skipped = part.enabled === false;
+              return (
+                <button
+                  key={key}
+                  onClick={() => onSelectSong(key)}
+                  title={`Caderno de "${part.name}": cole a cifra, escreva, faça a partitura ou importe a foto desta parte`}
+                  className={`cue-row relative w-full grid ${cols} gap-2 px-3 h-9 items-center text-left border-b border-black/40 bg-black/20
+                    ${partNow ? 'is-current' : selectedSongId === key ? 'is-selected' : ''} ${skipped ? 'opacity-50' : ''}`}
+                >
+                  <span className="font-stage text-[11px] tabular-nums text-logic-text-muted text-right pr-1">{i + 1}.{j + 1}</span>
+                  <span className="col-span-1 sm:col-span-3 flex items-center gap-1.5 min-w-0 pl-2 border-l border-logic-border-light">
+                    {partNow && <span className="console-led is-on-green flex-shrink-0" />}
+                    <span className={`text-xs truncate ${partNow ? 'text-logic-lcd-green font-semibold console-glow' : 'text-logic-text-dim'}`}>{part.name}</span>
+                    {skipped && <span className="text-[10px] text-logic-text-muted flex-shrink-0">pulada</span>}
+                    {sheets.some((s) => s.song_id === key) && <PenLine size={11} className="text-logic-accent flex-shrink-0" />}
+                  </span>
+                  <span className="font-stage text-[12px] text-right text-logic-text-muted tabular-nums">{formatTime(part.end - part.start)}</span>
+                  <span className="font-stage text-[12px] text-right text-logic-text-muted tabular-nums">{formatTime(starts[i] + part.start)}</span>
+                </button>
+              );
+            })}
+            </div>
           );
         })}
         {orderedSongs.length === 0 && (
@@ -141,35 +243,10 @@ export default function LivePanel({
   );
 }
 
-function NowNextBlock({ label, name, active, color, meta, badge, medley }: {
-  label: string; name: string | undefined; active: boolean; color: string; meta: string; badge?: string; medley?: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider" style={{ color: active ? color : '#666' }}>
-          {label}
-          {medley && <span className="px-1 rounded-[3px] border border-current text-[9px] leading-[12px] tracking-[0.14em] opacity-80">MEDLEY</span>}
-        </span>
-        {meta && <span className="text-xs font-mono tabular-nums text-logic-text-dim">{meta} <span className="text-logic-text-muted">BPM</span></span>}
-      </div>
-      <div className="flex items-center gap-2 min-w-0">
-        <span key={name ?? ''} className="flex-1 min-w-0 block text-lg font-semibold tracking-tight truncate animate-[fadeIn_250ms_ease-out]" style={{ color: active ? color : '#555' }}>{name ?? '---'}</span>
-        {badge && (
-          <span className="shrink-0 px-2 py-0.5 rounded-md bg-logic-lcd-red/15 border border-logic-lcd-red/50 text-xs font-semibold uppercase tracking-wider text-logic-lcd-red tabular-nums animate-pulse" role="timer" aria-live="polite">
-            {badge}
-          </span>
-        )}
-      </div>
-      {medley && <p className="text-xs text-logic-text-dim truncate">{medley}</p>}
-    </div>
-  );
-}
-
-function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isPlaying: boolean; paused: boolean }) {
+export function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isPlaying: boolean; paused: boolean }) {
   if (status === 'ended') {
     return (
-      <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-logic-bg-panel border border-logic-border-light">
+      <div className="console-display flex items-center gap-3 px-3 py-2">
         <WifiOff size={16} className="text-logic-text-muted flex-shrink-0" />
         <div className="min-w-0">
           <p className="text-xs font-medium text-logic-text">O diretor encerrou o envio</p>
@@ -180,7 +257,7 @@ function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isP
   }
   if (status === 'nosignal') {
     return (
-      <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-logic-lcd-red/10 border border-logic-lcd-red/40">
+      <div className="console-display flex items-center gap-3 px-3 py-2 !border-logic-lcd-red/60">
         <WifiOff size={16} className="text-logic-lcd-red flex-shrink-0" />
         <div className="min-w-0">
           <p className="text-xs font-medium text-logic-lcd-red">Sem sinal do diretor</p>
@@ -189,23 +266,13 @@ function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isP
       </div>
     );
   }
-  if (!isPlaying) {
-    return (
-      <div className="flex items-center gap-2 px-1">
-        <Radio size={14} className="text-logic-lcd-green flex-shrink-0" />
-        <p className="text-xs text-logic-text-dim">
-          {paused ? 'Música pausada pelo diretor' : 'Ao vivo — aguardando o diretor dar o play'}
-        </p>
-      </div>
-    );
-  }
+  // lâmpada "no ar" como a do programa: acesa (vermelha) enquanto o diretor toca
   return (
     <div className="flex items-center gap-2 px-1">
-      <span className="relative flex h-2 w-2">
-        <span className="absolute inline-flex h-full w-full rounded-full bg-logic-lcd-green opacity-60 animate-ping" />
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-logic-lcd-green" />
-      </span>
-      <span className="text-2xs uppercase tracking-wider text-logic-lcd-green">Ao vivo</span>
+      <span className={`console-lamp flex-shrink-0 ${isPlaying ? 'is-on' : ''}`} />
+      <p className={`font-stage text-[13px] font-semibold tracking-wide ${isPlaying ? 'text-logic-text' : 'text-logic-text-dim'}`}>
+        {isPlaying ? 'Ao vivo' : paused ? 'Música pausada pelo diretor' : 'Ao vivo, aguardando o diretor dar o play'}
+      </p>
     </div>
   );
 }

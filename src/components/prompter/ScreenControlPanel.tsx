@@ -1,9 +1,10 @@
 import { useRef } from 'react';
 import {
   MonitorOff, FlipHorizontal, Image as ImageIcon, ChevronLeft, ChevronRight, RotateCcw, FileText, Clock, Timer,
-  ListMusic, Megaphone, PlayCircle,
+  ListMusic, Megaphone, PlayCircle, QrCode, AlertTriangle,
 } from 'lucide-react';
 import StageScreen from '@/components/prompter/StageScreen';
+import ProducerLogoUpload from '@/components/prompter/ProducerLogoUpload';
 import QuickNotices from '@/components/prompter/QuickNotices';
 import type { PrompterSnapshot, PrompterState, ScreenToggles } from '@/lib/prompterTypes';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
@@ -17,6 +18,8 @@ const TOGGLES: { id: keyof ScreenToggles; label: string; icon: typeof Clock }[] 
   { id: 'playlist', label: 'Playlist lateral', icon: ListMusic },
   { id: 'notices', label: 'Avisos', icon: Megaphone },
   { id: 'logo', label: 'Logo da banda/artista', icon: ImageIcon },
+  { id: 'logoCorner', label: 'Logo no canto (sempre)', icon: ImageIcon },
+  { id: 'joinQr', label: 'QR code dos músicos (Rede Local)', icon: QrCode },
 ];
 
 function toLocalInput(iso: string | null): string {
@@ -47,7 +50,8 @@ function Switch({ on }: { on: boolean }) {
   );
 }
 
-export default function ScreenControlPanel({ snap, sync, now, state, update, logoUrl, onManageNotices }: {
+export default function ScreenControlPanel({ code, snap, sync, now, state, update, logoUrl, onManageNotices }: {
+  code: string;
   snap: PrompterSnapshot;
   sync: { lagMs: number; receivedAt: number };
   now: number;
@@ -149,6 +153,10 @@ export default function ScreenControlPanel({ snap, sync, now, state, update, log
           </div>
         </Section>
 
+        <Section title="Logo">
+          <ProducerLogoUpload code={code} logoUrl={logoUrl} />
+        </Section>
+
         <Section
           title="Avisos prontos"
           aside={<button onClick={onManageNotices} className="text-xs text-logic-text-muted hover:text-logic-text transition-colors">Gerenciar</button>}
@@ -158,6 +166,12 @@ export default function ScreenControlPanel({ snap, sync, now, state, update, log
 
         <Section title="Tempo de Show">
           <p className="text-xs text-logic-text-dim mb-3 leading-relaxed">Antes do show, a tela conta quanto falta para começar. Depois, quanto tempo de show ainda resta.</p>
+          {!state.showStartAt && state.toggles.showTime && (
+            <p className="flex items-start gap-1.5 text-xs text-logic-lcd-amber mb-3 leading-relaxed">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+              <span>O visor está na TV zerado. Preencha o início abaixo ou toque em "Começar a contar agora".</span>
+            </p>
+          )}
           <div className="grid grid-cols-[minmax(0,1fr)_110px] gap-2">
             <label className="text-xs text-logic-text-dim">
               Início

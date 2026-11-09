@@ -2,7 +2,9 @@ import { useSyncExternalStore } from 'react';
 
 // Endereço publicado do VS Stage na internet. Os links enviados para celulares usam este endereço
 // quando o programa está aberto no app do Mac ou na visualização do editor, que só existem nesta máquina.
-const DEFAULT_PUBLIC_ADDRESS = 'https://vsstage-pro-showonline.bolt.host/';
+const DEFAULT_PUBLIC_ADDRESS = 'https://vsstagepro.com.br/';
+// Endereços antigos que saíram do ar: um salvo no computador não pode continuar valendo.
+const RETIRED_ADDRESSES = /\.bolt\.host\b/i;
 const STORAGE_KEY = 'vs-public-app-url-v2';
 const CHANGE_EVENT = 'vs-public-app-url-change';
 
@@ -19,7 +21,10 @@ export function isPrivateOrigin(): boolean {
 }
 
 function savedPublicAddress(): string | null {
-  try { return localStorage.getItem(STORAGE_KEY); } catch { return null; }
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved && !RETIRED_ADDRESSES.test(saved) ? saved : null;
+  } catch { return null; }
 }
 
 function baseUrl(): string {

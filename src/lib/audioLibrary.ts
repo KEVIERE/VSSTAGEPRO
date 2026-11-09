@@ -141,6 +141,12 @@ export function putClipAudio(clipId: string, songId: string, audio: ClipAudio) {
   entryFor(clipId, songId).buffer = audio;
 }
 
+/** Solta do RAM só o buffer decodificado; mantém a referência ao arquivo para reabrir depois. */
+export function releaseClipAudio(clipId: string) {
+  const entry = entries.get(clipId);
+  if (entry?.source && !retained.has(entry.songId) && !loading.has(entry.songId)) entry.buffer = null;
+}
+
 export function getClipSource(clipId: string): Blob | null {
   return entries.get(clipId)?.source ?? null;
 }
@@ -220,7 +226,16 @@ function classifyFailure(err: unknown): LoadFailure {
   return 'memory';
 }
 
+const clearListeners = new Set<() => void>();
+
+/** Avisado quando a biblioteca é esvaziada (projeto aberto ou novo): quem guarda áudio solta o seu. */
+export function onAudioLibraryCleared(fn: () => void): () => void {
+  clearListeners.add(fn);
+  return () => clearListeners.delete(fn);
+}
+
 export function clearAudioLibrary() {
+  clearListeners.forEach((fn) => { try { fn(); } catch (err) { console.warn('[audioLibrary] limpeza', err); } });
   entries.clear();
   songLoads.clear();
   loading.clear();
@@ -328,15 +343,13 @@ export function retainSongs(songIds: Array<string | null | undefined>, options?:
   else trimToBudget();
 }
 
-/** Carrega uma música só durante uma tarefa (salvar, exportar) e libera depois. */
+/** Protege a música durante a exportação; cada clipe abre sob demanda e é liberado após renderizar. */
 export async function withSongAudio<T>(songId: string, fn: () => Promise<T>): Promise<T> {
-  retainSongs([songId]);
-  await ensureSongLoaded(songId);
   try {
     return await fn();
   } finally {
     for (const e of entries.values()) {
-      if (e.songId === songId) e.buffer = null;
+      if (e.songId === songId && e.source && !isProtected(songId)) e.buffer = null;
     }
   }
 }

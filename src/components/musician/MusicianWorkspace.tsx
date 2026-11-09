@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Maximize2, Minimize2, Music, PenLine, Radio, X } from 'lucide-react';
+import { Maximize2, Minimize2, MonitorPlay, PenLine, Radio, X } from 'lucide-react';
 import LivePanel from '@/components/musician/LivePanel';
 import SheetPanel from '@/components/musician/SheetPanel';
+import StageView from '@/components/musician/StageView';
+import { ProfilePhotoButton } from '@/components/musician/MusicianAvatar';
+import { currentPart, liveSheetKey, resolveKey } from '@/lib/medleySheets';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import type { MusicianState, SetlistSong, SheetBackend, SheetInfo } from '@/lib/musicianTypes';
 
 const SPLIT_LS = 'vs_musician_split';
+const STAGE_LS = 'vs_musician_stage';
 const HINT_LS = 'vs_musician_notebook_hint';
 const TICK_MS = 250;
 const WIDE_QUERY = '(min-width: 768px)';
@@ -55,7 +59,7 @@ function usePanelFocus() {
 }
 
 export default function MusicianWorkspace({
-  state, sync, sheets, backend, onSheetsChanged, onCreateAccount, status, logoutLabel, onLogout,
+  state, sync, sheets, backend, onSheetsChanged, onCreateAccount, status, onLogout,
 }: {
   state: MusicianState;
   sync: { lagMs: number; receivedAt: number };
@@ -65,10 +69,15 @@ export default function MusicianWorkspace({
   onCreateAccount: (() => void) | null;
   /** Shown in the middle of the top bar, e.g. the show name or the connection state. */
   status: ReactNode;
-  logoutLabel: string;
   onLogout: () => void;
 }) {
   const [now, setNow] = useState(Date.now());
+  const [photoMsg, setPhotoMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (!photoMsg) return;
+    const t = setTimeout(() => setPhotoMsg(null), 3500);
+    return () => clearTimeout(t);
+  }, [photoMsg]);
   const shownTimeRef = useRef<{ songId: string | null; t: number }>({ songId: null, t: 0 });
   const [follow, setFollow] = useState(true);
   const [pinnedSongId, setPinnedSongId] = useState<string | null>(null);
@@ -80,6 +89,9 @@ export default function MusicianWorkspace({
   });
   const splitRef = useRef<HTMLDivElement>(null);
   const wide = useIsWide();
+  // Modo Show: só os displays Tocando/Próxima em cima e a partitura (ou foto dela) da música no ar embaixo
+  const [stage, setStage] = useState(() => { try { return localStorage.getItem(STAGE_LS) === '1'; } catch { return false; } });
+  const saveStage = (on: boolean) => { setStage(on); try { localStorage.setItem(STAGE_LS, on ? '1' : '0'); } catch { /* conveniência */ } };
   const { focus, enter: enterFocus, exit: exitFocus } = usePanelFocus();
 
   useEffect(() => {
@@ -116,8 +128,12 @@ export default function MusicianWorkspace({
     live?.currentSongId ?? null, shownTimeRef.current, currentSong?.duration,
   );
 
-  const sheetSongId = (follow ? (live?.currentSongId ?? pinnedSongId) : pinnedSongId) ?? orderedSongs[0]?.id ?? null;
-  const sheetSong = sheetSongId ? songMap.get(sheetSongId) : undefined;
+  // Num medley, o caderno no ar é o da parte tocando (cada parte tem o seu).
+  const livePart = currentPart(currentSong, live, lv.currentTime);
+  const liveKey = live?.currentSongId ? liveSheetKey(currentSong, live, lv.currentTime, sheets) ?? live.currentSongId : null;
+  const sheetSongId = (follow ? (liveKey ?? pinnedSongId) : pinnedSongId) ?? orderedSongs[0]?.id ?? null;
+  const { song: sheetSong, part: sheetPart } = resolveKey(songMap, sheetSongId);
+  const sheetName = sheetPart ? `${sheetPart.name} (${sheetSong?.name ?? 'medley'})` : sheetSong?.name ?? '';
 
   const dismissHint = () => {
     setShowHint(false);
@@ -131,7 +147,7 @@ export default function MusicianWorkspace({
 
   const selectSong = (id: string) => {
     setPinnedSongId(id);
-    setFollow(id === live?.currentSongId);
+    setFollow(id === liveKey);
     openTab('sheet');
     if (focus === 'live') enterFocus('sheet');
   };
@@ -144,35 +160,53 @@ export default function MusicianWorkspace({
   const livePanel = (
     <LivePanel
       lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
-      orderedSongs={orderedSongs} sheets={sheets} selectedSongId={sheetSongId}
+      orderedSongs={orderedSongs} sheets={sheets} selectedSongId={sheetSongId} livePartId={livePart?.id ?? null}
       onSelectSong={selectSong} onCreateAccount={onCreateAccount}
     />
   );
   const sheetPanel = (
     <SheetPanel
-      backend={backend} songId={sheetSongId ?? null} songName={sheetSong?.name ?? ''}
+      backend={backend} songId={sheetSongId ?? null} songName={sheetName}
       sheet={sheets.find((s) => s.song_id === sheetSongId)}
       follow={follow} onToggleFollow={toggleFollow} onSheetsChanged={onSheetsChanged}
-      liveSongId={live?.currentSongId ?? null} liveSongName={currentSong?.name ?? null}
+      liveSongId={liveKey} liveSongName={livePart ? `${livePart.name} (${currentSong?.name ?? 'medley'})` : currentSong?.name ?? null}
     />
   );
 
   return (
-    <div className="flex flex-col bg-logic-bg-deep" style={{ height: '100%' }}>
-      <div className="flex items-center justify-between gap-3 px-4 py-2 bg-logic-bg-panel border-b border-logic-border-dark">
+    <div className="relative flex flex-col bg-logic-bg-deep" style={{ height: '100%' }}>
+      {photoMsg && (
+        <div
+          role="status"
+          className="absolute left-1/2 top-12 z-50 -translate-x-1/2 max-w-[90%] px-3 py-2 rounded-lg console-face border border-black text-[13px] text-logic-text shadow-xl animate-[fadeIn_150ms_ease-out]"
+        >
+          {photoMsg}
+        </div>
+      )}
+      <div className="console-rail flex items-center justify-between gap-3 px-3 py-1.5">
         <div className="flex items-center gap-2 min-w-0">
-          <Music size={16} className="text-logic-lcd-green flex-shrink-0" />
-          <div className="min-w-0">
-            <span className="text-sm font-semibold text-logic-text truncate block">{state.musician.name}</span>
-            {state.musician.instrument && <span className="text-2xs text-logic-text-muted">{state.musician.instrument}</span>}
+          {/* foto de perfil: o diretor musical vê a mesma foto no programa */}
+          <ProfilePhotoButton backend={backend} name={state.musician.name} onMessage={setPhotoMsg} onLogout={onLogout} />
+          {/* nome do músico na fita crepe, como o nome do canal na mesa */}
+          <div className="min-w-0 flex items-center gap-2">
+            <span className="console-tape px-2 py-1 !text-[12px] truncate max-w-[160px]">{state.musician.name}</span>
+            {state.musician.instrument && <span className="console-legend truncate hidden sm:block">{state.musician.instrument}</span>}
           </div>
         </div>
         <div className="min-w-0 hidden lg:block">{status}</div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
-          {focus ? (
+          <button
+            onClick={() => { if (focus) exitFocus(); saveStage(!stage); }}
+            className={`console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px] ${stage ? 'is-lit-green' : ''}`}
+            title={stage ? 'Voltar para playlist e caderno' : 'Modo show: os displays Tocando e Próxima em cima e a sua partitura da música no ar embaixo'}
+            aria-pressed={stage}
+          >
+            <MonitorPlay size={14} /> <span className="hidden sm:inline">Modo show</span>
+          </button>
+          {stage ? null : focus ? (
             <button
               onClick={exitFocus}
-              className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-logic-accent/15 border border-logic-accent/50 text-xs font-medium text-logic-accent hover:bg-logic-accent/25 transition-colors"
+              className="console-key is-lit-blue flex items-center gap-1.5 h-8 px-3 text-[13px]"
               title="Voltar ao normal (Esc)"
             >
               <Minimize2 size={14} /> <span className="hidden sm:inline">Recolher</span>
@@ -182,20 +216,23 @@ export default function MusicianWorkspace({
               <button
                 key={p}
                 onClick={() => enterFocus(p)}
-                className="flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-logic-border-light text-xs text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-panel-light transition-colors"
+                className="console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px]"
                 title={`Expandir ${PANEL_LABELS[p]} para tela inteira`}
               >
                 <Maximize2 size={13} /> <span className="hidden sm:inline">{wide ? (p === 'live' ? 'Playlist' : 'Partitura') : 'Tela inteira'}</span>
               </button>
             ))
           )}
-          <button className="ml-1.5 text-2xs text-logic-text-muted hover:text-logic-lcd-red transition-colors" onClick={onLogout}>
-            {logoutLabel}
-          </button>
         </div>
       </div>
 
-      {focus ? (
+      {stage ? (
+        <StageView
+          lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
+          backend={backend} sheets={sheets} onSheetsChanged={onSheetsChanged}
+          onEdit={(id) => { saveStage(false); setPinnedSongId(id); setFollow(id === liveKey); openTab('sheet'); }}
+        />
+      ) : focus ? (
         <div key={focus} className="flex-1 min-h-0 flex flex-col overflow-hidden animate-[fadeIn_200ms_ease-out]">
           {focus === 'live' ? livePanel : sheetPanel}
         </div>
@@ -205,14 +242,14 @@ export default function MusicianWorkspace({
           <div
             onPointerDown={startDrag}
             title="Arraste para ajustar"
-            className="w-1.5 flex-shrink-0 cursor-col-resize bg-logic-border-dark hover:bg-logic-accent/60 active:bg-logic-accent transition-colors"
+            className="w-1.5 flex-shrink-0 cursor-col-resize bg-black hover:bg-logic-accent/60 active:bg-logic-accent transition-colors"
           />
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">{sheetPanel}</div>
         </div>
       ) : (
         <>
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{mobileTab === 'live' ? livePanel : sheetPanel}</div>
-          <div className="relative flex items-center justify-around px-2 py-1.5 bg-logic-bg-panel border-t border-logic-border-dark">
+          <div className="console-rail relative flex items-center justify-around gap-2 px-2 py-1.5 border-t border-black">
             {showHint && mobileTab === 'live' && (
               <div className="absolute bottom-full right-3 mb-2 max-w-[240px] flex items-start gap-2 pl-3 pr-1.5 py-2 rounded-lg bg-logic-accent text-white shadow-2xl animate-[fadeIn_200ms_ease-out]">
                 <p className="text-xs leading-snug">
@@ -227,10 +264,10 @@ export default function MusicianWorkspace({
               <button
                 key={id}
                 onClick={() => openTab(id)}
-                className={`relative flex flex-col items-center gap-0.5 px-6 py-1 rounded transition-colors ${mobileTab === id ? 'text-logic-accent' : 'text-logic-text-muted hover:text-logic-text'}`}
+                className={`console-key relative flex-1 flex flex-col items-center gap-0.5 px-6 py-1 ${mobileTab === id ? 'is-lit-blue' : ''}`}
               >
                 <Icon size={20} />
-                <span className="text-2xs">{label}</span>
+                <span className="text-[11px]">{label}</span>
                 {id === 'sheet' && showHint && mobileTab !== 'sheet' && (
                   <span className="absolute top-0.5 right-5 w-2 h-2 rounded-full bg-logic-accent animate-pulse" />
                 )}

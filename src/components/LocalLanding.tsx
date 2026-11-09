@@ -13,7 +13,7 @@ export default function LocalLanding() {
         <div className="flex items-center gap-2 text-logic-text-dim text-xs mb-3">
           <Wifi size={14} className="text-logic-lcd-green" /> Rede local do palco
         </div>
-        <h1 className="text-2xl font-semibold text-logic-text">VS Stage</h1>
+        <h1 className="vs-brand text-2xl text-logic-text">VS Stage</h1>
         <p className="text-sm text-logic-text-dim mt-2 mb-6 leading-relaxed">Escolha como você vai usar este aparelho no show.</p>
         <div className="space-y-3">
           {OPTIONS.map(({ hash, label, hint, icon: Icon, tone }) => (

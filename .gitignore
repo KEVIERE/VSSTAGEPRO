@@ -11,6 +11,9 @@ dist
 dist-ssr
 *.local
 desktop/build-info.json
+# Bytecode do Python embutido (drumsep): gerado na máquina, não vai para o repositório
+__pycache__/
+*.pyc
 
 .vscode/*
 !.vscode/extensions.json
@@ -31,3 +34,17 @@ desktop/build-info.json
 desktop/ai-engine/*
 !desktop/ai-engine/.gitkeep
 
+# Motor de voz do Maestro IA (programa vs-maestro-voz + vozes), gerado por desktop/scripts/prepareMaestroVoice.sh
+desktop/maestro-voice-engine/*
+!desktop/maestro-voice-engine/.gitkeep
+
+# Build do programa de voz do Maestro IA (desktop/scripts/buildMaestroVoiceHelper.sh)
+desktop/maestro-voice-helper/build/
+desktop/maestro-voice-helper/.build/
+desktop/maestro-voice-helper/.swiftpm/
+
+# Vídeo de divulgação: os quadros intermediários e o áudio gerado não vão para o repositório
+# (repare com: node marketing/video/render.mjs --todos --out quadros)
+marketing/video/quadros/
+marketing/video/narracao/*.mp3
+marketing/video/.chrome/

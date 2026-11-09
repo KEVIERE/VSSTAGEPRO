@@ -1,0 +1,50 @@
+<!-- Modelo "Confirme seu novo e-mail". Variáveis: {{ .ConfirmationURL }}, {{ .NewEmail }} -->
+<!-- Estilo em supabase/functions/_shared/emailSkin.ts (mesma pele do e-mail em massa). -->
+<div style="background-color:#111316;padding:26px 12px;margin:0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
+             style="width:100%;max-width:480px;background-color:#1b1e22;border:1px solid #0b0d0f;border-radius:5px;overflow:hidden;">
+
+                <!-- Topo: o console do programa com a marca (imagem gerada por scripts/gerar-topo-email.mjs) -->
+        <tr>
+          <td colspan="2" style="padding:0;background-color:#1b1e22;font-size:0;line-height:0;" align="center">
+            <img src="https://vsstagepro.com.br/email-topo.jpg" alt="VS Stage Pro — console com as faixas do show" width="960" height="360" style="display:block;width:100%;max-width:960px;height:auto;border:0;" />
+          </td>
+        </tr>
+
+        <tr>
+          <!-- Faixa do acento: a cor diz o tipo de mensagem -->
+          <td width="3" style="width:3px;background-color:#ffab1f;font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:26px 26px 4px;background-color:#1b1e22;" align="left">
+            <h1 style="margin:0 0 10px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:1.35;color:#e7e2d6;font-weight:600;">Confirme seu novo e-mail</h1>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.62;color:#a7a297;">Você pediu para trocar o e-mail da sua conta para <strong style="color:#e7e2d6;font-weight:600;">{{ .NewEmail }}</strong>. Confirme abaixo para concluir a troca.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 20px;">
+              <tr><td align="center" style="border-radius:4px;background-color:#ffab1f;border:1px solid #c8850f;border-bottom-width:2px;">
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#1a1204;text-decoration:none;">Confirmar novo e-mail</a>
+              </td></tr>
+            </table>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+              <tr><td style="padding:10px 12px;background-color:#0c0e0d;border:1px solid #000;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;color:#d8d3c6;word-break:break-all;"><span style="color:#6f6c66;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;">Se o botão não abrir, copie este endereço:</span><br />{{ .ConfirmationURL }}</td></tr>
+            </table>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6c66;">O link vale por 24 horas.</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td colspan="2" style="padding:0;background-color:#1b1e22;height:1px;" height="1">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="height:1px;line-height:1px;font-size:0;background-color:#0b0d0f;"></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td width="3" style="width:3px;background-color:#ffab1f;font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:18px 26px 22px;background-color:#1b1e22;" align="left">
+            <p style="margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6c66;">Não foi você quem pediu? Ignore este e-mail: seu e-mail continua o mesmo.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</div>

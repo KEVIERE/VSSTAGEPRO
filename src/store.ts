@@ -5,13 +5,17 @@ import { computeNextSongId } from '@/lib/playFlow';
 import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
+  MaestroNarration,
 } from '@/types';
-import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipSource, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
+import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
+import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
+import { TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { normalizePages } from '@/lib/prompterTypes';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
-import type { SnapStep } from '@/lib/grid';
+import { moveTempoChange, tempoChangeIndex, type SnapStep } from '@/lib/grid';
+import { MAESTRO_IA_TRACK_ID, sortedNarrations } from '@/lib/narrations';
 
 export interface InstantPrep {
   done: number;
@@ -21,7 +25,8 @@ export interface InstantPrep {
   failed?: number;
 }
 import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switchShow, syncedShows } from '@/lib/shows';
-import { isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
+import { applyHeaders, autoBlockName, blockHeaders, orderBlocks, resolveBlocks } from '@/lib/blocks';
+import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
   if (song.regions) return song.markers ? { ...song, markers: undefined } : song;
@@ -73,7 +78,10 @@ interface ProjectStateExt {
   queuedRegion: { songId: string; regionId: string } | null;
   sectionKeys: boolean;
   saveTarget: SaveTarget | null;
+  audioInterfaceConnected: boolean;
   saveStatus: { kind: 'saving' | 'saved' | 'error'; message: string } | null;
+  /** Como o projeto estava no último salvamento ou abertura (null: projeto novo, nunca salvo). */
+  savedSnapshot: ProjectSnapshot | null;
   snapStep: SnapStep;
   /** Trava da timeline (cadeado): impede mover ou cortar clipes acidentalmente */
   timelineLocked: boolean;
@@ -111,6 +119,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   sectionKeys: localStorage.getItem('sectionKeys') === '1',
   saveTarget: null,
   saveStatus: null,
+  savedSnapshot: null,
   snapStep: 'beat',
   timelineLocked: false,
   recordingMaestro: null,
@@ -149,12 +158,18 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   trackHeaderWidth: 220,
   importProgress: null,
   lrMasterActive: false,
+  levelMatch: false,
+  levelMatchDb: TARGET_DB_DEFAULT,
+  songLoudness: {},
+  songKeys: {},
   dawMode: true,
   audioInterface: 'default',
+  audioInterfaceConnected: false,
   showBpmTower: false,
   showTunerTower: false,
   exportProgress: null,
   masterVolume: 0.8,
+  masterAntiClip: false,
   masterMeterLevel: 0,
   masterClipPeak: 0,
   playbackError: null,
@@ -182,7 +197,8 @@ interface StoreActions {
   setTrackColor: (trackId: string, color: string) => void;
   renameTrack: (trackId: string, name: string) => void;
   moveTrackToFolder: (trackId: string, targetFolderId: string | null) => void;
-  setOutputChannel: (trackId: string, channel: number) => void;
+  /** stereo = usa o par N/N+1 da interface em vez da saída mono N */
+  setOutputChannel: (trackId: string, channel: number, stereo?: boolean) => void;
   toggleFaderLock: (trackId: string) => void;
   setTrackHeight: (trackId: string, height: number) => void;
   setOutputChannelCount: (count: number) => void;
@@ -236,6 +252,8 @@ interface StoreActions {
   toggleClipSolo: (clipId: string) => void;
   setClipFade: (clipId: string, patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }) => void;
   normalizeClip: (clipId: string, targetDb: number) => void;
+  /** Normaliza a faixa inteira: todos os clipes dela, em todas as músicas. */
+  normalizeTrack: (trackId: string, targetDb: number) => void;
   addSong: (song: Song) => void;
   updateSong: (songId: string, updates: Partial<Song>) => void;
   removeSong: (songId: string) => void;
@@ -246,9 +264,22 @@ interface StoreActions {
   setTempoAt: (songId: string, atTime: number, bpm: number) => void;
   /** Remove a mudança de andamento manual mais próxima deste ponto, voltando o trecho ao segmento anterior. */
   removeTempoAt: (songId: string, atTime: number) => void;
+  /** Leva a mudança de andamento mais perto de `fromTime` para `toTime` (arrastar a plaquinha amarela). */
+  moveTempoAt: (songId: string, fromTime: number, toTime: number) => void;
   addSongRegion: (songId: string, region: SongRegion) => boolean;
   updateSongRegion: (songId: string, regionId: string, updates: Partial<Omit<SongRegion, 'id'>>) => void;
   removeSongRegion: (songId: string, regionId: string) => void;
+  /** Marcação de fala do Maestro por IA (texto, voz, intervalo na música). */
+  addNarration: (songId: string, narration: MaestroNarration) => void;
+  updateNarration: (songId: string, narrationId: string, patch: Partial<MaestroNarration>) => void;
+  removeNarration: (songId: string, narrationId: string) => void;
+  /** Coloca o áudio gerado da fala na faixa (tira o antigo) e atualiza a marcação, num passo só. */
+  setNarrationAudio: (songId: string, narrationId: string, clip: AudioClip, patch: Partial<MaestroNarration>) => void;
+  /**
+   * Subfaixa "Maestro IA" dentro do Maestro, onde ficam os áudios das falas geradas.
+   * Cria na primeira vez e devolve o id.
+   */
+  ensureMaestroIaTrack: () => string;
   placeSongRegions: (songId: string, layout: RegionLayout) => void;
   setSongLoading: (songId: string, loading: boolean) => void;
   setSongIncomplete: (songId: string, incomplete: boolean) => void;
@@ -270,14 +301,20 @@ interface StoreActions {
   toggleMagicRouting: () => void;
   toggleDawMode: () => void;
   setAudioInterface: (iface: string) => void;
+  /** A placa desejada está plugada agora? (só estado da tela, não vai para o .vss) */
+  setAudioInterfaceConnected: (connected: boolean) => void;
   updateMeter: (trackId: string, level: number) => void;
   updateMasterMeter: (level: number) => void;
   clearMasterClipIndicator: () => void;
   setPlaybackError: (message: string | null) => void;
-  applyAntiClipMaster: () => void;
+  toggleMasterAntiClip: () => void;
   setMasterVolume: (volume: number) => void;
   clearClipIndicator: (trackId: string) => void;
-  applyAntiClip: (trackId: string) => void;
+  setLevelMatch: (on: boolean) => void;
+  /** Alvo do "volume igual" em LUFS, escolhido pelo usuário. */
+  setLevelMatchDb: (db: number) => void;
+  setSongLoudness: (songId: string, value: import('@/types').SongLoudness) => void;
+  setSongDetectedKey: (songId: string, value: { key: string; sig: string }) => void;
   setPreparingParams: (v: { done: number; total: number } | null) => void;
 
   setVolumeDb: (trackId: string, dbChange: number) => void;
@@ -294,12 +331,22 @@ interface StoreActions {
   applyLoadedProject: (manifest: Partial<ProjectState>, sources: Map<string, Blob>, target?: SaveTarget) => void;
   setSaveTarget: (target: SaveTarget | null) => void;
   setSaveStatus: (status: ProjectStateExt['saveStatus']) => void;
+  /** Marca o projeto como salvo, do jeito que estava em `from` (o estado que foi gravado no arquivo). */
+  markProjectSaved: (from?: Store) => void;
   setSnapStep: (step: SnapStep) => void;
 }
 
 export type Store = ProjectState & ProjectStateExt & StoreActions;
 
-export const HISTORY_LIMIT = Number.POSITIVE_INFINITY;
+/**
+ * Quantas ações o Desfazer guarda.
+ *
+ * Antes era infinito e cada ação guarda uma cópia do projeto inteiro (faixas, clipes,
+ * músicas, blocos). Medido num show de 40 músicas com 600 clipes: 83 KB por ação. Depois de
+ * uma tarde editando, passava de 200 MB só de histórico, e o programa ia ficando lento até
+ * travar. 300 ações cobrem um show inteiro com folga (o LyricsEditor usa 200 para as letras).
+ */
+export const HISTORY_LIMIT = 300;
 
 let entrySeq = 0;
 function newEntryId(): string {
@@ -326,6 +373,35 @@ function normalizePlaylist(playlist: PlaylistEntry[], order: string[]): { playli
   return { playlist: fixed, playlistOrder: fixed.map((p) => p.songId) };
 }
 
+// A playlist na ordem em que aparece na tela.
+function orderedPlaylist(s: Pick<ProjectState, 'playlist' | 'playlistOrder'>): PlaylistEntry[] {
+  const rank = new Map(s.playlistOrder.map((id, i) => [id, i]));
+  return [...s.playlist].sort((a, b) => (rank.get(a.songId) ?? a.order) - (rank.get(b.songId) ?? b.order));
+}
+
+// Cada música guarda também o bloco a que pertence (usado pela área do músico).
+function songsWithBlocks(songs: Song[], playlist: PlaylistEntry[]): Song[] {
+  const blockOf = new Map(playlist.map((p) => [p.songId, p.blockId]));
+  const differs = (sg: Song) => blockOf.has(sg.id) && (sg.blockId ?? null) !== (blockOf.get(sg.id) ?? null);
+  return songs.some(differs) ? songs.map((sg) => (differs(sg) ? { ...sg, blockId: blockOf.get(sg.id) ?? null } : sg)) : songs;
+}
+
+// Depois de mexer na playlist ou nos blocos: cada música fica no bloco do cabeçalho logo acima,
+// e os blocos ficam na ordem da lista, renumerados ("Bloco 01", "Bloco 02"...) pela posição.
+function withBlocks(
+  s: Pick<ProjectState, 'songs' | 'blocks'>,
+  playlist: PlaylistEntry[],
+  headers?: Map<string, string>,
+): Pick<ProjectState, 'playlist' | 'playlistOrder' | 'songs' | 'blocks'> {
+  const resolved = headers ? applyHeaders(playlist, headers) : resolveBlocks(playlist);
+  return {
+    playlist: resolved,
+    playlistOrder: resolved.map((p) => p.songId),
+    songs: songsWithBlocks(s.songs, resolved),
+    blocks: orderBlocks(s.blocks, resolved),
+  };
+}
+
 // Só o que o usuário edita entra no Desfazer; cursor, medidores e preferências de tela ficam de fora.
 export function partializeHistory(state: Store) {
   return {
@@ -341,6 +417,13 @@ export function partializeHistory(state: Store) {
     defaultPlaylist: state.defaultPlaylist,
     timelineOrder: state.timelineOrder,
     lrMasterActive: state.lrMasterActive,
+    // também desfazem: fader master, anti-clip do master, LR mágico (com os pans de antes dele) e volume igual
+    masterVolume: state.masterVolume,
+    masterAntiClip: state.masterAntiClip,
+    magicRoutingActive: state.magicRoutingActive,
+    prevOutputChannels: state.prevOutputChannels,
+    levelMatch: state.levelMatch,
+    levelMatchDb: state.levelMatchDb,
   };
 }
 
@@ -373,6 +456,43 @@ export function historyEqual(a: HistoryState, b: HistoryState): boolean {
     }
   }
   return true;
+}
+
+// Aviso de "alteração não salva": compara o projeto com o do último salvamento. Vale o que entra
+// no Desfazer, mais os mapas de letra (o produtor pode mandá-los pela rede).
+export type ProjectSnapshot = { history: HistoryState; lyricMaps: ProjectState['lyricMaps'] };
+
+export function projectSnapshot(state: Store): ProjectSnapshot {
+  return { history: partializeHistory(state), lyricMaps: state.lyricMaps };
+}
+
+// Medidor e pico de clip mudam sozinhos tocando; uma faixa de projeto antigo pode nem ter esses campos.
+function sameSavedTracks(a: Track[], b: Track[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((x, i) => {
+    const y = b[i];
+    if (x === y) return true;
+    for (const k of Object.keys(x) as Array<keyof Track>) {
+      if (!TRANSIENT_TRACK_KEYS.has(k) && x[k] !== y[k]) return false;
+    }
+    for (const k of Object.keys(y) as Array<keyof Track>) {
+      if (!(k in x) && !TRANSIENT_TRACK_KEYS.has(k) && y[k] !== undefined) return false;
+    }
+    return true;
+  });
+}
+
+export function hasUnsavedChanges(state: Store): boolean {
+  const saved = state.savedSnapshot;
+  // projeto novo, nunca salvo: só tem o que perder depois de entrar alguma música
+  if (!saved) return state.songs.length > 0 || state.clips.length > 0;
+  if (state.lyricMaps !== saved.lyricMaps) return true;
+  const now = partializeHistory(state);
+  for (const key of Object.keys(now) as Array<keyof HistoryState>) {
+    if (key === 'tracks' ? !sameSavedTracks(now.tracks, saved.history.tracks) : now[key] !== saved.history[key]) return true;
+  }
+  return false;
 }
 
 export const useStore = create<Store>()(
@@ -480,7 +600,14 @@ export const useStore = create<Store>()(
 
       toggleMute: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, mute: !t.mute } : t) })),
       toggleSolo: (trackId) => set((s) => isTimecodeTrackId(trackId) ? s : ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, solo: !t.solo } : t) })),
-      toggleAntiClip: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, antiClip: !t.antiClip } : t) })),
+      // Anti-clip do canal: liga/desliga o limitador de pico em -0,1 dBFS (audioEngine). Ao ligar,
+      // apaga o indicador de clip: dali em diante o canal não passa do teto.
+      toggleAntiClip: (trackId) => set((s) => isTimecodeTrackId(trackId) ? s : ({
+        tracks: s.tracks.map((t) => {
+          if (t.id !== trackId) return t;
+          return t.antiClip ? { ...t, antiClip: false } : { ...t, antiClip: true, clipIndicator: false, clipPeak: 0 };
+        }),
+      })),
 
       setVolume: (trackId, volume) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked ? { ...t, volume: Math.max(0, Math.min(1.5, volume)) } : t) })),
       setPan: (trackId, pan) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, pan: Math.max(-1, Math.min(1, pan)) } : t) })),
@@ -509,15 +636,21 @@ export const useStore = create<Store>()(
           }),
         };
       }),
-      setOutputChannel: (trackId, channel) => set((s) => {
+      setOutputChannel: (trackId, channel, stereo = false) => set((s) => {
         const tc = s.tracks.find((t) => t.id === TIMECODE_TRACK_ID);
+        // Master e "Sem Saída" não têm par estéreo
+        const pair = stereo && channel > 0;
         if (isTimecodeTrackId(trackId)) {
-          // o sinal de timecode nunca vai para o Master nem divide saída com a música
+          // o sinal de timecode é mono, nunca vai para o Master nem divide saída com a música
+          if (pair) return s;
           if (channel !== NO_OUTPUT && (channel <= 0 || usedOutputs(s.tracks, trackId).has(channel))) return s;
-        } else if (channel === NO_OUTPUT || (tc && channel > 0 && tc.outputChannel === channel)) {
+        } else if (pair && !isPairStart(channel)) {
+          // pares estéreo só 1/2, 3/4, 5/6… (NO_OUTPUT = faixa desligada, não sai em lugar nenhum)
+          return s;
+        } else if (tc && tc.outputChannel > 0 && trackOutputs({ outputChannel: channel, outputStereo: pair }).includes(tc.outputChannel)) {
           return s;
         }
-        return { tracks: s.tracks.map((t) => t.id === trackId ? { ...t, outputChannel: channel } : t) };
+        return { tracks: s.tracks.map((t) => t.id === trackId ? { ...t, outputChannel: channel, outputStereo: pair } : t) };
       }),
       toggleFaderLock: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, faderLocked: !t.faderLocked } : t) })),
       // Altura individual da faixa (base 40px, antes do zoom vertical global ser aplicado).
@@ -605,11 +738,13 @@ export const useStore = create<Store>()(
 
       setSaveTarget: (target) => set({ saveTarget: target }),
       setSaveStatus: (status) => set({ saveStatus: status }),
+      markProjectSaved: (from) => set({ savedSnapshot: projectSnapshot(from ?? get()) }),
       setSnapStep: (step) => set({ snapStep: step }),
 
       applyLoadedProject: (manifest, sources, target) => {
         get().loadProject(manifest);
-        set({ saveTarget: target ?? null });
+        // recém-aberto: igual ao arquivo, nada a salvar
+        set({ saveTarget: target ?? null, savedSnapshot: projectSnapshot(get()) });
         for (const c of get().clips) {
           const src = sources.get(c.id);
           if (src) registerClipSource(c.id, c.songId, src);
@@ -618,17 +753,25 @@ export const useStore = create<Store>()(
 
       newProject: () => {
         clearAudioLibrary();
-        set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })) });
+        // as saídas são da placa conectada, não do projeto
+        set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })), outputChannelCount: get().outputChannelCount });
       },
 
       loadProject: (data) => {
         clearAudioLibrary();
         const tracks = data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t }));
-        const songs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
+        const loadedSongs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
+        // projetos antigos podiam ter uma música no meio de um bloco apontando para o bloco de cima
+        const { playlist: loadedPlaylist, playlistOrder: loadedOrder, songs, blocks } = withBlocks(
+          { songs: loadedSongs, blocks: data.blocks ?? [] },
+          normalizePlaylist(data.playlist ?? [], data.playlistOrder ?? []).playlist,
+        );
         set({
           ...INITIAL_STATE,
           ...data,
-          ...normalizePlaylist(data.playlist ?? [], data.playlistOrder ?? []),
+          playlist: loadedPlaylist,
+          playlistOrder: loadedOrder,
+          blocks,
           songs,
           tracks,
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
@@ -637,12 +780,28 @@ export const useStore = create<Store>()(
           defaultPlaylist: null,
           queuedRegion: null,
           transport: { ...INITIAL_STATE.transport },
+          // as saídas são da placa conectada, não do projeto
+          outputChannelCount: get().outputChannelCount,
         });
         if (data.activeShowId) {
           const patch = switchShow(get(), data.activeShowId);
-          if (patch) set(patch);
+          if (patch?.playlist) set({ ...patch, ...withBlocks(get(), patch.playlist) });
+          else if (patch) set(patch);
         }
-        get().reconcileTracks();
+        // Não reconcilia ao abrir: a reconciliação reconstrói as faixas filhas e recria as saídas
+        // (outputChannel) a partir do padrão, apagando o roteamento salvo do projeto.
+        // Abrir um projeto com roteamento salvo também sai do "LR mágico", que manda tudo para o Master.
+        if (get().magicRoutingActive) {
+          const prevPans = get().prevOutputChannels;
+          set({
+            magicRoutingActive: false,
+            prevOutputChannels: null,
+            tracks: get().tracks.map((t) => {
+              const prevPan = prevPans?.[t.id];
+              return prevPan === undefined ? t : { ...t, pan: prevPan };
+            }),
+          });
+        }
       },
 
       addToPlaylist: (songId, name, duration, bpm) => set((s) => ({
@@ -653,33 +812,63 @@ export const useStore = create<Store>()(
         } : {}),
       })),
 
-      removeFromPlaylist: (songId) => set((s) => ({
-        playlist: s.playlist.filter((p) => p.songId !== songId).map((p, i) => ({ ...p, order: i })),
-        playlistOrder: s.playlistOrder.filter((id) => id !== songId),
-      })),
+      // se a música removida era a primeira do bloco, a de baixo vira o cabeçalho
+      removeFromPlaylist: (songId) => set((s) => {
+        const { playlist, playlistOrder, blocks } = withBlocks(s, resolveBlocks(orderedPlaylist(s)).filter((p) => p.songId !== songId));
+        return { playlist, playlistOrder, blocks };
+      }),
 
       duplicatePlaylistEntry: (songId) => {
         const state = get();
         const entry = state.playlist.find((p) => p.songId === songId);
         if (!entry) return;
         const newSongId = `song-dup-${newEntryId()}`;
-        const song = state.songs.find((s) => s.id === songId);
-        if (song) {
-          set((s) => ({
-            songs: [...s.songs, { ...song, id: newSongId }],
-            playlist: [...s.playlist, { ...entry, id: newEntryId(), songId: newSongId, order: s.playlist.length }],
-            playlistOrder: [...s.playlistOrder, newSongId],
-          }));
+        const song = state.songs.find((sg) => sg.id === songId);
+        if (!song) return;
+        // Duplica os clipes e registra as fontes de áudio; sem isso o motor não encontra
+        // o arquivo e a música duplicada falha ao tocar com erro de saída de áudio.
+        const originalClips = state.clips.filter((c) => c.songId === songId);
+        const clipIdMap = new Map<string, string>();
+        for (const c of originalClips) clipIdMap.set(c.id, `clip-dup-${newEntryId()}`);
+        const duplicatedClips = originalClips.map((c) => ({ ...c, id: clipIdMap.get(c.id)!, songId: newSongId }));
+        for (const orig of originalClips) {
+          const src = getClipSource(orig.id);
+          const newId = clipIdMap.get(orig.id);
+          if (src && newId) registerClipSource(newId, newSongId, src);
         }
+        // as falas do Maestro por IA da cópia apontam para os áudios copiados, não para os da original
+        const narrations = song.narrations?.map((n) => ({
+          ...n,
+          id: `${n.id}-dup-${newEntryId()}`,
+          clipId: n.clipId ? clipIdMap.get(n.clipId) : undefined,
+        }));
+        set((s) => {
+          // nome "(cópia)" também serve para o projeto salvo não misturar as pastas das duas músicas
+          const copySong: Song = { ...song, id: newSongId, name: `${song.name} (cópia)`, clips: duplicatedClips.map((c) => c.id), narrations };
+          const copyEntry: PlaylistEntry = { ...entry, id: newEntryId(), songId: newSongId, name: `${entry.name} (cópia)` };
+          // a cópia entra logo abaixo da original (no mesmo bloco), não no fim da playlist
+          const ordered = resolveBlocks(orderedPlaylist(s));
+          const at = ordered.findIndex((p) => p.songId === songId);
+          const next = at < 0 ? [...ordered, copyEntry] : [...ordered.slice(0, at + 1), copyEntry, ...ordered.slice(at + 1)];
+          const copyOf = <T,>(map: Record<string, T> | undefined) => (map?.[songId] !== undefined ? { ...map, [newSongId]: map[songId] } : map);
+          return {
+            ...withBlocks({ songs: [...s.songs, copySong], blocks: s.blocks }, next),
+            clips: [...s.clips, ...duplicatedClips],
+            // mesma medida de volume, tom e letra: a cópia não precisa ser analisada de novo
+            songLoudness: copyOf(s.songLoudness),
+            songKeys: copyOf(s.songKeys),
+            lyricMaps: copyOf(s.lyricMaps) ?? s.lyricMaps,
+            selectedSongId: newSongId,
+          };
+        });
       },
 
       reorderPlaylist: (fromIndex, toIndex) => set((s) => {
-        const arr = [...s.playlist];
+        const arr = resolveBlocks(orderedPlaylist(s));
         const [moved] = arr.splice(fromIndex, 1);
         if (!moved) return s;
         arr.splice(toIndex, 0, moved);
-        const playlist = arr.map((p, i) => ({ ...p, order: i }));
-        return { playlist, playlistOrder: playlist.map((p) => p.songId) };
+        return withBlocks(s, arr);
       }),
 
       createShow: (name, songIds) => {
@@ -712,7 +901,11 @@ export const useStore = create<Store>()(
         return { ...patch, shows: (patch?.shows ?? s.shows).filter((sh) => sh.id !== id) };
       }),
 
-      activateShow: (id) => set((s) => switchShow(s, id) ?? s),
+      activateShow: (id) => set((s) => {
+        const patch = switchShow(s, id);
+        if (!patch?.playlist) return s;
+        return { ...patch, ...withBlocks({ songs: s.songs, blocks: s.blocks }, patch.playlist) };
+      }),
 
       addClip: (clip) => set((s) => {
         const target = s.tracks.find((t) => t.id === clip.trackId);
@@ -961,20 +1154,106 @@ export const useStore = create<Store>()(
       // Mede o pico real do áudio já decodificado (sem redecodificar) e ajusta o ganho
       // do clipe para esse pico bater exatamente no dB pedido — igual ao Anti-Clip das
       // faixas, mas por clipe: nunca reescreve o áudio, só o multiplicador.
+      // Normaliza pelo pico real (entre amostras) do trecho que toca — com os cortes do clipe —
+      // e abre o áudio do disco se ele não estiver na memória (antes não fazia nada nesse caso).
       normalizeClip: (clipId, targetDb) => {
-        const audio = getClipAudio(clipId);
-        if (!audio) return;
-        let peak = 0;
-        for (const channel of audio.channels) {
-          for (let i = 0; i < channel.length; i++) {
-            const abs = Math.abs(channel[i]) / 32767;
-            if (abs > peak) peak = abs;
+        const clip = get().clips.find((c) => c.id === clipId);
+        if (!clip) return;
+        const notice = (status: 'working' | 'done' | 'error', message: string) => {
+          get().setImportProgress({ clipId: 'normalize', status, message } as ImportProgress);
+          if (status !== 'working') setTimeout(() => { if (get().importProgress?.clipId === 'normalize') get().setImportProgress(null); }, 3500);
+        };
+        notice('working', `Normalizando "${clip.name}"...`);
+        void (async () => {
+          try {
+            let audio = getClipPlayAudio(clip);
+            if (!audio) {
+              const src = getClipSource(clip.id);
+              if (!src) throw new Error('o arquivo deste clipe não foi encontrado');
+              const full = await openClipAudio(clip.songId, clip.id, src);
+              putClipAudio(clip.id, clip.songId, full);
+              audio = getClipPlayAudio(clip);
+            }
+            if (!audio) throw new Error('o áudio não pôde ser lido');
+            const peak = truePeak(audio.channels);
+            if (peak <= 0) { notice('error', `"${clip.name}" está em silêncio: não há o que normalizar.`); return; }
+            const wanted = dbToGain(targetDb) / peak;
+            const MAX_GAIN = dbToGain(24);
+            const gain = Math.min(MAX_GAIN, wanted);
+            set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+            const db = gainToDb(gain);
+            notice('done', wanted > MAX_GAIN
+              ? `"${clip.name}": ganho de +24 dB (máximo); o pico ficou em ${gainToDb(peak * gain).toFixed(1)} dBTP.`
+              : `"${clip.name}" normalizado: pico em ${targetDb.toFixed(1)} dBTP (${db >= 0 ? '+' : ''}${db.toFixed(1)} dB).`);
+          } catch (err) {
+            notice('error', `Não consegui normalizar "${clip.name}": ${err instanceof Error ? err.message : String(err)}.`);
           }
+        })();
+      },
+
+      // Normaliza a faixa inteira: todos os clipes dela, em todas as músicas do projeto.
+      // No VS as faixas de instrumento são pastas: os clipes ficam nas subfaixas de dentro,
+      // então a pasta inclui os clipes das filhas.
+      // Cada clipe recebe o próprio ganho para o pico bater no dB pedido (mesma conta do
+      // normalizeClip); clipes em silêncio e arquivos que não abrem são só contados.
+      normalizeTrack: (trackId, targetDb) => {
+        const allTracks = get().tracks;
+        const track = allTracks.find((t) => t.id === trackId);
+        if (!track) return;
+        const ids = new Set<string>([trackId]);
+        const collect = (id: string) => {
+          const t = allTracks.find((x) => x.id === id);
+          for (const childId of t?.children ?? []) {
+            if (ids.has(childId)) continue;
+            ids.add(childId);
+            collect(childId);
+          }
+        };
+        collect(trackId);
+        const clipIds = get().clips.filter((c) => ids.has(c.trackId)).map((c) => c.id);
+        if (clipIds.length === 0) {
+          get().setImportProgress({ clipId: 'normalize', status: 'error', message: `A faixa "${track.name}" não tem clipes para normalizar.` } as ImportProgress);
+          setTimeout(() => { if (get().importProgress?.clipId === 'normalize') get().setImportProgress(null); }, 3500);
+          return;
         }
-        if (peak <= 0) return;
-        const targetLinear = Math.pow(10, targetDb / 20);
-        const gain = Math.max(0, Math.min(4, targetLinear / peak));
-        set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+        const notice = (status: 'working' | 'done' | 'error', message: string) => {
+          get().setImportProgress({ clipId: 'normalize', status, message } as ImportProgress);
+          if (status !== 'working') setTimeout(() => { if (get().importProgress?.clipId === 'normalize') get().setImportProgress(null); }, 3500);
+        };
+        notice('working', `Normalizando a faixa "${track.name}" (${clipIds.length} clipe${clipIds.length === 1 ? '' : 's'})...`);
+        void (async () => {
+          const MAX_GAIN = dbToGain(24);
+          let done = 0;
+          let silent = 0;
+          const failed: string[] = [];
+          for (const clipId of clipIds) {
+            // busca o clipe a cada volta: a faixa pode ter mudado enquanto normalizava
+            const clip = get().clips.find((c) => c.id === clipId);
+            if (!clip) continue;
+            try {
+              let audio = getClipPlayAudio(clip);
+              if (!audio) {
+                const src = getClipSource(clip.id);
+                if (!src) throw new Error('arquivo não encontrado');
+                const full = await openClipAudio(clip.songId, clip.id, src);
+                putClipAudio(clip.id, clip.songId, full);
+                audio = getClipPlayAudio(clip);
+              }
+              if (!audio) throw new Error('áudio não pôde ser lido');
+              const peak = truePeak(audio.channels);
+              if (peak <= 0) { silent++; continue; }
+              const gain = Math.min(MAX_GAIN, dbToGain(targetDb) / peak);
+              set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, gain } : c) }));
+              done++;
+            } catch {
+              failed.push(clip.name);
+            }
+          }
+          const parts = [`${done} de ${clipIds.length} clipe${clipIds.length === 1 ? '' : 's'} normalizado${done === 1 ? '' : 's'} com pico em ${targetDb.toFixed(1)} dB na faixa "${track.name}"`];
+          if (silent > 0) parts.push(`${silent} em silêncio`);
+          if (failed.length > 0) parts.push(`${failed.length} sem áudio (${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '...' : ''})`);
+          notice(done > 0 ? 'done' : 'error', `${parts.join('; ')}.`);
+        })();
       },
 
       addSong: (song) => set((s) => ({ songs: [...s.songs, song] })),
@@ -1054,6 +1333,14 @@ export const useStore = create<Store>()(
         };
       }),
 
+      moveTempoAt: (songId, fromTime, toTime) => set((s) => {
+        const song = s.songs.find((sg) => sg.id === songId);
+        const index = tempoChangeIndex(song?.tempoSegments, fromTime);
+        if (!song?.tempoSegments || index < 1) return s;
+        const tempoSegments = moveTempoChange(song.tempoSegments, index, toTime);
+        return { songs: s.songs.map((sg) => (sg.id === songId ? { ...sg, tempoSegments } : sg)) };
+      }),
+
       addSongRegion: (songId, region) => {
         const song = get().songs.find((sg) => sg.id === songId);
         if (!song) return false;
@@ -1096,6 +1383,77 @@ export const useStore = create<Store>()(
         queuedRegion: s.queuedRegion?.regionId === regionId ? null : s.queuedRegion,
       })),
       setQueuedRegion: (queued) => set({ queuedRegion: queued }),
+
+      // Marcações de fala do Maestro por IA: ficam na música, em ordem de início.
+      addNarration: (songId, narration) => set((s) => ({
+        songs: s.songs.map((sg) => sg.id === songId
+          ? { ...sg, narrations: sortedNarrations([...(sg.narrations ?? []), narration]) }
+          : sg),
+      })),
+      updateNarration: (songId, narrationId, patch) => set((s) => {
+        // Mudou de lugar na música? O áudio gerado vai junto (marcação arrastada = fala
+        // arrastada), no mesmo passo do desfazer.
+        const before = s.songs.find((sg) => sg.id === songId)?.narrations?.find((n) => n.id === narrationId);
+        if (!before) return s;
+        const moveClip = patch.start !== undefined && before.clipId && Math.abs(patch.start - before.start) > 1e-4
+          ? { id: before.clipId, startTime: Math.max(0, patch.start) }
+          : null;
+        return {
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, narrations: sortedNarrations((sg.narrations ?? []).map((n) => (n.id === narrationId ? { ...n, ...patch } : n))) }
+            : sg),
+          ...(moveClip ? { clips: s.clips.map((c) => (c.id === moveClip.id ? { ...c, startTime: moveClip.startTime } : c)) } : {}),
+        };
+      }),
+      removeNarration: (songId, narrationId) => set((s) => {
+        const n = s.songs.find((sg) => sg.id === songId)?.narrations?.find((x) => x.id === narrationId);
+        if (!n) return s;
+        // o clipe gerado sai junto: o áudio da fala não pode ficar tocando na faixa Maestro
+        return {
+          clips: n.clipId ? s.clips.filter((c) => c.id !== n.clipId) : s.clips,
+          selectedClipIds: n.clipId ? s.selectedClipIds.filter((id) => id !== n.clipId) : s.selectedClipIds,
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, narrations: (sg.narrations ?? []).filter((x) => x.id !== narrationId) }
+            : sg),
+        };
+      }),
+      setNarrationAudio: (songId, narrationId, clip, patch) => set((s) => {
+        const n = s.songs.find((sg) => sg.id === songId)?.narrations?.find((x) => x.id === narrationId);
+        if (!n) return s;
+        // troca o áudio antigo pelo novo e marca a fala como pronta, num passo só do desfazer
+        return {
+          clips: [...s.clips.filter((c) => c.id !== n.clipId), clip],
+          selectedClipIds: n.clipId ? s.selectedClipIds.filter((id) => id !== n.clipId) : s.selectedClipIds,
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, narrations: (sg.narrations ?? []).map((x) => (x.id === narrationId ? { ...x, ...patch, clipId: clip.id } : x)) }
+            : sg),
+        };
+      }),
+
+      ensureMaestroIaTrack: () => {
+        const existing = get().tracks.find((t) => t.id === MAESTRO_IA_TRACK_ID);
+        if (existing) return existing.id;
+        const maestro = get().tracks.find((t) => t.id === 'track-maestro');
+        // projeto sem a faixa Maestro (muito antigo): a fala vai direto na faixa de mesmo id
+        if (!maestro) return 'track-maestro';
+        // Subfaixa do Maestro: toca pelo canal dele (mesma saída e fader), não muda de tom com a
+        // música e vai para o lado L no LR mágico. Uma só para todas as falas e músicas.
+        const lane: Track = {
+          id: MAESTRO_IA_TRACK_ID, name: 'Maestro IA', type: 'audio', color: '#38bdf8',
+          volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
+          isSubgroup: false, parentId: maestro.id, children: [], height: 40,
+          visible: true, outputChannel: maestro.outputChannel, meterLevel: 0, clipIndicator: false, clipPeak: 0,
+        };
+        set((s) => ({
+          tracks: [
+            ...s.tracks.map((t) => (t.id === maestro.id && !t.children.includes(MAESTRO_IA_TRACK_ID)
+              ? { ...t, children: [...t.children, MAESTRO_IA_TRACK_ID] }
+              : t)),
+            lane,
+          ],
+        }));
+        return MAESTRO_IA_TRACK_ID;
+      },
       updateMedleyPart: (songId, partId, patch) => set((s) => ({
         songs: s.songs.map((sg) => sg.id !== songId || !sg.medley ? sg : {
           ...sg,
@@ -1121,33 +1479,30 @@ export const useStore = create<Store>()(
         return { incompleteSongIds: incomplete ? [...s.incompleteSongIds, songId] : s.incompleteSongIds.filter((id) => id !== songId) };
       }),
 
-      createBlock: (afterSongId) => {
-        if (!afterSongId) return;
-        const existing = get().blocks;
-        const used = new Set<number>();
-        for (const b of existing) {
-          const m = b.name.match(/Bloco\s+0*(\d+)/i);
-          if (m) used.add(parseInt(m[1], 10));
-        }
-        let blockNum = 1;
-        while (used.has(blockNum)) blockNum++;
-        const id = `block-${Date.now()}`;
-        const name = `Bloco ${blockNum.toString().padStart(2, '0')}`;
-        set((s) => {
-          const blocks = [...s.blocks, { id, name, color: '#ffffff', order: s.blocks.length }];
-          const songs = s.songs.map((sg) => sg.id === afterSongId ? { ...sg, blockId: id } : sg);
-          const playlist = s.playlist.map((p) => p.songId === afterSongId ? { ...p, blockId: id } : p);
-          return { blocks, songs, playlist };
-        });
-      },
+      // O bloco novo começa na música escolhida e vale para as de baixo até o próximo bloco.
+      createBlock: (afterSongId) => set((s) => {
+        if (!afterSongId) return s;
+        const playlist = resolveBlocks(orderedPlaylist(s));
+        if (!playlist.some((p) => p.songId === afterSongId)) return s;
+        const headers = blockHeaders(playlist);
+        // um clique repetido (comum em Mac mais lento) não cria um segundo bloco na mesma música
+        for (const songId of headers.values()) if (songId === afterSongId) return s;
+        const id = `block-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        headers.set(id, afterSongId);
+        const blocks = [...s.blocks, { id, name: autoBlockName(s.blocks.length + 1), color: '#ffffff', order: s.blocks.length }];
+        return withBlocks({ songs: s.songs, blocks }, playlist, headers);
+      }),
 
       renameBlock: (blockId, name) => set((s) => ({ blocks: s.blocks.map((b) => b.id === blockId ? { ...b, name } : b) })),
       setBlockColor: (blockId, color) => set((s) => ({ blocks: s.blocks.map((b) => b.id === blockId ? { ...b, color } : b) })),
-      deleteBlock: (blockId) => set((s) => ({
-        blocks: s.blocks.filter((b) => b.id !== blockId),
-        playlist: s.playlist.map((p) => p.blockId === blockId ? { ...p, blockId: null } : p),
-        songs: s.songs.map((sg) => sg.blockId === blockId ? { ...sg, blockId: null } : sg),
-      })),
+      // Sem o cabeçalho, as músicas dele passam a fazer parte do bloco de cima.
+      deleteBlock: (blockId) => set((s) => {
+        const playlist = resolveBlocks(orderedPlaylist(s));
+        const headers = blockHeaders(playlist);
+        headers.delete(blockId);
+        const out = withBlocks({ songs: s.songs, blocks: s.blocks.filter((b) => b.id !== blockId) }, playlist, headers);
+        return { ...out, songs: out.songs.map((sg) => (sg.blockId === blockId ? { ...sg, blockId: null } : sg)) };
+      }),
       moveBlock: (blockId, toIndex) => set((s) => {
         const arr = [...s.blocks];
         const idx = arr.findIndex((b) => b.id === blockId);
@@ -1156,48 +1511,36 @@ export const useStore = create<Store>()(
         arr.splice(toIndex, 0, moved);
         return { blocks: arr.map((b, i) => ({ ...b, order: i })) };
       }),
-      // move a marcação (cabeçalho) de um bloco para antes de uma música qualquer —
-      // modelo divisória: o bloco rege as músicas abaixo dele até o próximo cabeçalho
+      // Move o cabeçalho de um bloco para antes de uma música qualquer (modelo divisória):
+      // o bloco passa a valer dali para baixo e os tempos e números dos blocos se ajustam.
       moveBlockTo: (blockId, beforeSongId) => set((s) => {
-        const blockForSong = new Map<string, string>();
-        for (const id of s.playlistOrder) {
-          const e = s.playlist.find((p) => p.songId === id);
-          if (e?.blockId && !blockForSong.has(e.blockId)) blockForSong.set(e.blockId, id);
+        const playlist = resolveBlocks(orderedPlaylist(s));
+        // soltar depois da última música deixaria o bloco vazio: não muda nada
+        if (!beforeSongId || !playlist.some((p) => p.songId === beforeSongId)) return s;
+        const headers = blockHeaders(playlist);
+        const from = headers.get(blockId);
+        if (from === beforeSongId) return s;
+        // outro bloco já começa nessa música: os dois trocam de lugar
+        for (const [otherId, songId] of headers) {
+          if (otherId === blockId || songId !== beforeSongId) continue;
+          if (!from) return s;
+          headers.set(otherId, from);
         }
-        blockForSong.delete(blockId);
-        if (beforeSongId && s.playlistOrder.includes(beforeSongId)) {
-          blockForSong.set(blockId, beforeSongId);
-        }
-        const songToBlock = new Map<string, string>();
-        blockForSong.forEach((songId, blkId) => songToBlock.set(songId, blkId));
-        let active: string | null = null;
-        const resolved: Record<string, string | null> = {};
-        for (const sid of s.playlistOrder) {
-          if (songToBlock.has(sid)) active = songToBlock.get(sid)!;
-          resolved[sid] = active;
-        }
-        const playlist = s.playlist
-          .map((p) => ({ ...p, blockId: resolved[p.songId] ?? null }))
-          .sort((a, b) => s.playlistOrder.indexOf(a.songId) - s.playlistOrder.indexOf(b.songId))
-          .map((p, i) => ({ ...p, order: i }));
-        const songs2 = s.songs.map((sg) => (resolved[sg.id] !== undefined ? { ...sg, blockId: resolved[sg.id] ?? null } : sg));
-        return { playlist, songs: songs2 };
+        headers.set(blockId, beforeSongId);
+        return withBlocks(s, playlist, headers);
       }),
 
       // insere uma música em qualquer posição da playlist, atribuindo (ou removendo) o bloco
       moveSongTo: (songId, beforeSongId, blockId) => set((s) => {
-        const order = s.playlistOrder.filter((id) => id !== songId);
-        let idx = beforeSongId ? order.indexOf(beforeSongId) : order.length;
-        if (idx === -1) idx = order.length;
-        order.splice(idx, 0, songId);
-        const playlist = order
-          .map((sid, i) => {
-            const entry = s.playlist.find((p) => p.songId === sid);
-            if (!entry) return null;
-            return { ...entry, order: i, blockId: sid === songId ? blockId : entry.blockId };
-          })
-          .filter(Boolean) as typeof s.playlist;
-        return { playlistOrder: order, playlist };
+        const current = resolveBlocks(orderedPlaylist(s));
+        const moving = current.find((p) => p.songId === songId);
+        if (!moving) return s;
+        // se a música que saiu era a primeira do bloco, a de baixo vira o cabeçalho
+        const rest = current.filter((p) => p.songId !== songId);
+        let idx = beforeSongId ? rest.findIndex((p) => p.songId === beforeSongId) : rest.length;
+        if (idx === -1) idx = rest.length;
+        rest.splice(idx, 0, { ...moving, blockId });
+        return withBlocks(s, rest);
       }),
 
       assignSongToBlock: (songId, blockId) => set((s) => ({
@@ -1232,7 +1575,8 @@ export const useStore = create<Store>()(
           })),
         };
       }),
-      setAudioInterface: (iface) => set({ audioInterface: iface }),
+      setAudioInterface: (iface) => set({ audioInterface: iface, audioInterfaceConnected: iface !== 'default' }),
+      setAudioInterfaceConnected: (connected) => set((s) => (s.audioInterfaceConnected === connected ? s : { audioInterfaceConnected: connected })),
 
       updateMeter: (trackId, level) => set((s) => ({
         tracks: s.tracks.map((t) => {
@@ -1261,25 +1605,20 @@ export const useStore = create<Store>()(
       setPlaybackError: (message) => set({ playbackError: message }),
 
       setMasterVolume: (volume) => set({ masterVolume: Math.max(0, Math.min(1.5, volume)) }),
+      setLevelMatch: (on) => set({ levelMatch: on }),
+      setLevelMatchDb: (db) => {
+        if (!Number.isFinite(db)) return;
+        set({ levelMatchDb: Math.max(TARGET_DB_MIN, Math.min(TARGET_DB_MAX, db)) });
+      },
+      setSongLoudness: (songId, value) => set((s) => ({ songLoudness: { ...(s.songLoudness ?? {}), [songId]: value } })),
+      setSongDetectedKey: (songId, value) => set((s) => ({ songKeys: { ...(s.songKeys ?? {}), [songId]: value } })),
       setPreparingParams: (v) => set({ preparingParams: v }),
 
-      applyAntiClipMaster: () => set((s) => {
-        if (s.masterClipPeak < 1) return s;
-        // baixa o fader master só o necessário para o pico memorizado ficar a -0,2 dB do clipping
-        const safeCeiling = Math.pow(10, -0.2 / 20);
-        const newVol = Math.max(0, Math.min(1.5, s.masterVolume * (safeCeiling / s.masterClipPeak)));
-        return { masterVolume: newVol, masterClipPeak: 0, masterMeterLevel: 0 };
-      }),
-
-      applyAntiClip: (trackId) => set((s) => ({
-        tracks: s.tracks.map((t) => {
-          if (t.id !== trackId || t.clipPeak < 1 || t.faderLocked) return t;
-          // baixa o fader só o necessário para o pico memorizado ficar a -0,2 dB do clipping
-          const safeCeiling = Math.pow(10, -0.2 / 20);
-          const newVol = Math.max(0, Math.min(1.5, t.volume * (safeCeiling / t.clipPeak)));
-          return { ...t, volume: newVol, meterLevel: 0, clipIndicator: false, clipPeak: 0, antiClip: true };
-        }),
-      })),
+      // Anti-clip do master: o mesmo dos canais (limitador de pico em -0,1 dBFS, no audioEngine e
+      // na exportação). Ao ligar, apaga o indicador de clip: dali em diante o master não passa do teto.
+      toggleMasterAntiClip: () => set((s) => s.masterAntiClip
+        ? { masterAntiClip: false }
+        : { masterAntiClip: true, masterClipPeak: 0 }),
 
       setVolumeDb: (trackId, dbChange) => set((s) => ({
         tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked
@@ -1323,7 +1662,8 @@ export const useStore = create<Store>()(
         const parents = s.tracks.filter((t) => t.isSubgroup);
         const normalize = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
-        const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup);
+        // a faixa Maestro IA (falas geradas) fica como está, com os áudios dela
+        const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup || t.id === MAESTRO_IA_TRACK_ID);
         const prevChildByFullName = new Map<string, Track>();
         for (const t of s.tracks) {
           if (t.parentId && !t.isSubgroup) {
@@ -1336,7 +1676,7 @@ export const useStore = create<Store>()(
         type Dest = { target: RoutingTarget; display: string } | 'guia' | 'click' | 'maestro';
         const destByClip = new Map<string, Dest>();
         for (const clip of s.clips) {
-          if (isTimecodeTrackId(clip.trackId)) continue;
+          if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID) continue;
           if (clip.routingMethod === 'manual' && protectedIds.has(clip.trackId)) {
             destByClip.set(clip.id, clip.trackId === 'track-guia' ? 'guia' : clip.trackId === 'track-click' ? 'click' : 'maestro');
             continue;
@@ -1414,6 +1754,7 @@ export const useStore = create<Store>()(
               height: prev?.height ?? 40,
               visible: true,
               outputChannel: prev?.outputChannel ?? 0,
+              outputStereo: prev?.outputStereo,
               meterLevel: 0,
               clipIndicator: false,
               clipPeak: 0,

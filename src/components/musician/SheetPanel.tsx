@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { PenLine, Radio, Sparkles } from 'lucide-react';
+import { ClipboardPaste, ImagePlus, PenLine, Radio, Sparkles } from 'lucide-react';
+import { useImageImport } from './notebook/useImageImport';
 import type { SheetBackend, SheetInfo } from '@/lib/musicianTypes';
 import {
   INK_COLORS, MARKER_COLORS, linesFromLyrics, newLine, transposeDoc,
@@ -11,6 +12,8 @@ import NotebookPage from './notebook/NotebookPage';
 import { ChordDock, StaffDock, type NoteBrush } from './notebook/NotebookDocks';
 import { clampStep } from './notebook/StaffLine';
 import SharePane from './notebook/SharePane';
+import { splitKey } from '@/lib/medleySheets';
+import PasteChordsDialog from './notebook/PasteChordsDialog';
 
 const TOOLS_LS = 'vs_nb_tools';
 
@@ -51,6 +54,8 @@ export default function SheetPanel({
   const [selectedNote, setSelectedNote] = useState<string | null>(null);
   const [root, setRoot] = useState('C');
   const [quality, setQuality] = useState('');
+  const [bass, setBass] = useState<string | null>(null);
+  const [pasting, setPasting] = useState(false);
   const [brush, setBrush] = useState<NoteBrush>({ dur: 'q', rest: false, dot: false, acc: null });
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null);
   const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
@@ -63,6 +68,7 @@ export default function SheetPanel({
     setSelectedNote(null);
     setConfirm(null);
     setToast(null);
+    setPasting(false);
   }, [songId]);
 
   useEffect(() => {
@@ -85,6 +91,12 @@ export default function SheetPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [mode, undo, redo]);
 
+  // fotos da partitura escrita à mão ou da cifra impressa: entram abaixo da linha marcada
+  const images = useImageImport({
+    doc, update, afterId: selectedId,
+    onResult: (r) => { setToast(r); if (r.ok) setTool('type'); },
+  });
+
   const savePrefs = (patch: Partial<ToolPrefs>) => setPrefs((p) => {
     const next = { ...p, ...patch };
     localStorage.setItem(TOOLS_LS, JSON.stringify(next));
@@ -104,7 +116,7 @@ export default function SheetPanel({
   if (mode === 'share') return <SharePane backend={backend} sheetId={nb.sheetId} onBack={() => setMode('edit')} />;
 
   const selected = doc.lines.find((l) => l.id === selectedId) ?? null;
-  const activeChord = tool === 'type' && selected?.kind === 'chords' ? root + quality : null;
+  const activeChord = tool === 'type' && selected?.kind === 'chords' ? root + quality + (bass ? `/${bass}` : '') : null;
   const staff = tool === 'type' && selected?.kind === 'staff' && selected.mode === 'notes' ? selected : null;
   const staffNote = staff?.notes.find((n) => n.id === selectedNote) ?? null;
   const usedChords = [...new Set(doc.lines.flatMap((l) => (l.kind === 'chords' ? l.chords.map((c) => c.chord) : [])))].slice(0, 16);
@@ -127,7 +139,7 @@ export default function SheetPanel({
   const importLyrics = async () => {
     setImporting(true);
     try {
-      const texts = await backend.songLyrics(songId);
+      const texts = await backend.songLyrics(splitKey(songId).songId);
       const lines = linesFromLyrics(texts);
       if (!lines.length) {
         setToast({ ok: false, text: 'A letra desta música ainda não foi escrita no Teleprompter.' });
@@ -166,10 +178,25 @@ export default function SheetPanel({
   };
 
   const pickChord = (c: string) => {
-    const m = /^([A-G][#b]?)(.*)$/.exec(c);
-    if (!m) return;
+    const m = /^([A-G][#b]?)([^/]*)(?:\/([A-G][#b]?))?$/.exec(c.trim());
+    if (!m) return false;
     setRoot(m[1]);
     setQuality(m[2]);
+    setBass(m[3] ?? null);
+    return true;
+  };
+
+  const insertPasted = (lines: NotebookLine[]) => {
+    update((d) => {
+      const idx = d.lines.findIndex((l) => l.id === selectedId);
+      const next = [...d.lines];
+      next.splice(idx >= 0 ? idx + 1 : next.length, 0, ...lines);
+      return { ...d, lines: next };
+    });
+    setPasting(false);
+    setTool('type');
+    const n = lines.reduce((k, l) => k + (l.kind === 'chords' ? l.chords.length : 0), 0);
+    setToast({ ok: true, text: `Cifra colada: ${lines.length} linhas e ${n} acordes. Toque numa linha para ajustar.` });
   };
 
   return (
@@ -189,7 +216,10 @@ export default function SheetPanel({
         canShare={!!nb.sheetId}
         onShare={async () => { await nb.flush(); setMode('share'); }}
         onImport={importLyrics}
+        onPasteChords={() => setPasting(true)}
         importing={importing}
+        onImportImage={images.open}
+        addingImage={images.adding}
         onClearDrawings={() => setConfirm('clear')}
         onDelete={() => setConfirm('delete')}
         hasDrawings={doc.strokes.length > 0}
@@ -223,7 +253,7 @@ export default function SheetPanel({
           <div className="mx-3 sm:mx-5 mt-5 p-4 rounded-xl border border-logic-border-dark bg-logic-bg-panel/70 animate-[fadeIn_200ms_ease-out]">
             <p className="text-sm font-semibold text-logic-text">Caderno de {songName || 'música'}</p>
             <p className="text-xs text-logic-text-muted mt-1 leading-relaxed">
-              Monte sua cifra, escreva a partitura ou rabisque por cima. Tudo fica salvo {backend.storedIn}, separado por música.
+              Monte sua cifra, escreva a partitura, rabisque por cima ou importe a foto da sua partitura. Tudo fica salvo {backend.storedIn}, separado por música.
             </p>
             <button
               onClick={importLyrics}
@@ -231,6 +261,19 @@ export default function SheetPanel({
               className="mt-3 flex items-center gap-2 h-9 px-3 rounded-lg bg-logic-accent text-white text-xs font-semibold hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
             >
               <Sparkles size={14} /> Trazer letra do Teleprompter
+            </button>
+            <button
+              onClick={() => setPasting(true)}
+              className="mt-2 flex items-center gap-2 h-9 px-3 rounded-lg bg-logic-bg-deep border border-logic-border-dark text-logic-text text-xs font-semibold hover:bg-logic-bg-elevated active:scale-95 transition-all"
+            >
+              <ClipboardPaste size={14} className="text-logic-lcd-amber" /> Colar cifra de um site ou texto
+            </button>
+            <button
+              onClick={images.open}
+              disabled={images.adding}
+              className="mt-2 flex items-center gap-2 h-9 px-3 rounded-lg bg-logic-bg-deep border border-logic-border-dark text-logic-text text-xs font-semibold hover:bg-logic-bg-elevated active:scale-95 transition-all disabled:opacity-50"
+            >
+              <ImagePlus size={14} className="text-logic-lcd-amber" /> Importar foto da partitura ou cifra
             </button>
           </div>
         )}
@@ -258,8 +301,10 @@ export default function SheetPanel({
           root={root}
           quality={quality}
           recent={usedChords}
+          bass={bass}
           onRoot={setRoot}
           onQuality={setQuality}
+          onBass={setBass}
           onPick={pickChord}
           onTranspose={(s) => update((d) => transposeDoc(d, s), 'transpose')}
           onClose={() => setSelectedId(null)}
@@ -280,6 +325,10 @@ export default function SheetPanel({
           onClose={() => { setSelectedId(null); setSelectedNote(null); }}
         />
       )}
+
+      {images.input}
+
+      {pasting && <PasteChordsDialog onClose={() => setPasting(false)} onInsert={insertPasted} />}
 
       {toast && (
         <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-50 max-w-[90%] px-4 py-2.5 rounded-lg border text-xs shadow-2xl animate-[fadeIn_160ms_ease-out] ${

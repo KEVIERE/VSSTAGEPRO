@@ -1,11 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Trash2, CornerDownRight, Repeat, SkipForward } from 'lucide-react';
+import { Trash2, CornerDownRight, Repeat, SkipForward, Pencil } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
 import type { Song, SongRegion } from '@/types';
 import {
   REGION_COLORS, sortedRegions, formatRegionTime, neighbourBounds, RESIZE_MIN_LENGTH, suggestRegionStyle,
-  resolveRegionMove, REPEAT_OPTIONS, repeatLabel,
+  resolveRegionMove, REPEAT_OPTIONS, repeatLabel, REGION_PRESETS, presetColor,
 } from '@/lib/regions';
+import { LaneActionMenu, RegionNamePicker } from '@/components/LanePopover';
 import type { RegionLayout } from '@/lib/regions';
 import { snapTime, songGrid } from '@/lib/grid';
 import { seekToPosition } from '@/lib/transportControl';
@@ -27,6 +29,11 @@ interface RegionLaneProps {
 
 export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit }: RegionLaneProps) {
   const updateSongRegion = useStore((s) => s.updateSongRegion);
+  const removeSongRegion = useStore((s) => s.removeSongRegion);
+  // clique duplo numa região: menu Editar / Excluir
+  const [menuId, setMenuId] = useState<string | null>(null);
+  // região recém-desenhada com o mouse: abre a janela de nomes prontos
+  const [namingId, setNamingId] = useState<string | null>(null);
   const placeSongRegions = useStore((s) => s.placeSongRegions);
   const addSongRegion = useStore((s) => s.addSongRegion);
   const queuedId = useStore((s) => (s.queuedRegion?.songId === song.id ? s.queuedRegion.regionId : null));
@@ -128,7 +135,7 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
       if (!moved || !latest) return;
       const id = `region-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
       const style = suggestRegionStyle(regions);
-      if (addSongRegion(song.id, { id, ...style, start: latest.start, end: latest.end, loop: false })) onEdit(id);
+      if (addSongRegion(song.id, { id, ...style, start: latest.start, end: latest.end, loop: false })) setNamingId(id);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
@@ -167,8 +174,8 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
             } ${isDragging || isEditing ? 'ring-1 ring-white' : ''} ${isQueued ? 'ring-2 ring-logic-lcd-amber animate-pulse' : ''}`}
             style={{ left: `${start * zoomH}px`, width: `${width}px`, backgroundColor: r.color }}
             onPointerDown={(e) => handleRegionPointerDown(e, r)}
-            onDoubleClick={(e) => { e.stopPropagation(); onEdit(r.id); }}
-            title={`${r.name} · ${formatRegionTime(r.start)}–${formatRegionTime(r.end)}${r.loop ? ' · Loop' : ''}\nArraste o meio para mover e as bordas para redimensionar (Option desliga o alinhamento ao BPM)\nClique para ir · Clique duplo para editar`}
+            onDoubleClick={(e) => { e.stopPropagation(); onEdit(null); setMenuId(r.id); }}
+            title={`${r.name} · ${formatRegionTime(r.start)}–${formatRegionTime(r.end)}${r.loop ? ' · Loop' : ''}\nArraste o meio para mover e as bordas para redimensionar (Option desliga o alinhamento ao BPM)\nClique para ir · Clique duplo para editar ou excluir`}
           >
             <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-black/0 group-hover:bg-black/25 transition-colors" />
             <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-black/0 group-hover:bg-black/25 transition-colors" />
@@ -205,6 +212,29 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
         />
       )}
       {editing && <RegionEditor song={song} region={editing} queued={queuedId === editing.id} onClose={() => onEdit(null)} />}
+      {menuId && regions.some((r) => r.id === menuId) && (
+        <LaneActionMenu
+          anchor={`[data-region-id="${menuId}"]`}
+          title={regions.find((r) => r.id === menuId)?.name ?? 'Região'}
+          onClose={() => setMenuId(null)}
+          actions={[
+            { label: 'Editar', icon: <Pencil size={14} />, hint: 'Nome, cor e loop', onClick: () => onEdit(menuId) },
+            { label: 'Excluir', icon: <Trash2 size={14} />, danger: true, onClick: () => removeSongRegion(song.id, menuId) },
+          ]}
+        />
+      )}
+      {namingId && regions.some((r) => r.id === namingId) && (
+        <RegionNamePicker
+          anchor={`[data-region-id="${namingId}"]`}
+          title="Nome da região"
+          onClose={() => setNamingId(null)}
+          onPick={(name) => {
+            const color = presetColor(name);
+            updateSongRegion(song.id, namingId, color ? { name, color } : { name });
+            setNamingId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -288,9 +318,15 @@ function RegionEditor({ song, region, queued, onClose }: { song: Song; region: S
     setCoords({ top: r.bottom + 6, left });
   }, [region.id]);
 
+  // o campo só existe depois que a posição da janela é calculada: foca nessa hora
+  const placed = coords !== null;
   useEffect(() => {
+    if (!placed) return;
     inputRef.current?.focus();
     inputRef.current?.select();
+  }, [placed]);
+
+  useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) closeRef.current();
     };
@@ -311,7 +347,8 @@ function RegionEditor({ song, region, queued, onClose }: { song: Song; region: S
 
   if (!coords) return null;
 
-  return (
+  // no <body>, fora da faixa que rola para o lado (senão a janela abre no lugar errado)
+  return createPortal(
     <div
       ref={panelRef}
       className="fixed z-[100] w-64 rounded-md border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-3 animate-[fadeIn_120ms_ease-out] cursor-default"
@@ -328,6 +365,19 @@ function RegionEditor({ song, region, queued, onClose }: { song: Song; region: S
         </span>
       </div>
 
+      <div className="grid grid-cols-3 gap-1">
+        {REGION_PRESETS.map((p) => (
+          <button
+            key={p.name}
+            className={`console-key flex items-center justify-center gap-1 h-7 px-1 text-[12px] font-semibold ${region.name === p.name ? 'is-lit-blue' : ''}`}
+            onClick={() => { setName(p.name); updateSongRegion(song.id, region.id, { name: p.name, color: p.color }); }}
+          >
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: p.color }} />
+            <span className="truncate">{p.name}</span>
+          </button>
+        ))}
+      </div>
+
       <input
         ref={inputRef}
         value={name}
@@ -336,7 +386,7 @@ function RegionEditor({ song, region, queued, onClose }: { song: Song; region: S
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); close(); } }}
         maxLength={40}
         className="w-full px-2 py-1.5 text-xs rounded bg-logic-bg-deep border border-logic-border-light text-logic-text focus:outline-none focus:border-logic-accent transition-colors"
-        placeholder="Nome da seção"
+        placeholder="Outro nome"
       />
 
       <div className="grid grid-cols-8 gap-1.5">
@@ -405,10 +455,11 @@ function RegionEditor({ song, region, queued, onClose }: { song: Song; region: S
           onClick={() => { removeSongRegion(song.id, region.id); onClose(); }}
         >
           <Trash2 size={12} />
-          Apagar
+          Excluir
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

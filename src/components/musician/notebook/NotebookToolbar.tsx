@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Bold, Check, CloudOff, Eraser, Highlighter, Loader2, Lock, Minus, MoreVertical, PenTool, Plus,
-  Redo2, Share2, Sparkles, Trash2, Type, Undo2, Unlock, Brush,
+  Redo2, Share2, ClipboardPaste, Sparkles, Trash2, Type, Undo2, Unlock, Brush, ImagePlus,
 } from 'lucide-react';
 import { FONTS, INK_COLORS, MARKER_COLORS, SIZE_MAX, SIZE_MIN, TEXT_COLORS, type NotebookDoc } from '@/lib/notebook';
 import type { DrawTool } from './DrawingLayer';
@@ -33,13 +33,15 @@ function Swatch({ color, on, onClick, title }: { color: string; on: boolean; onC
 
 export default function NotebookToolbar({
   follow, onToggleFollow, title, onTitle, placeholder, sharedFrom, status,
-  canUndo, canRedo, onUndo, onRedo, canShare, onShare, onImport, importing, onClearDrawings, onDelete, hasDrawings, hasSheet,
+  canUndo, canRedo, onUndo, onRedo, canShare, onShare, onImport, onPasteChords, importing, onImportImage, addingImage, onClearDrawings, onDelete, hasDrawings, hasSheet,
   tool, onTool, doc, onDoc, inkColor, onInkColor, markerColor, onMarkerColor, inkWidth, onInkWidth,
 }: {
   follow: boolean; onToggleFollow: () => void;
   title: string; onTitle: (t: string) => void; placeholder: string; sharedFrom: string | null; status: SaveStatus;
   canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void;
-  canShare: boolean; onShare: () => void; onImport: () => void; importing: boolean;
+  canShare: boolean; onShare: () => void; onImport: () => void; onPasteChords: () => void; importing: boolean;
+  /** Abre a escolha de fotos (partitura escrita à mão, cifra impressa). */
+  onImportImage: () => void; addingImage: boolean;
   onClearDrawings: () => void; onDelete: () => void; hasDrawings: boolean; hasSheet: boolean;
   tool: Tool; onTool: (t: Tool) => void;
   doc: NotebookDoc; onDoc: (patch: Partial<Pick<NotebookDoc, 'font' | 'size' | 'bold' | 'color'>>) => void;
@@ -90,13 +92,22 @@ export default function NotebookToolbar({
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button onClick={onUndo} disabled={!canUndo} title="Desfazer (Ctrl+Z)" className={iconBtn}><Undo2 size={15} /></button>
           <button onClick={onRedo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)" className={iconBtn}><Redo2 size={15} /></button>
-          <button onClick={onShare} disabled={!canShare} title={canShare ? 'Compartilhar com colegas' : 'Escreva algo para poder compartilhar'} className={`${iconBtn} hover:!text-logic-lcd-green`}><Share2 size={15} /></button>
+          <button onClick={onImportImage} disabled={addingImage} title="Importar imagem: foto da partitura ou da cifra" className={`${iconBtn} hover:!text-logic-lcd-amber`}>
+            {addingImage ? <Loader2 size={15} className="animate-spin" /> : <ImagePlus size={15} />}
+          </button>
+          <button onClick={onShare} disabled={!canShare} title={canShare ? 'Enviar para outro músico' : 'Escreva algo ou importe uma imagem para poder enviar'} className={`${iconBtn} hover:!text-logic-lcd-green`}><Share2 size={15} /></button>
           <div ref={menuRef} className="relative">
             <button onClick={() => setMenu((m) => !m)} title="Mais opções" className={iconBtn}><MoreVertical size={15} /></button>
             {menu && (
               <div className="absolute right-0 top-full mt-1 z-40 w-60 py-1 rounded-lg bg-logic-bg-elevated border border-logic-border-light shadow-2xl animate-[fadeIn_120ms_ease-out]">
                 <button onClick={() => { setMenu(false); onImport(); }} disabled={importing} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5 disabled:opacity-40">
                   <Sparkles size={14} className="text-logic-accent" /> Trazer letra do Teleprompter
+                </button>
+                <button onClick={() => { setMenu(false); onImportImage(); }} disabled={addingImage} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5 disabled:opacity-40">
+                  <ImagePlus size={14} className="text-logic-lcd-amber" /> Importar imagem (foto da partitura ou cifra)
+                </button>
+                <button onClick={() => { setMenu(false); onPasteChords(); }} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5">
+                  <ClipboardPaste size={14} className="text-logic-lcd-amber" /> Colar cifra (de site ou texto)
                 </button>
                 <button onClick={() => { setMenu(false); onClearDrawings(); }} disabled={!hasDrawings} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-logic-text hover:bg-white/5 disabled:opacity-40">
                   <Brush size={14} /> Limpar todos os desenhos

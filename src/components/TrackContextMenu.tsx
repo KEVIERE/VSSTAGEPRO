@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -8,12 +8,13 @@ import {
   FolderOpen,
   Headphones,
   Palette,
+  SlidersHorizontal,
   Volume2,
   VolumeX,
   X,
 } from 'lucide-react';
 import { useStore } from '@/store';
-import { isTimecodeTrackId, NO_OUTPUT, outputLabel, TIMECODE_TRACK_ID, usedOutputs } from '@/lib/timecode';
+import { isCurrentOutput, isTimecodeTrackId, outputOptions, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import type { Track } from '@/types';
 
 const DAW_COLORS = [
@@ -30,6 +31,30 @@ const DAW_COLORS = [
   '#ac8e68', // Marrom / Madeira
   '#8e8e93', // Cinza Estúdio
 ];
+
+// Submenu sempre dentro da janela: sobe o que passaria da borda de baixo, abre para a
+// esquerda perto da borda direita e rola por dentro quando a lista é grande (ex.: 26 saídas).
+// A altura fica travada enquanto ele está aberto: trocar Mono ↔ Estéreo não muda o tamanho
+// (encolher tirava o mouse de cima do submenu e ele fechava).
+function useFitInWindow(active: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [style, setStyle] = useState<React.CSSProperties>({});
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const anchor = el?.parentElement;
+    if (!active || !el || !anchor) { setStyle({}); return; }
+    const box = anchor.getBoundingClientRect();
+    const maxHeight = window.innerHeight - 16;
+    const height = Math.min(el.scrollHeight, maxHeight);
+    const top = Math.max(8 - box.top, Math.min(0, window.innerHeight - 8 - box.top - height));
+    const flip = box.right + 4 + el.offsetWidth > window.innerWidth - 8;
+    setStyle({
+      top, maxHeight, height, overflowY: 'auto',
+      ...(flip ? { left: 'auto', right: '100%', marginLeft: 0, marginRight: 4 } : {}),
+    });
+  }, [active]);
+  return { ref, style };
+}
 
 interface TrackContextMenuProps {
   track: Track;
@@ -48,10 +73,34 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const setOutputChannel = useStore((s) => s.setOutputChannel);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
+  const normalizeTrack = useStore((s) => s.normalizeTrack);
+  // A pasta normaliza os clipes das subfaixas de dentro; a faixa normaliza os próprios.
+  const clipCount = useStore((s) => {
+    if (!s.tracks.some((t) => t.id === track.id)) return 0;
+    const ids = new Set<string>([track.id]);
+    const collect = (id: string) => {
+      const t = s.tracks.find((x) => x.id === id);
+      for (const childId of t?.children ?? []) {
+        if (ids.has(childId)) continue;
+        ids.add(childId);
+        collect(childId);
+      }
+    };
+    collect(track.id);
+    return s.clips.filter((c) => ids.has(c.trackId)).length;
+  });
 
   const [renaming, setRenaming] = useState(false);
   const [nameValue, setNameValue] = useState(track.name);
+  const [normalizeTrackOpen, setNormalizeTrackOpen] = useState(false);
+  const [normalizeTrackDb, setNormalizeTrackDb] = useState('-2');
   const [activeSubmenu, setActiveSubmenu] = useState<'color' | 'folder' | 'output' | null>(null);
+  const isTc = isTimecodeTrackId(track.id);
+  // Lista mostrada no submenu de saída: mono ou pares estéreo
+  const [stereoView, setStereoView] = useState(!isTc && !!track.outputStereo);
+  const colorFit = useFitInWindow(activeSubmenu === 'color');
+  const folderFit = useFitInWindow(activeSubmenu === 'folder');
+  const outputFit = useFitInWindow(activeSubmenu === 'output');
 
   useEffect(() => {
     const handleDown = (e: MouseEvent) => {
@@ -60,7 +109,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
       }
     };
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
     };
     document.addEventListener('mousedown', handleDown);
     document.addEventListener('keydown', handleKey);
@@ -84,29 +133,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const currentParent = track.parentId ? tracks.find((t) => t.id === track.parentId) : null;
 
   // Opções de saída de áudio
-  const physical = Array.from({ length: count }, (_, i) => i + 1);
-  const isTc = isTimecodeTrackId(track.id);
-  const outputOptions = isTc
-    ? [
-        { value: NO_OUTPUT, label: 'Sem Saída', disabled: false },
-        ...physical.map((n) => ({
-          value: n,
-          label: outputLabel(n),
-          disabled: usedOutputs(tracks, track.id).has(n),
-        })),
-      ]
-    : [
-        { value: 0, label: outputLabel(0) + ' (Master)', disabled: false },
-        ...physical.map((n) => {
-          const tcOut = tracks.find((t) => t.id === TIMECODE_TRACK_ID)?.outputChannel ?? NO_OUTPUT;
-          return {
-            value: n,
-            label: outputLabel(n),
-            disabled: n === tcOut,
-          };
-        }),
-        { value: NO_OUTPUT, label: 'Sem Saída', disabled: false },
-      ];
+  const outputs = outputOptions(track, tracks, count, stereoView);
 
   // Ajusta posição do menu na tela para não vazar da borda
   const menuWidth = 230;
@@ -179,7 +206,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
         </button>
 
         {activeSubmenu === 'color' && (
-          <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-2.5 z-[360] w-48">
+          <div ref={colorFit.ref} style={colorFit.style} className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-2.5 z-[360] w-48">
             <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-2 px-1">
               Escolher Cor
             </div>
@@ -224,7 +251,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           </button>
 
           {activeSubmenu === 'folder' && (
-            <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
+            <div ref={folderFit.ref} style={folderFit.style} className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
               <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
                 Escolha a Pasta de Destino:
               </div>
@@ -276,34 +303,54 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           </button>
 
           {activeSubmenu === 'output' && (
-            <div className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] max-h-64 overflow-y-auto logic-scroll">
+            <div ref={outputFit.ref} style={outputFit.style} onWheel={(e) => e.stopPropagation()} className="absolute left-full top-0 ml-1 bg-[#1a1b22] border border-white/20 rounded-xl shadow-2xl p-1.5 z-[360] min-w-[200px] overflow-y-auto overscroll-contain logic-scroll">
               <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1 px-2.5 pt-1">
                 Roteamento de Saída
               </div>
 
-              {outputOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  disabled={opt.disabled}
-                  onClick={() => {
-                    if (!opt.disabled) {
-                      setOutputChannel(track.id, opt.value);
-                      setActiveSubmenu(null);
-                      onClose();
-                    }
-                  }}
-                  className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition ${
-                    opt.disabled
-                      ? 'opacity-30 cursor-not-allowed'
-                      : track.outputChannel === opt.value
-                        ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
-                        : 'hover:bg-white/10 text-white'
-                  }`}
-                >
-                  <span>{opt.label}</span>
-                  {track.outputChannel === opt.value && <Check size={12} className="text-logic-lcd-green shrink-0" />}
-                </button>
-              ))}
+              {!isTc && (
+                <div className="flex gap-1 px-1 pb-1.5 mb-1 border-b border-white/10">
+                  {[false, true].map((st) => (
+                    <button
+                      key={st ? 'stereo' : 'mono'}
+                      type="button"
+                      onClick={() => setStereoView(st)}
+                      className={`flex-1 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide transition ${
+                        stereoView === st ? 'bg-logic-accent text-white' : 'bg-white/[0.04] text-logic-text-dim hover:text-white'
+                      }`}
+                    >
+                      {st ? 'Estéreo' : 'Mono'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {outputs.map((opt) => {
+                const selected = isCurrentOutput(track, opt);
+                return (
+                  <button
+                    key={`${opt.value}-${opt.stereo}`}
+                    disabled={opt.disabled}
+                    onClick={() => {
+                      if (!opt.disabled) {
+                        setOutputChannel(track.id, opt.value, opt.stereo);
+                        setActiveSubmenu(null);
+                        onClose();
+                      }
+                    }}
+                    className={`w-full px-2.5 py-1.5 rounded-lg text-left text-xs flex items-center justify-between transition ${
+                      opt.disabled
+                        ? 'opacity-30 cursor-not-allowed'
+                        : selected
+                          ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
+                          : 'hover:bg-white/10 text-white'
+                    }`}
+                  >
+                    <span>{opt.value === 0 ? `${opt.label} (Master)` : opt.label}</span>
+                    {selected && <Check size={12} className="text-logic-lcd-green shrink-0" />}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -314,6 +361,50 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
             Saída: segue a pasta <strong className="text-white">{currentParent?.name || 'Mãe'}</strong>
           </span>
         </div>
+      )}
+
+      <div className="h-px bg-white/10 my-1" />
+
+      {/* 5. NORMALIZAR A FAIXA INTEIRA (todos os clipes dela, em todas as músicas) */}
+      {!isTc && (
+        normalizeTrackOpen ? (
+          <form
+            className="px-3 py-2 flex items-center gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const db = parseFloat(normalizeTrackDb.replace(',', '.'));
+              if (Number.isFinite(db)) normalizeTrack(track.id, Math.min(0, db));
+              setNormalizeTrackOpen(false);
+              onClose();
+            }}
+          >
+            <span className="text-white/70 whitespace-nowrap">Pico em</span>
+            <input
+              autoFocus
+              type="text"
+              inputMode="decimal"
+              value={normalizeTrackDb}
+              onChange={(e) => setNormalizeTrackDb(e.target.value)}
+              className="w-14 bg-black/60 border border-white/20 rounded px-1.5 py-0.5 text-right text-white outline-none focus:border-logic-accent"
+            />
+            <span className="text-white/70">dB</span>
+            <button type="submit" className="ml-1 px-2 py-0.5 rounded bg-logic-accent text-white font-bold hover:brightness-110 transition">OK</button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            disabled={clipCount === 0}
+            onClick={(e) => { e.stopPropagation(); setNormalizeTrackOpen(true); }}
+            title={clipCount === 0 ? 'Esta faixa não tem clipes' : `Normalizar os ${clipCount} clipes desta faixa, em todas as músicas`}
+            className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 transition ${clipCount === 0 ? 'opacity-30 cursor-not-allowed' : 'text-white/90 hover:text-white hover:bg-white/10'}`}
+          >
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal size={13} className="text-logic-text-muted" />
+              <span>Normalizar Faixa Inteira...</span>
+            </span>
+            <span className="text-[9px] font-mono text-logic-text-muted shrink-0">{clipCount} clipe{clipCount === 1 ? '' : 's'}</span>
+          </button>
+        )
       )}
 
       <div className="h-px bg-white/10 my-1" />

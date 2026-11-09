@@ -4,7 +4,7 @@ const url =
   (import.meta.env.VITE_SUPABASE_URL as string) || 'https://eknjqqiamuztomdygalv.supabase.co';
 const anonKey =
   (import.meta.env.VITE_SUPABASE_ANON_KEY as string) ||
-  'sb_publishable_9yDFOv1hd7w8MITGsE1ZgQ_mY5eJJI2';
+  'sb_publishable_HZSBHPsXukBY7tuDXkmJeA_lEITgku5';
 
 // 1. Se a URL chegou com duplo hash (ex: #recuperar#access_token=...),
 // normaliza o hash para que o SDK do Supabase leia o access_token sem erros.

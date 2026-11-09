@@ -1,61 +1,30 @@
 import { useEffect, useRef, useState } from 'react';
 
+/**
+ * Avisa uma vez quando o bloco entra na tela (para disparar uma animação curta).
+ * Sem IntersectionObserver (navegador muito antigo), já começa revelado.
+ */
 export function useScrollReveal<T extends HTMLElement = HTMLDivElement>(options?: {
   threshold?: number;
   rootMargin?: string;
-  once?: boolean;
 }) {
-  const isMobile = typeof window !== 'undefined' && (
-    window.innerWidth < 768 ||
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-  );
-
-  const threshold = options?.threshold ?? 0.01;
-  const rootMargin = options?.rootMargin ?? '120px 0px 120px 0px';
-  const once = options?.once ?? true;
   const ref = useRef<T>(null);
-  // No mobile, SEMPRE começa revealed = true para nunca gerar tela preta!
-  const [revealed, setRevealed] = useState(() => isMobile);
+  const [revealed, setRevealed] = useState(() => typeof IntersectionObserver === 'undefined');
+  const threshold = options?.threshold ?? 0;
+  const rootMargin = options?.rootMargin ?? '0px 0px -15% 0px';
 
   useEffect(() => {
-    if (isMobile) {
-      setRevealed(true);
-      return;
-    }
-
     const el = ref.current;
-    if (!el) return;
-
-    const rect = el.getBoundingClientRect();
-    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
-    if (rect.top < vh + 100) {
-      setRevealed(true);
-      return;
-    }
-
-    let observer: IntersectionObserver | null = null;
-    if (typeof IntersectionObserver !== 'undefined') {
-      observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) {
-            setRevealed(true);
-            if (once && observer) observer.unobserve(el);
-          } else if (!once) {
-            setRevealed(false);
-          }
-        },
-        { threshold, rootMargin }
-      );
-      observer.observe(el);
-    } else {
-      // Sem suporte a IntersectionObserver: revela direto (navegador muito antigo).
-      setRevealed(true);
-    }
-
-    return () => {
-      observer?.disconnect();
-    };
-  }, [threshold, rootMargin, once, isMobile]);
+    if (!el || revealed) return;
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setRevealed(true);
+        io.disconnect();
+      }
+    }, { threshold, rootMargin });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [revealed, threshold, rootMargin]);
 
   return { ref, revealed };
 }

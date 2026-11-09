@@ -1,4 +1,3 @@
-import { USER_CLICK_SAMPLE_B64 } from '@/lib/clickSampleData';
 import { decodeBlob } from '@/lib/audioDecoder';
 import type { TempoSegment } from '@/lib/beatDetector';
 
@@ -16,6 +15,9 @@ let cachedUserSample: AudioBuffer | null = null;
 async function loadUserSample(): Promise<AudioBuffer> {
   if (cachedUserSample) return cachedUserSample;
   try {
+    // A amostra (157 KB) só é usada ao gerar click na separação: fica fora do carregamento
+    // da abertura do programa e é buscada aqui, na primeira vez.
+    const { USER_CLICK_SAMPLE_B64 } = await import('@/lib/clickSampleData');
     const blob = b64ToBlob(USER_CLICK_SAMPLE_B64);
     cachedUserSample = await decodeBlob(blob);
     return cachedUserSample;

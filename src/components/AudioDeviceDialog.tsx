@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { markAudioInterfaceApplied, rememberAudioInterface } from '@/lib/audioOutput';
 import { Volume2, X, Check, PlayCircle, RefreshCw, ShieldCheck, Loader2 } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
@@ -11,6 +12,8 @@ interface Props {
 
 export default function AudioDeviceDialog({ open, onClose }: Props) {
   const activeIface = useStore((s) => s.audioInterface);
+  const ifaceConnected = useStore((s) => s.audioInterfaceConnected);
+  const outputCount = useStore((s) => s.outputChannelCount);
   const setAudioInterface = useStore((s) => s.setAudioInterface);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,7 +53,8 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      // fecha só esta janela: o Esc não sai do Modo Show junto
+      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
@@ -61,6 +65,8 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
   const handleUse = async (dev: MediaDeviceInfo) => {
     try {
       await audioEngine.setOutputDevice(dev.deviceId);
+      markAudioInterfaceApplied(dev.deviceId);
+      rememberAudioInterface(dev.label || dev.deviceId);
       setAudioInterface(dev.label || dev.deviceId);
     } catch (err) {
       setError('Esta placa não pôde ser definida como saída pelo navegador.');
@@ -81,8 +87,9 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
     }
   };
 
+  // Com a placa escolhida desconectada nada aparece como "Em uso": o som está no LR padrão.
   const isActive = (dev: MediaDeviceInfo) =>
-    (dev.label && dev.label === activeIface) || dev.deviceId === activeIface;
+    ifaceConnected && ((dev.label && dev.label === activeIface) || dev.deviceId === activeIface);
 
   return (
     <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/60">
@@ -104,6 +111,10 @@ export default function AudioDeviceDialog({ open, onClose }: Props) {
         <div className="px-4 py-3 border-b border-logic-border-dark text-xs text-logic-text-dim leading-relaxed">
           Escolha a placa de som que o programa deve usar para tocar.
           O botão <span className="text-logic-text">Testar</span> toca um bipe curto em todas as saídas da placa ao mesmo tempo, para você confirmar onde o som sai.
+          <div className="mt-2 text-logic-text">
+            Saídas reconhecidas: <span className="font-mono text-logic-lcd-green">{outputCount}</span> mono
+            {' · '}<span className="font-mono text-logic-lcd-green">{Math.floor(outputCount / 2)}</span> {Math.floor(outputCount / 2) === 1 ? 'par' : 'pares'} estéreo
+          </div>
         </div>
 
         <div className="max-h-[50vh] overflow-y-auto logic-scroll">

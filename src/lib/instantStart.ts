@@ -64,11 +64,14 @@ export async function loadHeads(clips: AudioClip[], startOffset: number): Promis
     if (!source) return null;
     const entry = await readEntry(dir, headName(clip, source, rate));
     if (!entry || entry.sampleRate !== rate) return null;
-    const full = playFrames(clip, entry.sampleRate, entry.fullFrames);
-    const frames = Math.min(entry.channels[0].length, full);
+    // O começo guardado é o do arquivo; um clipe cortado no início (ex.: lado direito de um
+    // split) toca a partir do corte, igual a getClipPlayAudio.
+    const trimFrames = Math.floor(Math.max(0, clip.trimStart ?? 0) * entry.sampleRate);
+    const full = Math.min(playFrames(clip, entry.sampleRate, entry.fullFrames), Math.max(1, entry.fullFrames - trimFrames));
+    const frames = Math.min(Math.max(0, entry.channels[0].length - trimFrames), full);
     const local = (startOffset - clip.startTime) * entry.sampleRate;
-    if (frames < full && local > frames - START_MARGIN_SECONDS * entry.sampleRate) return null;
-    const channels = entry.channels.map((ch) => ch.subarray(0, frames));
+    if (frames <= 0 || (frames < full && local > frames - START_MARGIN_SECONDS * entry.sampleRate)) return null;
+    const channels = entry.channels.map((ch) => ch.subarray(trimFrames, trimFrames + frames));
     return { clip, audio: { channels, sampleRate: entry.sampleRate, length: frames, fullFrames: full } };
   }));
   const out = new Map<string, HeadAudio>();
@@ -122,15 +125,17 @@ function headFromOpenAudio(audio: ClipAudio): HeadAudio {
  */
 export function headsFromOpenAudio(clips: AudioClip[], startOffset: number): Map<string, HeadAudio> | null {
   if (clips.length === 0) return null;
-  const out = new Map<string, HeadAudio>();
+  const sources: Array<{ clip: AudioClip; audio: ClipAudio }> = [];
   for (const clip of clips) {
     const audio = getClipPlayAudio(clip);
     if (!audio) return null;
-    const head = headFromOpenAudio(audio);
-    const local = (startOffset - clip.startTime) * head.sampleRate;
-    if (head.length < head.fullFrames && local > head.length - START_MARGIN_SECONDS * head.sampleRate) return null;
-    out.set(clip.id, head);
+    const frames = Math.min(audio.length, Math.floor(HEAD_SECONDS * audio.sampleRate));
+    const local = (startOffset - clip.startTime) * audio.sampleRate;
+    if (frames < audio.length && local > frames - START_MARGIN_SECONDS * audio.sampleRate) return null;
+    sources.push({ clip, audio });
   }
+  const out = new Map<string, HeadAudio>();
+  for (const { clip, audio } of sources) out.set(clip.id, headFromOpenAudio(audio));
   return out;
 }
 

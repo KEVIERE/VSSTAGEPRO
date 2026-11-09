@@ -15,6 +15,18 @@ sender_name = "VS Stage Pro"
 subject = "Confirme seu e-mail — VS Stage Pro"
 content_path = "./supabase/email-templates/confirmation.html"
 
+[auth.email.template.recovery]
+subject = "Redefinir sua senha — VS Stage Pro"
+content_path = "./supabase/email-templates/recovery.html"
+
+[auth.email.template.email_change]
+subject = "Confirme seu novo e-mail — VS Stage Pro"
+content_path = "./supabase/email-templates/email_change.html"
+
+[auth.email.template.magic_link]
+subject = "Seu link de acesso — VS Stage Pro"
+content_path = "./supabase/email-templates/magic_link.html"
+
 [functions.admin-releases]
 verify_jwt = true
 
@@ -33,6 +45,13 @@ verify_jwt = true
 [functions.stripe-webhook]
 verify_jwt = false
 
+[functions.pix-checkout]
+verify_jwt = true
+
+# o Asaas não manda login do Supabase: a função confere o header asaas-access-token
+[functions.asaas-webhook]
+verify_jwt = false
+
 [functions.signup-phone]
 verify_jwt = false
 
@@ -43,4 +62,15 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.health-check]
+verify_jwt = false
+
+[functions.outreach-send]
+verify_jwt = true
+
+# O descadastro chega por link de e-mail, sem login: a autenticação é o token HMAC assinado.
+[functions.outreach-unsubscribe]
+verify_jwt = false
+
+# Webhook da Twilio: a autenticação é o header X-Twilio-Signature, não um JWT do Supabase.
+[functions.twilio-inbound]
 verify_jwt = false

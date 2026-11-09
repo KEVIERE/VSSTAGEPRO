@@ -6,6 +6,7 @@ const path = require('path');
 const crypto = require('crypto');
 const https = require('https');
 const os = require('os');
+const { machineArch } = require('./machineArch');
 
 const execFileAsync = promisify(execFile);
 
@@ -45,8 +46,18 @@ function sha256File(filePath) {
   });
 }
 
+/**
+ * Instalador certo para este Mac: o do processador de verdade.
+ * Antes usava `process.arch`, então um Mac Silicon com o programa de Intel instalado
+ * (rodando traduzido) se atualizava sempre para o Intel de novo e nunca saía do lento.
+ */
 function archForThisMac() {
-  return process.arch === 'arm64' ? 'arm64' : 'x64';
+  return machineArch();
+}
+
+/** Este programa é o de Intel rodando traduzido num Mac com chip Apple? */
+function isTranslatedProcess() {
+  return machineArch() === 'arm64' && process.arch !== 'arm64';
 }
 
 /** Compara "1.2.10" vs "1.2.9": 1 se a for maior, -1 se for menor, 0 se igual. */
@@ -84,6 +95,9 @@ function currentBuild() {
  */
 const UPDATES_BASE = 'https://download.vsstagepro.com.br/';
 
+/** Pasta da atualização em andamento agora (a limpeza não pode apagá-la). */
+let currentWork = '';
+
 async function checkForUpdate(_supabaseUrl) {
   try {
     const base = UPDATES_BASE;
@@ -93,11 +107,20 @@ async function checkForUpdate(_supabaseUrl) {
     // Mesmo número de versão: só é "mudança" se o build publicado for diferente do
     // instalado (ex.: republicou o mesmo 1.1.17 com outro build, ou só trocou a
     // obrigatoriedade). Sem isso o app ignorava republicações da própria versão.
-    if (cmp === 0 && Number(manifest.build) === currentBuild()) return null;
+    //
+    // Exceção: este processo é o programa de Intel rodando traduzido num Mac com chip
+    // Apple. Aí a versão é a mesma mas o programa está errado, então troca mesmo assim
+    // pelo do chip (é o que tira a lentidão). Sem isso o app nunca sairia do Intel.
+    const wrongChip = isTranslatedProcess();
+    if (cmp === 0 && Number(manifest.build) === currentBuild() && !wrongChip) return null;
     const build = manifest.builds.find((b) => b.arch === archForThisMac());
     if (!build) return null;
-    const direction = cmp !== 0 ? (cmp > 0 ? 'upgrade' : 'downgrade') : (Number(manifest.build) > currentBuild() ? 'upgrade' : 'downgrade');
-    return { version: manifest.version, build, base, direction, required: manifest.required === true };
+    // Programa do processador errado instalado: é sempre "atualizar", nunca "voltar",
+    // mesmo com a versão publicada igual ou mais baixa que a instalada.
+    const direction = wrongChip
+      ? 'upgrade'
+      : cmp !== 0 ? (cmp > 0 ? 'upgrade' : 'downgrade') : (Number(manifest.build) > currentBuild() ? 'upgrade' : 'downgrade');
+    return { version: manifest.version, build, base, direction, required: manifest.required === true, archSwap: wrongChip };
   } catch {
     return null;
   }
@@ -110,6 +133,7 @@ async function checkForUpdate(_supabaseUrl) {
  */
 async function downloadAndInstall({ build, base }, onProgress) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-update-'));
+  currentWork = work;
   const dmgPath = path.join(work, build.file);
   try {
     const out = fs.createWriteStream(dmgPath);
@@ -181,4 +205,29 @@ function relaunchFromPath(appPath) {
   app.exit(0);
 }
 
-module.exports = { checkForUpdate, downloadAndInstall, relaunchFromPath };
+/**
+ * Apaga as pastas `vs-update-*` que sobraram de tentativas anteriores.
+ *
+ * `downloadAndInstall` já limpa a sua pasta no `finally`, mas quando o processo morre no meio
+ * (app fechado, Mac reiniciado, `.dmg` travado) o `.dmg` de ~400 MB fica para trás em `/tmp`.
+ * Em 05/11/2026 havia seis pastas assim, somando 2,4 GB. Roda uma vez, ao abrir o programa.
+ */
+function cleanLeftovers() {
+  let removed = 0;
+  try {
+    const dir = os.tmpdir();
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.startsWith('vs-update-')) continue;
+      // Pasta de uma atualização em andamento agora não pode ser apagada.
+      if (name === path.basename(currentWork)) continue;
+      try {
+        fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+        removed += 1;
+      } catch { /* em uso por outro processo: fica para a próxima */ }
+    }
+  } catch { /* sem acesso ao /tmp */ }
+  if (removed > 0) console.log(`Limpeza: ${removed} pasta(s) de atualização antiga removida(s).`);
+  return removed;
+}
+
+module.exports = { checkForUpdate, downloadAndInstall, relaunchFromPath, cleanLeftovers };

@@ -1,14 +1,15 @@
+import { cancelCurrentSave } from '@/lib/projectQuickSave';
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/store';
 import { useHoverDismiss } from '@/lib/useHoverDismiss';
 import ImportVSDialog from '@/components/ImportVSDialog';
-import AudioDeviceDialog from '@/components/AudioDeviceDialog';
 import ProjectDialogs from '@/components/ProjectDialogs';
 import ProjectBackupsDialog from '@/components/ProjectBackupsDialog';
 import ShowsMenu from '@/components/ShowsMenu';
 import { DEFAULT_SHOW_NAME } from '@/lib/shows';
 import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package } from 'lucide-react';
 import { openRecentProject, saveCurrentProject } from '@/lib/projectQuickSave';
+import { confirmLeaveProject } from '@/lib/unsavedChanges';
 import { autoOpenEnabled, clearRecentProjects, listRecentProjects, setAutoOpenEnabled, type RecentProject } from '@/lib/recentProjects';
 import NetworkModeButton, { useModeSwitch } from '@/components/network/NetworkModeButton';
 import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
@@ -54,7 +55,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const selectedSongId = useStore((s) => s.selectedSongId);
   const saveDialogOpen = useStore((s) => s.saveDialogOpen);
   const openDialogOpen = useStore((s) => s.openDialogOpen);
-  const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
   const setSaveDialogOpen = useStore((s) => s.setSaveDialogOpen);
   const setOpenDialogOpen = useStore((s) => s.setOpenDialogOpen);
   const setAudioDeviceDialogOpen = useStore((s) => s.setAudioDeviceDialogOpen);
@@ -67,7 +67,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const timelineLocked = useStore((s) => s.timelineLocked);
   const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
 
-  const [confirmNew, setConfirmNew] = useState(false);
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [recentOpen, setRecentOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(autoOpenEnabled);
@@ -90,16 +89,20 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
     setOpenMenu(null);
   };
 
+  // Trocar o projeto aberto: com alteração não salva, pergunta Salvar / Não salvar / Cancelar antes
   const handleNewProject = () => {
-    setConfirmNew(true);
     setOpenMenu(null);
+    void confirmLeaveProject().then((ok) => { if (ok) newProject(); });
   };
 
   const undo = () => { useStore.temporal.getState().undo(); setOpenMenu(null); };
   const redo = () => { useStore.temporal.getState().redo(); setOpenMenu(null); };
 
   const openSave = () => { setSaveDialogOpen(true); setOpenMenu(null); };
-  const openOpen = () => { setOpenDialogOpen(true); setOpenMenu(null); };
+  const openOpen = () => {
+    setOpenMenu(null);
+    void confirmLeaveProject().then((ok) => { if (ok) setOpenDialogOpen(true); });
+  };
   const openAudio = () => { setAudioDeviceDialogOpen(true); setOpenMenu(null); };
 
   const menus: MenuDef[] = [
@@ -289,7 +292,10 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
                     {recentOpen && (
                       <RecentMenu
                         items={recent}
-                        onPick={(r) => { setOpenMenu(null); void openRecentProject(r); }}
+                        onPick={(r) => {
+                          setOpenMenu(null);
+                          void confirmLeaveProject().then((ok) => { if (ok) void openRecentProject(r); });
+                        }}
                         onClear={() => { void clearRecentProjects(); setRecent([]); }}
                       />
                     )}
@@ -342,7 +348,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
           </span>
         ) : saveStatus?.kind === 'saving' ? (
           <span className="flex items-center gap-1.5 truncate text-2xs text-logic-text-dim" role="status">
-            <Loader2 size={11} className="animate-spin shrink-0" />Salvando...
+            <Loader2 size={11} className="animate-spin shrink-0" />Salvando... <button className="underline" onClick={cancelCurrentSave}>Cancelar</button>
           </span>
         ) : saveStatus?.kind === 'saved' ? (
           <span className="flex items-center gap-1.5 truncate text-2xs text-logic-lcd-green" role="status">
@@ -376,45 +382,6 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
       />
 
       <ProjectBackupsDialog open={backupsOpen} onClose={() => setBackupsOpen(false)} />
-
-      <AudioDeviceDialog
-        open={audioDeviceDialogOpen}
-        onClose={() => setAudioDeviceDialogOpen(false)}
-      />
-
-      {confirmNew && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60">
-          <div className="w-80 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded">
-            <div className="px-4 pt-3 pb-2">
-              <div className="text-sm font-medium text-logic-text mb-1">Novo Projeto</div>
-              <p className="text-xs text-logic-text-dim leading-relaxed">
-                Isso vai reiniciar o programa ao padrão inicial. Se ainda não salvou, salve antes.
-              </p>
-            </div>
-            <div className="flex justify-end gap-2 px-4 pb-3">
-              <button
-                className="px-3 py-1.5 text-xs rounded bg-logic-accent text-white hover:brightness-110 transition-all"
-                onClick={() => { setConfirmNew(false); setSaveDialogOpen(true); }}
-              >
-                Salvar antes...
-              </button>
-              <button
-                className="px-3 py-1.5 text-xs rounded bg-logic-bg-deep text-logic-text border border-logic-border-dark hover:bg-logic-bg-panel-light transition-colors"
-                onClick={() => { newProject(); setConfirmNew(false); }}
-              >
-                Descartar e criar novo
-              </button>
-              <button
-                className="px-3 py-1.5 text-xs rounded bg-logic-bg-deep text-logic-text-muted border border-logic-border-dark hover:bg-logic-bg-panel-light hover:text-logic-text transition-colors"
-                onClick={() => setConfirmNew(false)}
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

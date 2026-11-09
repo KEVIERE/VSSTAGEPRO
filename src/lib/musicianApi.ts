@@ -4,6 +4,7 @@ import type {
   Setlist, ShowLive, Membership, MemberStatus, ShowInvite, SheetBackend,
 } from './musicianTypes';
 import type { Song, Block } from '@/types';
+import { isSliceEnabled, medleySlices } from '@/lib/medley';
 
 export function effectiveBpm(bpm: number, detected: boolean | undefined, bpmAdjust: number): number | null {
   if (!detected || !bpm) return null;
@@ -207,6 +208,27 @@ export async function musicianShareSheet(
   return Number(obj.count) || 0;
 }
 
+export async function musicianAvatar(code: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc('musician_avatar', { p_code: code });
+  if (error) throw error;
+  const obj = assertOk(data, 'musician_avatar failed');
+  return typeof obj.avatar === 'string' ? obj.avatar : null;
+}
+
+export async function musicianSetAvatar(code: string, avatar: string | null): Promise<void> {
+  const { data, error } = await supabase.rpc('musician_set_avatar', { p_code: code, p_avatar: avatar });
+  if (error) throw error;
+  assertOk(data, 'musician_set_avatar failed');
+}
+
+/** Fotos dos músicos do show (id → foto). Lida quando a janela abre, não a cada consulta da lista. */
+export async function directorMusicianAvatars(showId: string, directorKey: string): Promise<Record<string, string>> {
+  const { data, error } = await supabase.rpc('director_musician_avatars', { p_show: showId, p_key: directorKey });
+  if (error) throw error;
+  const obj = assertOk(data, 'director_musician_avatars failed');
+  return (obj.avatars as Record<string, string>) ?? {};
+}
+
 export function onlineSheetBackend(code: string): SheetBackend {
   return {
     key: `online:${code}`,
@@ -216,11 +238,13 @@ export function onlineSheetBackend(code: string): SheetBackend {
     songLyrics: (songId) => musicianSongLyrics(code, songId),
     colleagues: () => musicianColleagues(code),
     share: (sheetId, targets) => musicianShareSheet(code, sheetId, targets),
+    avatar: () => musicianAvatar(code),
+    setAvatar: (avatar) => musicianSetAvatar(code, avatar),
   };
 }
 
 export function buildSetlist(
-  songs: Song[], blocks: Block[], playlistOrder: string[],
+  songs: Song[], blocks: Block[], playlistOrder: string[], songKeys?: Record<string, { key: string }>,
 ): Setlist {
   return {
     songs: songs.map((s) => ({
@@ -228,7 +252,11 @@ export function buildSetlist(
       bpm: effectiveBpm(s.bpm, s.bpmDetected, s.bpmAdjust), blockId: s.blockId,
       baseBpm: s.bpmDetected && s.bpm ? Math.round(s.bpm) : null,
       bpmAdjust: s.bpmAdjust || 0, tuner: s.tuner || 0,
-    })),
+      musicKey: s.musicKey || songKeys?.[s.id]?.key || undefined,
+      parts: medleySlices(s).map((p) => ({
+        id: p.id, name: p.name, start: p.start, end: p.end, ...(isSliceEnabled(p) ? {} : { enabled: false }),
+      })),
+    })).map((x) => (x.parts.length ? x : { ...x, parts: undefined })),
     blocks: blocks.map((b) => ({ id: b.id, name: b.name, color: b.color })),
     order: playlistOrder,
   };
@@ -240,10 +268,12 @@ export function buildLive(
   currentSongId: string | null, nextSongId: string | null,
   bpm: number | null, playFlow: string, onAir: boolean,
   sliceName: string | null = null, nextSliceName: string | null = null,
+  sliceId: string | null = null, nextSliceId: string | null = null,
+  tuner: number | null = null,
 ): ShowLive {
   return {
     isPlaying, isPaused, currentTime, songProgress, nextSongCountdown,
-    currentSongId, nextSongId, bpm, playFlow, onAir, sliceName, nextSliceName,
+    currentSongId, nextSongId, bpm, playFlow, onAir, sliceName, nextSliceName, sliceId, nextSliceId, tuner,
     publishedAt: Date.now(),
   };
 }

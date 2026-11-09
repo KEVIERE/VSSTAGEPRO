@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Activity, BarChart3, FlaskConical, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch } from 'lucide-react';
+import { Activity, BarChart3, FlaskConical, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
@@ -13,12 +13,15 @@ import AuditTab from '@/components/admin/AuditTab';
 import VersionsTab from '@/components/admin/VersionsTab';
 import StagingTab from '@/components/admin/StagingTab';
 import MonitoringTab from '@/components/admin/MonitoringTab';
+import OutreachTab from '@/components/admin/OutreachTab';
+import type { OutreachPerson } from '@/components/admin/adminApi';
 import { input } from '@/components/admin/ui';
 
 const TABS = [
   { id: 'overview', label: 'Visão geral', icon: BarChart3 },
   { id: 'monitoring', label: 'Monitoramento & Crack', icon: ShieldAlert },
   { id: 'users', label: 'Usuários', icon: Users },
+  { id: 'outreach', label: 'Comunicação', icon: MessageSquare },
   { id: 'promo', label: 'Códigos promocionais', icon: Tag },
   { id: 'usage', label: 'Funções mais usadas', icon: Activity },
   { id: 'versions', label: 'Versões', icon: GitBranch },
@@ -55,6 +58,7 @@ export default function AdminPage() {
     const t = new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('aba');
     return (TABS.find((x) => x.id === t)?.id ?? 'overview') as TabId;
   });
+  const [composeTarget, setComposeTarget] = useState<OutreachPerson | null>(null);
 
   useEffect(() => {
     document.title = 'VS Stage Pro — Administração';
@@ -136,13 +140,21 @@ export default function AdminPage() {
 
   const go = (t: TabId) => { setTab(t); window.history.replaceState(null, '', `#admin?aba=${t}`); };
 
+  // Envio individual: o drawer de Usuários manda a pessoa para cá. É o único estado que
+  // atravessa abas, e existe para o botão "Enviar mensagem" não precisar copiar e colar
+  // e-mail ou telefone na mão.
+  const composeTo = (person: OutreachPerson) => {
+    setComposeTarget(person);
+    go('outreach');
+  };
+
   return (
     <div className="fixed inset-0 bg-logic-bg-deep text-logic-text flex">
       <nav className="w-56 shrink-0 bg-logic-bg-panel border-r border-logic-border flex flex-col">
         <div className="flex items-center gap-2.5 px-4 h-14 border-b border-logic-border">
           <VsLogo size={30} />
           <div className="leading-tight">
-            <p className="text-sm font-semibold">VS Stage Pro</p>
+            <p className="vs-brand text-sm">VS Stage Pro</p>
             <p className="text-2xs text-logic-text-muted tracking-wider">ADMINISTRAÇÃO</p>
           </div>
         </div>
@@ -169,7 +181,10 @@ export default function AdminPage() {
         <div className="max-w-6xl mx-auto p-6">
           {tab === 'overview' && <OverviewTab />}
           {tab === 'monitoring' && <MonitoringTab />}
-          {tab === 'users' && <UsersTab />}
+          {tab === 'users' && <UsersTab onCompose={composeTo} />}
+          {tab === 'outreach' && (
+            <OutreachTab composeTo={composeTarget} onClearCompose={() => setComposeTarget(null)} />
+          )}
           {tab === 'promo' && <PromoTab />}
           {tab === 'usage' && <UsageTab />}
           {tab === 'versions' && <VersionsTab />}

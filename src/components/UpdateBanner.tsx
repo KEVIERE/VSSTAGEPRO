@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, DownloadCloud, Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import type { UpdateInfo } from '@/lib/localNetwork';
+import { confirmLeaveProject } from '@/lib/unsavedChanges';
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const MANUAL_TOAST_MS = 5000;
@@ -90,6 +91,8 @@ export default function UpdateBanner() {
   }
 
   const install = async () => {
+    // A atualização fecha e reabre o app: antes, salvar ou descartar o que não foi salvo.
+    if (!(await confirmLeaveProject())) return;
     setInstalling(true);
     setError(null);
     try {
@@ -102,9 +105,11 @@ export default function UpdateBanner() {
     }
   };
 
-  const message = info.direction === 'upgrade'
-    ? `Uma nova versão do VS Stage (${info.version}) está disponível.`
-    : `Há uma atualização de manutenção disponível (versão ${info.version}).`;
+  const message = info.archSwap
+    ? `O VS Stage está rodando no modo lento (programa de Intel no chip Apple). A versão ${info.version}, feita para o seu Mac, está disponível.`
+    : info.direction === 'upgrade'
+      ? `Uma nova versão do VS Stage (${info.version}) está disponível.`
+      : `Há uma atualização de manutenção disponível (versão ${info.version}).`;
 
   if (info.required) {
     return (

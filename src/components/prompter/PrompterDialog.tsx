@@ -6,6 +6,7 @@ import PrompterAudioUpload from '@/components/prompter/PrompterAudioUpload';
 import BandLogoUpload from '@/components/prompter/BandLogoUpload';
 import PublicLinkNotice from '@/components/PublicLinkNotice';
 import { usePublicAddress } from '@/lib/publicUrl';
+import { useStore } from '@/store';
 import type { ReferenceSync } from '@/lib/useReferenceAutoSync';
 
 function formatCode(c: string): string {
@@ -202,7 +203,7 @@ export default function PrompterDialog({ broadcast, lyricSongs, referenceSync, o
                 </div>
               )}
 
-              {codes && <PrompterAudioUpload sync={referenceSync} />}
+              {codes && <PrompterAudioUpload sync={referenceSync} lyricsDone={Object.keys(useStore.getState().lyricMaps)} />}
 
               {codes && (
                 confirmReset ? (

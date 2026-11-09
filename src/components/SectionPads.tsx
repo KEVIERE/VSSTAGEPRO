@@ -66,12 +66,12 @@ export function SectionPads({ song }: { song: Song }) {
         />
       ))}
       <button
-        className={`flex flex-col items-center justify-center gap-0.5 min-w-[88px] h-12 px-3 rounded-md border transition-[background-color,border-color,color] duration-150 ${
+        className={`console-pad flex flex-col items-center justify-center gap-0.5 min-w-[88px] h-12 px-3 ${
           !nextRegion
-            ? 'border-logic-border-dark text-logic-text-muted/40 cursor-not-allowed'
+            ? 'text-logic-text-muted/40 cursor-not-allowed opacity-60'
             : skipping
-              ? 'border-logic-lcd-amber bg-logic-lcd-amber/15 text-logic-lcd-amber'
-              : 'border-logic-border-light bg-logic-bg-deep text-logic-text hover:border-logic-lcd-amber hover:text-logic-lcd-amber'
+              ? 'is-queued text-logic-lcd-amber'
+              : 'text-logic-text hover:text-logic-lcd-amber'
         }`}
         onClick={() => skipSection(song)}
         disabled={!nextRegion}
@@ -90,11 +90,7 @@ export function SectionPads({ song }: { song: Song }) {
         </span>
       </button>
       <button
-        className={`self-center ml-auto flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-2xs font-medium transition-colors ${
-          sectionKeys
-            ? 'border-logic-accent/60 bg-logic-accent/15 text-logic-accent'
-            : 'border-logic-border-light text-logic-text-muted hover:text-logic-text hover:border-logic-text-dim'
-        }`}
+        className={`console-key self-center ml-auto flex items-center gap-1.5 h-8 px-2.5 text-[12px] ${sectionKeys ? 'is-lit-blue' : ''}`}
         onClick={toggleSectionKeys}
         aria-pressed={sectionKeys}
         title={sectionKeys ? 'Atalhos ligados: 1–9 escolhem a parte, L liga/desliga o loop da parte atual, P pula para a próxima' : 'Ligar atalhos de teclado para as partes'}
@@ -147,17 +143,13 @@ interface SectionPadProps {
 
 function SectionPad({ song, region, index, isActive, isQueued, progress, showKey }: SectionPadProps) {
   const updateSongRegion = useStore((s) => s.updateSongRegion);
-  const tint = isQueued ? '#ff9f0a1f' : undefined;
-  const border = isQueued ? '#ff9f0a' : undefined;
-
+  // pad de mesa: a parte tocando acende na cor dela; a engatilhada fica com borda âmbar
   return (
     <div
-      className={`relative flex items-stretch min-w-[140px] h-12 rounded-md border overflow-hidden transition-[background-color,border-color] duration-150 ${
-        isQueued ? '' : 'border-logic-border-light bg-logic-bg-deep hover:border-logic-text-dim'
-      }`}
-      style={{ backgroundColor: tint, borderColor: border }}
+      className={`console-pad relative flex items-stretch min-w-[140px] h-12 overflow-hidden ${isActive ? 'is-active' : ''} ${isQueued ? 'is-queued' : ''}`}
+      style={{ ['--pad-color' as string]: region.color }}
     >
-      <span className="w-1.5 flex-shrink-0" style={{ backgroundColor: region.color }} />
+      <span className="w-1.5 flex-shrink-0" style={{ backgroundColor: region.color, boxShadow: isActive ? `0 0 8px ${region.color}` : undefined }} />
       <button
         className="flex-1 min-w-0 flex flex-col justify-center items-start pl-2.5 pr-2 text-left"
         onClick={() => pickSection(song, region)}
@@ -177,9 +169,7 @@ function SectionPad({ song, region, index, isActive, isQueued, progress, showKey
       </button>
       <div className="flex flex-col items-center justify-center gap-0.5 pr-1.5">
         <button
-          className={`w-7 h-6 rounded flex items-center justify-center transition-colors ${
-            region.loop ? 'bg-logic-lcd-green text-black' : 'text-logic-text-muted hover:text-logic-text hover:bg-white/10'
-          }`}
+          className={`console-key w-7 h-6 flex items-center justify-center ${region.loop ? 'is-lit-green' : ''}`}
           onClick={() => updateSongRegion(song.id, region.id, { loop: !region.loop })}
           aria-pressed={region.loop}
           title={region.loop ? 'Loop ligado (clique para desligar)' : 'Ligar loop'}

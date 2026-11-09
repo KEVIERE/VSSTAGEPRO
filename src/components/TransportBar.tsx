@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
-import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, Loader2, X, Headphones, SlidersVertical } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { keyName, parseKey, songKeyLabel, transposeKey } from '@/lib/musicKey';
+import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, X, Headphones, SlidersVertical } from 'lucide-react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
@@ -8,12 +9,78 @@ import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { currentAndNextSlice, isMedley, paramsAt } from '@/lib/medley';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow } from '@/types';
+import SegmentDisplay from '@/components/SegmentDisplay';
+import DiskLagNotice from '@/components/DiskLagNotice';
+import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
   'continuo': 'Contínuo',
   'bloco': 'Bloco',
   'uma-uma': 'Uma a Uma',
 };
+
+// Tom da música no display (cifra curta, já com o tuner). Clique para corrigir; vazio volta ao da IA.
+function KeyBadge({ songId, tuner }: { songId: string | null | undefined; tuner: number }) {
+  const song = useStore((s) => s.songs.find((x) => x.id === songId));
+  const detected = useStore((s) => (songId ? s.songKeys?.[songId]?.key : undefined));
+  const updateSong = useStore((s) => s.updateSong);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  if (!song) return null;
+  const original = song.musicKey || detected || '';
+  const label = original ? songKeyLabel({ musicKey: original, tuner }) : '';
+  const commit = () => {
+    const text = draft.trim();
+    if (!text) updateSong(song.id, { musicKey: undefined });
+    else {
+      const k = parseKey(text);
+      // o que se digita é o tom que está soando: guarda o original (sem o tuner)
+      if (k) updateSong(song.id, { musicKey: keyName(transposeKey(k, -tuner)) });
+    }
+    setEditing(false);
+  };
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value.slice(0, 6))}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+        onClick={(e) => e.stopPropagation()}
+        placeholder={label || 'Tom'}
+        className="w-12 h-3.5 px-1 rounded-sm bg-logic-bg-deep border border-logic-accent text-2xs leading-3 font-mono text-logic-text outline-none"
+        aria-label="Tom da música"
+      />
+    );
+  }
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); setDraft(label); setEditing(true); }}
+      className={`text-2xs leading-3 font-mono font-semibold px-1 rounded-sm hover:bg-white/10 ${label ? (song.musicKey ? 'text-logic-lcd-amber' : 'text-logic-text-dim') : 'text-logic-text-muted'}`}
+      title={label
+        ? `Tom: ${label}${tuner ? ` (original ${original}, tuner ${tuner > 0 ? '+' : ''}${tuner})` : ''}${song.musicKey ? ' · corrigido à mão' : ' · detectado pela IA'}. Clique para corrigir.`
+        : 'Tom ainda não detectado. Clique para escrever.'}
+    >
+      {label || '--'}
+    </button>
+  );
+}
+
+function RemainingClock({ warn }: { warn: boolean }) {
+  const left = useSongRemaining();
+  if (left === null) return null;
+  // em janela estreita o nome da música tem prioridade: o contador só aparece de 1024 px para cima
+  return (
+    <span className="hidden lg:inline-flex shrink-0">
+      <SegmentDisplay
+        text={`-${clockText(left)}`}
+        label={`Faltam ${clockText(left)}`}
+        className={`h-[17px] ${warn ? 'text-logic-lcd-red animate-pulse' : 'text-logic-lcd-green'}`}
+      />
+    </span>
+  );
+}
 
 const STATUS_STYLES = {
   playing: { label: 'TOCANDO', text: 'text-logic-lcd-green text-shadow-lcd', dot: 'bg-logic-lcd-green shadow-[0_0_8px_2px_rgba(48,209,88,0.55)] animate-pulse', bar: 'bg-logic-lcd-green' },
@@ -125,14 +192,12 @@ export default function TransportBar() {
   const finalCountdown = transport.isPlaying && secondsLeft <= 10 ? Math.ceil(secondsLeft) : null;
 
   const toggleClass = (active: boolean) =>
-    `w-8 h-8 rounded border flex items-center justify-center transition-all duration-150 ${
-      active
-        ? 'bg-logic-lcd-amber/15 border-logic-lcd-amber/70 text-logic-lcd-amber'
-        : 'bg-logic-bg-elevated border-logic-border-light text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-panel-light'
+    `console-key w-8 h-8 flex items-center justify-center ${
+      active ? '!text-logic-lcd-amber console-glow !bg-[#3a3326]' : ''
     }`;
 
   return (
-    <div className="relative flex items-center gap-2 px-3 h-[68px] py-2 bg-logic-bg-panel border-b border-logic-border-dark">
+    <div className="console-face relative flex items-center gap-2 px-3 h-[68px] py-2 border-b border-black">
       {playbackError && (
         <div
           role="alert"
@@ -148,6 +213,7 @@ export default function TransportBar() {
           </button>
         </div>
       )}
+      <DiskLagNotice className="absolute right-3 top-full mt-1.5 z-50" />
       <div className="flex items-center gap-1">
         <button
           className={`logic-btn-transport transition-colors ${
@@ -159,7 +225,8 @@ export default function TransportBar() {
           title={transport.isPlaying ? 'Pausar (Espaço)' : 'Tocar (Espaço)'}
           aria-label={transport.isPlaying ? 'Pausar' : 'Tocar'}
         >
-          {isLoading && transport.isPlaying ? <Loader2 size={14} className="animate-spin" /> : transport.isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
+          {/* o carregamento já aparece no display de status (CARREGANDO); o botão mostra só o comando */}
+          {transport.isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
         </button>
         <button
           className="logic-btn-transport"
@@ -185,7 +252,7 @@ export default function TransportBar() {
         <span className="text-2xs text-logic-text-muted uppercase tracking-wider">Fluxo</span>
         <ArrowRight size={11} className="text-logic-text-muted" />
         <button
-          className="px-2 py-1.5 text-xs font-medium bg-logic-bg-elevated border border-logic-border-light rounded hover:bg-logic-bg-panel-light transition-colors duration-100 w-24 lg:w-28 text-center shrink-0"
+          className="console-key h-8 px-2 text-[13px] !text-logic-text w-24 lg:w-28 text-center shrink-0"
           onClick={cyclePlayFlow}
           title="Alternar fluxo de reprodução"
         >
@@ -197,7 +264,8 @@ export default function TransportBar() {
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between gap-2 h-3">
             <span className="text-2xs leading-3 text-logic-text-muted uppercase tracking-wider">Tocando</span>
-            <span className="text-2xs leading-3 tabular-nums whitespace-nowrap" title="BPM lido da música e o ajuste atual">
+            <span className="flex items-center gap-1.5 text-2xs leading-3 tabular-nums whitespace-nowrap" title="BPM lido da música e o ajuste atual">
+              {showCurrent && currentSong && <KeyBadge songId={currentSong.id} tuner={paramsAt(currentSong, transport.currentTime).tuner} />}
               {showCurrent && baseBpm !== null ? (
                 <>
                   <span className="text-logic-text-dim">{baseBpm}</span>
@@ -212,7 +280,7 @@ export default function TransportBar() {
             </span>
           </div>
           <div className="flex items-center gap-2 h-5 min-w-0">
-            <span className="flex-1 min-w-0 block text-[15px] leading-5 font-medium truncate" style={{ color: transport.isPlaying ? '#30d158' : transport.isPaused ? '#ff9f0a' : '#555' }}>
+            <span className="console-glow flex-1 min-w-0 block text-[15px] leading-5 font-medium truncate" style={{ color: transport.isPlaying ? '#3ee26e' : transport.isPaused ? '#ffab1f' : '#4a4d50' }}>
               {showCurrent && currentSong ? (
                 slice ? (
                   <>
@@ -223,9 +291,12 @@ export default function TransportBar() {
                 ) : currentSong.name
               ) : '---'}
             </span>
+            {/* Contador de 7 segmentos com o que falta da música; nos últimos 10 s fica vermelho e pisca */}
+            {showCurrent && <RemainingClock warn={finalCountdown !== null} />}
+            {/* em janela estreita (sem o contador) o aviso dos últimos segundos aparece escrito */}
             {finalCountdown !== null && (
               <span
-                className="shrink-0 px-1.5 h-4 rounded bg-logic-lcd-red/15 border border-logic-lcd-red/50 text-2xs leading-[14px] font-semibold uppercase tracking-wider text-logic-lcd-red tabular-nums animate-pulse"
+                className="shrink-0 px-1.5 h-4 rounded bg-logic-lcd-red/15 border border-logic-lcd-red/50 text-2xs leading-[14px] font-semibold uppercase tracking-wider text-logic-lcd-red tabular-nums animate-pulse lg:sr-only"
                 role="timer"
                 aria-live="polite"
               >
@@ -239,13 +310,16 @@ export default function TransportBar() {
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between h-3">
             <span className="text-2xs leading-3 text-logic-text-muted uppercase tracking-wider">Próxima</span>
-            {nextIsMedleySlice && (
-              <span className="px-1 rounded-[3px] border border-logic-lcd-amber/70 text-[9px] leading-[11px] font-semibold tracking-[0.14em] text-logic-lcd-amber opacity-90">
-                MEDLEY
-              </span>
-            )}
+            <span className="flex items-center gap-1.5">
+              {nextIsMedleySlice && (
+                <span className="px-1 rounded-[3px] border border-logic-lcd-amber/70 text-[9px] leading-[11px] font-semibold tracking-[0.14em] text-logic-lcd-amber opacity-90">
+                  MEDLEY
+                </span>
+              )}
+              {hasNextSong && !nextIsMedleySlice && nextSong && <KeyBadge songId={nextSong.id} tuner={nextSong.tuner ?? 0} />}
+            </span>
           </div>
-          <span className="block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ff9f0a' : '#555' }}>
+          <span className="console-glow block h-5 text-[15px] leading-5 font-medium truncate" style={{ color: hasNextSong ? '#ffab1f' : '#4a4d50' }}>
             {nextDisplayName}
           </span>
           <TransportNextBar />

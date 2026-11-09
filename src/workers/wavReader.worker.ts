@@ -2,10 +2,10 @@
 // Se a taxa do arquivo for outra, converte aqui mesmo. A conversão de cada amostra só depende
 // do arquivo, então ler só o começo dá exatamente o começo da leitura inteira.
 
-type Req = { id: number; blob: Blob; targetRate: number; maxFrames: number; probeOnly: boolean };
+type Req = { id: number; blob: Blob; targetRate: number; maxFrames: number; probeOnly: boolean; startFrame?: number };
 
 type Res =
-  | { id: number; ok: true; sampleRate: number; sourceRate: number; totalFrames: number; channels: Int16Array[] }
+  | { id: number; ok: true; sampleRate: number; sourceRate: number; totalFrames: number; channels: Int16Array[]; channelCount?: number }
   | { id: number; ok: false };
 
 interface WavInfo {
@@ -166,21 +166,69 @@ function resample(src: Float32Array, srcTotal: number, srcRate: number, dstRate:
   return out;
 }
 
+// Mesma conta de resample(), para as saídas [from, from + count) a partir de um pedaço da
+// origem que começa na amostra s0.
+function resampleRange(src: Float32Array, s0: number, srcTotal: number, srcRate: number, dstRate: number, from: number, count: number): Int16Array {
+  const table = kernelFor(srcRate, dstRate);
+  const out = new Int16Array(count);
+  const ratio = srcRate / dstRate;
+  const have = src.length;
+  for (let o = 0; o < count; o++) {
+    const t = (from + o) * ratio;
+    const base = Math.floor(t);
+    const ph = Math.round((t - base) * PHASES);
+    const row = ph * TAPS;
+    const first = base - HALF_TAPS + 1;
+    let acc = 0;
+    for (let k = 0; k < TAPS; k++) {
+      const j = first + k;
+      const l = j - s0;
+      if (j >= 0 && j < srcTotal && l >= 0 && l < have) acc += src[l] * table[row + k];
+    }
+    out[o] = clamp16(acc);
+  }
+  return out;
+}
+
 function outFramesOf(info: WavInfo, targetRate: number): number {
   return info.rate === targetRate ? info.frames : Math.floor((info.frames * targetRate) / info.rate);
 }
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
-  const { id, blob, targetRate, maxFrames, probeOnly } = ev.data;
+  const { id, blob, targetRate, maxFrames, probeOnly, startFrame } = ev.data;
   const reply = (res: Res, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(res, transfer);
   try {
     const info = await parseHeader(blob);
     if (!info || info.frames <= 0 || info.rate < 8000 || info.rate > 384000) return reply({ id, ok: false });
     const total = outFramesOf(info, targetRate);
     if (total <= 0) return reply({ id, ok: false });
-    if (probeOnly) return reply({ id, ok: true, sampleRate: targetRate, sourceRate: info.rate, totalFrames: total, channels: [] });
-    const frames = maxFrames > 0 ? Math.min(maxFrames, total) : total;
+    if (probeOnly) return reply({ id, ok: true, sampleRate: targetRate, sourceRate: info.rate, totalFrames: total, channels: [], channelCount: Math.min(2, info.channels) });
     const blockBytes = (info.bits / 8) * info.channels;
+    // Trecho do meio do arquivo (leitura antecipada do disco): só na mesma taxa da saída,
+    // onde cada amostra lida é exatamente a da leitura inteira.
+    if (typeof startFrame === 'number') {
+      const from = Math.max(0, Math.min(total, startFrame));
+      const count = Math.max(0, Math.min(maxFrames, total - from));
+      let channels: Int16Array[];
+      if (info.rate === targetRate) {
+        const bytes = await blob.slice(info.dataStart + from * blockBytes, info.dataStart + (from + count) * blockBytes).arrayBuffer();
+        channels = convert(bytes, info, Math.floor(bytes.byteLength / blockBytes));
+      } else {
+        // Taxa diferente: lê só as amostras de origem que o filtro precisa para este trecho.
+        // O resultado é idêntico ao do arquivo convertido inteiro (mesmas fases e mesmo filtro).
+        const ratio = info.rate / targetRate;
+        const s0 = Math.max(0, Math.floor(from * ratio) - HALF_TAPS + 1);
+        const s1 = Math.min(info.frames, Math.floor((from + count) * ratio) + HALF_TAPS + 2);
+        const bytes = await blob.slice(info.dataStart + s0 * blockBytes, info.dataStart + s1 * blockBytes).arrayBuffer();
+        const got = Math.floor(bytes.byteLength / blockBytes);
+        channels = [];
+        for (let c = 0; c < Math.min(2, info.channels); c++) {
+          channels.push(resampleRange(toFloat(bytes, info, got, c), s0, info.frames, info.rate, targetRate, from, count));
+        }
+      }
+      return reply({ id, ok: true, sampleRate: targetRate, sourceRate: info.rate, totalFrames: total, channels }, channels.map((c) => c.buffer));
+    }
+    const frames = maxFrames > 0 ? Math.min(maxFrames, total) : total;
     let channels: Int16Array[];
     if (info.rate === targetRate) {
       const bytes = await blob.slice(info.dataStart, info.dataStart + frames * blockBytes).arrayBuffer();

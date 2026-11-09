@@ -1,5 +1,46 @@
 import type { ClipAudio } from '@/lib/audioLibrary';
 
+/** PCM inteiro de 24 bits para compatibilidade com reprodutores WAV. */
+export function wavHeaderPcm24(totalFrames: number, numberOfChannels: number, sampleRate: number): ArrayBuffer {
+  const dataSize = totalFrames * numberOfChannels * 3;
+  if (!Number.isSafeInteger(dataSize) || dataSize < 0 || dataSize > 0xffffffff - 36) {
+    throw new Error('O áudio excede o limite de 4 GB do formato WAV. Exporte músicas separadamente.');
+  }
+  const header = new ArrayBuffer(44);
+  const v = new DataView(header);
+  const str = (offset: number, value: string) => { for (let i = 0; i < value.length; i++) v.setUint8(offset + i, value.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + dataSize, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, numberOfChannels, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * numberOfChannels * 3, true);
+  v.setUint16(32, numberOfChannels * 3, true); v.setUint16(34, 24, true);
+  str(36, 'data'); v.setUint32(40, dataSize, true);
+  return header;
+}
+
+export function encodePcm24(buffer: AudioBuffer): ArrayBuffer {
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  const out = new Uint8Array(buffer.length * channels.length * 3);
+  let pos = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    for (const channel of channels) {
+      const sample = channel[i];
+      if (!Number.isFinite(sample)) throw new Error('A exportação contém amostras de áudio inválidas.');
+      const value = Math.round(Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 8388608 : 8388607));
+      out[pos++] = value & 255; out[pos++] = (value >> 8) & 255; out[pos++] = (value >> 16) & 255;
+    }
+  }
+  return out.buffer;
+}
+
+export function encodeWavPcm24(buffer: AudioBuffer): ArrayBuffer {
+  const header = wavHeaderPcm24(buffer.length, buffer.numberOfChannels, buffer.sampleRate);
+  const pcm = encodePcm24(buffer);
+  const out = new Uint8Array(header.byteLength + pcm.byteLength);
+  out.set(new Uint8Array(header)); out.set(new Uint8Array(pcm), header.byteLength);
+  return out.buffer;
+}
+
+
 export function encodeWavFloat32(buffer: AudioBuffer): ArrayBuffer {
   const numCh = Math.max(1, buffer.numberOfChannels);
   const sampleRate = buffer.sampleRate;

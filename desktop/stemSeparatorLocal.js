@@ -2,6 +2,7 @@ const { spawn, execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { machineArch } = require('./machineArch');
 
 const APP_AI_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'VS Stage', 'ai-engine');
 const APP_AI_PYTHON = path.join(APP_AI_DIR, 'python', 'bin', 'python3');
@@ -152,7 +153,7 @@ async function ensureAiEngine(win) {
 
   notify(5, 'Configurando a Inteligência Artificial interna no seu Mac pela primeira vez...');
 
-  const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
+  const arch = machineArch() === 'arm64' ? 'aarch64' : 'x86_64';
   const url = `https://github.com/astral-sh/python-build-standalone/releases/download/20241016/cpython-3.11.10+20241016-${arch}-apple-darwin-install_only.tar.gz`;
   const tarFile = path.join(os.tmpdir(), `vs-stage-python-${Date.now()}.tar.gz`);
 
@@ -177,7 +178,10 @@ async function ensureAiEngine(win) {
   if (fs.existsSync(APP_AI_PYTHON)) {
     notify(12, 'Instalando motor neural de áudio de estúdio...');
     try {
-      const execPrefix = process.arch === 'x64' && process.platform === 'darwin' ? 'arch -x86_64 ' : '';
+      // Só força Rosetta quando o Mac é Intel de verdade: num Mac Apple Silicon com o
+      // programa de Intel instalado, `process.arch` diz "x64" mas o Python baixado é arm64,
+      // e o `arch -x86_64` fazia o pip falhar por incompatibilidade.
+      const execPrefix = machineArch() === 'x64' && process.platform === 'darwin' ? 'arch -x86_64 ' : '';
       execSync(`${execPrefix}"${APP_AI_PYTHON}" -m pip install --no-cache-dir --quiet "demucs==4.0.1" torch torchaudio`, {
         timeout: 420000,
         env: {
@@ -211,11 +215,24 @@ function hasLocalDemucs() {
   return true; // Sempre suportado localmente (se não estiver pré-instalado, o ensureAiEngine configura no primeiro uso)
 }
 
+const running = new Set();
+let cancelRequested = false;
+function killTree(proc) {
+  if (!proc || proc.exitCode !== null) return;
+  try { process.kill(-proc.pid, 'SIGTERM'); } catch { try { proc.kill('SIGTERM'); } catch {} }
+}
+function cancelStemSeparation() {
+  cancelRequested = true;
+  for (const proc of running) killTree(proc);
+  return true;
+}
+
 /**
  * Motor Local de Separação de Stems via Demucs v4 (Meta AI).
  * Roda 100% nativo no Mac (Universal: Intel e Apple Silicon).
  */
 async function separateStemsLocal(win, filename, audioData, onProgress) {
+  cancelRequested = false;
   let runner = findDemucsRunner();
 
   if (!runner) {
@@ -263,12 +280,15 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
       : ['-m', 'demucs.separate', '-n', 'htdemucs_6s', '-o', outDir, inputPath];
 
     const proc = spawn(spawnCmd, spawnArgs, {
+      detached: true,
       env: {
         ...process.env,
         PATH: `${path.dirname(runner.path)}:${extendedPath}`,
         ...(runner.torchHome ? { TORCH_HOME: runner.torchHome } : {})
       }
     });
+    running.add(proc);
+    if (cancelRequested) killTree(proc);
 
     let lastProgress = 0;
     const stderrLogs = [];
@@ -299,11 +319,18 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
     proc.stderr.on('data', parseProgress);
 
     proc.on('error', (err) => {
+      running.delete(proc);
       cleanup();
-      reject(new Error(`Falha ao iniciar o motor de IA (${spawnCmd}): ${err.message}`));
+      reject(new Error(cancelRequested ? 'separation_cancelled' : `Falha ao iniciar o motor de IA (${spawnCmd}): ${err.message}`));
     });
 
     proc.on('close', (code) => {
+      running.delete(proc);
+      if (cancelRequested) {
+        cleanup();
+        reject(new Error('separation_cancelled'));
+        return;
+      }
       if (code !== 0) {
         const lastErr = stderrLogs.slice(-10).join('\n').trim();
         cleanup();
@@ -358,5 +385,6 @@ async function separateStemsLocal(win, filename, audioData, onProgress) {
 
 module.exports = {
   separateStemsLocal,
+  cancelStemSeparation,
   hasLocalDemucs,
 };

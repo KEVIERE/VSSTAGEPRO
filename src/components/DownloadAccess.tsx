@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authRedirect } from '@/lib/authRedirect';
 import { Check, ChevronLeft, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, Phone, User } from 'lucide-react';
 import { maskPhone, normalizePhone } from '@/lib/authFlow';
 
@@ -93,7 +94,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           password,
           options: {
           data: { name: name.trim(), phone: normalizedPhone },
-          emailRedirectTo: `${window.location.origin}/#baixar`,
+          emailRedirectTo: authRedirect('/#baixar'),
         },
         });
         if (err) throw err;
@@ -108,7 +109,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           return;
         }
       } else if (view === 'forgot') {
-        const redirectTo = `${window.location.origin}/recuperar`;
+        const redirectTo = authRedirect('/recuperar');
         const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
         if (err) throw err;
         setInfo('Enviamos um e-mail com o link para criar uma nova senha.');
@@ -166,7 +167,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
         <div className="flex items-center justify-between px-6 py-3.5 border-b border-white/[0.1] bg-white/[0.02]">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
-            <span className="text-xs font-semibold tracking-tight text-white">VS Stage Pro</span>
+            <span className="vs-brand text-sm text-white">VS Stage Pro</span>
           </div>
           <span className="text-2xs font-semibold tracking-tight text-apple-text-secondary uppercase px-2 py-0.5 rounded-full bg-white/[0.06] border border-white/10">
             {TITLES[view]}

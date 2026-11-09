@@ -34,28 +34,66 @@ export async function fetchMacManifest(): Promise<MacManifest> {
   return data as MacManifest;
 }
 
-/** Baixa as partes em sequência, confere o arquivo inteiro e entrega pronto para salvar. */
+/** Motivo legível de uma falha de download (mostrado na página). */
+export class DownloadError extends Error {
+  constructor(public reason: string) { super(reason); this.name = 'DownloadError'; }
+}
+
+const PART_ATTEMPTS = 4;
+const sleep = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => {
+  const t = setTimeout(resolve, ms);
+  signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('cancelado', 'AbortError')); }, { once: true });
+});
+
+/**
+ * Baixa as partes em sequência para dentro de um único bloco do tamanho do instalador, confere
+ * o SHA-256 e entrega pronto para salvar. Uma parte que cai no meio (Wi-Fi oscilando, conexão
+ * fechada) tenta de novo até 4 vezes continuando de onde parou, sem recomeçar o download.
+ * Uma cópia só na memória (antes eram três, ~1,2 GB, e o navegador podia recusar no fim).
+ */
 export async function downloadMacBuild(build: MacBuild, onProgress: (received: number) => void, signal: AbortSignal): Promise<Blob> {
-  const chunks: Uint8Array[] = [];
+  let data: Uint8Array<ArrayBuffer>;
+  try {
+    data = new Uint8Array(build.size);
+  } catch {
+    throw new DownloadError('memória do navegador insuficiente: feche outras abas e tente de novo');
+  }
   let received = 0;
-  for (const part of build.parts) {
-    const res = await fetch(BASE + part, { signal });
-    if (!res.ok || !res.body) throw new Error('part_failed');
-    const reader = res.body.getReader();
+  for (let i = 0; i < build.parts.length; i++) {
+    const part = build.parts[i];
+    const partStart = received;
+    let attempt = 0;
     for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      received += value.byteLength;
-      onProgress(received);
+      const resumeAt = received - partStart;
+      try {
+        const res = await fetch(BASE + part, { signal, cache: 'no-store', headers: resumeAt > 0 ? { Range: `bytes=${resumeAt}-` } : undefined });
+        if (!res.ok || !res.body) throw new DownloadError(`o servidor não entregou a parte ${i + 1} de ${build.parts.length} (código ${res.status})`);
+        // pediu para continuar mas o servidor mandou a parte inteira: recomeça só esta parte
+        if (resumeAt > 0 && res.status === 200) received = partStart;
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (received + value.byteLength > build.size) throw new DownloadError('o arquivo recebido é maior que o esperado');
+          data.set(value, received);
+          received += value.byteLength;
+          onProgress(received);
+        }
+        break;
+      } catch (err) {
+        if (signal.aborted || (err as DOMException)?.name === 'AbortError') throw err;
+        if (++attempt >= PART_ATTEMPTS) {
+          throw err instanceof DownloadError ? err : new DownloadError(`a conexão caiu na parte ${i + 1} de ${build.parts.length} e não voltou`);
+        }
+        await sleep(1000 * attempt, signal);
+      }
     }
   }
-  if (received !== build.size) throw new Error('size_mismatch');
-  const blob = new Blob(chunks, { type: 'application/x-apple-diskimage' });
-  const digest = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  if (received !== build.size) throw new DownloadError(`chegaram ${Math.round(received / 1048576)} de ${Math.round(build.size / 1048576)} MB`);
+  const digest = await crypto.subtle.digest('SHA-256', data);
   const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-  if (hex !== build.sha256) throw new Error('hash_mismatch');
-  return blob;
+  if (hex !== build.sha256) throw new DownloadError('o arquivo chegou corrompido (assinatura não confere)');
+  return new Blob([data], { type: 'application/x-apple-diskimage' });
 }
 
 export function saveBlob(blob: Blob, name: string) {
@@ -69,9 +107,26 @@ export function saveBlob(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-/** Palpite do chip pelo nome da placa de vídeo; Intel aparece como Intel/AMD. */
+const UA_ARCH_LS = 'vs-mac-arch';
+export const UA_ARCH_EVENT = 'vs-mac-arch';
+
+/**
+ * Palpite do chip para destacar o instalador certo.
+ *
+ * Ordem das tentativas (a primeira que responder vale):
+ * 1. `navigator.userAgentData` (Chrome, Edge, Brave): entrega "arm" no Apple Silicon e
+ *    "x86" no Intel de forma direta.
+ * 2. Nome da placa de vídeo pelo WebGL.
+ * Sem certeza, devolve null: a página mostra os dois sem destaque, em vez de destacar o
+ * errado (foi assim que um Mac de chip Apple acabou com o instalador de Intel, que fica
+ * lento por rodar traduzido).
+ */
 export function guessMacArch(): 'arm64' | 'x64' | null {
   if (!/Mac/i.test(navigator.platform || navigator.userAgent)) return null;
+
+  const fromHints = guessFromUserAgentData();
+  if (fromHints) return fromHints;
+
   try {
     const gl = document.createElement('canvas').getContext('webgl');
     const ext = gl?.getExtension('WEBGL_debug_renderer_info');
@@ -79,5 +134,29 @@ export function guessMacArch(): 'arm64' | 'x64' | null {
     if (/Apple M\d|Apple GPU/i.test(renderer)) return 'arm64';
     if (/Intel|AMD|Radeon|NVIDIA/i.test(renderer)) return 'x64';
   } catch { /* sem WebGL */ }
+  return null;
+}
+
+/** `navigator.userAgentData` é assíncrono; aqui só lemos o que o navegador já guardou. */
+function guessFromUserAgentData(): 'arm64' | 'x64' | null {
+  const nav = navigator as Navigator & {
+    userAgentData?: { getHighEntropyValues?: (hints: string[]) => Promise<{ architecture?: string }> };
+  };
+  // A leitura síncrona (brands/platform) não traz a arquitetura, então guardamos o resultado
+  // da consulta assíncrona assim que ela chega e reaproveitamos nas próximas aberturas.
+  try {
+    const cached = localStorage.getItem(UA_ARCH_LS);
+    if (cached === 'arm64' || cached === 'x64') return cached;
+  } catch { /* sem storage */ }
+
+  nav.userAgentData?.getHighEntropyValues?.(['architecture'])
+    .then(({ architecture }) => {
+      const arch = architecture === 'arm' ? 'arm64' : architecture === 'x86' ? 'x64' : null;
+      if (!arch) return;
+      try { localStorage.setItem(UA_ARCH_LS, arch); } catch { /* sem storage */ }
+      // Avisa a página para recalcular o destaque sem recarregar.
+      window.dispatchEvent(new Event(UA_ARCH_EVENT));
+    })
+    .catch(() => { /* navegador não responde: fica sem destaque */ });
   return null;
 }

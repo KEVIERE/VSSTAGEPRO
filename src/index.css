@@ -1,4 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* A fonte Inter vem do link do index.html, junto com as fontes de letra (ver o comentário lá):
+   um pedido só, e sem travar a primeira pintura. Antes havia aqui um @import do Google Fonts,
+   que o navegador precisa baixar ANTES de desenhar qualquer coisa, somando mais um atraso de
+   rede em cada abertura do programa. */
 
 @tailwind base;
 @tailwind components;
@@ -17,8 +20,8 @@
 
   body {
     font-family: 'Inter', -apple-system, system-ui, sans-serif;
-    background-color: #0e0e0e;
-    color: #e8e8e8;
+    background-color: #111316;
+    color: #e7e2d6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
@@ -38,6 +41,8 @@
     @apply px-3 py-1.5 text-xs font-medium bg-logic-bg-elevated border border-logic-border-light
            rounded text-logic-text hover:bg-logic-bg-panel-light active:bg-logic-bg-panel
            transition-colors duration-150 ease-logic select-none;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.18));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 1px 1px rgba(0, 0, 0, 0.5);
   }
 
   .logic-btn-accent {
@@ -46,18 +51,492 @@
            transition-colors duration-150 ease-logic select-none;
   }
 
+  /* Tecla de transporte: botão grande de mesa, saltado do painel, que afunda ao apertar.
+     O brilho/sombra vem de uma camada por cima da cor, então as cores de estado
+     (tocando, pausado) continuam aparecendo. */
   .logic-btn-transport {
-    @apply w-9 h-9 flex items-center justify-center bg-logic-bg-elevated border border-logic-border-light
-           rounded text-logic-text hover:bg-logic-bg-panel-light active:bg-logic-accent active:text-white
-           transition-all duration-100 ease-logic select-none;
+    @apply w-10 h-10 flex items-center justify-center bg-logic-bg-elevated border border-logic-border-dark
+           rounded-[4px] text-logic-text hover:bg-logic-bg-panel-light active:bg-logic-accent active:text-white
+           transition-colors duration-100 ease-logic select-none;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.28));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 3px rgba(0, 0, 0, 0.65), 0 1px 0 rgba(0, 0, 0, 0.9);
+  }
+  .logic-btn-transport:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(0, 0, 0, 0.9);
   }
 
-  .logic-lcd {
-    @apply bg-logic-lcd-bg font-sans text-logic-lcd-text rounded-sm border border-logic-border-dark
-           shadow-logic-inset;
+  /* Display: vidro escuro embutido no painel, como o visor de um equipamento de áudio.
+     Linhas horizontais bem finas dão a textura de display; o reflexo fica no alto do vidro. */
+  .logic-lcd,
+  .console-display {
+    @apply bg-logic-lcd-bg font-sans text-logic-lcd-text rounded-[3px] border border-black;
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 38%),
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.022) 0 1px, transparent 1px 3px);
+    box-shadow: inset 0 2px 7px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.07);
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.005em;
   }
+
+  /* Moldura do display grande do Modo Show: um aro de metal em volta do vidro */
+  .console-bezel {
+    padding: 5px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #3a3f46, #1a1d21);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 4px rgba(0, 0, 0, 0.6);
+  }
+
+  /* Display de 7 segmentos: apagados bem fracos, acesos com brilho */
+  .segment-display {
+    display: inline-block;
+    fill: currentColor;
+    overflow: visible;
+  }
+  .segment-ghost {
+    opacity: 0.075;
+  }
+  .segment-lit {
+    filter: drop-shadow(0 0 1.2px currentColor) drop-shadow(0 0 4px color-mix(in srgb, currentColor 45%, transparent));
+  }
+
+  /* Rótulo impresso no painel (em cima de um display ou grupo de teclas) */
+  .console-legend {
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 11px;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    color: #8f8b81;
+  }
+
+  /* Lâmpada "no ar": acende vermelha quando o show está tocando */
+  .console-lamp {
+    width: 9px;
+    height: 9px;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 35% 30%, #5a2622, #2a0f0d);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8), 0 0 0 1px #000;
+  }
+  .console-lamp.is-on {
+    background: radial-gradient(circle at 35% 30%, #ffb3a8, #ff4136 55%, #b3170e);
+    box-shadow: 0 0 8px 2px rgba(255, 65, 54, 0.6), 0 0 0 1px #000;
+  }
+
+  /* ---------- Mesa analógica ---------- */
+
+  /* Painel de aço pintado: textura fina de tinta a pó e um leve degradê de luz de cima */
+  .console-face {
+    background-color: #24282d;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.055 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.14));
+  }
+
+  /* Trilho de cima do mixer (onde fica o título), um pouco mais escuro que o painel */
+  .console-rail {
+    background-color: #171a1d;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.2));
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  /* Módulo de canal: cada canal é uma peça encaixada no painel (luz na borda esquerda,
+     sombra na direita). Selecionado: o módulo clareia e acende uma faixa azul em cima. */
+  .console-strip {
+    box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.05), inset -1px 0 0 rgba(0, 0, 0, 0.55);
+  }
+  .console-strip:hover {
+    background-color: rgba(255, 255, 255, 0.025);
+  }
+  .console-strip.is-selected {
+    background-color: rgba(255, 255, 255, 0.055);
+    box-shadow: inset 0 2px 0 #0a84ff, inset 1px 0 0 rgba(255, 255, 255, 0.05), inset -1px 0 0 rgba(0, 0, 0, 0.55);
+  }
+
+  /* Fita crepe com o nome do canal, com as pontas rasgadas */
+  .console-tape {
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 10.5px;
+    line-height: 10px;
+    color: #27231c;
+    background: linear-gradient(180deg, #f2e9d0 0%, #e4d9bb 100%);
+    clip-path: polygon(0 0, 100% 0, calc(100% - 2px) 22%, 100% 44%, calc(100% - 1.5px) 66%, 100% 84%, calc(100% - 2px) 100%, 0 100%, 2px 80%, 0 58%, 1.5px 38%, 0 18%);
+  }
+
+  /* Rebaixo do painel: onde ficam medidores, visores de nível e trilhos */
+  .console-well {
+    background-color: #0b0c0e;
+    border-radius: 2px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  /* Medidor de LEDs: segmentos separados por linhas finas, e os apagados aparecem bem fracos */
+  .console-meter-segments {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to top, transparent 0 2px, #0b0c0e 2px 3px);
+  }
+
+  /* Escala impressa ao lado do fader */
+  .console-scale {
+    position: absolute;
+    right: 1px;
+    transform: translateY(50%);
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 7.5px;
+    line-height: 1;
+    color: #8f8b81;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .console-scale.is-unity {
+    color: #e7e2d6;
+  }
+  .console-tick {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    transform: translateY(50%);
+    background: linear-gradient(to right, rgba(231, 226, 214, 0.35) 0 5px, transparent 5px calc(100% - 5px), rgba(231, 226, 214, 0.35) calc(100% - 5px));
+  }
+  .console-tick.is-unity {
+    background: linear-gradient(to right, rgba(231, 226, 214, 0.8) 0 6px, transparent 6px calc(100% - 6px), rgba(231, 226, 214, 0.8) calc(100% - 6px));
+  }
+
+  /* Fenda do fader no painel */
+  .console-slot {
+    width: 4px;
+    border-radius: 2px;
+    background: #050607;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 1), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  /* Capa do fader: frisos horizontais e uma linha no meio. A cor diz a função do canal,
+     como nas mesas: branca = guia/click/maestro, grafite = banda, vermelha = master,
+     âmbar = timecode. */
+  .console-cap {
+    border-radius: 2px;
+    background:
+      linear-gradient(to bottom, transparent calc(50% - 1px), var(--cap-line) calc(50% - 1px), var(--cap-line) calc(50% + 1px), transparent calc(50% + 1px)),
+      repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.1) 0 1px, rgba(0, 0, 0, 0.2) 1px 3px),
+      linear-gradient(to bottom, var(--cap-hi), var(--cap-lo));
+    box-shadow: 0 3px 4px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(0, 0, 0, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  .console-cap--band { --cap-hi: #555a62; --cap-lo: #24272b; --cap-line: #f2eee4; }
+  .console-cap--cue { --cap-hi: #f0eee8; --cap-lo: #b6b2a9; --cap-line: #1b1b1b; }
+  .console-cap--master { --cap-hi: #e5503f; --cap-lo: #9a2218; --cap-line: #fff3ea; }
+  .console-cap--tc { --cap-hi: #ffbb45; --cap-lo: #c27709; --cap-line: #2a1a03; }
+
+  /* Tecla emborrachada de mesa. Acesa: a tecla inteira ilumina, com brilho em volta. */
+  .console-key {
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    color: #9c988e;
+    background-color: #30353b;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.25));
+    border: 1px solid #08090b;
+    border-radius: 3px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 1.5px rgba(0, 0, 0, 0.7);
+    transition: background-color 80ms, color 80ms, box-shadow 80ms;
+  }
+  .console-key:hover {
+    color: #e7e2d6;
+  }
+  .console-key:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6);
+  }
+  .console-key.is-lit-amber {
+    color: #2b1800;
+    background-color: #ffab1f;
+    border-color: #6b4300;
+    box-shadow: 0 0 9px rgba(255, 171, 31, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 1px 1.5px rgba(0, 0, 0, 0.7);
+  }
+  .console-key.is-lit-green {
+    color: #062b12;
+    background-color: #3ee26e;
+    border-color: #0f5a26;
+    box-shadow: 0 0 9px rgba(62, 226, 110, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 1px 1.5px rgba(0, 0, 0, 0.7);
+  }
+  .console-key.is-lit-red {
+    color: #2d0703;
+    background-color: #ff4136;
+    border-color: #6e130d;
+    box-shadow: 0 0 10px rgba(255, 65, 54, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 1px 1.5px rgba(0, 0, 0, 0.7);
+  }
+  .console-key.is-lit-blue {
+    color: #031a33;
+    background-color: #5aaaff;
+    border-color: #0b3b70;
+    box-shadow: 0 0 9px rgba(90, 170, 255, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 1px 1.5px rgba(0, 0, 0, 0.7);
+  }
+  /* Tecla grande (transporte do Modo Show): mais saltada e com sombra maior */
+  .console-key.is-big {
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 3px 5px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(0, 0, 0, 0.9);
+  }
+  .console-key.is-big:active {
+    transform: translateY(2px);
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.6);
+  }
+  .console-key.is-big.is-lit-green {
+    box-shadow: 0 0 16px rgba(62, 226, 110, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 3px 5px rgba(0, 0, 0, 0.6);
+  }
+  .console-key:disabled {
+    opacity: 0.55;
+    cursor: default;
+    transform: none;
+  }
+  /* Play aceso enquanto toca: fica travado, mas sem apagar a luz */
+  .console-key.is-lit-green:disabled {
+    opacity: 1;
+  }
+
+  /* LED pequeno ao lado do texto de uma tecla de liga/desliga */
+  .console-led {
+    width: 5px;
+    height: 5px;
+    border-radius: 9999px;
+    background: #2a1a1a;
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.8);
+  }
+  .console-led.is-on-green {
+    background: #3ee26e;
+    box-shadow: 0 0 5px 1px rgba(62, 226, 110, 0.75);
+  }
+  .console-led.is-on-amber {
+    background: #ffab1f;
+    box-shadow: 0 0 5px 1px rgba(255, 171, 31, 0.75);
+  }
+
+  /* Visor de nível em dB: janelinha escura com números acesos */
+  .console-readout {
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 10px;
+    line-height: 12px;
+    height: 14px;
+    min-width: 36px;
+    padding: 1px 4px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    background-color: #08090a;
+    border-radius: 2px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.95), 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .console-led.is-lg {
+    width: 8px;
+    height: 8px;
+  }
+  .console-led.is-on-green.is-lg,
+  .console-led.is-on-amber.is-lg {
+    box-shadow: 0 0 7px 1px currentColor;
+  }
+  .console-led.is-on-green.is-lg { color: rgba(62, 226, 110, 0.7); }
+  .console-led.is-on-amber.is-lg { color: rgba(255, 171, 31, 0.7); }
+
+  /* ---------- Playlist do show ---------- */
+
+  /* Linha de música: separador com um fio de luz em cima. Tocando, próxima e selecionada
+     ganham um friso aceso na borda esquerda e um fundo levemente tingido. */
+  .cue-row {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  .cue-row:hover {
+    background-color: rgba(255, 255, 255, 0.035);
+  }
+  .cue-row.is-current {
+    background-color: rgba(62, 226, 110, 0.1);
+    box-shadow: inset 3px 0 0 #3ee26e, inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  .cue-row.is-next {
+    background-color: rgba(255, 171, 31, 0.09);
+    box-shadow: inset 3px 0 0 #ffab1f, inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+  .cue-row.is-selected {
+    background-color: rgba(255, 255, 255, 0.07);
+    box-shadow: inset 3px 0 0 #0a84ff, inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  /* Cabeçalho de bloco: faixa na cor do bloco, com brilho em cima e sombra embaixo */
+  .cue-block {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.16));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  /* Barra de progresso em LEDs (a cor vem do texto: verde tocando, âmbar próxima) */
+  .led-bar {
+    position: relative;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .led-bar > .led-bar-fill {
+    height: 100%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+  }
+  .led-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(90deg, transparent 0 6px, rgba(10, 12, 12, 0.95) 6px 8px);
+  }
+
+  /* Pad de seção (Intro, Verso, Refrão...): tecla grande; a parte tocando acende na cor dela */
+  .console-pad {
+    border-radius: 5px;
+    border: 1px solid #08090b;
+    background-color: #30353b;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(0, 0, 0, 0.22));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 2px 3px rgba(0, 0, 0, 0.6);
+    transition: background-color 120ms, box-shadow 120ms, border-color 120ms;
+  }
+  .console-pad:hover {
+    background-color: #363c43;
+  }
+  .console-pad.is-active {
+    border-color: var(--pad-color);
+    background-color: color-mix(in srgb, var(--pad-color) 18%, #30353b);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--pad-color) 45%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 3px rgba(0, 0, 0, 0.6);
+  }
+  .console-pad.is-queued {
+    border-color: #ffab1f;
+    background-color: color-mix(in srgb, #ffab1f 14%, #30353b);
+  }
+
+  /* Texto aceso de display (nome da música tocando, nível em dB) */
+  .console-glow {
+    text-shadow: 0 0 8px color-mix(in srgb, currentColor 45%, transparent);
+  }
+
+  /* ---------- Entrada do programa (login, boas-vindas e assinatura) ---------- */
+
+  /* Palco escuro com feixes de luz, como o começo do site. */
+  .access-stage {
+    position: fixed;
+    inset: 0;
+    overflow-y: auto;
+    isolation: isolate;
+    color: #e7e2d6;
+    background: radial-gradient(120% 75% at 50% 0%, #16181b 0%, #050506 55%, #000 100%);
+  }
+  .access-stage::after {
+    content: '';
+    position: fixed;
+    inset: auto 0 0 0;
+    height: 45vh;
+    z-index: -1;
+    pointer-events: none;
+    background: radial-gradient(55% 70% at 50% 100%, rgba(255, 171, 31, 0.07), transparent 70%);
+  }
+  .access-stage-inner {
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+  }
+  .access-beams {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .access-beam {
+    position: absolute;
+    top: -12%;
+    width: 34vw;
+    max-width: 520px;
+    height: 115%;
+    background: linear-gradient(180deg, rgba(246, 236, 210, 0.1), rgba(246, 236, 210, 0.025) 55%, transparent 85%);
+    clip-path: polygon(44% 0, 56% 0, 100% 100%, 0 100%);
+    filter: blur(18px);
+    transform-origin: 50% 0;
+    animation: accessSway 11s ease-in-out infinite alternate;
+  }
+  .access-beam:nth-child(1) { left: 4%; transform: rotate(-16deg); animation-delay: -3s; }
+  .access-beam:nth-child(2) {
+    left: 50%;
+    margin-left: -17vw;
+    background: linear-gradient(180deg, rgba(255, 171, 31, 0.09), rgba(255, 171, 31, 0.02) 55%, transparent 85%);
+    animation-duration: 13s;
+  }
+  .access-beam:nth-child(3) { right: 4%; transform: rotate(16deg); animation-delay: -7s; }
+
+  /* O cartão é um módulo da mesa: painel de aço (console-face) com moldura escura */
+  .access-card {
+    position: relative;
+    max-width: 100%;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px #08090b, inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 50px 110px -30px #000, 0 0 0 7px rgba(255, 255, 255, 0.018);
+  }
+  .access-foot {
+    background-color: #171a1d;
+    background-image: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.02));
+    box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.8), inset 0 2px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  /* Campo de texto rebaixado no painel; acende âmbar ao digitar */
+  .access-field {
+    width: 100%;
+    height: 2.75rem;
+    padding: 0 0.85rem 0 2.4rem;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    color: #e7e2d6;
+    background: #0b0c0e;
+    border: 1px solid #08090b;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9), 0 1px 0 rgba(255, 255, 255, 0.06);
+    outline: none;
+    transition: box-shadow 0.15s ease;
+  }
+  .access-field.is-plain { padding-left: 0.85rem; }
+  .access-field::placeholder { color: #6f6c66; }
+  .access-field:focus {
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 0 1px #ffab1f, 0 0 14px rgba(255, 171, 31, 0.22);
+  }
+  .access-input svg { color: #6f6c66; transition: color 0.15s ease; }
+  .access-input:focus-within svg { color: #ffab1f; }
+
+  /* Tecla principal acesa em âmbar, igual ao "Testar grátis" do site */
+  .access-key {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    height: 2.9rem;
+    border-radius: 8px;
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 700;
+    font-size: 1.12rem;
+    letter-spacing: 0.01em;
+    color: #211500;
+    background: linear-gradient(180deg, #ffc35a 0%, #ffab1f 55%, #ec930b 100%);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 10px 30px -10px rgba(255, 171, 31, 0.65);
+    transition: filter 0.15s ease, transform 0.15s ease;
+  }
+  .access-key:hover { filter: brightness(1.07); }
+  .access-key:active { transform: translateY(1px); }
+  .access-key:disabled { opacity: 0.55; cursor: default; transform: none; filter: none; }
+  .access-key:focus-visible,
+  .access-card .console-key:focus-visible { outline: 2px solid #ffab1f; outline-offset: 2px; }
+
+  /* Link discreto impresso no painel */
+  .access-link {
+    font-size: 0.78rem;
+    color: #a7a297;
+    transition: color 0.15s ease;
+  }
+  .access-link:hover { color: #e7e2d6; }
 
   .logic-track-row {
     @apply flex items-center h-10 px-2 border-b border-logic-border-dark
@@ -83,6 +562,18 @@
     display: none !important;
     height: 0 !important;
     width: 0 !important;
+  }
+
+  /* A coluna dos nomes rola junto com a timeline, mas sem barra de rolagem própria: a
+     rolagem é sempre a da timeline (sync em handleScroll), então a barra aqui só apareceria
+     "flutuando" ao lado das faixas. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
   .timeline-scroll-container {
     scrollbar-width: none;
@@ -134,14 +625,19 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* A entrada comeca baixa e quase transparente: o texto novo so fica legivel
+   quando o anterior ja saiu, em vez de os dois se sobreporem no meio. */
 @keyframes prompterRise {
-  from { opacity: 0.32; transform: translateY(28cqh) scale(0.45); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  0%   { opacity: 0; transform: translateY(22cqh) scale(0.6); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* O trecho que sai sobe e some. A opacidade chega a zero junto com o fim da
+   animacao, para nao haver instante em que ele e o texto novo estejam
+   ambos legiveis na mesma area da tela. */
 @keyframes prompterLeave {
-  from { opacity: 1; transform: translateY(0) scale(1); }
-  to { opacity: 0; transform: translateY(-12cqh) scale(0.9); }
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-9cqh) scale(0.95); }
 }
 
 @keyframes prompterNextIn {
@@ -270,8 +766,8 @@
   animation: splashTitleCinematic 950ms cubic-bezier(0.16, 1, 0.3, 1) 900ms both;
 }
 @keyframes splashTitleCinematic {
-  from { opacity: 0; letter-spacing: 12px; transform: translateY(8px); }
-  to { opacity: 1; letter-spacing: 4px; transform: translateY(0); }
+  from { opacity: 0; letter-spacing: 6px; transform: translateY(8px); }
+  to { opacity: 1; letter-spacing: -0.3px; transform: translateY(0); }
 }
 .splash-fade { animation: splashFade 600ms ease-out both; }
 .splash-draw {
@@ -434,4 +930,64 @@
 
 @media (prefers-reduced-motion: reduce) {
   .apple-fade-in, .apple-reveal { animation: none !important; transition: none !important; opacity: 1 !important; transform: none !important; }
+}
+
+/* A coluna dos nomes das faixas (vertical) e a régua de cima (horizontal) seguem a rolagem da
+   timeline pelo próprio navegador: a animação é ligada à rolagem e roda junto com ela, no mesmo
+   quadro. Copiar a posição por código deixava a coluna um quadro atrás ("descolada").
+   O tamanho do caminho (--vs-follow-max-*) vem do TimelinePanel. */
+.timeline-follow-scope {
+  timeline-scope: --vs-tl-y, --vs-tl-x;
+}
+.timeline-follow-source {
+  scroll-timeline: --vs-tl-y block, --vs-tl-x inline;
+}
+@keyframes vs-follow-y {
+  from { transform: translateY(0); }
+  to { transform: translateY(calc(-1px * var(--vs-follow-max-y, 0))); }
+}
+@keyframes vs-follow-x {
+  from { transform: translateX(0); }
+  to { transform: translateX(calc(-1px * var(--vs-follow-max-x, 0))); }
+}
+.timeline-follow-y,
+.timeline-follow-x {
+  animation-duration: auto;
+  animation-timing-function: linear;
+  animation-fill-mode: both;
+  will-change: transform;
+}
+.timeline-follow-y {
+  animation-name: vs-follow-y;
+  animation-timeline: --vs-tl-y;
+}
+.timeline-follow-x {
+  animation-name: vs-follow-x;
+  animation-timeline: --vs-tl-x;
+}
+
+/* Feixes de luz da entrada do programa balançando devagar (como no site) */
+@keyframes accessSway {
+  from { rotate: -4deg; }
+  to { rotate: 4deg; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .access-beam { animation: none; }
+}
+
+/* Nome do programa ("VS Stage Pro") junto da logo: fonte Outfit, em todo lugar (programa, site,
+   abertura). O arquivo vai junto no pacote, então aparece igual mesmo sem internet. */
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('../desktop/build/fonts/Outfit-SemiBold.ttf') format('truetype');
+}
+.vs-brand {
+  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  text-indent: 0;
 }

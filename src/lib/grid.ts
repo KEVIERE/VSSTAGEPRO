@@ -102,7 +102,8 @@ export function gridLines(grid: SongGrid, from: number, to: number, pxPerSecond:
 
       for (let i = segFirst; i <= segLast; i++) {
         const time = segStart + i * unit;
-        if (time > segEnd + 0.001) break;
+        // o ponto da mudança é desenhado pelo trecho seguinte (com a placa), não duas vezes
+        if (time > segEnd + 0.001 || (sIdx < grid.tempoSegments.length - 1 && time > segEnd - 0.001)) break;
         const beats = Math.round((time - segStart) / segBeat * 2) / 2;
         const isBar = Number.isInteger(beats) && ((beats % grid.beatsPerBar) + grid.beatsPerBar) % grid.beatsPerBar === 0;
         const kind: GridLine['kind'] = isBar ? 'bar' : Number.isInteger(beats) ? 'beat' : 'sub';
@@ -149,4 +150,42 @@ export function gridLines(grid: SongGrid, from: number, to: number, pxPerSecond:
     lines.push({ time, kind, bar: Math.floor(beats / grid.beatsPerBar) + 1 });
   }
   return lines;
+}
+
+/** Índice do trecho que começa na mudança de andamento mais perto de `time` (o primeiro trecho não é mudança). */
+export function tempoChangeIndex(segments: SongTempoSegment[] | undefined, time: number): number {
+  if (!segments || segments.length < 2) return -1;
+  let best = -1;
+  for (let i = 1; i < segments.length; i++) {
+    if (best < 0 || Math.abs(segments[i].startTime - time) < Math.abs(segments[best].startTime - time)) best = i;
+  }
+  return best;
+}
+
+/**
+ * Trechos com a mudança de andamento `index` levada para `to`. Fica sempre a pelo menos um tempo
+ * das mudanças vizinhas, para nenhum trecho sumir.
+ */
+export function moveTempoChange(segments: SongTempoSegment[], index: number, to: number): SongTempoSegment[] {
+  const segs = [...segments].sort((a, b) => a.startTime - b.startTime);
+  if (index < 1 || index >= segs.length) return segs;
+  const prev = segs[index - 1];
+  const seg = segs[index];
+  const min = prev.startTime + 60 / prev.bpm;
+  const max = seg.endTime - 60 / seg.bpm;
+  if (max <= min) return segs;
+  const t = Math.min(max, Math.max(min, to));
+  segs[index - 1] = { ...prev, endTime: t };
+  segs[index] = { ...seg, startTime: t, downbeat: t };
+  return segs;
+}
+
+/** Ponto mais perto de `time` que cai na grade do trecho de antes da mudança `index` (compasso, tempo ou meio tempo). */
+export function snapTempoChange(segments: SongTempoSegment[], index: number, time: number, beatsPerBar: number, step: Exclude<SnapStep, 'off'> = 'beat'): number {
+  const segs = [...segments].sort((a, b) => a.startTime - b.startTime);
+  const prev = segs[index - 1];
+  if (!prev) return time;
+  const beat = 60 / prev.bpm;
+  const size = step === 'bar' ? beat * beatsPerBar : step === 'half' ? beat / 2 : beat;
+  return prev.startTime + Math.round((time - prev.startTime) / size) * size;
 }

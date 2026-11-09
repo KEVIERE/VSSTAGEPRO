@@ -1,46 +1,60 @@
-<!-- Template do e-mail "Confirme seu cadastro" (Supabase Auth > Email Templates > Confirm signup). -->
-<!-- Variável disponível: {{ .ConfirmationURL }} -->
-<div style="background:#0a0b0d;padding:40px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-  <table role="presentation" width="100%" style="max-width:440px;margin:0 auto;background:#17181c;border:1px solid #2c2f38;border-radius:16px;overflow:hidden;box-shadow:0 12px 32px rgba(0,0,0,0.5);">
-    <tr>
-      <td style="padding:0;height:4px;background:linear-gradient(90deg,#f59e0b,#22c55e);"></td>
-    </tr>
-    <tr>
-      <td style="padding:36px 32px 28px;text-align:center;">
-        <!-- Logo do programa -->
-        <table role="presentation" style="margin:0 auto 16px;">
-          <tr>
-            <td align="center">
-              <img src="https://vsstagepro.com.br/icon-192.png" alt="VS Stage Pro" width="64" height="64" style="display:block;border-radius:14px;border:1px solid #2c2f38;" />
-            </td>
-          </tr>
-        </table>
+<!-- Modelo "Confirme seu cadastro". Variável: {{ .ConfirmationURL }} -->
+<!-- Estilo em supabase/functions/_shared/emailSkin.ts (mesma pele do e-mail em massa). -->
+<div style="background-color:#111316;padding:26px 12px;margin:0;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" align="center">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="480"
+             style="width:100%;max-width:480px;background-color:#1b1e22;border:1px solid #0b0d0f;border-radius:5px;overflow:hidden;">
 
-        <div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:#30d158;font-weight:700;margin-bottom:16px;">
-          VS STAGE PRO
-        </div>
-        <h1 style="margin:0 0 12px;font-size:21px;line-height:1.3;color:#eaeaea;font-weight:600;">
-          Confirme seu e-mail
-        </h1>
-        <p style="margin:0 0 26px;font-size:14px;line-height:1.6;color:#9a9a9a;">
-          Falta apenas um clique para começar seu teste grátis do VS Stage Pro. Confirme abaixo para ativar sua conta.
-        </p>
-        <a href="{{ .ConfirmationURL }}"
-           style="display:inline-block;padding:13px 32px;border-radius:10px;background:#30d158;color:#06110a;font-size:14px;font-weight:700;text-decoration:none;">
-          Confirmar e-mail
-        </a>
-        <p style="margin:28px 0 0;font-size:12px;line-height:1.6;color:#6b6b6b;">
-          Se o botão não funcionar, copie e cole este link no navegador:<br>
-          <span style="color:#8a8a8a;word-break:break-all;">{{ .ConfirmationURL }}</span>
-        </p>
-      </td>
-    </tr>
-    <tr>
-      <td style="padding:16px 32px 28px;border-top:1px solid #23252b;text-align:center;">
-        <p style="margin:0;font-size:11px;color:#55555a;">
-          Não foi você quem criou essa conta? Pode ignorar este e-mail com segurança.
-        </p>
-      </td>
-    </tr>
+                <!-- Topo: o console do programa com a marca (imagem gerada por scripts/gerar-topo-email.mjs) -->
+        <tr>
+          <td colspan="2" style="padding:0;background-color:#1b1e22;font-size:0;line-height:0;" align="center">
+            <img src="https://vsstagepro.com.br/email-topo.jpg" alt="VS Stage Pro — console com as faixas do show" width="960" height="360" style="display:block;width:100%;max-width:960px;height:auto;border:0;" />
+          </td>
+        </tr>
+
+        <tr>
+          <!-- Faixa do acento: a cor diz o tipo de mensagem -->
+          <td width="3" style="width:3px;background-color:#3ee26e;font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:26px 26px 4px;background-color:#1b1e22;" align="left">
+{{ if .Data.musico }}
+            <h1 style="margin:0 0 10px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:1.35;color:#e7e2d6;font-weight:600;">Confirme sua conta de músico</h1>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.62;color:#a7a297;">Falta um clique para entrar na Área do Músico. Confirme o e-mail e faça o login: no primeiro acesso, o diretor musical libera sua entrada no show.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 20px;">
+              <tr><td align="center" style="border-radius:4px;background-color:#3ee26e;border:1px solid #27a851;border-bottom-width:2px;">
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#04180a;text-decoration:none;">Confirmar conta de músico</a>
+              </td></tr>
+            </table>
+{{ else }}
+            <h1 style="margin:0 0 10px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:18px;line-height:1.35;color:#e7e2d6;font-weight:600;">Confirme seu e-mail</h1>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.62;color:#a7a297;">Falta um clique para começar seu teste grátis. Confirme o endereço para ativar a conta.</p>
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:2px 0 20px;">
+              <tr><td align="center" style="border-radius:4px;background-color:#3ee26e;border:1px solid #27a851;border-bottom-width:2px;">
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;font-weight:600;color:#04180a;text-decoration:none;">Confirmar e-mail</a>
+              </td></tr>
+            </table>
+{{ end }}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 20px;">
+              <tr><td style="padding:10px 12px;background-color:#0c0e0d;border:1px solid #000;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;line-height:1.6;color:#d8d3c6;word-break:break-all;"><span style="color:#6f6c66;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:11px;">Se o botão não abrir, copie este endereço:</span><br />{{ .ConfirmationURL }}</td></tr>
+            </table>
+            <p style="margin:0 0 18px;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6c66;">O link vale por 24 horas.</p>
+          </td>
+        </tr>
+
+        <tr>
+          <td colspan="2" style="padding:0;background-color:#1b1e22;height:1px;" height="1">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td style="height:1px;line-height:1px;font-size:0;background-color:#0b0d0f;"></td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td width="3" style="width:3px;background-color:#3ee26e;font-size:0;line-height:0;">&nbsp;</td>
+          <td style="padding:18px 26px 22px;background-color:#1b1e22;" align="left">
+            <p style="margin:0;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:12px;line-height:1.6;color:#6f6c66;">Não foi você quem criou essa conta? Pode ignorar este e-mail.</p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
   </table>
 </div>

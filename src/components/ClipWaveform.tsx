@@ -1,5 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import type { AudioClip } from '@/types';
+import { getClipAudio, type ClipAudio } from '@/lib/audioLibrary';
+import { waveColumns } from '@/lib/waveColumns';
+import { useStore } from '@/store';
 
 export const WAVE_TILE_PX = 2048;
 const SETTLE_MS = 160;
@@ -17,6 +20,10 @@ export function routingColorOf(clip: AudioClip) {
 
 interface TileProps {
   peaks: number[] | undefined;
+  /** Áudio do arquivo na memória: com zoom aproximado a onda é desenhada direto das amostras */
+  audio: ClipAudio | null;
+  /** Duração do arquivo inteiro, em segundos (corresponde a `fullWidth`) */
+  duration: number;
   color: string;
   gain?: number;
   fullWidth: number;
@@ -25,7 +32,7 @@ interface TileProps {
   height: number;
 }
 
-const WaveTile = memo(function WaveTile({ peaks, color, gain = 1, fullWidth, offset, width, height }: TileProps) {
+const WaveTile = memo(function WaveTile({ peaks, audio, duration, color, gain = 1, fullWidth, offset, width, height }: TileProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -39,38 +46,17 @@ const WaveTile = memo(function WaveTile({ peaks, color, gain = 1, fullWidth, off
 
     // 1. Fundo limpo e transparente de estúdio (o fundo escuro do clipe garante o contraste do DAW)
     ctx.clearRect(0, 0, width, height);
-    if (!peaks || peaks.length === 0) return;
+    if ((!peaks || peaks.length === 0) && !audio) return;
 
     const mid = height / 2;
     const amp = mid - 2;
-    const n = peaks.length;
-    const total = Math.max(1, fullWidth);
 
-    // Interpolação Hermite S-Curve suave e orgânica quando ampliado (sem cantos angulares de origami)
-    // Agregação precisa de pico máximo quando reduzido (visão geral da música)
-    const samplePeak = (localX: number) => {
-      const x = offset + localX;
-      if (n <= total) {
-        const pos = (x / total) * (n - 1);
-        const i = Math.floor(pos);
-        const a = peaks[i] ?? 0;
-        const b = peaks[Math.min(i + 1, n - 1)] ?? 0;
-        const t = pos - i;
-        // Hermite smoothstep (derivada zero nos extremos): cria curvas acústicas orgânicas
-        const smoothT = t * t * (3 - 2 * t);
-        return a + (b - a) * smoothT;
-      }
-      const s = Math.floor((x / total) * n);
-      const e = Math.max(s + 1, Math.floor(((x + 1) / total) * n));
-      let maxV = 0;
-      for (let i = s; i < e && i < n; i++) if (peaks[i] > maxV) maxV = peaks[i];
-      return maxV;
-    };
-
+    // Altura de cada pixel: das amostras do áudio quando ampliado, do resumo quando afastado
+    const columns = waveColumns(peaks, audio, duration, fullWidth, offset, width);
     const values = new Float32Array(width + 1);
     const gainFactor = Math.max(0.01, gain || 1);
     for (let x = 0; x <= width; x++) {
-      const raw = samplePeak(x) * gainFactor;
+      const raw = columns[x] * gainFactor;
       // Escala perceptual de sonoridade (curva dinâmica que destaca nuances sem achatar a forma)
       values[x] = Math.pow(Math.max(0, Math.min(1, raw)), 0.68);
     }
@@ -151,7 +137,7 @@ const WaveTile = memo(function WaveTile({ peaks, color, gain = 1, fullWidth, off
     ctx.strokeStyle = `${color}cc`;
     ctx.lineWidth = 0.8;
     ctx.stroke();
-  }, [peaks, color, gain, fullWidth, offset, width, height]);
+  }, [peaks, audio, duration, color, gain, fullWidth, offset, width, height]);
 
   return (
     <canvas
@@ -174,6 +160,9 @@ interface ClipWaveformProps {
 // Desenha só os blocos visíveis; durante o zoom estica o desenho existente e redesenha quando o zoom para.
 export function ClipWaveform({ clip, left, width, height, visible, color: propColor }: ClipWaveformProps) {
   const color = propColor || routingColorOf(clip);
+  // redesenha com as amostras quando o áudio da música termina de abrir
+  const songLoading = useStore((s) => s.loadingSongIds.includes(clip.songId));
+  const audio = songLoading ? null : getClipAudio(clip.id);
   const [drawnWidth, setDrawnWidth] = useState(width);
   const ratio = width / drawnWidth;
   const tooStretched = ratio > MAX_STRETCH || ratio < 1 / MAX_STRETCH;
@@ -206,6 +195,8 @@ export function ClipWaveform({ clip, left, width, height, visible, color: propCo
           <WaveTile
             key={i}
             peaks={clip.waveformPeaks}
+            audio={audio}
+            duration={clip.duration}
             color={color}
             gain={clip.gain ?? 1}
             fullWidth={baseWidth}

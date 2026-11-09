@@ -2,26 +2,38 @@ import { useStore } from '@/store';
 import { bpmAdjustToAlpha, stretchClipAudio, tempoFromBpm } from '@/lib/timeStretch';
 import { computeNextSongId } from '@/lib/playFlow';
 import { getClipPlayerWorkletUrl } from '@/lib/clipPlayerWorklet';
-import { clipPlayLength, ensureSongLoaded, getClipAudio, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
-import { HEAD_SECONDS, headsFromOpenAudio, loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
+import { clipPlayLength, ensureSongLoaded, getClipAudio, onAudioLibraryCleared, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
+import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
+import { audioStreamer, diskStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
+import type { DiskHandle, RangeReader, StreamHandle } from '@/lib/audioStreamer';
+import { openRangeReader, openRangeReaders } from '@/lib/diskSource';
 import type { HeadAudio, StretchedHead } from '@/lib/instantStart';
 import { entryExists, markUsed, readEntry, readyDir, renderedName, writeEntry } from '@/lib/readyStore';
 import { sortedRegions } from '@/lib/regions';
+import { songLevelGain } from '@/lib/songLevel';
 import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJumpAt, sliceParams } from '@/lib/medley';
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import { TimecodePlayer } from '@/lib/timecodePlayer';
+import { AntiClipInsert, antiClipActive, loadPeakLimiter } from '@/lib/antiClip';
 import { isUserInteracting } from '@/lib/interactionTracker';
+import { MAESTRO_IA_TRACK_ID } from '@/lib/narrations';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
+import type { ClipAudio } from '@/lib/audioLibrary';
 
 const RETIME_LEAD = 0.06;
+const METER_FFT = 2048;
+export const MAGIC_SUM_GAIN = 0.5;
+// Trecho lido do disco antes de largar (~0,7 s): pequeno para o Play sair rápido; o leitor
+// antecipado já está buscando o que vem depois enquanto ele toca.
+const START_WINDOW_FRAMES = 1 << 15;
+// Depois de um Play, por quanto tempo as análises de fundo esperam (ver isSettling).
+const SETTLE_MS = 5000;
 
-// Fader scale: 0.8 = 0 dB (unity), 1.5 = +12 dB, 0 = silence
-export function faderToGain(volume: number): number {
-  if (volume >= 0.8) return Math.pow(10, ((volume - 0.8) / 0.7) * 0.6);
-  return volume / 0.8;
-}
+import { faderToGain } from '@/lib/faderScale';
+import { lateClipIds, setDiskLag } from '@/lib/diskLag';
+export { faderToGain };
 
 export function volumeToDb(volume: number): number {
   if (volume <= 0.0001) return -Infinity;
@@ -44,6 +56,14 @@ export function createSafetyLimiter(ctx: BaseAudioContext): DynamicsCompressorNo
 // Trilhas não-melódicas: apenas bateria, percussões, click e maestro não sofrem transposição de tom (tuner).
 // A faixa "Guia" (voz guia) É melódica e deve transpor junto com a música quando o tuner for alterado.
 const NON_MELODIC_ROOTS = new Set(['track-bateria', 'track-percussoes', 'track-click', 'track-maestro']);
+
+/**
+ * Fala do Maestro (a voz do maestro por IA e a régua das falas): entram quase sem rampa, para a
+ * primeira sílaba cair exatamente na linha da grade, junto com o click.
+ */
+export function isSpeechTrack(track: Track): boolean {
+  return track.id === MAESTRO_IA_TRACK_ID || track.parentId === 'track-maestro';
+}
 
 export function isMelodicTrack(track: Track, all: Track[]): boolean {
   let t: Track | undefined = track;
@@ -254,8 +274,14 @@ function scheduleClipFade(
 interface ChannelNode {
   gain: GainNode;
   panner: StereoPannerNode;
+  /** Volume igual entre os VS: ganho da música no ar, depois do fader e antes do medidor. */
+  level: GainNode;
+  /** Anti-clip: limitador de pico (-0,1 dBFS) entre o nível e o medidor, liga e desliga por canal. */
+  antiClip: AntiClipInsert;
   analyser: AnalyserNode;
   source: AudioBufferSourceNode | null;
+  /** Separa L/R do canal quando ele sai num par estéreo da interface */
+  splitter?: ChannelSplitterNode;
 }
 
 interface ActiveClip {
@@ -286,7 +312,11 @@ interface PreparedPending {
 interface PreparedBundle {
   songId: string;
   signature: string;
+  /** Reprodutores alimentados direto do disco (a música não precisa estar aberta na memória). */
+  disk?: boolean;
   pending: PreparedPending[];
+  /** Estado e identidade da fonte na criação do reprodutor. */
+  snapshots: Map<string, { audio: ReturnType<typeof getClipAudio>; trimStart: number; duration: number; trackId: string }>;
 }
 
 function effectivePan(trackId: string, trackPan: number, lrActive: boolean): number {
@@ -301,6 +331,11 @@ function songNeedsProcessing(song: Song | undefined): boolean {
   if (!song) return false;
   if ((song.bpmAdjust ?? 0) !== 0 || song.tuner !== 0) return true;
   return !!song.medley?.some((p) => (p.bpmAdjust ?? 0) !== 0 || (p.tuner ?? 0) !== 0);
+}
+
+/** O que muda o som de uma música ao vivo: BPM e tom dela e de cada fatia do medley. */
+function playbackKey(song: Song): string {
+  return `${song.bpmAdjust ?? 0}|${song.tuner}|${(song.medley ?? []).map((p) => `${p.id}:${p.bpmAdjust ?? ''}:${p.tuner ?? ''}`).join(',')}`;
 }
 
 function pitchFromCents(cents: number): number {
@@ -319,7 +354,6 @@ const STABLE_MODE_LS = 'vs_stable_audio';
 const RENDER_CONCURRENCY = Math.min(8, Math.max(2, (navigator.hardwareConcurrency || 4) - 1));
 const RENDER_DELAY_MS = 350;
 const RENDER_TIMEOUT_MS = 60_000;
-
 interface SongNode {
   clipId: string;
   node: AudioWorkletNode;
@@ -332,7 +366,12 @@ class AudioEngine {
   private masterLimiter: DynamicsCompressorNode | null = null;
   private masterAnalyser: AnalyserNode | null = null;
   private meterSmoothed = new Map<string, number>();
-  private meterScratch = new Float32Array(256);
+  // Medidores leem 2048 amostras (~43 ms) a cada ~33 ms: nenhuma amostra fica sem ser vista.
+  // Com 256 eles enxergavam só ~16% do sinal, perdiam picos e o anti-clip baixava de menos.
+  private meterScratch = new Float32Array(METER_FFT);
+  // Pico do master ANTES do limiter de segurança: é ele que diz se o master está estourando
+  // (depois do limiter o sinal nunca passa do teto, e o clip nunca aparecia).
+  private masterPreAnalyser: AnalyserNode | null = null;
   private meterLastUpdate = new Map<string, number>();
   private channels: Map<string, ChannelNode> = new Map();
   private meterInterval: number | null = null;
@@ -349,10 +388,14 @@ class AudioEngine {
   private playGeneration = 0;
   private workletReady: Promise<void> | null = null;
   private seekLock: { active: boolean; targetTime: number } = { active: false, targetTime: 0 };
+  private seekRequest = 0;
   private prepared: Map<string, PreparedBundle> = new Map();
   private preparing: Map<string, Promise<void>> = new Map();
   private stableMode = localStorage.getItem(STABLE_MODE_LS) !== '0';
+  // placa escolhida pelo usuário; null = segue a saída padrão do Mac
   private sinkId: string | null = null;
+  // placa padrão do Mac em que o áudio foi fixado enquanto não há placa escolhida
+  private defaultSinkId: string | null = null;
   private nodeRenderKey = new WeakMap<AudioWorkletNode, string>();
   private renderTimers = new Map<string, number>();
   private renderRuns = new Map<string, number>();
@@ -372,6 +415,122 @@ class AudioEngine {
   private routedTo = new Map<string, string>();
   private timecode: TimecodePlayer | null = null;
   private timecodeClipId: string | null = null;
+  // Entrega em andamento do áudio de cada reprodutor (ver audioStreamer).
+  private feeds = new Map<AudioWorkletNode, StreamHandle>();
+  // Reprodutores que largaram pelo começo pronto e já receberam o áudio inteiro.
+  private headFed = new WeakMap<AudioWorkletNode, ClipAudio>();
+  // Faixas no ar que ficaram sem dado a tempo (o áudio chegou atrasado do disco) e desde quando.
+  private starvedSince = new Map<string, number>();
+  private starvedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private createPlayer(ctx: AudioContext, totalFrames: number, options: Record<string, unknown>): AudioWorkletNode {
+    return new AudioWorkletNode(ctx, 'clip-player', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      processorOptions: { totalFrames, ...options },
+    });
+  }
+
+  /** Passa a entregar o áudio ao reprodutor em trechos, começando por `fromFrame`. */
+  private feed(node: AudioWorkletNode, audio: ClipAudio, fromFrame: number, priority: number, options?: { totalFrames?: number; availableFrames?: number }): StreamHandle {
+    this.feeds.get(node)?.cancel();
+    const target = options?.totalFrames !== undefined ? { channels: audio.channels, length: options.totalFrames } : audio;
+    const handle = audioStreamer.start(node.port, target, { from: fromFrame, priority, availableFrames: options?.availableFrames });
+    this.feeds.set(node, handle);
+    void handle.done.then(() => { if (this.feeds.get(node) === handle) this.feeds.delete(node); });
+    return handle;
+  }
+
+  // Músicas cujos reprodutores leem direto do disco, e quando a do ar terminou de chegar.
+  private diskSongs = new Set<string>();
+  private onAirDiskDone: { songId: string; done: Promise<void> } | null = null;
+
+  private feedDisk(node: AudioWorkletNode, reader: RangeReader, fromFrame: number, priority: number, initial?: { start: number; channels: Int16Array[] }): DiskHandle {
+    this.feeds.get(node)?.cancel();
+    const handle = diskStreamer.start(node.port, reader, { from: fromFrame, priority, initial });
+    this.feeds.set(node, handle);
+    void handle.done.then(() => { if (this.feeds.get(node) === handle) this.feeds.delete(node); });
+    return handle;
+  }
+
+  /** Assinatura de um preparo lido do disco: só o que está na timeline, sem precisar do áudio aberto. */
+  private diskSignature(songId: string): string | null {
+    const store = useStore.getState();
+    const song = store.songs.find((s) => s.id === songId);
+    if (!song) return null;
+    const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c)).sort((a, b) => a.id.localeCompare(b.id));
+    if (clips.length === 0) return null;
+    return `disk|${song.bpmAdjust}|${song.tuner}|` + clips.map((c) => `${c.id}|${c.trackId}|${c.startTime.toFixed(4)}|${c.duration.toFixed(4)}|${(c.trimStart ?? 0).toFixed(4)}|${(c.trimEnd ?? 0).toFixed(4)}|${c.gain ?? 1}|${c.mute ? 1 : 0}|${c.solo ? 1 : 0}|${(c.fadeIn ?? 0).toFixed(3)}|${(c.fadeOut ?? 0).toFixed(3)}|${c.fadeCurveIn ?? 'linear'}|${c.fadeCurveOut ?? 'linear'}|${getClipSource(c.id)?.size ?? 0}`).join('~');
+  }
+
+  private bundleSignature(songId: string, bundle: PreparedBundle | null | undefined): string | null {
+    return bundle?.disk ? this.diskSignature(songId) : this.computePrepareSignature(songId);
+  }
+
+  /** Lê já o trecho da largada de cada faixa (a música anterior segue tocando enquanto isso). */
+  private async readStartWindows(clips: AudioClip[], readers: Map<string, RangeReader>, startOffset: number) {
+    const out = new Map<string, { start: number; channels: Int16Array[] }>();
+    await Promise.all(clips.map(async (clip) => {
+      const r = readers.get(clip.id);
+      if (!r) return;
+      const from = Math.min(r.length, Math.floor(Math.max(0, startOffset - clip.startTime) * r.sampleRate));
+      if (from >= r.length) return;
+      try {
+        out.set(clip.id, { start: from, channels: await r.read(from, START_WINDOW_FRAMES) });
+      } catch { /* o leitor antecipado tenta de novo */ }
+    }));
+    return out;
+  }
+
+  private unfeed(node: AudioWorkletNode) {
+    this.feeds.get(node)?.cancel();
+    this.feeds.delete(node);
+  }
+
+  private focusFeed(node: AudioWorkletNode, fromFrame: number, priority?: number) {
+    this.feeds.get(node)?.focus(fromFrame, priority);
+  }
+
+  private listen(node: AudioWorkletNode, songId: string, clipId: string, onReady?: () => void) {
+    node.port.onmessage = (ev) => {
+      const type = ev.data?.type;
+      if (type === 'ready') onReady?.();
+      else if (type === 'ended') this.handleClipEnded(songId, clipId);
+      else if (type === 'underrun') this.noteStarved(songId, clipId, true);
+      else if (type === 'recovered') this.noteStarved(songId, clipId, false);
+    };
+  }
+
+  // Nada fica mudo sem aviso: se o áudio de uma faixa chega atrasado, a faixa segue no tempo
+  // certo em silêncio. Se o atraso passar do tempo de espera, uma etiqueta no canto diz qual faixa
+  // está esperando o disco (atraso curto, enquanto a música carrega, passa sem aviso).
+  private noteStarved(songId: string, clipId: string, starved: boolean) {
+    if (!this.isPlaying || this.currentSongId !== songId || !this.activeClips.has(clipId)) return;
+    if (!starved) this.starvedSince.delete(clipId);
+    else if (!this.starvedSince.has(clipId)) this.starvedSince.set(clipId, performance.now());
+    this.refreshStarved();
+  }
+
+  private refreshStarved() {
+    if (this.starvedTimer) { clearTimeout(this.starvedTimer); this.starvedTimer = null; }
+    for (const id of this.starvedSince.keys()) if (!this.isPlaying || !this.activeClips.has(id)) this.starvedSince.delete(id);
+    const { late, nextCheckIn } = lateClipIds(this.starvedSince, performance.now());
+    const lateSet = new Set(late);
+    setDiskLag(useStore.getState().clips.filter((c) => lateSet.has(c.id)).map((c) => c.name));
+    if (nextCheckIn !== null) this.starvedTimer = setTimeout(() => { this.starvedTimer = null; this.refreshStarved(); }, nextCheckIn);
+  }
+
+  private clearStarved() {
+    if (this.starvedTimer) { clearTimeout(this.starvedTimer); this.starvedTimer = null; }
+    this.starvedSince.clear();
+    setDiskLag([]);
+  }
+
+  /** Taxa de amostragem do motor, se ele já estiver aberto (o tocador lê o áudio nesta taxa, sem converter). */
+  currentSampleRate(): number | null {
+    return this.ctx && this.ctx.state !== 'closed' ? this.ctx.sampleRate : null;
+  }
 
   getContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
@@ -382,10 +541,20 @@ class AudioEngine {
       // Limiter de segurança no bus master: protege o show de estourar/distorcer, sem alterar o volume percebido.
       this.masterLimiter = createSafetyLimiter(this.ctx);
       this.masterAnalyser = this.ctx.createAnalyser();
-      this.masterAnalyser.fftSize = 256;
+      this.masterAnalyser.fftSize = METER_FFT;
+      this.masterPreAnalyser = this.ctx.createAnalyser();
+      this.masterPreAnalyser.fftSize = METER_FFT;
+      this.masterGain.connect(this.masterPreAnalyser);
+      this.limiterSplit = false;
+      this.masterLimitOut = this.ctx.createGain();
       this.masterGain.connect(this.masterLimiter);
-      this.masterLimiter.connect(this.masterAnalyser);
+      this.masterLimiter.connect(this.masterLimitOut);
+      this.applyLimiterMode();
+      this.masterAntiClipSplit = null;
+      this.applyMasterAntiClip();
       this.configureOutputs();
+      // o limitador do anti-clip já fica carregado: ligar o botão age na hora
+      loadPeakLimiter(this.ctx).catch((err) => console.warn('[anti-clip] limitador indisponível', err));
       if (this.sinkId) {
         this.applySink(this.ctx, this.sinkId)
           .then(() => this.configureOutputs())
@@ -422,9 +591,18 @@ class AudioEngine {
     this.masterSplitter = null;
     this.workletReady = null;
     this.ctx = null;
+    this.defaultSinkId = null;
     this.masterGain = null;
     this.masterLimiter = null;
     this.masterAnalyser = null;
+    this.masterPreAnalyser = null;
+    this.masterLimiterR = null;
+    this.limiterNodes = [];
+    this.limiterSplit = false;
+    this.masterLimitOut = null;
+    this.masterAntiClip = [];
+    this.masterAntiClipNodes = [];
+    this.masterAntiClipSplit = null;
     await old.close().catch(() => { /* já fechado */ });
     await this.prewarm().catch(() => { /* reabre no próximo play */ });
     return true;
@@ -533,26 +711,20 @@ class AudioEngine {
         const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
         const melodic = isMelodicTrack(track, tracks);
         const sampleRate = buffer.sampleRate;
-        const left = buffer.channels[0];
-        const right = buffer.channels[1] ?? left;
         const pitch = melodic ? pitchFromCents(cents) : 1;
         const local = Math.max(0, nowPos - clip.startTime);
         const offsetSamples = Math.floor(local * sampleRate);
         const whenWall = ctx.currentTime + Math.max(0, clip.startTime - nowPos) * alpha;
 
-        const node = new AudioWorkletNode(ctx, 'clip-player', {
-          numberOfInputs: 0,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          processorOptions: {
-            left, right, sampleRate,
-            offsetSamples,
-            tempo, pitch,
-            process: songNeedsProcessing(song),
-            primeTargetFrames: 1024,
-            fadeInFrames: 512,
-          },
+        const node = this.createPlayer(ctx, buffer.length, {
+          sampleRate,
+          offsetSamples,
+          tempo, pitch,
+          process: songNeedsProcessing(song),
+          primeTargetFrames: 1024,
+          fadeInFrames: 512,
         });
+        this.feed(node, buffer, offsetSamples, PRIORITY_ON_AIR);
         const clipGain = ctx.createGain();
         const gTarget = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
         node.connect(clipGain);
@@ -571,11 +743,7 @@ class AudioEngine {
         try { node.port.postMessage({ startTime: whenWall }); } catch { /* ignore */ }
         this.clipGains.set(clip.id, clipGain);
         if (clipPan) this.clipPanners.set(clip.id, clipPan);
-        node.port.onmessage = (ev) => {
-          if (ev.data?.type === 'ended') {
-            this.handleClipEnded(songId, clip.id);
-          }
-        };
+        this.listen(node, songId, clip.id);
         this.activeClips.set(clip.id, {
           node,
           clipStartTime: clip.startTime,
@@ -599,8 +767,43 @@ class AudioEngine {
     }, Math.min(5000, 600 + attempt * 500));
   }
 
+  private preparedSnapshots(songId: string) {
+    const snapshots = new Map<string, { audio: ReturnType<typeof getClipAudio>; trimStart: number; duration: number; trackId: string }>();
+    for (const clip of useStore.getState().clips) {
+      if (clip.songId === songId && isStemClip(clip)) {
+        snapshots.set(clip.id, { audio: getClipAudio(clip.id), trimStart: clip.trimStart ?? 0, duration: clipPlayLength(clip), trackId: clip.trackId });
+      }
+    }
+    return snapshots;
+  }
+
+  /** Reaproveita o Worklet somente quando o áudio e início continuam idênticos e o fim foi encurtado. */
+  refreshPreparedAfterEndCut(songId: string): boolean {
+    const bundle = this.prepared.get(songId);
+    const st = useStore.getState();
+    const song = st.songs.find((item) => item.id === songId);
+    if (!bundle || !song || songNeedsProcessing(song)) return false;
+    const clips = st.clips.filter((clip) => clip.songId === songId && isStemClip(clip));
+    if (clips.length !== bundle.pending.length) return false;
+    for (const clip of clips) {
+      const before = bundle.snapshots.get(clip.id);
+      if (!before || before.audio !== getClipAudio(clip.id) || before.trimStart !== (clip.trimStart ?? 0)
+        || before.trackId !== clip.trackId || clipPlayLength(clip) > before.duration + 1e-6) return false;
+    }
+    const signature = this.computePrepareSignature(songId);
+    if (!signature) return false;
+    for (const item of bundle.pending) {
+      const clip = clips.find((c) => c.id === item.clipId)!;
+      item.clipStartTime = clip.startTime;
+      item.clipDuration = clipPlayLength(clip);
+    }
+    bundle.signature = signature;
+    return true;
+  }
+
   private disposePreparedBundle(bundle: PreparedBundle) {
     for (const p of bundle.pending) {
+      this.unfeed(p.node);
       try { p.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
       try { p.node.disconnect(); } catch { /* ignore */ }
       try { p.clipGain.disconnect(); } catch { /* ignore */ }
@@ -615,6 +818,7 @@ class AudioEngine {
         this.disposePreparedBundle(b);
         this.prepared.delete(songId);
       }
+      if (!this.isPlayingSong(songId)) this.diskSongs.delete(songId);
       return;
     }
     this.prepared.forEach((b) => this.disposePreparedBundle(b));
@@ -636,7 +840,21 @@ class AudioEngine {
   async prepareSong(songId: string): Promise<void> {
     // A música no ar já tem os reprodutores dela; ao parar eles são guardados para o próximo Play.
     if (this.isPlayingSong(songId)) return;
-    if (!isSongLoaded(songId)) await ensureSongLoaded(songId);
+    // A música no ar termina de abrir primeiro: as duas disputando o disco e o processador era
+    // o que fazia a faixa no ar ficar sem dado a tempo.
+    const onAir = this.isPlaying ? this.currentSongId : null;
+    if (onAir && onAir !== songId) {
+      const air = this.onAirDiskDone;
+      if (air && air.songId === onAir) await air.done;
+      else if (!isSongLoaded(onAir)) await ensureSongLoaded(onAir).catch(() => { /* avisado pela música no ar */ });
+    }
+    if (this.isPlayingSong(songId)) return;
+    if (!isSongLoaded(songId)) {
+      // Igual à música no ar: a próxima lê do disco em trechos, sem abrir e converter tudo antes.
+      const readers = await openRangeReaders(this.clipsWithSource(songId));
+      if (readers) return this.prepareFromDisk(songId, readers);
+      await ensureSongLoaded(songId);
+    }
     const sig = this.computePrepareSignature(songId);
     if (!sig) return;
     const existing = this.prepared.get(songId);
@@ -644,6 +862,7 @@ class AudioEngine {
     const inflight = this.preparing.get(songId);
     if (inflight) return inflight;
 
+    const snapshots = this.preparedSnapshots(songId);
     const task = (async () => {
       if (existing) {
         this.disposePreparedBundle(existing);
@@ -679,30 +898,22 @@ class AudioEngine {
         const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
         const melodic = isMelodicTrack(track, tracks);
         const sampleRate = buffer.sampleRate;
-        const left = buffer.channels[0];
-        const right = buffer.channels[1] ?? left;
-        const headFrames = Math.min(left.length, Math.floor(HEAD_SECONDS * sampleRate));
+        if (this.isPlayingSong(songId) || this.computePrepareSignature(songId) !== sig) {
+          this.disposePreparedBundle({ songId, signature: sig, pending, snapshots });
+          return;
+        }
 
-        const node = new AudioWorkletNode(ctx, 'clip-player', {
-          numberOfInputs: 0,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          processorOptions: {
-            left: left.slice(0, headFrames),
-            right: right.slice(0, headFrames),
-            sampleRate,
-            offsetSamples: 0,
-            tempo,
-            pitch: melodic ? pitchFromCents(cents) : 1,
-            process: songNeedsProcessing(song),
-            primeTargetFrames: 2048,
-            fadeInFrames: 0,
-          },
+        const node = this.createPlayer(ctx, buffer.length, {
+          sampleRate,
+          offsetSamples: 0,
+          tempo,
+          pitch: melodic ? pitchFromCents(cents) : 1,
+          process: songNeedsProcessing(song),
+          primeTargetFrames: 2048,
+          fadeInFrames: 0,
         });
-        // O áudio inteiro vai sem cópia no reprodutor, para não pesar na música que está tocando.
-        const fullLeft = left.slice();
-        const fullRight = right === left ? fullLeft : right.slice();
-        node.port.postMessage({ type: 'extend', left: fullLeft, right: fullRight }, fullRight === fullLeft ? [fullLeft.buffer] : [fullLeft.buffer, fullRight.buffer]);
+        // O áudio vai em trechos, atrás da música no ar, sem cópia grande na thread principal.
+        this.feed(node, buffer, 0, PRIORITY_NEXT);
 
         const clipGain = ctx.createGain();
         clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
@@ -720,11 +931,7 @@ class AudioEngine {
           clipGain.connect(channel.gain);
         }
 
-        const ready = new Promise<void>((resolve) => {
-          node.port.onmessage = (ev) => {
-            if (ev.data?.type === 'ready') resolve();
-          };
-        });
+        const ready = new Promise<void>((resolve) => this.listen(node, songId, clip.id, resolve));
 
         pending.push({
           clipId: clip.id,
@@ -733,7 +940,7 @@ class AudioEngine {
           clipDuration: clipPlayLength(clip),
           ready,
           sampleRate,
-          bufferLength: left.length,
+          bufferLength: buffer.length,
           clipGain,
           clipPanner,
           trackId: clip.trackId,
@@ -741,7 +948,7 @@ class AudioEngine {
         await new Promise((r) => setTimeout(r, 0));
       }
 
-      const bundle: PreparedBundle = { songId, signature: sig, pending };
+      const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots };
 
       await Promise.race([
         Promise.all(pending.map((p) => p.ready)),
@@ -764,6 +971,81 @@ class AudioEngine {
     return task;
   }
 
+  private prepareFromDisk(songId: string, readers: Map<string, RangeReader>): Promise<void> {
+    const sig = this.diskSignature(songId);
+    if (!sig) return Promise.resolve();
+    const existing = this.prepared.get(songId);
+    if (existing && existing.disk && existing.signature === sig) return Promise.resolve();
+    const inflight = this.preparing.get(songId);
+    if (inflight) return inflight;
+    const task = (async () => {
+      if (existing) {
+        this.disposePreparedBundle(existing);
+        this.prepared.delete(songId);
+      }
+      const ctx = this.getContext();
+      if (ctx.state === 'suspended') return;
+      try { await this.ensureWorklet(); } catch { return; }
+      const store = useStore.getState();
+      const song = store.songs.find((s) => s.id === songId);
+      if (!song) return;
+      const tracks = store.tracks;
+      const lr = store.lrMasterActive;
+      const clips = store.clips.filter((c) => c.songId === songId && isStemClip(c) && (readers.has(c.id) || getClipPlayAudio(c)));
+      const tempo = tempoFromBpm(song.bpmAdjust ?? 0);
+      const cents = song.tuner * 100;
+      const pending: PreparedPending[] = [];
+      const snapshots = this.preparedSnapshots(songId);
+      for (const clip of clips) {
+        const track = tracks.find((t) => t.id === clip.trackId);
+        if (!track) continue;
+        const reader = readers.get(clip.id) ?? null;
+        const buffer = reader ? null : getClipPlayAudio(clip);
+        if (!reader && !buffer) continue;
+        const sampleRate = reader ? reader.sampleRate : buffer!.sampleRate;
+        const length = reader ? reader.length : buffer!.length;
+        const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
+        const node = this.createPlayer(ctx, length, {
+          sampleRate,
+          offsetSamples: 0,
+          tempo,
+          pitch: isMelodicTrack(track, tracks) ? pitchFromCents(cents) : 1,
+          process: songNeedsProcessing(song),
+          primeTargetFrames: 2048,
+          fadeInFrames: 0,
+        });
+        if (reader) this.feedDisk(node, reader, 0, PRIORITY_NEXT);
+        else this.feed(node, buffer!, 0, PRIORITY_NEXT);
+        const clipGain = ctx.createGain();
+        clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
+        node.connect(clipGain);
+        let clipPanner: StereoPannerNode | null = null;
+        const channel = this.ensureChannel(target.id);
+        if (track.parentId) {
+          clipPanner = ctx.createStereoPanner();
+          clipPanner.pan.value = effectivePan(track.id, track.pan, lr);
+          clipGain.connect(clipPanner);
+          clipPanner.connect(channel.gain);
+        } else {
+          clipGain.connect(channel.gain);
+        }
+        const ready = new Promise<void>((resolve) => this.listen(node, songId, clip.id, resolve));
+        pending.push({ clipId: clip.id, node, clipStartTime: clip.startTime, clipDuration: clipPlayLength(clip), ready, sampleRate, bufferLength: length, clipGain, clipPanner, trackId: clip.trackId });
+      }
+      const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots, disk: true };
+      if (this.diskSignature(songId) !== sig || this.isPlayingSong(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
+        this.disposePreparedBundle(bundle);
+        return;
+      }
+      this.prepared.set(songId, bundle);
+      this.diskSongs.add(songId);
+    })().finally(() => {
+      this.preparing.delete(songId);
+    });
+    this.preparing.set(songId, task);
+    return task;
+  }
+
   private ensureWorklet(): Promise<void> {
     if (this.workletReady) return this.workletReady;
     const ctx = this.getContext();
@@ -780,17 +1062,23 @@ class AudioEngine {
     const gain = ctx.createGain();
     const panner = ctx.createStereoPanner();
     const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
+    analyser.fftSize = METER_FFT;
     analyser.smoothingTimeConstant = 0.8;
+    const level = ctx.createGain();
+    // o timecode nunca muda de volume
+    level.gain.value = isTimecodeTrackId(trackId) ? 1 : this.channelLevel();
     gain.connect(panner);
-    panner.connect(analyser);
-    const node: ChannelNode = { gain, panner, analyser, source: null };
+    panner.connect(level);
+    const antiClip = new AntiClipInsert(ctx, level, analyser);
+    antiClip.set(antiClipActive(useStore.getState().tracks.find((t) => t.id === trackId)), true);
+    const node: ChannelNode = { gain, panner, level, antiClip, analyser, source: null };
     this.channels.set(trackId, node);
     this.routeChannel(trackId);
     return node;
   }
 
-  // Saídas físicas: o Master ocupa as saídas 1 e 2; cada canal pode ir direto para outra saída da interface.
+  // Saídas físicas: o Master ocupa as saídas 1 e 2; cada canal pode ir direto para outra saída
+  // da interface, em mono (N) ou num par estéreo (N/N+1).
   private configureOutputs() {
     const ctx = this.ctx;
     if (!ctx || !this.masterAnalyser) return;
@@ -802,6 +1090,8 @@ class AudioEngine {
       dest.channelInterpretation = 'discrete';
     } catch { /* a saída não aceita mais canais: fica no estéreo */ }
     const actual = Math.max(2, dest.channelCount);
+    // a tela sempre mostra as saídas da placa em uso (abrir um projeto não pode voltar para 2)
+    useStore.getState().setOutputChannelCount(actual);
     if (this.outputMerger && this.outputCount === actual) return;
     try { this.masterAnalyser.disconnect(); } catch { /* ignore */ }
     if (this.outputMerger) { try { this.outputMerger.disconnect(); } catch { /* ignore */ } }
@@ -814,26 +1104,47 @@ class AudioEngine {
     this.outputMerger.connect(dest);
     this.routedTo.clear();
     this.channels.forEach((_, id) => this.routeChannel(id));
-    useStore.getState().setOutputChannelCount(actual);
   }
 
   private routeChannel(trackId: string) {
     const ch = this.channels.get(trackId);
-    if (!ch || !this.masterGain || !this.outputMerger) return;
+    if (!ch || !this.ctx || !this.masterGain || !this.outputMerger) return;
     const track = useStore.getState().tracks.find((t) => t.id === trackId);
+    const isTc = isTimecodeTrackId(trackId);
     const out = track?.outputChannel ?? 0;
-    const physical = out > 0 && out <= this.outputCount ? out : 0;
-    // o timecode nunca cai no Master: sem uma saída física válida ele fica mudo
-    const key = isTimecodeTrackId(trackId) ? (physical ? `out-${physical}` : 'none') : (physical ? `out-${physical}` : 'master');
+    // LR mágico (placa só com 2 saídas): tudo da música vai para o Master, nas saídas 1-2
+    const magic = useStore.getState().magicRoutingActive;
+    // o timecode (LTC) é sempre mono
+    const stereo = !isTc && !!track?.outputStereo;
+    // par ou saída que a interface atual não tem: volta para o Master (o timecode fica mudo)
+    const physical = out > 0 && out + (stereo ? 1 : 0) <= this.outputCount && (!magic || isTc) ? out : 0;
+    const direct = physical ? `${stereo ? 'pair' : 'out'}-${physical}` : null;
+    // "Desligado" (sem saída): a faixa não toca em lugar nenhum, nem com o LR mágico
+    const key = direct ?? (isTc || out === NO_OUTPUT ? 'none' : 'master');
     if (this.routedTo.get(trackId) === key) return;
     try { ch.analyser.disconnect(); } catch { /* ignore */ }
-    if (key === 'master') ch.analyser.connect(this.masterGain);
-    else if (key !== 'none') ch.analyser.connect(this.outputMerger, 0, physical - 1);
+    if (ch.splitter) { try { ch.splitter.disconnect(); } catch { /* ignore */ } }
+    if (key === 'master') {
+      ch.analyser.connect(this.masterGain);
+    } else if (direct && stereo) {
+      const splitter = ch.splitter ?? (ch.splitter = this.ctx.createChannelSplitter(2));
+      ch.analyser.connect(splitter);
+      splitter.connect(this.outputMerger, 0, physical - 1);
+      splitter.connect(this.outputMerger, 1, physical);
+    } else if (direct) {
+      // mono: L e R somados na saída escolhida
+      ch.analyser.connect(this.outputMerger, 0, physical - 1);
+    }
     this.routedTo.set(trackId, key);
   }
 
   getOutputCount(): number {
     return this.outputCount;
+  }
+
+  // Botão ANTI-CLIP do mixer (e desfazer/refazer): liga ou desliga o limitador de cada canal.
+  private syncAntiClip(tracks: Track[]) {
+    this.channels.forEach((ch, id) => ch.antiClip.set(antiClipActive(tracks.find((t) => t.id === id))));
   }
 
   /** O timecode desta música só sai se tiver uma saída física escolhida que a interface oferece. */
@@ -895,18 +1206,47 @@ class AudioEngine {
     return this.startsInFlight > 0;
   }
 
+  // Quando o último Play terminou de largar. Nos segundos seguintes o disco ainda está entregando
+  // o começo de cada faixa, e essa entrega depende da thread da tela.
+  private lastStartAt = 0;
+
+  /**
+   * Largando, ou logo depois de largar: as análises de fundo (volume igual, IA de tom) esperam.
+   * Antes elas só esperavam o Play e podiam rodar no começo de uma música no meio do show.
+   */
+  isSettling(ms = SETTLE_MS): boolean {
+    return this.startsInFlight > 0 || performance.now() - this.lastStartAt < ms;
+  }
+
   async playSong(songId: string, startOffset = 0, options?: { fastSeek?: boolean }) {
     this.startsInFlight++;
     try {
       await this.startSong(songId, startOffset, options);
     } finally {
       this.startsInFlight--;
+      this.lastStartAt = performance.now();
     }
   }
 
   private async startSong(songId: string, startOffset = 0, options?: { fastSeek?: boolean }) {
     let heads: Map<string, HeadAudio> | null = null;
-    if (!isSongLoaded(songId)) {
+    let disk: Map<string, RangeReader> | null = null;
+    let initial: Map<string, { start: number; channels: Int16Array[] }> | null = null;
+    const ready0 = this.prepared.get(songId);
+    const diskBundleReady = !!(ready0?.disk && ready0.signature === this.diskSignature(songId));
+    if (!isSongLoaded(songId) && !diskBundleReady) {
+      const loadGen = this.playGeneration;
+      // Como nos programas de gravação: cada faixa lê do disco a partir do ponto de largada,
+      // sem abrir nem converter o arquivo inteiro. A música anterior segue até o trecho chegar.
+      const withSource = this.clipsWithSource(songId);
+      disk = await openRangeReaders(withSource);
+      if (loadGen !== this.playGeneration) return;
+      if (disk) {
+        initial = await this.readStartWindows(withSource, disk, startOffset);
+        if (loadGen !== this.playGeneration) return;
+      }
+    }
+    if (!disk && !isSongLoaded(songId) && !diskBundleReady) {
       const loadGen = this.playGeneration;
       // Começo pronto no disco: a música larga na hora e o resto abre enquanto ela toca.
       heads = await loadHeads(this.clipsWithSource(songId), startOffset);
@@ -931,14 +1271,13 @@ class AudioEngine {
     const fastSeek = options?.fastSeek === true;
     this.stopAll();
     this.loopPasses.clear();
-    const expectedSig = this.computePrepareSignature(songId);
     const bundle = this.prepared.get(songId) ?? null;
+    const expectedSig = this.bundleSignature(songId, bundle);
     const useBundle = !!(bundle && expectedSig && bundle.signature === expectedSig
       && this.coversAllClips(songId, bundle.pending.map((p) => p.clipId)));
-    if (!useBundle && !heads && isSongLoaded(songId)) {
-      const st = useStore.getState();
-      heads = headsFromOpenAudio(st.clips.filter((c) => c.songId === songId && isStemClip(c) && getClipAudio(c.id) && st.tracks.some((t) => t.id === c.trackId)), startOffset);
-    }
+    // preparo velho (a música foi editada): não fica ocupando memória ao lado dos novos reprodutores
+    if (bundle && !useBundle) this.invalidatePrepared(songId);
+    if (useBundle && bundle?.disk) this.diskSongs.add(songId);
     const myGen = ++this.playGeneration;
     const ctx = this.getContext();
     if (ctx.state === 'suspended') await ctx.resume();
@@ -957,9 +1296,10 @@ class AudioEngine {
 
       const song = store.songs.find((s) => s.id === songId);
       const songDuration = song?.duration ?? Math.max(...clipsNow.map((c) => c.duration));
-      const bpmAdjust = song?.bpmAdjust ?? 0;
+      const params = song ? paramsAt(song, startOffset) : { bpmAdjust: 0, tuner: 0 };
+      const bpmAdjust = params.bpmAdjust;
       const alpha = bpmAdjustToAlpha(bpmAdjust);
-      const cents = song ? song.tuner * 100 : 0;
+      const cents = params.tuner * 100;
       const tracks = store.tracks;
       const lr = store.lrMasterActive;
 
@@ -1005,14 +1345,14 @@ class AudioEngine {
         else { try { p.clipGain.gain.cancelScheduledValues(ctx.currentTime); } catch { /* ignore */ } try { p.clipGain.gain.setValueAtTime(gTarget, ctx.currentTime); } catch { p.clipGain.gain.value = gTarget; } }
         const offsetSamples = local > 0 ? Math.min(p.bufferLength, Math.floor(local * p.sampleRate)) : 0;
         try {
-          p.node.port.postMessage({ type: 'seek', offsetSamples, startTime: whenWall, fadeInFrames: offsetSamples > 0 ? 512 : 1 });
+          p.node.port.postMessage({ type: 'seek', offsetSamples, startTime: whenWall, fadeInFrames: offsetSamples > 0 ? 512 : 1,
+            tempo: tempoFromBpm(bpmAdjust), pitch: isMelodicTrack(track, tracks) ? pitchFromCents(cents) : 1,
+            process: songNeedsProcessing(song), dropPartial: true });
         } catch { /* ignore */ }
 
-        p.node.port.onmessage = (ev) => {
-          if (ev.data?.type === 'ended') {
-            this.handleClipEnded(songId, p.clipId);
-          }
-        };
+        // o que ainda falta chegar deste reprodutor passa na frente, a partir do ponto de largada
+        this.focusFeed(p.node, offsetSamples, PRIORITY_ON_AIR);
+        this.listen(p.node, songId, p.clipId);
 
         this.activeClips.set(p.clipId, {
           node: p.node,
@@ -1044,24 +1384,27 @@ class AudioEngine {
 
     const song = store.songs.find((s) => s.id === songId);
     const audioFor = (clip: typeof clips[number]) => heads ? heads.get(clip.id) ?? null : getClipPlayAudio(clip);
-    const playClips = clips.filter((c) => store.tracks.some((t) => t.id === c.trackId) && audioFor(c));
+    const playClips = clips.filter((c) => store.tracks.some((t) => t.id === c.trackId) && (disk?.has(c.id) || audioFor(c)));
     // Com BPM/tom alterados, o começo já ajustado evita ligar o processamento ao vivo de todas as faixas na largada.
-    const stretched = wantsStretchedHead(song)
+    // Esse começo é o do arquivo: com algum clipe cortado no início (split), todas processam ao vivo juntas.
+    const stretched = wantsStretchedHead(song) && !playClips.some((c) => (c.trimStart ?? 0) > 0)
       ? await loadStretchedHeads(song, playClips, headPitchFor, 0)
       : null;
     if (myGen !== this.playGeneration) return;
 
     this.isPlaying = true;
     this.currentSongId = songId;
+    this.endedClips.clear();
     this.markOnAir(songId);
     this.playbackOffset = startOffset;
     this.headOnly = !!heads;
 
     const songDuration = song?.duration ?? Math.max(...clips.map((c) => c.duration));
-    const bpmAdjust = song?.bpmAdjust ?? 0;
+    const params = song ? paramsAt(song, startOffset) : { bpmAdjust: 0, tuner: 0 };
+    const bpmAdjust = params.bpmAdjust;
     const alpha = bpmAdjustToAlpha(bpmAdjust);
     const tempo = tempoFromBpm(bpmAdjust);
-    const cents = song ? song.tuner * 100 : 0;
+    const cents = params.tuner * 100;
     const tracks = store.tracks;
     const lr = store.lrMasterActive;
     this.playbackAlpha = alpha;
@@ -1082,6 +1425,7 @@ class AudioEngine {
     const pending: Pending[] = [];
     const purgePending = () => {
       for (const p of pending) {
+        this.unfeed(p.node);
         try { p.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
         try { p.node.disconnect(); } catch { /* ignore */ }
         try { p.clipGain.disconnect(); } catch { /* ignore */ }
@@ -1092,54 +1436,49 @@ class AudioEngine {
       pending.length = 0;
     };
 
+    if (disk) this.diskSongs.add(songId);
     for (const clip of clips) {
-      const buffer = audioFor(clip);
-      if (!buffer) continue;
+      const reader = disk?.get(clip.id) ?? null;
+      const buffer = reader ? null : audioFor(clip);
+      if (!reader && !buffer) continue;
       const track = tracks.find((t) => t.id === clip.trackId);
       if (!track) continue;
       const target = track.parentId ? tracks.find((t) => t.id === track.parentId) ?? track : track;
       const melodic = isMelodicTrack(track, tracks);
 
-      const sampleRate = buffer.sampleRate;
-      const left = buffer.channels[0];
-      const right = buffer.channels[1] ?? left;
+      const sampleRate = reader ? reader.sampleRate : buffer!.sampleRate;
 
       const offsetSeconds = Math.max(0, startOffset - clip.startTime);
       const offsetSamples = Math.floor(offsetSeconds * sampleRate);
-      const bufferLength = heads ? heads.get(clip.id)!.fullFrames : left.length;
+      const bufferLength = reader ? reader.length : heads ? heads.get(clip.id)!.fullFrames : buffer!.length;
       const pitch = melodic ? pitchFromCents(cents) : 1;
       const ready = stretched?.get(clip.id);
 
-      const node = new AudioWorkletNode(ctx, 'clip-player', {
-        numberOfInputs: 0,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-        processorOptions: {
-          left,
-          right,
-          sampleRate,
-          offsetSamples,
-          tempo,
-          pitch,
-          process: songNeedsProcessing(song),
-          primeTargetFrames: fastSeek ? 1024 : 2048,
-          fadeInFrames: fastSeek ? 1024 : 512,
-          ...(ready ? { renderedLeft: ready.left, renderedRight: ready.right, renderedTempo: tempo, renderedPitch: pitch, renderedValidFrames: ready.validFrames } : {}),
-        },
+      // A rampa de entrada (10 ms a 48 kHz) suaviza o começo de música, mas numa fala do Maestro ela
+      // abafa a primeira sílaba: a contagem ("Um!") entrava depois da linha da grade e mais fraca.
+      // Fala e click entram quase secos (0,2 ms para não estalar).
+      const isSpeech = isSpeechTrack(track);
+
+      const node = this.createPlayer(ctx, bufferLength, {
+        sampleRate,
+        offsetSamples,
+        tempo,
+        pitch,
+        process: songNeedsProcessing(song),
+        primeTargetFrames: fastSeek ? 1024 : 2048,
+        fadeInFrames: isSpeech ? (fastSeek ? 256 : 10) : (fastSeek ? 1024 : 512),
+        ...(ready ? { renderedLeft: ready.left, renderedRight: ready.right, renderedTempo: tempo, renderedPitch: pitch, renderedValidFrames: ready.validFrames } : {}),
       });
+      // Nenhuma cópia do áudio inteiro no Play: vai junto só o trecho da largada, o resto em
+      // trechos logo em seguida. Com o começo pronto do disco, só ele por enquanto.
+      if (reader) this.feedDisk(node, reader, offsetSamples, PRIORITY_ON_AIR, initial?.get(clip.id));
+      else this.feed(node, buffer!, offsetSamples, PRIORITY_ON_AIR, heads ? { totalFrames: bufferLength, availableFrames: buffer!.length } : undefined);
 
       const clipGain = ctx.createGain();
       clipGain.gain.value = (track.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
       node.connect(clipGain);
 
-      const readyFor = (nodeRef: AudioWorkletNode, clipId: string) => new Promise<void>((resolve) => {
-        nodeRef.port.onmessage = (ev) => {
-          if (ev.data?.type === 'ready') resolve();
-          if (ev.data?.type === 'ended') {
-            this.handleClipEnded(songId, clipId);
-          }
-        };
-      });
+      const readyFor = (nodeRef: AudioWorkletNode, clipId: string) => new Promise<void>((resolve) => this.listen(nodeRef, songId, clipId, resolve));
 
       if (track.parentId) {
         const clipPan = ctx.createStereoPanner();
@@ -1212,7 +1551,36 @@ class AudioEngine {
     }
     if (stretched) this.schedulePartialHandoff(songId, myGen, pending, stretched, startOffset, tempo);
     if (heads) void this.finishHeadStart(songId, myGen);
+    else if (disk) void this.afterDiskStart(songId, myGen);
     else this.scheduleRender(songId, 0);
+  }
+
+  // A música no ar lê do disco: espera todas as faixas chegarem inteiras. Só abre a música na
+  // memória se precisar — faixa cujo disco falhou ou BPM/tom com áudio ajustado em segundo plano.
+  private async afterDiskStart(songId: string, gen: number) {
+    const handles = Array.from(this.activeClips.values()).map((a) => this.feeds.get(a.node)).filter((h): h is StreamHandle => !!h);
+    const done = Promise.all(handles.map((h) => h.done)).then(() => undefined);
+    this.onAirDiskDone = { songId, done };
+    await done;
+    if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
+    const failed = Array.from(this.activeClips.entries()).filter(([, a]) => {
+      const h = handles.find((x) => this.feeds.get(a.node) === x);
+      return !!h && 'failed' in h && (h as DiskHandle).failed;
+    });
+    const song = useStore.getState().songs.find((s) => s.id === songId);
+    const wantsRender = !!song && songNeedsProcessing(song) && !hasSliceParams(song);
+    if (failed.length === 0 && !wantsRender) return;
+    await ensureSongLoaded(songId).catch(() => { /* avisado pelo carregamento */ });
+    if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
+    const store = useStore.getState();
+    for (const [clipId, active] of failed) {
+      const clip = store.clips.find((c) => c.id === clipId);
+      const audio = clip ? getClipPlayAudio(clip) : null;
+      if (!audio || !this.ctx) continue;
+      const pos = (this.ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1);
+      this.feed(active.node, audio, Math.max(0, Math.floor((pos - active.clipStartTime) * audio.sampleRate)), PRIORITY_ON_AIR);
+    }
+    if (wantsRender) this.scheduleRender(songId, 0);
   }
 
   private clipsWithSource(songId: string) {
@@ -1229,8 +1597,10 @@ class AudioEngine {
     if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
     const store = useStore.getState();
 
-    // Uma faixa por vez e sem cópia no reprodutor: o som no ar não sente a troca.
+    // O áudio inteiro abriu: cada faixa recebe o resto em trechos a partir de onde a música
+    // está agora (o que já tocou vem por último), sem parar nem copiar tudo de uma vez.
     const stillMissing: string[] = [];
+    const ctx = this.ctx;
     for (const [clipId, active] of Array.from(this.activeClips.entries())) {
       if (gen !== this.playGeneration || this.activeClips.get(clipId) !== active) return;
       const clip = store.clips.find((c) => c.id === clipId);
@@ -1239,14 +1609,16 @@ class AudioEngine {
         if (clip) stillMissing.push(clipId);
         continue;
       }
-      const left = audio.channels[0].slice();
-      const right = audio.channels[1] ? audio.channels[1].slice() : left;
-      // a transferência zera o tamanho do array, então o tamanho é guardado antes
-      active.bufferLength = left.length;
+      if (this.headFed.get(active.node) === audio) continue;
+      const pos = ctx ? (ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1) : this.playbackOffset;
+      const fromFrame = Math.max(0, Math.floor((pos - active.clipStartTime) * audio.sampleRate));
       try {
-        active.node.port.postMessage({ type: 'extend', left, right }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
-      } catch { /* ignore */ }
-      await new Promise((r) => setTimeout(r, 0));
+        this.feed(active.node, audio, fromFrame, PRIORITY_ON_AIR);
+        this.headFed.set(active.node, audio);
+        active.bufferLength = audio.length;
+      } catch {
+        stillMissing.push(clipId);
+      }
     }
     if (gen !== this.playGeneration) return;
 
@@ -1275,8 +1647,9 @@ class AudioEngine {
       }
     }
 
-    this.headOnly = false;
-    this.scheduleRender(songId, 0);
+    // Não declare o reprodutor completo se ainda houver faixa sem dados.
+    this.headOnly = stillMissing.length > 0;
+    if (!this.headOnly) this.scheduleRender(songId, 0);
   }
 
   // O começo ajustado cobre só os primeiros segundos: antes dele acabar, todas as faixas passam juntas para o áudio inteiro.
@@ -1356,10 +1729,36 @@ class AudioEngine {
   private loopTimer: number | null = null;
 
   constructor() {
+    // Outro projeto (ou o mesmo reaberto, com os mesmos IDs): nenhum reprodutor guardado do
+    // anterior pode ser reaproveitado com áudio, tom ou BPM antigos, nem continuar soando.
+    onAudioLibraryCleared(() => {
+      this.stopAll();
+      this.invalidatePrepared();
+      this.cancelAllRenders();
+      this.diskSongs.clear();
+      this.onAirDiskDone = null;
+    });
     useStore.subscribe((s, prev) => {
+      // Desfazer/Refazer (e qualquer outra mudança no estado) chega ao som: fader master e
+      // BPM/tom de cada música — antes só os botões aplicavam, e o Ctrl+Z mudava só a tela.
+      if (s.masterVolume !== prev.masterVolume) this.setMasterVolume(s.masterVolume);
+      if (s.songs !== prev.songs) {
+        const before = new Map(prev.songs.map((sg) => [sg.id, sg]));
+        for (const sg of s.songs) {
+          const old = before.get(sg.id);
+          if (old && old !== sg && playbackKey(old) !== playbackKey(sg)) this.applySongPlaybackParams(sg.id);
+        }
+      }
+      if (s.levelMatch !== prev.levelMatch || s.levelMatchDb !== prev.levelMatchDb || s.songLoudness !== prev.songLoudness || s.playlist !== prev.playlist || s.magicRoutingActive !== prev.magicRoutingActive) this.applySongLevel();
+      if (s.magicRoutingActive !== prev.magicRoutingActive) {
+        this.channels.forEach((_, id) => this.routeChannel(id));
+        this.applyLimiterMode();
+      }
+      if (s.magicRoutingActive !== prev.magicRoutingActive || s.masterAntiClip !== prev.masterAntiClip) this.applyMasterAntiClip();
       if ((s.songs !== prev.songs || s.queuedRegion !== prev.queuedRegion) && this.isPlaying) this.rearmLoop();
       if (s.clips !== prev.clips || s.tracks !== prev.tracks) this.rerouteMovedClips();
       if (s.tracks !== prev.tracks) this.channels.forEach((_, id) => this.routeChannel(id));
+      if (s.tracks !== prev.tracks) this.syncAntiClip(s.tracks);
       // Se clipes foram apagados, divididos ou cortados enquanto toca, recalcula o fim da música
       if (s.clips !== prev.clips && this.isPlaying && this.currentSongId) {
         this.scheduleSongEnd();
@@ -1552,7 +1951,28 @@ class AudioEngine {
   }
 
   // A tela precisa saber qual música está no ar também quando o programa passa sozinho para a próxima.
+  private songLevel = 1;
+  private appliedLevel = 1;
+
+  // No LR mágico cada canal estéreo vai todo para um lado: o pan soma L+R (+6 dB num sinal igual
+  // nos dois lados). A soma entra a -6 dB, então a faixa sai no mesmo volume, sem estourar o L.
+  private channelLevel(): number {
+    return this.songLevel * (useStore.getState().magicRoutingActive ? MAGIC_SUM_GAIN : 1);
+  }
+
+  /** Ganho do "volume igual" para a música no ar (todas as saídas, não só o Master). */
+  applySongLevel(songId: string | null = this.currentSongId) {
+    this.songLevel = songId ? songLevelGain(useStore.getState(), songId) : 1;
+    const g = this.channelLevel();
+    if (Math.abs(g - this.appliedLevel) < 1e-6) return;
+    this.appliedLevel = g;
+    this.channels.forEach((ch, id) => {
+      if (!isTimecodeTrackId(id)) this.rampParam(ch.level.gain, g, 0.08);
+    });
+  }
+
   private markOnAir(songId: string) {
+    this.applySongLevel(songId);
     useStore.setState((s) => {
       const t = s.transport;
       if (t.currentSongId === songId && t.isPlaying) return s;
@@ -1623,11 +2043,15 @@ class AudioEngine {
     const endedId = this.currentSongId;
     store.stop();
     this.stopAll();
-    // Fim do bloco: a primeira música do bloco seguinte fica só selecionada, esperando o Play.
+    // Fim do bloco: a primeira música do bloco seguinte fica armada (selecionada, marcada como
+    // próxima e com o áudio já preparado), esperando só o Play.
     if (transport.playFlow === 'bloco' && endedId) {
-      const order = useStore.getState().playlistOrder;
-      const following = order[order.indexOf(endedId) + 1];
-      if (following) useStore.getState().selectSong(following);
+      const st = useStore.getState();
+      const following = st.playlistOrder[st.playlistOrder.indexOf(endedId) + 1];
+      if (following) {
+        st.selectSong(following);
+        st.setNextSong(following);
+      }
     }
   }
 
@@ -1639,6 +2063,8 @@ class AudioEngine {
     this.isPlaying = false;
     this.currentSongId = null;
     this.playGeneration++;
+    this.clearStarved();
+    this.seekRequest++;
     this.timecode?.stop();
     this.timecodeClipId = null;
     if (this.songEndTimeout) { clearTimeout(this.songEndTimeout); this.songEndTimeout = null; }
@@ -1658,7 +2084,11 @@ class AudioEngine {
     this.headOnly = false;
     this.partialActive = false;
     if (this.partialTimer) { window.clearTimeout(this.partialTimer); this.partialTimer = null; }
-    if (stoppedSongId && !retained) this.cancelRender(stoppedSongId);
+    if (stoppedSongId && !retained) {
+      this.cancelRender(stoppedSongId);
+      this.diskSongs.delete(stoppedSongId);
+    }
+    if (this.onAirDiskDone?.songId === stoppedSongId) this.onAirDiskDone = null;
     const toDisconnect = retained ? [] : Array.from(this.activeClips.entries());
     const gainsSnapshot = retained ? new Map<string, GainNode>() : new Map(this.clipGains);
     const pannersSnapshot = retained ? new Map<string, StereoPannerNode>() : new Map(this.clipPanners);
@@ -1667,6 +2097,7 @@ class AudioEngine {
     this.clipPanners.clear();
     const disconnect = () => {
       toDisconnect.forEach(([, active]) => {
+        this.unfeed(active.node);
         try { active.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
         try { active.node.disconnect(); } catch { /* ignore */ }
       });
@@ -1682,13 +2113,17 @@ class AudioEngine {
 
   // Guarda os reprodutores parados (em silêncio) para o próximo Play não precisar recarregar o áudio.
   private retainForReuse(songId: string): boolean {
-    const sig = this.computePrepareSignature(songId);
+    const memorySig = this.computePrepareSignature(songId);
+    const fromDisk = !memorySig && this.diskSongs.has(songId);
+    const sig = memorySig ?? (fromDisk ? this.diskSignature(songId) : null);
     if (!sig || this.activeClips.size === 0 || !this.coversAllClips(songId, this.activeClips.keys())) return false;
     const old = this.prepared.get(songId);
     if (old) this.disposePreparedBundle(old);
     const fadeEnd = (this.ctx?.currentTime ?? 0) + 0.015;
     const pending: PreparedPending[] = [];
     this.activeClips.forEach((a, clipId) => {
+      // o que ainda faltava chegar deste reprodutor sai da frente da próxima música no ar
+      this.focusFeed(a.node, 0, PRIORITY_NEXT);
       pending.push({
         clipId,
         node: a.node,
@@ -1702,7 +2137,7 @@ class AudioEngine {
         trackId: a.trackId,
       });
     });
-    const bundle: PreparedBundle = { songId, signature: sig, pending };
+    const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots: this.preparedSnapshots(songId), disk: fromDisk };
     this.prepared.set(songId, bundle);
     // Silencia só depois do fade-out; se um Play já reaproveitou os reprodutores, não mexe.
     window.setTimeout(() => {
@@ -1733,24 +2168,39 @@ class AudioEngine {
 
     if (!canSeekInPlace) {
       this.seekLock = { active: true, targetTime: time };
-      this.playSong(songId, time, { fastSeek: true }).catch((err) => {
-        console.error('[seekTo] falha', err);
-        this.seekLock.active = false;
+      const request = ++this.seekRequest;
+      const generation = this.playGeneration;
+      // Não derruba a música enquanto a faixa inteira ainda abre. Apenas o último clique vale.
+      void ensureSongLoaded(songId).catch((err) => console.warn('[seekTo] falha ao carregar', err)).then(() => {
+        if (request !== this.seekRequest || generation !== this.playGeneration || !this.isPlayingSong(songId)) return;
+        if (!isSongLoaded(songId)) {
+          this.seekLock.active = false;
+          this.warnIncompleteSong(songId);
+          return;
+        }
+        this.playSong(songId, time, { fastSeek: true }).catch((err) => {
+          console.error('[seekTo] falha', err);
+          this.seekLock.active = false;
+        });
       });
       return;
     }
 
+    this.seekRequest++;
+    this.endedClips.clear();
     this.seekLock = { active: true, targetTime: time };
-    const alpha = this.playbackAlpha || 1;
+    const tracks = store.tracks;
+    const song = store.songs.find((s) => s.id === songId);
+    const params = song ? paramsAt(song, time) : { bpmAdjust: 0, tuner: 0 };
+    const alpha = bpmAdjustToAlpha(params.bpmAdjust);
+    const cents = params.tuner * 100;
     const headroom = 0.03;
     const scheduledStart = ctx!.currentTime + headroom;
+    this.playbackAlpha = alpha;
+    this.playbackCents = cents;
     this.playbackStartTime = scheduledStart - time * alpha;
     this.playbackOffset = time;
     this.startTimecode(songId, time, scheduledStart, false);
-
-    const tracks = store.tracks;
-    const song = store.songs.find((s) => s.id === songId);
-    const cents = song ? song.tuner * 100 : 0;
 
     for (const clip of clips) {
       const active = this.activeClips.get(clip.id);
@@ -1775,11 +2225,13 @@ class AudioEngine {
           startTime: whenWall,
           fadeInFrames: 1024,
           dropPartial: true,
-          tempo: tempoFromBpm(song?.bpmAdjust ?? 0),
+          tempo: tempoFromBpm(params.bpmAdjust),
           pitch: melodic ? pitchFromCents(cents) : 1,
+          process: songNeedsProcessing(song),
         });
       } catch { /* ignore */ }
       active.scheduledStartWall = whenWall;
+      this.focusFeed(active.node, offsetSamples);
 
       // Reagenda automação do fade para a nova posição do cursor em tempo real
       const target = track?.parentId ? tracks.find((tr) => tr.id === track.parentId) ?? track : track;
@@ -1930,9 +2382,109 @@ class AudioEngine {
     return smoothed;
   }
 
+  // LR mágico: L (guia/click/maestro) e R (banda) são sinais independentes. Um limiter ligado nos
+  // dois lados baixaria a guia quando a banda pesa: aí cada lado ganha o seu limiter.
+  private limiterSplit = false;
+  private masterLimiterR: DynamicsCompressorNode | null = null;
+  private limiterNodes: AudioNode[] = [];
+
+  private applyLimiterMode() {
+    const ctx = this.ctx;
+    if (!ctx || !this.masterGain || !this.masterLimiter || !this.masterLimitOut) return;
+    const split = !!useStore.getState().magicRoutingActive;
+    if (split === this.limiterSplit) return;
+    const L = this.masterLimiter;
+    try { this.masterGain.disconnect(L); } catch { /* ignore */ }
+    try { L.disconnect(); } catch { /* ignore */ }
+    this.limiterNodes.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
+    this.limiterNodes = [];
+    if (this.masterLimiterR) { try { this.masterLimiterR.disconnect(); } catch { /* ignore */ } }
+    if (split) {
+      const splitter = ctx.createChannelSplitter(2);
+      const merger = ctx.createChannelMerger(2);
+      const R = this.masterLimiterR ?? createSafetyLimiter(ctx);
+      for (const lim of [L, R]) { lim.channelCount = 1; lim.channelCountMode = 'explicit'; }
+      this.masterGain.connect(splitter);
+      splitter.connect(L, 0);
+      splitter.connect(R, 1);
+      L.connect(merger, 0, 0);
+      R.connect(merger, 0, 1);
+      merger.connect(this.masterLimitOut);
+      this.masterLimiterR = R;
+      this.limiterNodes = [splitter, merger];
+    } else {
+      L.channelCount = 2;
+      L.channelCountMode = 'clamped-max';
+      this.masterGain.connect(L);
+      L.connect(this.masterLimitOut);
+    }
+    this.limiterSplit = split;
+  }
+
+  // Anti-clip do master: o mesmo limitador de pico dos canais (-0,1 dBFS), depois do limiter de
+  // segurança e antes do medidor e das saídas. No LR mágico cada lado tem o seu, como o limiter
+  // de segurança: um pico da banda não abaixa a guia/click.
+  private masterLimitOut: GainNode | null = null;
+  private masterAntiClip: AntiClipInsert[] = [];
+  private masterAntiClipNodes: AudioNode[] = [];
+  private masterAntiClipSplit: boolean | null = null;
+
+  private applyMasterAntiClip() {
+    const ctx = this.ctx;
+    const from = this.masterLimitOut;
+    const to = this.masterAnalyser;
+    if (!ctx || !from || !to) return;
+    const st = useStore.getState();
+    const on = !!st.masterAntiClip;
+    const split = !!st.magicRoutingActive;
+    if (split === this.masterAntiClipSplit) {
+      this.masterAntiClip.forEach((a) => a.set(on));
+      return;
+    }
+    this.masterAntiClip.forEach((a) => a.dispose());
+    this.masterAntiClipNodes.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
+    try { from.disconnect(); } catch { /* ignore */ }
+    this.masterAntiClip = [];
+    this.masterAntiClipNodes = [];
+    if (split) {
+      const splitter = ctx.createChannelSplitter(2);
+      const merger = ctx.createChannelMerger(2);
+      from.connect(splitter);
+      for (let c = 0; c < 2; c++) {
+        const side = ctx.createGain();
+        const out = ctx.createGain();
+        for (const n of [side, out]) { n.channelCount = 1; n.channelCountMode = 'explicit'; }
+        splitter.connect(side, c);
+        out.connect(merger, 0, c);
+        this.masterAntiClip.push(new AntiClipInsert(ctx, side, out));
+        this.masterAntiClipNodes.push(side, out);
+      }
+      merger.connect(to);
+      this.masterAntiClipNodes.push(splitter, merger);
+    } else {
+      this.masterAntiClip.push(new AntiClipInsert(ctx, from, to));
+    }
+    this.masterAntiClipSplit = split;
+    this.masterAntiClip.forEach((a) => a.set(on, true));
+  }
+
+  /** Pico do master antes do limiter (linear), nos últimos ~43 ms. */
+  getMasterPrePeak(): number {
+    if (!this.masterPreAnalyser) return 0;
+    const data = this.meterScratch;
+    this.masterPreAnalyser.getFloatTimeDomainData(data);
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
+    }
+    return peak;
+  }
+
   // Quanto o limiter de segurança do master está segurando agora, em dB (0 = sem atuação, negativo = reduzindo).
   getMasterLimiterReduction(): number {
-    return this.masterLimiter?.reduction ?? 0;
+    const l = this.masterLimiter?.reduction ?? 0;
+    return this.limiterSplit && this.masterLimiterR ? Math.min(l, this.masterLimiterR.reduction) : l;
   }
 
   applyLRMaster(active: boolean) {
@@ -1990,7 +2542,9 @@ class AudioEngine {
         }
         const masterLevel = this.getMasterMeterLevel();
         levels.set('master', masterLevel);
-        if (masterLevel >= 1 && store.masterClipPeak < masterLevel) store.updateMasterMeter(masterLevel);
+        // com o anti-clip do master ligado a saída não passa do teto: o indicador de clip fica apagado
+        const masterPre = store.masterAntiClip ? 0 : this.getMasterPrePeak();
+        if (masterPre >= 1 && store.masterClipPeak < masterPre) store.updateMasterMeter(masterPre);
         // Redução do limiter de segurança (dB, 0 ou negativo) — mesmo canal do meterBus, lido como valor cru (não é amplitude linear).
         levels.set('master-gr', this.getMasterLimiterReduction());
         publishMeters(levels);
@@ -2026,11 +2580,17 @@ class AudioEngine {
     return devices.filter((d) => d.kind === 'audiooutput');
   }
 
+  private appliedParams = new Map<string, string>();
+
   // Aplicação ao vivo: muda BPM/afinador sem reiniciar nem engasgar o áudio.
   applySongPlaybackParams(songId: string) {
     const store = useStore.getState();
     const song = store.songs.find((s) => s.id === songId);
     if (!song) return;
+    // o botão e o estado podem pedir a mesma troca: só uma vai para o áudio
+    const key = playbackKey(song);
+    if (this.appliedParams.get(songId) === key) return;
+    this.appliedParams.set(songId, key);
     for (const n of this.songNodes(songId)) this.nodeRenderKey.delete(n.node);
     if (this.currentSongId === songId) this.partialActive = false;
     this.scheduleRender(songId);
@@ -2044,7 +2604,7 @@ class AudioEngine {
     const prep = this.prepared.get(songId);
     if (prep) {
       const tracks = store.tracks;
-      prep.signature = this.computePrepareSignature(songId) ?? prep.signature;
+      prep.signature = this.bundleSignature(songId, prep) ?? prep.signature;
       for (const p of prep.pending) {
         const t = tracks.find((tr) => tr.id === p.trackId);
         const melodic = t ? isMelodicTrack(t, tracks) : true;
@@ -2282,11 +2842,53 @@ class AudioEngine {
     }, SWAP_LEAD * 1000 + 30);
   }
 
-  async setOutputDevice(deviceId: string) {
-    await this.applySink(this.getContext(), deviceId);
-    this.sinkId = deviceId;
-    // cada interface tem um número diferente de saídas físicas
-    this.configureOutputs();
+  private sinkQueue: Promise<unknown> = Promise.resolve();
+
+  // Trocas de placa uma de cada vez, na ordem pedida (a última sempre vale).
+  private queueSink<T>(job: () => Promise<T>): Promise<T> {
+    const run = this.sinkQueue.then(job, job);
+    this.sinkQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  setOutputDevice(deviceId: string): Promise<void> {
+    return this.queueSink(async () => {
+      const id = await this.resolveSinkId(deviceId);
+      await this.applySink(this.getContext(), id);
+      this.sinkId = id;
+      // cada interface tem um número diferente de saídas físicas
+      this.configureOutputs();
+    });
+  }
+
+  /**
+   * Relê quantas saídas a placa atual tem (ao abrir o programa e ao conectar/desconectar placas).
+   * Sem placa escolhida, acompanha a placa padrão do Mac: conectar uma interface nova já libera as saídas dela.
+   */
+  refreshOutputs(): Promise<void> {
+    return this.queueSink(async () => {
+      const ctx = this.getContext();
+      if (!this.sinkId) {
+        const id = await this.resolveSinkId('default');
+        if (id !== this.defaultSinkId) {
+          try {
+            await this.applySink(ctx, id);
+            this.defaultSinkId = id;
+          } catch { /* fica na saída atual */ }
+        }
+      }
+      this.configureOutputs();
+    });
+  }
+
+  // O item "Default - ..." da lista não é aceito como saída no app do Mac: usa a placa real por trás dele.
+  private async resolveSinkId(deviceId: string): Promise<string> {
+    if (deviceId !== 'default') return deviceId;
+    const devices = await this.enumerateDevices().catch(() => [] as MediaDeviceInfo[]);
+    const def = devices.find((d) => d.deviceId === 'default');
+    const real = def && devices.find((d) => d.deviceId !== 'default' && d.deviceId !== 'communications' && d.groupId === def.groupId);
+    // '' = saída padrão do sistema
+    return real?.deviceId ?? '';
   }
 
   private async applySink(ctx: AudioContext, deviceId: string) {
@@ -2327,15 +2929,17 @@ class AudioEngine {
     for (const clipId of clipIds) {
       const active = this.activeClips.get(clipId);
       if (!active) continue;
+      this.unfeed(active.node);
       try { active.node.port.postMessage({ type: 'stop' }); } catch { /* ignore */ }
       try { active.node.disconnect(); } catch { /* ignore */ }
       try { active.clipGain.disconnect(); } catch { /* ignore */ }
       if (active.clipPanner) { try { active.clipPanner.disconnect(); } catch { /* ignore */ } }
       this.activeClips.delete(clipId);
     }
+    if (clipIds.some((id) => this.starvedSince.has(id))) this.refreshStarved();
   }
 
-  updateLiveClipPosition(clipId: string, newStartTime: number) {
+  updateLiveClipPosition(clipId: string, newStartTime: number, endCutOnly = false) {
     if (!this.isPlaying || !this.ctx) return;
     const active = this.activeClips.get(clipId);
     if (!active) return;
@@ -2350,16 +2954,20 @@ class AudioEngine {
     if (clip) {
       active.durationSeconds = clipPlayLength(clip);
       const audio = getClipPlayAudio(clip);
-      if (audio) {
-        const left = audio.channels[0].slice();
-        const right = audio.channels[1] ? audio.channels[1].slice() : left;
-        active.bufferLength = left.length;
-        try {
-          active.node.port.postMessage(
-            { type: 'extend', left, right },
-            right === left ? [left.buffer] : [left.buffer, right.buffer]
-          );
-        } catch { /* ignore */ }
+      if (audio && !endCutOnly) {
+        // Áudio do clipe mudou (corte no início, colagem): troca em trechos a partir do cursor.
+        active.bufferLength = audio.length;
+        const fromFrame = Math.max(0, Math.floor(local * audio.sampleRate));
+        try { this.feed(active.node, audio, fromFrame, PRIORITY_ON_AIR); } catch { /* ignore */ }
+      } else if (!audio && !endCutOnly && this.diskSongs.has(clip.songId)) {
+        // Música lida do disco: reabre o trecho do clipe com o corte novo.
+        const node = active.node;
+        void openRangeReader(clip).then((reader) => {
+          if (!reader || this.activeClips.get(clipId) !== active) return;
+          active.bufferLength = reader.length;
+          const nowLocal = this.getCurrentTime() - active.clipStartTime;
+          this.feedDisk(node, reader, Math.max(0, Math.floor(nowLocal * reader.sampleRate)), PRIORITY_ON_AIR);
+        });
       }
       const track = store.tracks.find((t) => t.id === clip.trackId);
       const target = track?.parentId ? store.tracks.find((t) => t.id === track.parentId) ?? track : track;

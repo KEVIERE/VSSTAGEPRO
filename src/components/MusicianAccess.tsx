@@ -5,6 +5,7 @@ import {
   Clock, Ban, ChevronLeft, Ticket, ArrowRight, Settings, ClipboardPaste,
 } from 'lucide-react';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
+import { authRedirect } from '@/lib/authRedirect';
 import { memberMemberships, memberJoin, memberClaimCode, memberUpdateProfile } from '@/lib/musicianApi';
 import type { Membership } from '@/lib/musicianTypes';
 
@@ -14,11 +15,13 @@ const PENDING_POLL_MS = 5000;
 type AuthView = 'signin' | 'signup' | 'forgot' | 'recovery' | 'code';
 type AccountView = 'home' | 'profile';
 
-const inputCls = 'w-full bg-logic-bg-panel text-sm text-logic-text pl-9 pr-3 py-2.5 rounded-lg border border-logic-border-light outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted';
+// campos embutidos no painel, como as janelinhas de uma mesa
+const inputCls = 'console-well w-full text-sm text-logic-text pl-9 pr-3 py-2.5 !rounded-[5px] border border-black outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted';
 
 function friendlyError(msg: string): string {
   const m = msg.toLowerCase();
   if (m.includes('invalid login credentials')) return 'E-mail ou senha incorretos.';
+  if (m.includes('email not confirmed')) return 'Falta confirmar seu e-mail: abra o link que enviamos para você. Não chegou? Toque em "Reenviar e-mail de confirmação".';
   if (m.includes('already registered') || m.includes('already been registered')) return 'Este e-mail já tem conta. Use "Entrar".';
   if (m.includes('password should be at least') || m.includes('weak')) return 'A senha precisa ter pelo menos 6 caracteres.';
   if (m.includes('invalid email') || m.includes('unable to validate email')) return 'E-mail inválido.';
@@ -53,7 +56,7 @@ function PrimaryButton({ busy, children, ...props }: { busy?: boolean } & React.
   return (
     <button
       {...props}
-      className="w-full py-2.5 rounded-lg bg-logic-accent text-white text-sm font-medium hover:bg-logic-accent-hover transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+      className="console-key is-big is-lit-green w-full h-11 text-[15px] flex items-center justify-center gap-2 disabled:opacity-50"
     >
       {busy && <Loader2 size={15} className="animate-spin" />}
       {children}
@@ -104,12 +107,12 @@ export default function MusicianAccess({
 
   return (
     <div className="flex items-center justify-center bg-logic-bg-deep p-4 overflow-y-auto logic-scroll" style={{ height: '100%' }}>
-      <div className="w-full max-w-sm py-6">
+      <div className="console-face w-full max-w-sm my-6 px-5 py-6 rounded-xl border border-black shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
         <div className="text-center mb-6">
-          <div className="mx-auto mb-3 w-14 h-14 rounded-2xl bg-logic-lcd-green/10 border border-logic-lcd-green/30 flex items-center justify-center">
-            <Music size={28} className="text-logic-lcd-green" />
+          <div className="console-display mx-auto mb-3 w-14 h-14 flex items-center justify-center">
+            <Music size={28} className="text-logic-lcd-green console-glow" />
           </div>
-          <h1 className="text-xl font-semibold text-logic-text">Área do Músico</h1>
+          <h1 className="console-tape inline-block px-3 py-1.5 !text-[18px] !leading-none">Área do Músico</h1>
         </div>
         {!ready ? (
           <div className="flex justify-center py-8"><Loader2 className="animate-spin text-logic-text-muted" /></div>
@@ -119,15 +122,15 @@ export default function MusicianAccess({
             onEnter={onEnterAccount} onSignOut={doSignOut}
           />
         ) : (
-          <AuthForms view={authView} setView={setAuthView} hasInvite={!!invite} claimCode={claimCode} onEnterCode={onEnterCode} />
+          <AuthForms view={authView} setView={setAuthView} invite={invite} claimCode={claimCode} onEnterCode={onEnterCode} />
         )}
       </div>
     </div>
   );
 }
 
-function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
-  view: AuthView; setView: (v: AuthView) => void; hasInvite: boolean; claimCode: string | null;
+function AuthForms({ view, setView, invite, claimCode, onEnterCode }: {
+  view: AuthView; setView: (v: AuthView) => void; invite: string | null; claimCode: string | null;
   onEnterCode: (code: string) => Promise<string | null>;
 }) {
   const [email, setEmail] = useState('');
@@ -138,8 +141,13 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  // e-mail da conta criada que ainda falta confirmar (mostra o botão de reenviar)
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
 
   const go = (v: AuthView) => { setError(null); setInfo(null); setView(v); };
+  // o link do e-mail de confirmação volta direto para a Área do Músico
+  // (no app do Mac ou na Rede Local ele vai para o site, que abre em qualquer aparelho)
+  const confirmRedirect = authRedirect(`${window.location.pathname}?musico=1`);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError(null); setInfo(null);
@@ -149,23 +157,46 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
 
   const signIn = () => run(async () => {
     const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (err) throw err;
+    if (err) {
+      if (err.message.toLowerCase().includes('not confirmed')) setPendingEmail(email.trim());
+      throw err;
+    }
   });
 
+  // Conta criada: se o servidor pede confirmação por e-mail, não há sessão ainda. Antes a tela
+  // ficava parada e o músico achava que não tinha funcionado; agora avisa e leva para "Entrar".
   const signUp = () => run(async () => {
     if (!name.trim()) throw new Error('name_required');
-    const { error: err } = await supabase.auth.signUp({
-      email: email.trim(), password,
+    const addr = email.trim();
+    const { data, error: err } = await supabase.auth.signUp({
+      email: addr, password,
       options: {
-      data: { name: name.trim(), instrument: instrument.trim() },
-      emailRedirectTo: `${window.location.origin}/`,
-    },
+        // musico: o e-mail de confirmação fala com o músico; convite: no primeiro login o pedido
+        // para entrar no show sai sozinho (vale mesmo abrindo o e-mail em outro aparelho)
+        data: { name: name.trim(), instrument: instrument.trim(), musico: true, ...(invite ? { convite: invite } : {}) },
+        emailRedirectTo: confirmRedirect,
+      },
     });
     if (err) throw err;
+    // e-mail que já tem conta: o servidor responde sem erro, mas sem identidade nova
+    if (data.user && (data.user.identities?.length ?? 0) === 0) throw new Error('already registered');
+    if (!data.session) {
+      setPendingEmail(addr);
+      setPassword('');
+      setView('signin');
+      setInfo(`Conta criada! Enviamos um e-mail para ${addr}. Abra o link do e-mail para confirmar e depois entre aqui com sua senha.`);
+    }
+  });
+
+  const resendConfirmation = () => run(async () => {
+    if (!pendingEmail) return;
+    const { error: err } = await supabase.auth.resend({ type: 'signup', email: pendingEmail, options: { emailRedirectTo: confirmRedirect } });
+    if (err) throw err;
+    setInfo(`Enviamos de novo para ${pendingEmail}. Veja também a caixa de spam.`);
   });
 
   const forgot = () => run(async () => {
-    const redirectTo = `${window.location.origin}${window.location.pathname}?musico=1`;
+    const redirectTo = authRedirect(`${window.location.pathname}?musico=1`);
     const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
     if (err) throw err;
     setInfo('Enviamos um e-mail com o link para criar uma nova senha.');
@@ -194,7 +225,7 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
   };
 
   const subtitle: Record<AuthView, string> = {
-    signin: hasInvite ? 'Entre para pedir acesso ao show' : 'Entre na sua conta',
+    signin: invite ? 'Entre para pedir acesso ao show' : 'Entre na sua conta',
     signup: claimCode ? 'Crie sua conta e mantenha suas cifras' : 'Crie sua conta de músico',
     forgot: 'Recuperar senha',
     recovery: 'Escolha uma nova senha',
@@ -206,13 +237,11 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
       <p className="text-sm text-logic-text-muted text-center -mt-3 mb-4">{subtitle[view]}</p>
 
       {(view === 'signin' || view === 'signup') && (
-        <div className="grid grid-cols-2 p-1 rounded-lg bg-logic-bg-panel border border-logic-border-dark mb-1">
+        <div className="grid grid-cols-2 gap-1.5 mb-1">
           {(['signin', 'signup'] as const).map((v) => (
             <button
               key={v} type="button" onClick={() => go(v)}
-              className={`py-1.5 rounded-md text-xs font-medium transition-colors ${
-                view === v ? 'bg-logic-bg-elevated text-logic-text shadow' : 'text-logic-text-muted hover:text-logic-text'
-              }`}
+              className={`console-key h-9 text-[13px] ${view === v ? 'is-lit-blue' : ''}`}
             >
               {v === 'signin' ? 'Entrar' : 'Criar conta'}
             </button>
@@ -222,6 +251,16 @@ function AuthForms({ view, setView, hasInvite, claimCode, onEnterCode }: {
 
       {error && <Notice tone="error">{error}</Notice>}
       {info && <Notice tone="ok">{info}</Notice>}
+      {pendingEmail && view === 'signin' && (
+        <button
+          type="button"
+          onClick={resendConfirmation}
+          disabled={busy}
+          className="w-full text-xs text-logic-accent hover:underline disabled:opacity-50"
+        >
+          Reenviar e-mail de confirmação
+        </button>
+      )}
 
       {view === 'signup' && (
         <>
@@ -299,7 +338,7 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
   session: Session; invite: string | null; claimCode: string | null; autoEnter: boolean;
   onEnter: (memberId: string) => void; onSignOut: () => void;
 }) {
-  const meta = (session.user.user_metadata ?? {}) as { name?: string; instrument?: string };
+  const meta = (session.user.user_metadata ?? {}) as { name?: string; instrument?: string; convite?: string | null };
   const [view, setView] = useState<AccountView>('home');
   const [memberships, setMemberships] = useState<Membership[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -310,8 +349,14 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
   const [oldCode, setOldCode] = useState('');
   const [showOldCode, setShowOldCode] = useState(false);
   const [justApproved, setJustApproved] = useState<string | null>(null);
-  const prevRef = useRef<Map<string, string>>(new Map());
+  // pedido recusado pelo diretor (o pedido some da lista ou fica bloqueado): nome do show
+  const [refused, setRefused] = useState<string | null>(null);
+  const prevRef = useRef<Map<string, Membership>>(new Map());
+  const enterTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (enterTimer.current) clearTimeout(enterTimer.current); }, []);
   const claimedRef = useRef(false);
+  const autoJoinRef = useRef(false);
+  const [autoJoining, setAutoJoining] = useState(false);
   const autoRef = useRef(autoEnter);
 
   const enter = useCallback((id: string) => {
@@ -323,10 +368,19 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
     try {
       const list = await memberMemberships();
       const prev = prevRef.current;
-      const approvedNow = list.find((m) => m.status === 'approved' && prev.get(m.id) === 'pending');
-      prevRef.current = new Map(list.map((m) => [m.id, m.status]));
+      const wasPending = (id: string) => prev.get(id)?.status === 'pending';
+      const approvedNow = list.find((m) => m.status === 'approved' && wasPending(m.id));
+      const refusedNow = [...prev.values()].find((p) => p.status === 'pending'
+        && !list.some((m) => m.id === p.id && m.status !== 'blocked'));
+      prevRef.current = new Map(list.map((m) => [m.id, m]));
       setMemberships(list);
-      if (approvedNow) setJustApproved(approvedNow.id);
+      if (refusedNow) setRefused(refusedNow.show_name);
+      if (approvedNow) {
+        // liberado: mostra o aviso verde e entra sozinho no show
+        setJustApproved(approvedNow.id);
+        if (enterTimer.current) clearTimeout(enterTimer.current);
+        enterTimer.current = setTimeout(() => enter(approvedNow.id), 1800);
+      }
       if (autoRef.current && !invite) {
         autoRef.current = false;
         const saved = localStorage.getItem(MEMBER_LS);
@@ -354,6 +408,31 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
     })();
   }, [claimCode, enter]);
 
+  // Primeiro login de quem criou a conta pelo convite: pede para entrar sem precisar preencher nada.
+  // O convite guardado no cadastro é apagado depois, para não pedir de novo se o diretor recusar.
+  const autoInvite = invite ?? (typeof meta.convite === 'string' ? meta.convite : null);
+  useEffect(() => {
+    if (memberships === null || autoJoinRef.current || claimCode) return;
+    if (!autoInvite || !(meta.name ?? '').trim()) return;
+    autoJoinRef.current = true;
+    (async () => {
+      setBusy(true);
+      setAutoJoining(true);
+      try {
+        const res = await memberJoin(autoInvite, meta.name ?? '', meta.instrument ?? '');
+        if (invite) window.history.replaceState(null, '', `${window.location.pathname}#musico`);
+        if (res.status === 'approved') enter(res.id);
+        else await refresh();
+      } catch (e) {
+        setError(friendlyError((e as Error).message));
+      } finally {
+        setBusy(false);
+        setAutoJoining(false);
+        if (meta.convite) void supabase.auth.updateUser({ data: { convite: null } }).catch(() => {});
+      }
+    })();
+  }, [memberships, autoInvite, invite, claimCode, meta.name, meta.instrument, meta.convite, enter, refresh]);
+
   const hasPending = memberships?.some((m) => m.status === 'pending') ?? false;
   useEffect(() => {
     if (!hasPending) return;
@@ -368,6 +447,7 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
       const res = await memberJoin(joinCode, joinName, joinInstr);
       if (invite) window.history.replaceState(null, '', `${window.location.pathname}#musico`);
       setJoinCode('');
+      setRefused(null);
       if (res.status === 'approved') enter(res.id);
       else await refresh();
     } catch (err) { setError(friendlyError((err as Error).message)); }
@@ -406,19 +486,27 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
       </div>
 
       {error && <Notice tone="error">{error}</Notice>}
+      {refused && (
+        <Notice tone="error">
+          O diretor musical não liberou sua entrada no show "{refused}". Fale com ele e, se for o caso, peça o convite de novo.
+        </Notice>
+      )}
 
       {memberships === null ? (
         <div className="flex justify-center py-6"><Loader2 className="animate-spin text-logic-text-muted" /></div>
       ) : (
         <div className="space-y-2">
-          {memberships.length > 0 && <p className="text-2xs uppercase tracking-wider text-logic-text-muted px-1">Meus shows</p>}
-          {memberships.map((m) => (
+          {(autoJoining || memberships.some((m) => m.status === 'pending')) && <WaitingCard />}
+          {memberships.some((m) => m.status !== 'pending') && (
+            <p className="text-2xs uppercase tracking-wider text-logic-text-muted px-1">Meus shows</p>
+          )}
+          {memberships.filter((m) => m.status !== 'pending').map((m) => (
             <MembershipCard key={m.id} m={m} highlight={justApproved === m.id} onEnter={() => enter(m.id)} />
           ))}
         </div>
       )}
 
-      {memberships !== null && (
+      {memberships !== null && !hasPending && !justApproved && !autoJoining && (
         <form onSubmit={handleJoin} className="space-y-2.5 p-3 rounded-lg bg-logic-bg-panel border border-logic-border-dark">
           <p className="text-xs font-medium text-logic-text flex items-center gap-1.5">
             <Ticket size={14} className="text-logic-accent" />
@@ -432,11 +520,11 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
           <PrimaryButton type="submit" busy={busy} disabled={busy || !joinName.trim() || joinCode.replace(/[^A-Za-z0-9]/g, '').length < 6}>
             Pedir para entrar <ArrowRight size={14} />
           </PrimaryButton>
-          <p className="text-2xs text-logic-text-muted text-center">O diretor precisa aprovar uma única vez.</p>
+          <p className="text-2xs text-logic-text-muted text-center">O diretor musical libera sua entrada só na primeira vez. Depois você entra direto.</p>
         </form>
       )}
 
-      {memberships !== null && (
+      {memberships !== null && !hasPending && !justApproved && !autoJoining && (
         showOldCode ? (
           <form onSubmit={handleClaim} className="space-y-2.5 p-3 rounded-lg bg-logic-bg-panel border border-logic-border-dark">
             <p className="text-xs text-logic-text-dim leading-relaxed">
@@ -457,6 +545,18 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
   );
 }
 
+/** Pedido enviado: só a frase, até o diretor musical liberar (acontece só no primeiro login). */
+function WaitingCard() {
+  return (
+    <div className="console-display rounded-lg px-4 py-6 flex items-center justify-center gap-2.5 text-center" role="status" aria-live="polite">
+      <span className="console-led is-on-amber is-lg animate-pulse shrink-0" aria-hidden />
+      <p className="console-glow font-stage font-semibold text-[19px] leading-tight text-logic-lcd-amber">
+        Aguardando liberação do diretor musical
+      </p>
+    </div>
+  );
+}
+
 function MembershipCard({ m, highlight, onEnter }: { m: Membership; highlight: boolean; onEnter: () => void }) {
   if (m.status === 'approved') {
     return (
@@ -469,7 +569,7 @@ function MembershipCard({ m, highlight, onEnter }: { m: Membership; highlight: b
         <CheckCircle2 size={18} className="text-logic-lcd-green flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-logic-text truncate">{m.show_name}</p>
-          <p className="text-2xs text-logic-text-muted truncate">{highlight ? 'Aprovado pelo diretor! Toque para entrar' : `${m.name}${m.instrument ? ` · ${m.instrument}` : ''}`}</p>
+          <p className={`text-2xs truncate ${highlight ? 'text-logic-lcd-green font-medium' : 'text-logic-text-muted'}`}>{highlight ? 'Liberado pelo diretor! Entrando no show…' : `${m.name}${m.instrument ? ` · ${m.instrument}` : ''}`}</p>
         </div>
         <ArrowRight size={16} className="text-logic-text-muted group-hover:text-logic-accent group-hover:translate-x-0.5 transition-all" />
       </button>

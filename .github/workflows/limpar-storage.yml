@@ -1,0 +1,60 @@
+name: Limpar storage do Supabase
+
+# Apaga do bucket app-downloads os instaladores de versões antigas, que é o que enche o plano
+# gratuito e faz o projeto pausar. O manifest.json da versão atual fica.
+#
+# Roda pelo botão em Actions > "Limpar storage do Supabase" > Run workflow.
+# Para só ver o que seria apagado, deixe "simulacao" marcado (padrão).
+on:
+  workflow_dispatch:
+    inputs:
+      simulacao:
+        description: 'Só mostrar o que seria apagado (não apaga nada)'
+        type: boolean
+        default: true
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Conferir os secrets
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::error::Faltam VITE_SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY em Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+          echo "projeto: $SUPABASE_URL"
+
+      - name: Limpar
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SIMULACAO: ${{ inputs.simulacao }}
+        run: |
+          if [ "$SIMULACAO" = "true" ]; then
+            node .github/scripts/limpar-storage-supabase.mjs --dry-run
+          else
+            node .github/scripts/limpar-storage-supabase.mjs
+          fi
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Limpeza do storage"
+            echo ""
+            echo "- Modo: ${{ inputs.simulacao == true && 'simulação (nada apagado)' || 'limpeza real' }}"
+            echo "- Projeto: \`${{ secrets.VITE_SUPABASE_URL }}\`"
+            echo ""
+            echo "O bucket \`app-downloads\` guarda o manifest da versão atual. As partes dos"
+            echo "instaladores ficam só na VPS; o que sobrava de versões antigas no Supabase foi removido."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -67,6 +67,19 @@ export default function LyricsStyleControls({ state, update }: {
       </div>
 
       <div>
+        <div className="flex justify-between text-xs text-logic-text-dim mb-2">
+          <span title="Cada trecho aparece esse tempo antes da hora marcada: o cantor lê antes de cantar e a letra não chega atrasada pela rede">Antecipação da letra</span>
+          <span className="tabular-nums">{(state.lyricLead ?? 0).toFixed(1)} s</span>
+        </div>
+        <input
+          type="range" min={0} max={1.5} step={0.1} value={state.lyricLead ?? 0}
+          onChange={(e) => update((s) => ({ ...s, lyricLead: Number(e.target.value) }))}
+          className="w-full accent-logic-accent"
+          aria-label="Antecipação da letra em segundos"
+        />
+      </div>
+
+      <div>
         <p className="text-xs text-logic-text-dim mb-2">Fonte</p>
         <button
           onClick={() => setFontOpen(true)}

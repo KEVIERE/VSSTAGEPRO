@@ -6,10 +6,26 @@ import { directorLyricsAck, directorLyricsGet, directorLyricsRestore } from '@/l
 
 const POLL_MS = 15000;
 
+// O aviso de letras concluídas fica preso até o diretor confirmar. Guardamos por show a marca
+// do último pedido já confirmado, para o lembrete voltar ao reabrir o programa.
+const confirmedKey = (showId: string) => `prompter-lyrics-confirmed:${showId}`;
+
+function loadConfirmed(showId: string): string | null {
+  try { return localStorage.getItem(confirmedKey(showId)); } catch { return null; }
+}
+
+function saveConfirmed(showId: string, at: string): void {
+  try { localStorage.setItem(confirmedKey(showId), at); } catch { /* sem espaço */ }
+}
+
 export interface ProjectLyricsSync {
-  /** O produtor pediu "Salvar no projeto" e os mapas já estão no projeto, faltando gravar o arquivo. */
+  /** O produtor concluiu as letras e o diretor ainda não confirmou. Fica de pé até o "Confirmar". */
   received: { songs: number; at: number } | null;
+  /** Fecha o aviso só nesta sessão: ele volta ao reabrir o programa, até confirmar. */
   dismiss: () => void;
+  /** Confirmar deu certo: não apaga arquivos (quem apaga é o chamador, via clearShowAudio). */
+  confirm: () => void;
+  /** Quantas músicas têm letra no projeto — o aviso mostra esse número. */
   songsInProject: number;
 }
 
@@ -18,6 +34,9 @@ export function useProjectLyricsSync(show: SavedShow | null): ProjectLyricsSync 
   const lyricMaps = useStore((s) => s.lyricMaps);
   const ownMaps = useRef<ProjectState['lyricMaps'] | null>(null);
   const restoredFor = useRef<ProjectState['lyricMaps'] | null>(null);
+  const requestedAt = useRef<string | null>(null);
+  // Pedido que o diretor fechou com "Depois": não volta nesta sessão (volta ao reabrir).
+  const dismissed = useRef<string | null>(null);
 
   // Ao abrir um projeto com mapas, devolve ao show as letras que ainda não estão online.
   useEffect(() => {
@@ -35,6 +54,13 @@ export function useProjectLyricsSync(show: SavedShow | null): ProjectLyricsSync 
       try {
         const res = await directorLyricsGet(show.showId, show.directorKey);
         if (cancelled || !res.requestedAt) return;
+        requestedAt.current = res.requestedAt;
+        const pending = loadConfirmed(show.showId) !== res.requestedAt && dismissed.current !== res.requestedAt;
+        // Enquanto o diretor não confirmar, o lembrete fica de pé — inclusive depois de o
+        // projeto já ter sido salvo uma vez.
+        if (pending) setReceived((prev) => prev ?? { songs: res.lyrics.length, at: Date.now() });
+
+        // As letras novas entram no projeto uma vez só (depois do "Salvar projeto" já estão lá).
         if (res.savedAt && Date.parse(res.savedAt) >= Date.parse(res.requestedAt)) return;
         const st = useStore.getState();
         const songIds = new Set(st.songs.map((s) => s.id));
@@ -57,6 +83,20 @@ export function useProjectLyricsSync(show: SavedShow | null): ProjectLyricsSync 
     return () => { cancelled = true; window.clearInterval(id); };
   }, [show]);
 
-  const dismiss = useCallback(() => setReceived(null), []);
-  return { received, dismiss, songsInProject: Object.keys(lyricMaps).length };
+  // "Depois": some só nesta sessão. Ao reabrir o programa, o lembrete volta — é o combinado.
+  const dismiss = useCallback(() => {
+    dismissed.current = requestedAt.current;
+    setReceived(null);
+  }, []);
+
+  // Marca este pedido como resolvido: a marca fica no aparelho, por show, e o aviso não volta.
+  const confirm = useCallback(() => {
+    if (!show) return;
+    const at = requestedAt.current;
+    if (at) saveConfirmed(show.showId, at);
+    dismissed.current = null;
+    setReceived(null);
+  }, [show]);
+
+  return { received, dismiss, confirm, songsInProject: Object.keys(lyricMaps).length };
 }

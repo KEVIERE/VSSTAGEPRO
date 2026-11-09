@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { authRedirect } from '@/lib/authRedirect';
 import { Apple, Check, CheckCircle2, ChevronRight, Eye, EyeOff, KeyRound, Loader2, Lock, RefreshCw, ShieldCheck } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
@@ -99,7 +100,7 @@ export default function ResetPasswordPage() {
     setResendBusy(true);
     setError(null);
     try {
-      const redirectTo = `${window.location.origin}/recuperar`;
+      const redirectTo = authRedirect('/recuperar');
       const { error: err } = await supabase.auth.resetPasswordForEmail(resendEmail.trim(), { redirectTo });
       if (err) throw err;
       setResendSuccess(true);
@@ -126,7 +127,7 @@ export default function ResetPasswordPage() {
         <div className="flex items-center justify-between px-5 h-11 border-b border-logic-border bg-logic-bg-elevated/70">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
-            <span className="text-2xs font-extrabold tracking-wider text-logic-text">VS STAGE PRO</span>
+            <span className="vs-brand text-sm text-logic-text">VS Stage Pro</span>
           </div>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold tracking-wide">
             <KeyRound size={11} />

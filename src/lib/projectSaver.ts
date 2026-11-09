@@ -7,9 +7,16 @@ import { withoutLoops } from '@/lib/regions';
 
 type ProgressFn = (msg: string) => void;
 
+function checkCancelled(signal?: AbortSignal) {
+  if (signal?.aborted) throw new DOMException('Operação cancelada', 'AbortError');
+}
+
+
 export type SavedManifest = {
   version: number;
   projectName: string;
+  /** Placa de som desejada: ao abrir, o programa volta para ela e reaplica o roteamento abaixo. */
+  audioInterface?: string;
   tracks: Track[];
   clips: AudioClip[];
   songs: ProjectState['songs'];
@@ -27,8 +34,16 @@ export type SavedManifest = {
   zoomH: number;
   zoomV: number;
   lrMasterActive: boolean;
+  masterAntiClip?: boolean;
+  levelMatch?: boolean;
+  /** Alvo em LUFS do "volume igual" escolhido pelo usuário. */
+  levelMatchDb?: number;
+  /** LR mágico ligado e os pans de antes dele (para o botão poder voltar depois de reabrir). */
+  magicRoutingActive?: boolean;
+  prevOutputChannels?: Record<string, number> | null;
+  songLoudness?: Record<string, import('@/types').SongLoudness>;
+  songKeys?: Record<string, { key: string; sig: string }>;
   dawMode?: boolean;
-  audioInterface: string;
   lyricMaps?: ProjectState['lyricMaps'];
   assets?: Array<{ clipId: string; path: string; offset: number; size: number }>;
 };
@@ -90,6 +105,13 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     zoomH: state.zoomH,
     zoomV: state.zoomV,
     lrMasterActive: state.lrMasterActive,
+    masterAntiClip: state.masterAntiClip ?? false,
+    levelMatch: state.levelMatch ?? false,
+    levelMatchDb: state.levelMatchDb,
+    magicRoutingActive: (state as ProjectState & { magicRoutingActive?: boolean }).magicRoutingActive ?? false,
+    prevOutputChannels: (state as ProjectState & { prevOutputChannels?: Record<string, number> | null }).prevOutputChannels ?? null,
+    songLoudness: state.songLoudness ?? {},
+    songKeys: state.songKeys ?? {},
     dawMode: state.dawMode,
     audioInterface: state.audioInterface,
     lyricMaps: state.lyricMaps,
@@ -129,6 +151,7 @@ async function forEachAsset(
   state: ProjectState,
   onProgress: ProgressFn,
   write: (asset: AssetPlan, data: Blob | null) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<AssetPlan[]> {
   const plan = planAssets(state);
   const all = plan.flatMap((p) => p.assets);
@@ -136,6 +159,7 @@ async function forEachAsset(
   let done = 0;
 
   for (const a of all) {
+    checkCancelled(signal);
     done++;
     onProgress(`Salvando ${done} de ${total}: ${a.relPath}`);
     let data: Blob | null = getClipSource(a.clip.id);
@@ -160,6 +184,7 @@ async function forEachAsset(
         } catch { /* ignore: salva sem este áudio e avisa no resumo */ }
       }
     }
+    checkCancelled(signal);
     await write(a, data);
   }
   return all;
@@ -274,11 +299,13 @@ function downloadBlob(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
-async function writeFile(dir: FileSystemDirectoryHandle, name: string, data: Blob) {
+async function writeFile(dir: FileSystemDirectoryHandle, name: string, data: Blob, signal?: AbortSignal) {
   const fh = await dir.getFileHandle(name, { create: true });
   const ws = await fh.createWritable();
   try {
+    checkCancelled(signal);
     await ws.write(data);
+    checkCancelled(signal);
     await ws.close();
   } catch (err) {
     await ws.abort().catch(() => undefined);
@@ -296,7 +323,7 @@ async function isSameFile(dir: FileSystemDirectoryHandle, name: string, src: Blo
   }
 }
 
-async function writeProjectFolder(projDir: FileSystemDirectoryHandle, projName: string, state: ProjectState, onProgress: ProgressFn) {
+async function writeProjectFolder(projDir: FileSystemDirectoryHandle, projName: string, state: ProjectState, onProgress: ProgressFn, signal?: AbortSignal) {
   const assets = await forEachAsset(state, onProgress, async (a, data) => {
     if (!data) return;
     const parts = a.relPath.split('/');
@@ -307,18 +334,19 @@ async function writeProjectFolder(projDir: FileSystemDirectoryHandle, projName: 
     const fileName = parts[parts.length - 1];
     // o áudio que já está nessa pasta não é regravado: mais rápido e não invalida o arquivo em uso
     if (await isSameFile(dir, fileName, getClipSource(a.clip.id))) return;
-    await writeFile(dir, fileName, data);
-  });
+    await writeFile(dir, fileName, data, signal);
+  }, signal);
 
   const manifest = buildManifestBase(state);
   manifest.projectName = projName;
   withAssetPaths(manifest, assets);
 
+  checkCancelled(signal);
   onProgress('Gravando arquivo do projeto...');
-  await writeFile(projDir, `${projName}.vsproj`, new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }));
+  await writeFile(projDir, `${projName}.vsproj`, new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' }), signal);
 }
 
-export async function saveProjectAsFolder(state: ProjectState, projectName: string, onProgress: ProgressFn): Promise<SaveTarget> {
+export async function saveProjectAsFolder(state: ProjectState, projectName: string, onProgress: ProgressFn, signal?: AbortSignal, requireNew = false): Promise<SaveTarget> {
   const picker = fsWin().showDirectoryPicker;
   if (!picker || inSubFrame()) throw new Error(FOLDER_SAVE_UNAVAILABLE);
   let parentDir: DirHandle;
@@ -328,9 +356,18 @@ export async function saveProjectAsFolder(state: ProjectState, projectName: stri
     if (isSecurityError(err)) throw new Error(FOLDER_SAVE_UNAVAILABLE);
     throw err;
   }
+  checkCancelled(signal);
   const projName = sanitize(projectName);
+  if (requireNew) {
+    try {
+      await parentDir.getDirectoryHandle(projName);
+      throw new Error(`Já existe uma pasta chamada "${projName}". Escolha outro local para não sobrescrever arquivos.`);
+    } catch (err) {
+      if ((err as DOMException)?.name !== 'NotFoundError') throw err;
+    }
+  }
   const projDir = await parentDir.getDirectoryHandle(projName, { create: true });
-  await writeProjectFolder(projDir, projName, state, onProgress);
+  await writeProjectFolder(projDir, projName, state, onProgress, signal);
   return { kind: 'folder', dir: projDir, name: projName };
 }
 
@@ -341,7 +378,9 @@ async function writePackage(
   projectName: string,
   onProgress: ProgressFn,
   write: (chunk: Chunk) => Promise<void>,
+  signal?: AbortSignal,
 ): Promise<{ missingCount: number }> {
+  checkCancelled(signal);
   const enc = new TextEncoder();
   const magic = enc.encode(VSC_MAGIC);
   await write(magic.buffer as ArrayBuffer);
@@ -357,13 +396,14 @@ async function writePackage(
     index.push({ clipId: a.clip.id, path: a.relPath, offset, size });
     if (data) await write(data);
     offset += size;
-  });
+  }, signal);
 
   const manifest = buildManifestBase(state);
   manifest.projectName = projectName;
   withAssetPaths(manifest, assets);
   manifest.assets = index;
 
+  checkCancelled(signal);
   onProgress('Gravando pacote...');
   const manifestBytes = enc.encode(JSON.stringify(manifest));
   await write(manifestBytes.buffer as ArrayBuffer);
@@ -378,10 +418,11 @@ async function writePackage(
   return { missingCount };
 }
 
-async function writePackageToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn): Promise<{ missingCount: number }> {
+async function writePackageToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
   const ws = await handle.createWritable();
   try {
-    const res = await writePackage(state, stripProjectExt(handle.name), onProgress, (chunk) => ws.write(chunk));
+    const res = await writePackage(state, stripProjectExt(handle.name), onProgress, (chunk) => ws.write(chunk), signal);
+    checkCancelled(signal);
     await ws.close();
     return res;
   } catch (err) {
@@ -407,7 +448,7 @@ async function rebindPackageSources(state: ProjectState, handle: FileSystemFileH
 }
 
 /** Devolve onde o projeto ficou salvo, ou null quando o navegador só permitiu baixar o arquivo. */
-export async function saveProjectAsPackage(state: ProjectState, fileName: string, onProgress: ProgressFn): Promise<{ target: SaveTarget | null; missingCount: number }> {
+export async function saveProjectAsPackage(state: ProjectState, fileName: string, onProgress: ProgressFn, signal?: AbortSignal, rebind = true): Promise<{ target: SaveTarget | null; missingCount: number }> {
   const name = vssFileName(fileName);
   const picker = fsWin().showSaveFilePicker;
   if (picker && !inSubFrame()) {
@@ -421,14 +462,20 @@ export async function saveProjectAsPackage(state: ProjectState, fileName: string
       if (!isSecurityError(err)) throw err;
     }
     if (handle) {
-      const { missingCount } = await writePackageToHandle(state, handle, onProgress);
-      await rebindPackageSources(state, handle);
+      checkCancelled(signal);
+      const currentTarget = (state as ProjectState & { saveTarget?: SaveTarget | null }).saveTarget;
+      if (!rebind && currentTarget?.kind === 'package' && await handle.isSameEntry(currentTarget.handle)) {
+        throw new Error('Escolha outro arquivo para preservar o projeto original.');
+      }
+      const { missingCount } = await writePackageToHandle(state, handle, onProgress, signal);
+      if (rebind) await rebindPackageSources(state, handle);
       return { target: { kind: 'package', handle }, missingCount };
     }
   }
 
   const parts: Chunk[] = [];
-  const { missingCount } = await writePackage(state, stripProjectExt(name), onProgress, async (chunk) => { parts.push(chunk); });
+  const { missingCount } = await writePackage(state, stripProjectExt(name), onProgress, async (chunk) => { parts.push(chunk); }, signal);
+  checkCancelled(signal);
   downloadBlob(new Blob(parts, { type: 'application/octet-stream' }), name);
   return { target: null, missingCount };
 }
@@ -451,15 +498,15 @@ export function saveTargetLabel(target: SaveTarget): string {
   return target.kind === 'package' ? target.handle.name : target.name;
 }
 
-export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn): Promise<{ missingCount: number }> {
+export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
   if (target.kind === 'package') {
     await ensureWritable(target.handle);
-    const { missingCount } = await writePackageToHandle(state, target.handle, onProgress);
+    const { missingCount } = await writePackageToHandle(state, target.handle, onProgress, signal);
     await rebindPackageSources(state, target.handle);
     return { missingCount };
   } else {
     await ensureWritable(target.dir);
-    await writeProjectFolder(target.dir, target.name, state, onProgress);
+    await writeProjectFolder(target.dir, target.name, state, onProgress, signal);
     return { missingCount: 0 };
   }
 }
@@ -489,6 +536,17 @@ export async function openProjectFile(onProgress: ProgressFn): Promise<LoadedPro
   }
   const loaded = await readPackage(file, onProgress);
   return handle ? { ...loaded, target: { kind: 'package', handle } } : loaded;
+}
+/** Projeto aberto pelo Finder (duplo clique no arquivo): lê do disco pelo app, sem carregar o arquivo todo. */
+export async function openProjectFromPath(name: string, filePath: string, onProgress: ProgressFn): Promise<LoadedProject> {
+  if (!/\.(vss|vsc)$/i.test(name)) throw new Error('Escolha um arquivo de projeto .vss ou .vsc.');
+  const url = window.vsDesktop?.projectFileUrl?.(filePath);
+  if (!url) throw new Error('Abra o projeto pelo app do VS Stage para Mac.');
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Não foi possível ler o arquivo do projeto.');
+  // O protocolo do app entrega os pedaços (Range) direto do disco: projetos acima de 2 GiB abrem igual.
+  const blob = await res.blob();
+  return readPackage(new File([blob], name), onProgress);
 }
 
 type ReadPermissionHandle = FileSystemHandle & {

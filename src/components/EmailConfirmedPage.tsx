@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Apple, CheckCircle2, ChevronRight, Download, ExternalLink, Loader2, Mic2, MonitorPlay, Radio, Sparkles, Timer } from 'lucide-react';
+import { Apple, CheckCircle2, ChevronRight, ExternalLink, Loader2, Mic2, MonitorPlay, Radio, Sparkles, Timer } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
 
@@ -12,6 +12,8 @@ const BENEFITS = [
 export default function EmailConfirmedPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // conta criada na Área do Músico: o link volta com ?musico=1
+  const forMusician = new URLSearchParams(window.location.search).has('musico');
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -19,6 +21,26 @@ export default function EmailConfirmedPage() {
       setLoading(false);
     });
   }, []);
+
+  if (forMusician) {
+    return (
+      <div className="min-h-screen bg-logic-bg-deep text-logic-text flex items-center justify-center p-4">
+        <div className="console-face w-full max-w-sm rounded-xl border border-black p-6 text-center shadow-2xl animate-[fadeIn_300ms_ease-out]">
+          <CheckCircle2 size={40} className="mx-auto text-logic-lcd-green" />
+          <h1 className="mt-3 text-xl font-semibold">Conta confirmada</h1>
+          <p className="mt-2 text-sm text-logic-text-dim leading-relaxed">
+            {loading ? 'Conferindo...' : email ? `Tudo certo com ${email}.` : 'Seu e-mail foi confirmado.'} Agora é só entrar na Área do Músico.
+          </p>
+          <button
+            onClick={() => window.location.replace(`${window.location.origin}/?musico=1`)}
+            className="mt-5 w-full h-11 rounded-lg bg-logic-lcd-green text-black text-sm font-semibold hover:brightness-110 transition"
+          >
+            Abrir a Área do Músico
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -36,7 +58,7 @@ export default function EmailConfirmedPage() {
         <div className="flex items-center justify-between px-5 h-11 border-b border-logic-border bg-logic-bg-elevated/70">
           <div className="flex items-center gap-2">
             <VsLogo size={20} />
-            <span className="text-2xs font-extrabold tracking-wider text-logic-text">VS STAGE PRO</span>
+            <span className="vs-brand text-sm text-logic-text">VS Stage Pro</span>
           </div>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-logic-lcd-green/15 text-logic-lcd-green text-2xs font-bold tracking-wide">
             <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-green animate-pulse" />

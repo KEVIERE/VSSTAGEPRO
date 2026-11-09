@@ -18,6 +18,11 @@ const SCREEN_CODE = 'TELA';
 const ROLES = new Set(['musician', 'producer', 'screen', 'remote']);
 // Caminho da área (músico, produtor, tela, controle remoto celular) no link.
 const PATH = { musician: 'musico', producer: 'produtor', screen: 'tela', remote: 'show' };
+// Logo da banda na Rede Local: o celular do produtor manda a imagem para cá, sem passar pela
+// nuvem (lá a função exige a chave do diretor e devolvia 403 para quem entra pela rede).
+const LOGO_MAX = 5 * 1024 * 1024;
+const LOGO_TYPES = { 'image/png': 'png', 'image/svg+xml': 'svg', 'image/jpeg': 'jpg' };
+const LOGO_FILE = 'logo-local';
 
 function newPin(other) {
   let pin;
@@ -67,6 +72,10 @@ class LocalServer {
     const saved = this.load();
     this.pins = saved.pins;
     this.prompter = saved.prompter;
+    // Aparelhos que o diretor desconectou continuam desconectados depois de fechar o programa.
+    // Antes isso vivia só na memória e `start()` limpava a lista: os três aparelhos voltavam a
+    // aparecer conectados toda vez que o programa abria.
+    for (const k of saved.banned || []) this.banned.add(k);
   }
 
   load() {
@@ -78,7 +87,12 @@ class LocalServer {
           ...data.pins,
           remote: ok(data?.pins?.remote) ? data.pins.remote : data.pins.producer,
         };
-        return { pins, prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null };
+        const banned = Array.isArray(data.banned) ? data.banned.filter((k) => typeof k === 'string') : [];
+        return {
+          pins,
+          prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null,
+          banned,
+        };
       }
     } catch { /* primeira vez: cria PINs novos */ }
     const musician = newPin();
@@ -89,14 +103,62 @@ class LocalServer {
     return { pins, prompter: null };
   }
 
-  persist(data = { pins: this.pins, prompter: this.prompter }) {
-    try { fs.writeFileSync(this.storePath, JSON.stringify(data), { mode: 0o600 }); } catch { /* sem disco: segue em memória */ }
+  persist(data) {
+    const body = data || { pins: this.pins, prompter: this.prompter, banned: [...this.banned] };
+    try { fs.writeFileSync(this.storePath, JSON.stringify(body), { mode: 0o600 }); } catch { /* sem disco: segue em memória */ }
+  }
+
+  // ---------- logo da banda (Rede Local) ----------
+
+  get logoDir() { return path.join(path.dirname(this.storePath), 'rede-local-logo'); }
+
+  logoFile() {
+    for (const ext of Object.values(LOGO_TYPES)) {
+      const file = path.join(this.logoDir, `${LOGO_FILE}.${ext}`);
+      try {
+        if (fs.existsSync(file)) return file;
+      } catch { /* sem disco */ }
+    }
+    return null;
+  }
+
+  /** `{ url, updatedAt }` no mesmo formato que a nuvem devolve, mas servido por aqui. */
+  logoInfo() {
+    const file = this.logoFile();
+    if (!file) return { url: null, updatedAt: null };
+    let mtime = null;
+    try { mtime = fs.statSync(file).mtime.toISOString(); } catch { /* sem disco */ }
+    const ext = path.extname(file).slice(1);
+    const type = Object.keys(LOGO_TYPES).find((k) => LOGO_TYPES[k] === ext) || 'image/png';
+    return { url: `/${PATH.producer}/logo/atual?v=${mtime ? Date.parse(mtime) : 0}`, updatedAt: mtime, type };
+  }
+
+  saveLogo(buffer, contentType) {
+    const ext = LOGO_TYPES[contentType];
+    if (!ext || !buffer || buffer.length === 0 || buffer.length > LOGO_MAX) return false;
+    try {
+      fs.mkdirSync(this.logoDir, { recursive: true });
+      this.removeLogo();
+      fs.writeFileSync(path.join(this.logoDir, `${LOGO_FILE}.${ext}`), buffer, { mode: 0o644 });
+      return true;
+    } catch { return false; }
+  }
+
+  removeLogo() {
+    try {
+      for (const f of fs.readdirSync(this.logoDir)) {
+        if (f.startsWith(`${LOGO_FILE}.`)) fs.unlinkSync(path.join(this.logoDir, f));
+      }
+    } catch { /* pasta nem existe ainda */ }
   }
 
   get running() { return !!this.server?.listening; }
 
   start() {
     if (this.server) return Promise.resolve();
+    // Só a contagem de erros de PIN é zerada aqui. A lista de aparelhos desconectados pelo
+    // diretor é mantida: quem ele tirou não pode voltar a conectar por reabrir o programa.
+    this.failures.clear();
     return new Promise((resolve) => {
       const server = http.createServer((req, res) => this.handle(req, res).catch(() => this.json(res, 500, { error: 'server_error' })));
       let port = DEFAULT_PORT;
@@ -158,7 +220,10 @@ class LocalServer {
     const qr = {};
     for (const role of ROLES) {
       urls[role] = base ? `${base}/${PATH[role]}` : null;
-      qr[role] = urls[role] ? await this.qr(urls[role]) : null;
+      // O QR dos músicos só abre a página: o PIN é digitado na primeira vez (o QR pode
+      // aparecer na tela do palco). Os outros papéis levam o PIN depois do # para entrar direto.
+      const pin = role === 'musician' ? null : this.pins[role];
+      qr[role] = urls[role] ? await this.qr(pin ? `${urls[role]}#pin=${pin}` : urls[role]) : null;
     }
     const now = Date.now();
     const clients = [...this.sessions.values()]
@@ -206,15 +271,30 @@ class LocalServer {
     const other = role === 'musician' ? this.pins.producer : this.pins.musician;
     this.pins = { ...this.pins, [role]: newPin(other) };
     for (const [token, s] of this.sessions) if (s.role === role) this.sessions.delete(token);
-    this.banned.clear();
+    // PIN novo é o socorro de quem ficou trancado: sai o bloqueio daquele papel e a contagem
+    // de erros. Os aparelhos desconectados dos OUTROS papéis continuam fora.
+    for (const k of [...this.banned]) if (k.startsWith(`${role}|`)) this.banned.delete(k);
+    this.failures.clear();
     this.persist();
   }
 
-  // Desconecta e bloqueia o aparelho até gerar um PIN novo ou religar a rede local.
+  /**
+   * Desconecta e bloqueia o aparelho até gerar um PIN novo.
+   *
+   * O bloqueio vai para o disco: antes morria com o programa, e os aparelhos desconectados
+   * voltavam a aparecer conectados na próxima abertura. `start()` também precisa respeitar a
+   * lista — ele a limpa ao religar a rede local para destravar PIN, mas não ao abrir o programa.
+   */
   kick(clientId) {
+    let changed = false;
     for (const [token, s] of this.sessions) {
-      if (s.id === clientId) { this.sessions.delete(token); this.banned.add(`${s.role}|${s.address}`); }
+      if (s.id === clientId) {
+        this.sessions.delete(token);
+        this.banned.add(`${s.role}|${s.address}`);
+        changed = true;
+      }
     }
+    if (changed) this.persist();
   }
 
   ackLyricsSave() {
@@ -254,16 +334,35 @@ class LocalServer {
     return (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
   }
 
+  /** O pedido veio do próprio Mac (o programa aberto), não de um aparelho na rede. */
+  isLoopback(addr) {
+    return addr === '127.0.0.1' || addr === '::1' || addr === '';
+  }
+
+  /**
+   * Bloqueio por tentativas erradas.
+   *
+   * Histórico: a primeira versão congelava o horário do primeiro erro e o endereço ficava preso
+   * para sempre. A segunda tentou janela deslizante, mas o cliente consulta o estado a cada
+   * 250 ms; cada consulta recusada contava como erro nova e renovava a janela, então o PIN certo
+   * continuava bloqueado mesmo depois de minutos sem ninguém digitar nada (medido em 06/11/2026:
+   * 6 minutos parado e ainda 429).
+   *
+   * Regra atual: só conta tentativa de LOGIN. Tentativa recusada durante o bloqueio não conta,
+   * porque não é senha errada — é espera. A janela expira sem depender da sorte do intervalo.
+   */
   tooManyFailures(addr) {
     const f = this.failures.get(addr);
-    if (!f || Date.now() - f.since > FAIL_WINDOW_MS) return false;
+    if (!f) return false;
+    if (Date.now() - f.last >= FAIL_WINDOW_MS) { this.failures.delete(addr); return false; }
     return f.count >= FAIL_LIMIT;
   }
 
   noteFailure(addr) {
     const f = this.failures.get(addr);
-    if (!f || Date.now() - f.since > FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, since: Date.now() });
-    else f.count += 1;
+    const now = Date.now();
+    if (!f || now - f.last >= FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, last: now });
+    else { f.count += 1; f.last = now; }
   }
 
   session(req) {
@@ -279,7 +378,19 @@ class LocalServer {
     const url = new URL(req.url, 'http://local');
     if (url.pathname.startsWith('/api/local/')) return this.api(req, res, url.pathname.slice('/api/local/'.length));
     if (req.method !== 'GET' && req.method !== 'HEAD') return this.json(res, 405, { error: 'method' });
+    // A logo trocada pelo produtor na rede local. Fica fora de /api para o <img> apontar direto.
+    if (url.pathname === `/${PATH.producer}/logo/atual`) return this.serveLogo(req, res);
     return this.serveStatic(req, res, url.pathname);
+  }
+
+  serveLogo(req, res) {
+    const file = this.logoFile();
+    if (!file) return this.json(res, 404, { error: 'no_logo' });
+    const ext = path.extname(file).slice(1);
+    const type = Object.keys(LOGO_TYPES).find((k) => LOGO_TYPES[k] === ext) || 'image/png';
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    if (req.method === 'HEAD') return res.end();
+    return fs.createReadStream(file).on('error', () => res.end()).pipe(res);
   }
 
   serveStatic(req, res, pathname) {
@@ -306,7 +417,20 @@ class LocalServer {
 
     if (route === 'login' && req.method === 'POST') {
       const addr = this.address(req);
-      if (this.tooManyFailures(addr)) return this.json(res, 429, { error: 'too_many_attempts' });
+      // O bloqueio só vale para aparelho na rede (celular, tablet, TV). Quem está operando no
+      // próprio Mac do diretor nunca fica trancado: é ele que está no palco com a TV à vista.
+      // Antes o limite valia para o IP do link (`192.168.x.x:8080/produtor`), e o produtor
+      // recebia "muitas tentativas erradas" com o PIN certo, sem ter como sair.
+      // O limite NÃO barra o login, em nenhum aparelho.
+      //
+      // Numa mesa de som não existe "espere 5 minutos": se o PIN certo for digitado, tem que
+      // entrar. Medido em 06/11/2026: o produtor ficou 6 minutos sem digitar nada e o link
+      // `192.168.x.x:8080/produtor` ainda respondia `too_many_attempts`, porque a página consulta
+      // o estado a cada 250 ms e cada consulta recusada renovava a janela.
+      //
+      // O contador continua existindo só para registro (console), sem trancar ninguém.
+      const throttled = this.tooManyFailures(addr);
+      if (throttled) console.warn(`[rede local] ${addr} acumulou ${this.failures.get(addr)?.count} erros de PIN; login segue liberado.`);
       const body = await this.readBody(req).catch(() => null);
       const role = body?.role;
       if (!ROLES.has(role)) return this.json(res, 400, { error: 'bad_request' });
@@ -335,9 +459,17 @@ class LocalServer {
       const lyrics = Object.entries(this.mergedLyrics()).map(([song_id, pages]) => ({
         song_id, pages, updated_at: this.lyricsUpdatedAt[song_id] || this.publishedAt,
       }));
+      // QR de entrada dos músicos (sem o PIN) só quando o diretor liga a opção na tela do palco
+      let joinQr = null;
+      if (this.prompter?.toggles?.joinQr && this.pins?.musician) {
+        const base = lanAddresses()[0];
+        if (base) joinQr = await this.qr(`http://${base}:${this.port}/${PATH.musician}`);
+      }
       return this.json(res, 200, {
         show,
         prompter: this.prompter,
+        join_qr: joinQr,
+        logo: this.logoInfo(),
         lyrics,
         lyrics_save: { requested_at: this.lyricsSave.requestedAt, saved_at: this.lyricsSave.savedAt },
         server_now: now,
@@ -365,6 +497,22 @@ class LocalServer {
       this.prompter = body.prompter;
       this.persist();
       return this.json(res, 200, { ok: true });
+    }
+
+    // Logo da banda trocada pelo produtor na rede local. A chave de autorização do arquivo é o
+    // próprio PIN do produtor, conferido na sessão de quem está mandando.
+    if (route === 'logo') {
+      const type = String(body.type || body.contentType || '');
+      const data = typeof body.data === 'string' ? body.data : '';
+      if (!LOGO_TYPES[type] || !data) return this.json(res, 400, { error: 'bad_request' });
+      const buffer = Buffer.from(data, 'base64');
+      if (!this.saveLogo(buffer, type)) return this.json(res, 400, { error: 'bad_request' });
+      return this.json(res, 200, { ok: true, logo: this.logoInfo() });
+    }
+
+    if (route === 'logo-remove') {
+      this.removeLogo();
+      return this.json(res, 200, { ok: true, logo: this.logoInfo() });
     }
 
     if (route === 'lyrics') {

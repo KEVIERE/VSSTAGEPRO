@@ -3,11 +3,16 @@ import { ArrowRight, KeyRound, Loader2, Music, User, Wifi, WifiOff } from 'lucid
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
 import { serverLagMs } from '@/lib/liveClock';
 import { localForget, localMusicianSheets, localMusicianState, localSheetBackend } from '@/lib/localClientApi';
-import { localServerVersion } from '@/lib/localNetwork';
+import { localServerVersion, takePinFromLink } from '@/lib/localNetwork';
 import type { MusicianState, SheetInfo } from '@/lib/musicianTypes';
 
 const LOGIN_LS = 'vs_local_musician';
-const POLL_MS = 1000;
+// nome usado da última vez neste aparelho (continua guardado mesmo depois de Sair)
+const NAME_LS = 'vs_local_musician_name';
+function rememberedName(): string | null {
+  try { return localStorage.getItem(NAME_LS); } catch { return null; }
+}
+const POLL_MS = 400;
 const SHEETS_POLL_MS = 8000;
 const VERSION = localServerVersion();
 
@@ -27,6 +32,9 @@ function errorText(msg: string): string {
 }
 
 export default function LocalMusicianArea() {
+  // O PIN é sempre digitado pelo músico. Links antigos com #pin= só têm o PIN apagado do endereço.
+  useState(takePinFromLink);
+  // Celular que já entrou fica lembrado até o diretor gerar um PIN novo.
   const [login, setLogin] = useState<Login | null>(savedLogin);
   const [state, setState] = useState<MusicianState | null>(null);
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
@@ -35,9 +43,11 @@ export default function LocalMusicianArea() {
   const [sync, setSync] = useState({ lagMs: 0, receivedAt: 0 });
 
   const fetchState = useCallback(async (l: Login) => {
+    const t0 = performance.now();
     const s = await localMusicianState(l.pin, l.name);
+    const transitMs = Math.min(1500, (performance.now() - t0) / 2);
     setState(s);
-    setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at), receivedAt: Date.now() });
+    setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at) + transitMs, receivedAt: Date.now() });
     setOffline(false);
   }, []);
 
@@ -83,6 +93,7 @@ export default function LocalMusicianArea() {
     try {
       await fetchState(l);
       localStorage.setItem(LOGIN_LS, JSON.stringify(l));
+      try { localStorage.setItem(NAME_LS, l.name); } catch { /* conveniência */ }
       setError(null);
       setLogin(l);
       return null;
@@ -122,13 +133,13 @@ export default function LocalMusicianArea() {
           {VERSION && <span className="text-logic-text-muted/70">· v{VERSION}</span>}
         </span>
       }
-      logoutLabel="Sair" onLogout={leave}
+      onLogout={leave}
     />
   );
 }
 
 function LocalLogin({ onEnter, initialError }: { onEnter: (l: Login) => Promise<string | null>; initialError: string | null }) {
-  const [name, setName] = useState(() => savedLogin()?.name ?? '');
+  const [name, setName] = useState(() => savedLogin()?.name ?? rememberedName() ?? '');
   const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(initialError);

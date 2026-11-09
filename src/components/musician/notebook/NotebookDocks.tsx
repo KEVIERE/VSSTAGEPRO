@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, Delete, Minus, Plus, X } from 'lucide-react';
 import {
   CHORD_QUALITIES, CHORD_ROOTS, DUR_LABELS, stepName,
@@ -21,23 +22,41 @@ function DockShell({ title, onClose, children }: { title: string; onClose: () =>
   );
 }
 
-export function ChordDock({ root, quality, recent, onRoot, onQuality, onPick, onTranspose, onClose }: {
+export function ChordDock({ root, quality, bass, recent, onRoot, onQuality, onBass, onPick, onTranspose, onClose }: {
   root: string;
   quality: string;
+  bass: string | null;
   recent: string[];
   onRoot: (r: string) => void;
   onQuality: (q: string) => void;
-  onPick: (chord: string) => void;
+  onBass: (b: string | null) => void;
+  onPick: (chord: string) => boolean;
   onTranspose: (semis: number) => void;
   onClose: () => void;
 }) {
-  const chord = root + quality;
+  const chord = root + quality + (bass ? `/${bass}` : '');
+  const [typed, setTyped] = useState('');
+  const [bad, setBad] = useState(false);
+  const [showBass, setShowBass] = useState(false);
+  const submitTyped = () => {
+    if (!typed.trim()) return;
+    if (onPick(typed)) { setTyped(''); setBad(false); } else setBad(true);
+  };
   return (
     <DockShell title="Acordes: escolha e toque na palavra" onClose={onClose}>
       <div className="flex items-center gap-3 mb-2">
         <div className="h-11 min-w-[72px] px-3 rounded-lg bg-black/40 border border-logic-lcd-amber/40 flex items-center justify-center text-lg font-bold text-logic-lcd-amber font-mono">
           {chord}
         </div>
+        <input
+          value={typed}
+          onChange={(e) => { setTyped(e.target.value); setBad(false); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitTyped(); } }}
+          onBlur={submitTyped}
+          placeholder="Digite: F#m7, C/E…"
+          title="Digite qualquer acorde e aperte Enter"
+          className={`h-9 w-32 min-w-0 px-2 rounded-lg bg-black/30 border outline-none text-xs font-mono text-logic-text ${bad ? 'border-logic-lcd-red/70' : 'border-logic-border-dark focus:border-logic-lcd-amber/60'}`}
+        />
         <div className="flex items-center gap-1 ml-auto">
           <span className="text-2xs text-logic-text-muted mr-1">Tom</span>
           <button onClick={() => onTranspose(-1)} title="Baixar meio tom em todas as cifras" className={chip(false)}><Minus size={13} /></button>
@@ -49,7 +68,15 @@ export function ChordDock({ root, quality, recent, onRoot, onQuality, onPick, on
       </div>
       <div className="flex flex-wrap gap-1">
         {CHORD_QUALITIES.map((q) => <button key={q || 'maj'} onClick={() => onQuality(q)} className={chip(q === quality)}>{q || 'maior'}</button>)}
+        <button onClick={() => setShowBass((v) => !v)} title="Acorde com baixo invertido (ex.: C/E)" className={chip(showBass || !!bass)}>/ baixo</button>
       </div>
+      {(showBass || bass) && (
+        <div className="flex flex-wrap items-center gap-1 mt-1.5">
+          <span className="text-2xs text-logic-text-muted mr-1">Baixo</span>
+          <button onClick={() => onBass(null)} className={chip(!bass)}>nenhum</button>
+          {CHORD_ROOTS.map((r) => <button key={r} onClick={() => onBass(r)} className={chip(r === bass)}>/{r}</button>)}
+        </div>
+      )}
       {recent.length > 0 && (
         <div className="flex flex-wrap items-center gap-1 mt-2 pt-2 border-t border-logic-border-dark">
           <span className="text-2xs text-logic-text-muted mr-1">Já usados</span>

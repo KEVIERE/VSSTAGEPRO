@@ -11,7 +11,7 @@ export function autoPageIndex(pages: LyricPage[], t: number): number {
 }
 
 export function pageIndexFor(pages: LyricPage[], t: number, songId: string | null, p: PrompterState): number {
-  const base = autoPageIndex(pages, t);
+  const base = autoPageIndex(pages, t + (p.lyricLead ?? 0));
   if (!songId || p.nudge.songId !== songId || p.nudge.delta === 0) return base;
   return Math.max(-1, Math.min(pages.length - 1, base + p.nudge.delta));
 }
@@ -34,14 +34,17 @@ export function activeNotice(
 }
 
 export interface ShowTimeView {
-  phase: 'none' | 'before' | 'running' | 'over';
+  /** `idle`: a chave está ligada mas ninguém definiu o início ainda. */
+  phase: 'none' | 'idle' | 'before' | 'running' | 'over';
   seconds: number;
 }
 
 export function showTimeView(p: PrompterState, nowMs: number): ShowTimeView {
-  if (!p.showStartAt) return { phase: 'none', seconds: 0 };
+  // Sem horário definido o visor aparece zerado, para o produtor ver que a chave está ligada e
+  // que falta preencher o início. Antes ele sumia da tela e parecia que o botão não funcionava.
+  if (!p.showStartAt) return { phase: 'idle', seconds: p.showDurationMin * 60 };
   const start = Date.parse(p.showStartAt);
-  if (!Number.isFinite(start)) return { phase: 'none', seconds: 0 };
+  if (!Number.isFinite(start)) return { phase: 'idle', seconds: p.showDurationMin * 60 };
   if (nowMs < start) return { phase: 'before', seconds: (start - nowMs) / 1000 };
   const end = start + p.showDurationMin * 60000;
   if (nowMs <= end) return { phase: 'running', seconds: (end - nowMs) / 1000 };
@@ -57,8 +60,26 @@ export function formatClock(totalSeconds: number): string {
   return `${h > 0 ? `${h}:` : ''}${mm}:${String(sec).padStart(2, '0')}`;
 }
 
+/**
+ * Id curto para avisos e páginas.
+ *
+ * `crypto.randomUUID` só existe em contexto seguro (HTTPS ou localhost). A Rede Local serve as
+ * páginas em `http://192.168.x.x:8080`, onde ele NÃO existe: o clique em "Mandar" estourava
+ * `crypto.randomUUID is not a function` antes de montar o aviso, e nada chegava à TV. Era o
+ * "aviso não funciona" no link que o programa entrega para o celular e para o produtor.
+ */
 export function newId(): string {
-  return crypto.randomUUID();
+  const c = typeof crypto !== 'undefined' ? crypto : undefined;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  if (c && typeof c.getRandomValues === 'function') {
+    const b = c.getRandomValues(new Uint8Array(16));
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  }
+  // Último recurso (navegador muito antigo): id por tempo + sorte, suficiente para uso local.
+  return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 const MAX_NOTICE_TEXT = 200;

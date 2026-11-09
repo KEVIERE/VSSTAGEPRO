@@ -1,15 +1,14 @@
 import { useState } from 'react';
-import { Send, Bookmark, X, RotateCw, Trash2, CalendarClock, Plus } from 'lucide-react';
+import { Send, Bookmark, RotateCw, Trash2, CalendarClock, Plus, Clock3 } from 'lucide-react';
 import { Section } from '@/components/prompter/ScreenControlPanel';
-import PresetNotices from '@/components/prompter/PresetNotices';
 import type { NoticeLayout, NoticeLevel, PrompterState } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { newId, withNotice } from '@/lib/prompterView';
 
-const LEVELS: { id: NoticeLevel; label: string; cls: string }[] = [
-  { id: 'info', label: 'Aviso', cls: 'border-[#64d2ff] text-[#64d2ff] bg-[#64d2ff]/10' },
-  { id: 'warn', label: 'Atenção', cls: 'border-logic-lcd-amber text-logic-lcd-amber bg-logic-lcd-amber/10' },
-  { id: 'urgent', label: 'Urgente', cls: 'border-logic-lcd-red text-logic-lcd-red bg-logic-lcd-red/10' },
+const LEVELS: { id: NoticeLevel; label: string; cls: string; dot: string }[] = [
+  { id: 'info', label: 'Aviso', cls: 'border-[#64d2ff] text-[#64d2ff] bg-[#64d2ff]/10', dot: '#64d2ff' },
+  { id: 'warn', label: 'Atenção', cls: 'border-logic-lcd-amber text-logic-lcd-amber bg-logic-lcd-amber/10', dot: '#ffab1f' },
+  { id: 'urgent', label: 'Urgente', cls: 'border-logic-lcd-red text-logic-lcd-red bg-logic-lcd-red/10', dot: '#ff4136' },
 ];
 
 const LAYOUTS: { id: NoticeLayout; label: string }[] = [
@@ -35,12 +34,39 @@ function Chips<T extends string | number>({ items, value, onChange, activeCls }:
         <button
           key={String(it.id)}
           onClick={() => onChange(it.id)}
+          aria-pressed={value === it.id}
           className={`px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${value === it.id ? (it.cls ?? activeCls ?? 'border-logic-accent text-logic-accent bg-logic-accent/10') : 'border-logic-border text-logic-text-dim hover:text-logic-text'}`}
         >
           {it.label}
         </button>
       ))}
     </div>
+  );
+}
+
+/** Aviso pronto: toque manda; os botões de editar e apagar só aparecem no hover/foco. */
+function PresetCard({ text, onSend, onEdit, onDelete, onScreen }: {
+  text: string; onSend: () => void; onEdit: () => void; onDelete: () => void; onScreen: boolean;
+}) {
+  return (
+    <li className={`group flex items-stretch rounded-lg border transition-colors ${onScreen ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep hover:border-logic-accent/60'}`}>
+      <button
+        onClick={onSend}
+        className="flex-1 min-w-0 flex items-start gap-2 px-3 py-2.5 text-left"
+        title="Mandar para a TV agora"
+      >
+        <Send size={13} className="mt-0.5 flex-shrink-0 text-logic-accent opacity-60 group-hover:opacity-100 transition-opacity" />
+        <span className="text-sm text-logic-text leading-snug line-clamp-2">{text}</span>
+      </button>
+      <div className="flex items-center pr-1 opacity-60 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+        <button onClick={onEdit} className="px-2 py-2 text-logic-text-muted hover:text-logic-text rounded transition-colors text-[11px] font-medium" title="Editar">
+          Editar
+        </button>
+        <button onClick={onDelete} className="p-2 text-logic-text-muted hover:text-logic-lcd-red rounded transition-colors" title="Apagar">
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </li>
   );
 }
 
@@ -56,10 +82,42 @@ export default function NoticeControl({ state, update, songs, now }: {
   const [duration, setDuration] = useState(0);
   const [schedSong, setSchedSong] = useState('');
   const [schedText, setSchedText] = useState('');
+  const [draft, setDraft] = useState('');
+  const [editing, setEditing] = useState<number | null>(null);
+  const [editText, setEditText] = useState('');
+  const [hint, setHint] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const MAX_PRESETS = 30;
+
+  const flash = (msg: string) => { setHint(msg); window.setTimeout(() => setHint(null), 2600); };
 
   const send = (msg: string) => {
     if (!msg.trim()) return;
+    // Monta a partir do estado mais novo dentro do update: dois toques seguidos não podem
+    // partir da mesma cópia (o segundo perderia o aviso do primeiro no histórico).
     update((s) => withNotice(s, msg, { level, layout, durationSec: duration }) ?? s);
+    setSaving(true);
+    window.setTimeout(() => setSaving(false), 700);
+  };
+
+  const addPreset = (t: string) => {
+    const clean = t.trim().slice(0, MAX_TEXT);
+    if (!clean) return;
+    if (state.presets.includes(clean)) { flash('Esse aviso já está na lista.'); return; }
+    if (state.presets.length >= MAX_PRESETS) { flash(`Limite de ${MAX_PRESETS} avisos prontos. Apague algum para criar outro.`); return; }
+    update((s) => ({ ...s, presets: [...s.presets, clean] }));
+    setDraft('');
+    flash('Aviso pronto salvo.');
+  };
+
+  const saveEdit = (i: number) => {
+    const t = editText.trim().slice(0, MAX_TEXT);
+    if (!t) { setEditing(null); return; }
+    if (state.presets.some((p, j) => j !== i && p === t)) { flash('Já existe um aviso pronto com esse texto.'); return; }
+    update((s) => ({ ...s, presets: s.presets.map((p, j) => (j === i ? t : p)) }));
+    setEditing(null);
+    flash('Aviso pronto alterado.');
   };
 
   const active = state.notice;
@@ -68,48 +126,43 @@ export default function NoticeControl({ state, update, songs, now }: {
   const songName = (id: string) => songs.find((s) => s.id === id)?.name ?? 'Música removida';
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2 items-start">
-      <div className="space-y-4">
-        {isLive && active && (
-          <div className="rounded-xl border-2 border-logic-lcd-amber bg-logic-lcd-amber/10 p-4 flex items-start gap-3 animate-[fadeIn_160ms_ease-out]">
-            <span className="mt-1 w-2.5 h-2.5 rounded-full bg-logic-lcd-amber animate-pulse flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold tracking-wider text-logic-lcd-amber">NA TELA AGORA{remaining !== null ? ` · ${remaining}s` : ''}</p>
-              <p className="text-base text-logic-text mt-1 break-words">{active.text}</p>
-            </div>
-            <button onClick={() => update((s) => ({ ...s, notice: null }))} className="px-4 py-2.5 rounded-lg bg-logic-lcd-amber text-black text-sm font-semibold hover:brightness-110 transition-all">
-              Tirar
-            </button>
+    <div className="space-y-4">
+      {/* No ar agora: ocupa a largura toda, porque é o que importa num show. */}
+      {isLive && active && (
+        <div className="rounded-xl border-2 border-logic-lcd-amber bg-logic-lcd-amber/10 p-4 flex items-start gap-3 animate-[fadeIn_160ms_ease-out]">
+          <span className="mt-1.5 w-2.5 h-2.5 rounded-full bg-logic-lcd-amber animate-pulse flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold tracking-wider text-logic-lcd-amber flex items-center gap-2">
+              NA TV AGORA
+              {remaining !== null && <span className="tabular-nums font-normal text-logic-lcd-amber/80">{remaining}s</span>}
+              <span className="font-normal text-logic-text-muted">· {active.layout === 'center' ? 'centro da tela' : 'faixa inferior'}</span>
+            </p>
+            <p className="text-base sm:text-lg text-logic-text mt-1 break-words leading-snug">{active.text}</p>
           </div>
-        )}
+          <button onClick={() => update((s) => ({ ...s, notice: null }))} className="px-4 py-2.5 rounded-lg bg-logic-lcd-amber text-black text-sm font-semibold hover:brightness-110 transition-all flex-shrink-0">
+            Tirar
+          </button>
+        </div>
+      )}
 
+      {/* Compositor: texto à esquerda, ajustes à direita. Antes era tudo empilhado numa coluna
+          estreita, sobrando metade da tela vazia. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] items-start">
         <Section title="Novo aviso para os artistas">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(text); setText(''); } }}
-            rows={3}
+            rows={4}
+            maxLength={MAX_TEXT}
             placeholder="Ex.: O prefeito chegou, mandar um alô"
             className="w-full px-3 py-3 rounded-lg bg-logic-bg-deep border border-logic-border text-base text-logic-text leading-relaxed outline-none focus:border-logic-accent resize-none"
           />
-          <div className="space-y-3 mt-3">
-            <Chips items={LEVELS} value={level} onChange={setLevel} />
-            <Chips items={LAYOUTS} value={layout} onChange={setLayout} />
-            <Chips items={DURATIONS.map((d) => ({ id: d.sec, label: d.label }))} value={duration} onChange={setDuration} />
-            {layout === 'bar' && (
-              <div>
-                <div className="flex justify-between text-xs text-logic-text-dim mb-1.5">
-                  <span>Altura da faixa</span><span className="tabular-nums">{state.barSize}% da tela</span>
-                </div>
-                <input
-                  type="range" min={12} max={50} step={1} value={state.barSize}
-                  onChange={(e) => { const v = Number(e.target.value); update((s) => ({ ...s, barSize: v })); }}
-                  className="w-full accent-logic-accent"
-                />
-              </div>
-            )}
+          <div className="flex items-center justify-between mt-1.5 text-2xs text-logic-text-muted">
+            <span>⌘↵ manda sem tirar a mão do teclado</span>
+            <span className="tabular-nums">{text.length}/{MAX_TEXT}</span>
           </div>
-          <div className="flex gap-2 mt-4">
+          <div className="flex gap-2 mt-3">
             <button
               onClick={() => { send(text); setText(''); }}
               disabled={!text.trim()}
@@ -118,24 +171,118 @@ export default function NoticeControl({ state, update, songs, now }: {
               <Send size={16} /> Mandar para a tela
             </button>
             <button
-              onClick={() => { const t = text.trim(); if (t) update((s) => ({ ...s, presets: s.presets.includes(t) ? s.presets : [...s.presets, t].slice(0, 30) })); }}
+              onClick={() => addPreset(text)}
               disabled={!text.trim()}
-              className="px-4 rounded-lg border border-logic-border text-logic-text-dim hover:text-logic-text disabled:opacity-40 transition-colors"
+              className="px-4 rounded-lg border border-logic-border text-logic-text-dim hover:text-logic-text disabled:opacity-40 transition-colors flex items-center gap-2 text-xs font-medium"
               title="Guardar como aviso pronto"
             >
-              <Bookmark size={16} />
+              <Bookmark size={15} /> <span className="hidden sm:inline">Guardar</span>
             </button>
           </div>
         </Section>
 
-        <Section title="Avisos prontos">
-          <PresetNotices presets={state.presets} onSend={send} onChange={(next) => update((s) => ({ ...s, presets: next }))} />
+        <Section title="Como aparece na TV">
+          <div className="space-y-3">
+            <div>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-logic-text-muted mb-1.5">Tipo</p>
+              <Chips items={LEVELS} value={level} onChange={setLevel} />
+            </div>
+            <div>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-logic-text-muted mb-1.5">Posição</p>
+              <Chips items={LAYOUTS} value={layout} onChange={setLayout} />
+            </div>
+            <div>
+              <p className="text-2xs font-semibold uppercase tracking-wider text-logic-text-muted mb-1.5">Tempo na tela</p>
+              <Chips items={DURATIONS.map((d) => ({ id: d.sec, label: d.label }))} value={duration} onChange={setDuration} />
+            </div>
+            {layout === 'bar' && (
+              <div>
+                <div className="flex justify-between text-2xs text-logic-text-muted mb-1.5">
+                  <span className="font-semibold uppercase tracking-wider">Altura da faixa</span>
+                  <span className="tabular-nums">{state.barSize}% da tela</span>
+                </div>
+                <input
+                  type="range" min={12} max={50} step={1} value={state.barSize}
+                  onChange={(e) => { const v = Number(e.target.value); update((s) => ({ ...s, barSize: v })); }}
+                  className="w-full accent-logic-accent"
+                />
+              </div>
+            )}
+            <p className="text-2xs text-logic-text-muted leading-relaxed pt-1 border-t border-logic-border/60">
+              Toque em qualquer aviso pronto para mandar com esse tipo, posição e tempo.
+            </p>
+          </div>
         </Section>
       </div>
 
-      <div className="space-y-4">
-        <Section title="Avisos programados por música">
-          <p className="text-xs text-logic-text-dim mb-3 leading-relaxed">Aparecem sozinhos nos primeiros segundos da música escolhida.</p>
+      <Section
+        title="Avisos prontos"
+        aside={
+          <span className="flex items-center gap-2">
+            {hint && <span className="text-2xs text-logic-lcd-amber animate-[fadeIn_160ms_ease-out]">{hint}</span>}
+            <span className="text-2xs text-logic-text-muted tabular-nums">{state.presets.length}/{MAX_PRESETS}</span>
+          </span>
+        }
+      >
+        <div className="flex gap-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value.slice(0, MAX_TEXT))}
+            onKeyDown={(e) => { if (e.key === 'Enter') addPreset(draft); }}
+            placeholder="Criar aviso pronto. Ex.: Agradecer a produção"
+            className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text outline-none focus:border-logic-accent transition-colors"
+          />
+          <button
+            onClick={() => addPreset(draft)}
+            disabled={!draft.trim() || state.presets.length >= MAX_PRESETS}
+            className="flex items-center gap-1.5 px-4 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-semibold disabled:opacity-40 transition-all active:scale-[0.97]"
+          >
+            <Plus size={15} /> Salvar
+          </button>
+        </div>
+
+        {state.presets.length === 0 ? (
+          <p className="text-sm text-logic-text-dim mt-3">Nenhum aviso pronto ainda. Crie o primeiro acima.</p>
+        ) : (
+          <ul className="mt-3 grid gap-1.5 sm:grid-cols-2 2xl:grid-cols-3">
+            {state.presets.map((pr, i) => (
+              editing === i ? (
+                <li key={`edit-${i}`} className="flex items-center gap-1 rounded-lg bg-logic-bg-deep border border-logic-accent pl-1 pr-1">
+                  <input
+                    autoFocus
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value.slice(0, MAX_TEXT))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(i); if (e.key === 'Escape') setEditing(null); }}
+                    className="flex-1 min-w-0 px-2 py-2 my-1 rounded bg-logic-bg-panel border border-logic-accent text-sm text-logic-text outline-none"
+                  />
+                  <button onClick={() => saveEdit(i)} className="p-2 text-logic-lcd-green hover:bg-logic-bg-elevated rounded transition-colors" title="Salvar">
+                    <span className="text-[11px] font-semibold">OK</span>
+                  </button>
+                  <button onClick={() => setEditing(null)} className="p-2 text-logic-text-muted hover:text-logic-text rounded transition-colors" title="Cancelar">
+                    <Trash2 size={13} />
+                  </button>
+                </li>
+              ) : (
+                <PresetCard
+                  key={pr}
+                  text={pr}
+                  onScreen={Boolean(isLive && active?.text === pr)}
+                  onSend={() => send(pr)}
+                  onEdit={() => { setEditing(i); setEditText(pr); }}
+                  onDelete={() => update((s) => ({ ...s, presets: s.presets.filter((_, j) => j !== i) }))}
+                />
+              )
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
+        <Section
+          title="Avisos programados por música"
+          aside={<span className="text-2xs text-logic-text-muted tabular-nums">{state.scheduled.length}/100</span>}
+        >
+          <p className="text-xs text-logic-text-dim mb-3 leading-relaxed">Aparecem sozinhos quando a música começa a tocar na TV.</p>
           <div className="space-y-2">
             <select
               value={schedSong}
@@ -149,6 +296,12 @@ export default function NoticeControl({ state, update, songs, now }: {
               <input
                 value={schedText}
                 onChange={(e) => setSchedText(e.target.value.slice(0, MAX_TEXT))}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Enter' || !schedSong || !schedText.trim()) return;
+                  const t = schedText.trim();
+                  update((s) => ({ ...s, scheduled: [...s.scheduled, { id: newId(), songId: schedSong, text: t, level, layout, durationSec: duration || 15 }].slice(0, 100) }));
+                  setSchedText('');
+                }}
                 placeholder="Ex.: Chamar o público para cantar"
                 className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text outline-none focus:border-logic-accent"
               />
@@ -166,44 +319,61 @@ export default function NoticeControl({ state, update, songs, now }: {
               </button>
             </div>
           </div>
-          <ul className="mt-3 space-y-1.5">
-            {state.scheduled.map((sc) => (
-              <li key={sc.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border">
-                <CalendarClock size={14} className="text-logic-accent flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-logic-text-dim truncate">{songName(sc.songId)} · {sc.durationSec}s</p>
-                  <p className="text-sm text-logic-text truncate">{sc.text}</p>
-                </div>
-                <button onClick={() => update((s) => ({ ...s, scheduled: s.scheduled.filter((x) => x.id !== sc.id) }))} className="p-1.5 text-logic-text-muted hover:text-logic-lcd-red transition-colors" title="Remover">
-                  <Trash2 size={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          {state.scheduled.length === 0 ? (
+            <p className="text-sm text-logic-text-dim mt-3">Nenhum aviso programado.</p>
+          ) : (
+            <ul className="mt-3 space-y-1.5 max-h-72 overflow-y-auto logic-scroll pr-1">
+              {state.scheduled.map((sc) => (
+                <li key={sc.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border">
+                  <CalendarClock size={14} className="text-logic-accent flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-2xs text-logic-text-dim truncate">{songName(sc.songId)} · {sc.durationSec}s</p>
+                    <p className="text-sm text-logic-text truncate">{sc.text}</p>
+                  </div>
+                  <button onClick={() => update((s) => ({ ...s, scheduled: s.scheduled.filter((x) => x.id !== sc.id) }))} className="p-1.5 text-logic-text-muted hover:text-logic-lcd-red transition-colors" title="Remover">
+                    <Trash2 size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
 
         <Section
           title="Histórico"
-          aside={state.history.length > 0 && (
-            <button onClick={() => update((s) => ({ ...s, history: [] }))} className="text-xs text-logic-text-muted hover:text-logic-text">Limpar</button>
-          )}
+          aside={
+            state.history.length > 0 ? (
+              <button onClick={() => update((s) => ({ ...s, history: [] }))} className="text-xs text-logic-text-muted hover:text-logic-text">Limpar</button>
+            ) : (
+              <span className="text-2xs text-logic-text-muted tabular-nums">{state.history.length}/20</span>
+            )
+          }
         >
-          {state.history.length === 0 && <p className="text-sm text-logic-text-dim">Os avisos enviados aparecem aqui.</p>}
-          <ul className="space-y-1">
-            {state.history.map((h) => (
-              <li key={h.id} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-logic-bg-elevated transition-colors">
-                <span className="text-xs tabular-nums text-logic-text-muted w-11 flex-shrink-0">
-                  {new Date(h.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                <span className="flex-1 min-w-0 text-sm text-logic-text truncate">{h.text}</span>
-                <button onClick={() => send(h.text)} className="p-1.5 text-logic-text-muted hover:text-logic-accent transition-colors" title="Mandar de novo">
-                  <RotateCw size={14} />
-                </button>
-              </li>
-            ))}
-          </ul>
+          {state.history.length === 0 ? (
+            <p className="text-sm text-logic-text-dim">Os últimos 20 avisos enviados aparecem aqui.</p>
+          ) : (
+            <ul className="space-y-1 max-h-72 overflow-y-auto logic-scroll pr-1">
+              {state.history.map((h) => (
+                <li key={h.id} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-logic-bg-elevated transition-colors group">
+                  <span className="text-2xs tabular-nums text-logic-text-muted w-10 flex-shrink-0">
+                    {new Date(h.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  <span className="flex-1 min-w-0 text-sm text-logic-text truncate" title={h.text}>{h.text}</span>
+                  <button onClick={() => send(h.text)} className="p-1.5 text-logic-text-muted hover:text-logic-accent transition-colors" title="Mandar de novo">
+                    <RotateCw size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
       </div>
+
+      {saving && (
+        <p className="flex items-center gap-1.5 text-2xs text-logic-lcd-green" role="status">
+          <Clock3 size={11} /> Enviado.
+        </p>
+      )}
     </div>
   );
 }

@@ -57,7 +57,7 @@ export default function StageScreenPage() {
 
   useWakeLock(!!feed.snap);
   useFixedLocalAddress(local && isIPhone() && !installed);
-  const logoUrl = useShowLogo(feed.snap ? code : null);
+  const logoUrl = useShowLogo(feed.snap ? code : null, feed.snap?.logo ?? null);
 
   useEffect(() => {
     sessionStorage.removeItem(SCREEN_LS);

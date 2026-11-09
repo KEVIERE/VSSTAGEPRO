@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, Share2 } from 'lucide-react';
 import type { ColleagueInfo, SheetBackend } from '@/lib/musicianTypes';
 
+const musicos = (n: number) => `${n} ${n === 1 ? 'músico' : 'músicos'}`;
+
 export default function SharePane({ backend, sheetId, onBack }: { backend: SheetBackend; sheetId: string | null; onBack: () => void }) {
   const [colleagues, setColleagues] = useState<ColleagueInfo[] | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -26,7 +28,7 @@ export default function SharePane({ backend, sheetId, onBack }: { backend: Sheet
     setBusy(true);
     try {
       const count = await backend.share(sheetId, [...selected]);
-      setResult({ ok: true, text: `${count} colega(s) receberam o caderno desta música.` });
+      setResult({ ok: true, text: count === 1 ? 'Enviado: 1 músico recebeu a partitura desta música.' : `Enviado: ${musicos(count)} receberam a partitura desta música.` });
       setSelected(new Set());
     } catch {
       setResult({ ok: false, text: 'Não foi possível enviar. Tente novamente.' });
@@ -35,15 +37,15 @@ export default function SharePane({ backend, sheetId, onBack }: { backend: Sheet
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-logic-border-dark bg-logic-bg-panel">
-        <button onClick={onBack} className="p-1.5 rounded text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated transition-colors">
+      <div className="console-rail flex items-center gap-2 px-3 py-2">
+        <button onClick={onBack} className="console-key w-8 h-8 flex items-center justify-center" aria-label="Voltar">
           <ChevronLeft size={18} />
         </button>
-        <span className="text-sm font-medium text-logic-text">Compartilhar caderno</span>
+        <span className="font-stage text-[15px] font-semibold tracking-wide text-logic-text">Enviar para outro músico</span>
       </div>
       <div className="flex-1 overflow-y-auto logic-scroll p-4 space-y-1.5">
         <p className="text-xs text-logic-text-muted mb-3 leading-relaxed">
-          Vai tudo junto: texto, cifras, partituras e seus desenhos. O colega pode apagar os desenhos se quiser.
+          Vai tudo junto: fotos, cifras, partituras, texto e seus desenhos. Cada um recebe uma cópia na própria conta, que troca sozinha quando esta música tocar.
         </p>
         {result && (
           <div className={`mb-2 px-3 py-2 rounded border text-xs ${result.ok ? 'bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green' : 'bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red'}`}>
@@ -53,17 +55,17 @@ export default function SharePane({ backend, sheetId, onBack }: { backend: Sheet
         {colleagues === null && <p className="text-sm text-logic-text-muted text-center py-8">Carregando...</p>}
         {colleagues?.length === 0 && <p className="text-sm text-logic-text-muted text-center py-8">Nenhum outro músico no show ainda.</p>}
         {colleagues?.map((c) => (
-          <label key={c.id} className="flex items-center gap-3 px-3 py-2.5 rounded bg-logic-bg-deep border border-logic-border-dark cursor-pointer hover:border-logic-border-light transition-colors">
+          <label key={c.id} className={`console-key !font-sans flex items-center gap-3 px-3 py-2.5 cursor-pointer ${selected.has(c.id) ? '!border-logic-accent' : ''}`}>
             <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} className="accent-logic-accent" />
-            <span className="text-sm font-medium text-logic-text">{c.name}</span>
+            <span className="console-tape px-2 py-1 !text-[13px]">{c.name}</span>
             {c.instrument && <span className="text-2xs text-logic-text-muted">{c.instrument}</span>}
           </label>
         ))}
       </div>
       {!!colleagues?.length && (
-        <div className="px-4 py-3 border-t border-logic-border-dark bg-logic-bg-panel">
+        <div className="console-rail px-4 py-3 border-t border-black">
           <button className="w-full logic-btn-accent py-2.5 flex items-center justify-center gap-2 disabled:opacity-50" onClick={send} disabled={busy || selected.size === 0}>
-            <Share2 size={16} /> Enviar para {selected.size} colega(s)
+            <Share2 size={16} /> {selected.size ? `Enviar para ${musicos(selected.size)}` : 'Escolha para quem enviar'}
           </button>
         </div>
       )}

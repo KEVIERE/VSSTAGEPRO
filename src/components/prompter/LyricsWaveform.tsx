@@ -30,7 +30,7 @@ export async function decodePeaks(file: File, buckets = 1600): Promise<{ peaks: 
 
 const HEIGHT = 120;
 
-export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, onSeek, onMoveMarker }: {
+export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, onSeek, onMoveMarker, onPlace }: {
   peaks: Float32Array | null;
   duration: number;
   t: number;
@@ -38,6 +38,8 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, o
   activeIdx: number;
   onSeek: (time: number) => void;
   onMoveMarker: (id: string, time: number) => void;
+  /** Duplo clique na onda: coloca ali o trecho que está para marcar. */
+  onPlace?: (time: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -103,6 +105,8 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, o
         className="relative rounded-lg bg-logic-bg-deep border border-logic-border overflow-hidden cursor-pointer touch-none"
         style={{ height: HEIGHT }}
         onPointerDown={(e) => duration && onSeek(timeAt(e.clientX))}
+        onDoubleClick={(e) => { if (duration && onPlace) onPlace(timeAt(e.clientX)); }}
+        title={onPlace ? 'Clique para ouvir daqui. Duplo clique para colocar o próximo trecho da letra neste ponto.' : undefined}
       >
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
         {!peaks && (

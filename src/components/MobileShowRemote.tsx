@@ -189,7 +189,7 @@ export default function MobileShowRemote() {
             <Radio size={15} className="text-black" />
           </div>
           <div>
-            <span className="text-xs font-black tracking-wider uppercase text-white block leading-tight">
+            <span className="vs-brand text-sm text-white block leading-tight">
               VS Stage <span className="text-[#00ff87]">Remote</span>
             </span>
             <span className="text-[10px] text-zinc-400 block leading-tight">

@@ -56,15 +56,18 @@ export function snapshot(onAir: boolean, withSetlist: boolean) {
   const countdown = exact && song && t.nextSongId ? Math.max(0, song.duration - currentTime) : t.nextSongCountdown;
   const name = activeShowName(st);
   const slices = t.isPlaying || t.isPaused ? currentAndNextSlice(song ?? undefined, currentTime) : { current: null, next: null };
-  const bpmAdjust = song ? paramsAt(song, currentTime).bpmAdjust : 0;
+  const params = song ? paramsAt(song, currentTime) : null;
+  const bpmAdjust = params?.bpmAdjust ?? 0;
   return {
     name,
     // Um projeto vazio (aba nova ainda carregando) nunca apaga o repertório já enviado.
-    setlist: withSetlist && st.songs.length > 0 ? buildSetlist(st.songs, st.blocks, st.playlistOrder) : null,
+    setlist: withSetlist && st.songs.length > 0 ? buildSetlist(st.songs, st.blocks, st.playlistOrder, st.songKeys) : null,
     live: buildLive(
       t.isPlaying, t.isPaused, currentTime, progress, countdown,
       t.currentSongId, t.nextSongId, song ? effectiveBpm(song.bpm, song.bpmDetected, bpmAdjust) : null,
       t.playFlow, onAir, slices.current?.name ?? null, slices.next?.name ?? null,
+      slices.current?.id ?? null, slices.next?.id ?? null,
+      params ? params.tuner : null,
     ),
   };
 }
@@ -153,7 +156,8 @@ export function useLiveBroadcast(): LiveBroadcast {
       const setlistChanged =
         state.songs !== prev.songs || state.blocks !== prev.blocks ||
         state.playlistOrder !== prev.playlistOrder || state.projectName !== prev.projectName ||
-        state.activeShowId !== prev.activeShowId || state.shows !== prev.shows;
+        state.activeShowId !== prev.activeShowId || state.shows !== prev.shows ||
+        state.songKeys !== prev.songKeys;
       prev = state;
       if (b.isPlaying && !a.isPlaying) claim();
       if (transportChanged) {

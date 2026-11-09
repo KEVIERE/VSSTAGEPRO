@@ -6,6 +6,9 @@ import { saveProjectBackup } from '@/lib/projectBackups';
 import { friendlyError } from '@/lib/friendlyError';
 
 let clearTimer: number | null = null;
+let saveController: AbortController | null = null;
+
+export function cancelCurrentSave() { saveController?.abort(); }
 
 export function loadOpenedProject(loaded: LoadedProject): string {
   stopPlayback();
@@ -52,33 +55,41 @@ function flash(status: NonNullable<ReturnType<typeof useStore.getState>['saveSta
   }, ms);
 }
 
-/** Salva por cima do arquivo do projeto atual; se ele nunca foi salvo, abre a janela de salvar. */
-export async function saveCurrentProject() {
+/**
+ * Salva por cima do arquivo do projeto atual; se ele nunca foi salvo, abre a janela de salvar.
+ * Devolve true quando gravou o arquivo.
+ */
+export async function saveCurrentProject(): Promise<boolean> {
   const st = useStore.getState();
-  if (st.saveStatus?.kind === 'saving') return;
+  if (st.saveStatus?.kind === 'saving') return false;
   if (!st.saveTarget) {
     st.setSaveDialogOpen(true);
-    return;
+    return false;
   }
   const target = st.saveTarget;
+  saveController = new AbortController();
+  const signal = saveController.signal;
   st.setSaveStatus({ kind: 'saving', message: 'Salvando...' });
   try {
     // Backup leve (só estrutura, sem áudio) antes de sobrescrever: guarda os últimos 10 salvamentos
     // deste projeto com horário, para poder voltar a uma versão anterior quando precisar.
     void saveProjectBackup(st);
-    const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }));
+    const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
     useStore.getState().setExportProgress(null);
+    // salvo do jeito que estava ao começar: o que mudou durante o salvamento continua pendente
+    useStore.getState().markProjectSaved(st);
     void rememberProject(useStore.getState().projectName, target);
     if (missingCount > 0) {
       flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}" (Aviso: ${missingCount} áudio(s) ausente(s))` }, 6000);
     } else {
       flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}"` }, 3500);
     }
+    return true;
   } catch (err) {
     useStore.getState().setExportProgress(null);
     if ((err as DOMException)?.name === 'AbortError' || (err as DOMException)?.name === 'NotAllowedError') {
       useStore.getState().setSaveStatus(null);
-      return;
+      return false;
     }
     console.error('[salvar] falha', err);
     const message = err instanceof Error && /permiss/i.test(err.message)
@@ -87,5 +98,8 @@ export async function saveCurrentProject() {
         ? friendlyError(err)
         : 'Não foi possível salvar no arquivo do projeto. Tente "Salvar Projeto..." para escolher outro local.';
     flash({ kind: 'error', message }, 8000);
+    return false;
+  } finally {
+    saveController = null;
   }
 }

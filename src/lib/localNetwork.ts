@@ -59,6 +59,30 @@ export interface LocalBridge {
   openAction: (action: CheckAction) => Promise<void>;
 }
 
+/** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */
+/**
+ * Resultado da separação da bateria em peças. `why` vem preenchido quando não deu para separar:
+ * aí a música fica com a bateria inteira, como antes.
+ */
+export interface DrumPiecesResult {
+  bumbo?: ArrayBuffer;
+  caixa?: ArrayBuffer;
+  pratos?: ArrayBuffer;
+  tons?: ArrayBuffer;
+  why?: string;
+}
+
+export interface MaestroVoiceStatus {
+  /** Mac com chip Apple: a voz de IA roda no próprio Mac (Qwen3-TTS) */
+  supported: boolean;
+  /** o programa de voz e as vozes vieram no app */
+  engine: boolean;
+  /** download do modelo (~1,8 GB, uma vez só, em silêncio) */
+  model: { state: 'missing' | 'downloading' | 'paused' | 'verifying' | 'ready' | 'error'; progress?: number; error?: string | null };
+  /** dá para falar com a voz de IA do próprio Mac agora */
+  ready: boolean;
+}
+
 declare global {
   interface Window {
     vsLocal?: LocalBridge;
@@ -68,7 +92,36 @@ declare global {
       installUpdate: (info: UpdateInfo) => Promise<void>;
       onUpdateProgress: (cb: (pct: number) => void) => () => void;
       onManualUpdateCheck?: (cb: () => void) => () => void;
+      /** Menu Visualizar → Modo Show (⌘M) do app do Mac */
+      onMenuShowMode?: (cb: () => void) => () => void;
       hasLocalDemucs?: () => Promise<boolean>;
+      /** Vozes do Maestro por IA instaladas no Mac. */
+      maestroVoices?: () => Promise<Array<{ id: string; name: string; gender: string; locale: string; engine?: 'qwen' | 'mac' }>>;
+      /** Gera a fala com uma voz online gratuita (áudio em base64). */
+      maestroOnlineSpeak?: (payload: { text: string; voice: string }) => Promise<{ voice: string; mime: string; audioBase64: string }>;
+      /** Gera o áudio de uma narração do Maestro com a voz do sistema (WAV em base64). */
+      maestroSpeak?: (payload: { text: string; voice: string; wpm: number; span?: number; pace?: number; group?: string[] }) => Promise<{
+        ok: boolean;
+        voice: string;
+        voiceGender?: string;
+        locale?: string;
+        /** Aviso quando a voz pedida não está instalada e outra foi usada no lugar. */
+        note?: string | null;
+        /** Ritmo que o motor realmente usou (pode ter subido para caber na marcação). */
+        rate: number;
+        /** Voz de IA: fator de velocidade que a tela aplica (o WAV vem na velocidade natural). */
+        tempo?: number;
+        seconds: number;
+        /** true quando nem no ritmo máximo a fala coube na marcação. */
+        overflow?: boolean;
+        /** Qual motor falou: a voz de IA (Qwen3-TTS) ou a voz do Mac. */
+        engine?: 'qwen' | 'mac';
+        wavBase64: string;
+      }>;
+      /** Voz brasileira de IA do Maestro: programa, vozes e download do modelo. */
+      maestroVoiceStatus?: () => Promise<MaestroVoiceStatus>;
+      /** Avisa se uma música está tocando: o download da voz pausa durante o show. */
+      maestroVoicePlaying?: (playing: boolean) => Promise<void>;
       separateStemsLocal?: (
         filename: string,
         audioData: ArrayBuffer
@@ -80,8 +133,25 @@ declare global {
         guitar?: ArrayBuffer | null;
         piano?: ArrayBuffer | null;
       }>;
+      /** Para a separação por IA em andamento (botão Cancelar do diálogo). */
+      cancelStemSeparation?: () => Promise<boolean>;
+      /** Separa a bateria já isolada em peças (bumbo, caixa, pratos, tons). */
+      separateDrumPieces?: (drumsWav: ArrayBuffer) => Promise<DrumPiecesResult>;
+      /** Se a separação da bateria está pronta (modelo baixado e runtime instalado). */
+      drumPiecesStatus?: () => Promise<{ ready: boolean; state: string; progress: number; error?: string | null }>;
+      /** Abre o painel do macOS para baixar as vozes premium (Luciana Premium). */
+      openVoiceSettings?: () => Promise<boolean>;
       onSeparationProgress?: (cb: (data: { percent: number; message: string }) => void) => () => void;
       onRemoteTransport?: (cb: (cmd: { action: string; songId?: string }) => void) => () => void;
+      /** Projeto aberto no Finder: caminho no disco (a tela lê por projectFileUrl). */
+      onOpenProjectFile?: (cb: (file: { name: string; path: string }) => void) => () => void;
+      projectFileUrl?: (filePath: string) => string;
+      /** Avisa o app do Mac que o pedido de abrir projeto foi atendido (abriu, cancelou ou falhou). */
+      projectTaken?: () => void;
+      /** Avisa o app do Mac se o projeto tem alteração não salva (fechar ou sair pergunta antes). */
+      setProjectUnsaved?: (unsaved: boolean, projectName: string) => void;
+      /** A pessoa escolheu "Salvar" ao fechar: a tela salva e responde se deu certo. */
+      onSaveBeforeClose?: (cb: () => Promise<boolean>) => () => void;
       notifySessionState?: (active: boolean) => void;
     };
     __VS_LOCAL__?: number;
@@ -99,6 +169,25 @@ export interface UpdateInfo {
   direction: 'upgrade' | 'downgrade';
   // Marcada pelo admin: o app fica bloqueado (tela cheia, sem fechar) até atualizar.
   required: boolean;
+  // O programa instalado é o do processador errado (Intel num Mac com chip Apple): a
+  // atualização só troca pelo instalador certo, igual à versão.
+  archSwap?: boolean;
+}
+
+/**
+ * PIN vindo no link / QR code (`#pin=123456`). É lido uma vez e apagado do endereço, para não
+ * ficar à vista nem ir parar em favoritos.
+ */
+export function takePinFromLink(): string | null {
+  try {
+    const m = /(?:^#|[#&])pin=(\d{6})\b/.exec(window.location.hash);
+    if (!m) return null;
+    const rest = window.location.hash.replace(/[#&]?pin=\d{6}/, '').replace(/^#?&?/, '');
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${rest ? `#${rest}` : ''}`);
+    return m[1];
+  } catch {
+    return null;
+  }
 }
 
 export function localBridge(): LocalBridge | null {
@@ -118,7 +207,21 @@ export function localServerVersion(): string | null {
 const MODE_LS = 'vs_stage_network_mode';
 const listeners = new Set<() => void>();
 
+/**
+ * Em que modo este cliente está.
+ *
+ * Dois caminhos levam à Rede Local, e o segundo era esquecido: (1) o app instalado no Mac do
+ * diretor, que tem a ponte `window.vsLocal`; (2) um celular/TV/navegador abrindo a página servida
+ * pelo próprio Mac, onde só existe a marca `window.__VS_LOCAL__` injetada pelo servidor HTTP.
+ *
+ * Sem o segundo caso, quem estava na rede pelo navegador era lido como "online": aparecia o botão
+ * "Solicitar repertório" — que no modo local não tem para onde ir (o áudio não passa pela nuvem)
+ * — e o produtor via "Não foi possível enviar o pedido" sem entender o motivo.
+ */
 function readMode(): NetworkMode {
+  // Página servida pelo próprio Mac na rede local: não há escolha a fazer, ela só existe ali.
+  // O `__VS_LOCAL__` é injetado pelo servidor HTTP, então é a marca mais confiável deste caso.
+  if (isLocalClient()) return 'local';
   return localStorage.getItem(MODE_LS) === 'local' && localBridge() ? 'local' : 'online';
 }
 

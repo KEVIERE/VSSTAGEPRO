@@ -1,9 +1,18 @@
 {
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://api.open33.tech",
-    "ANTHROPIC_AUTH_TOKEN": "sk-decf3d8fdda58098-0355f5-6c516f17"
-  },
   "permissions": {
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git fetch *)",
+      "Bash(git push origin *)",
+      "Bash(npm test)",
+      "Bash(npm run build)",
+      "Bash(npm run typecheck)",
+      "Bash(gh auth status)",
+      "Bash(gh workflow run promote-production.yml *)",
+      "Bash(gh workflow run mac-installer.yml *)",
+      "Bash(gh run *)",
+      "Bash(curl -s https://download.vsstagepro.com.br/*)"
+    ],
     "defaultMode": "acceptEdits"
   },
   "enabledPlugins": {
@@ -11,6 +20,11 @@
     "code-review-anthropics@anthropic-plugin-directory": true,
     "superpowers@anthropic-plugin-directory": true,
     "context7@anthropic-plugin-directory": true,
-    "typescript-lsp@claude-plugins-official": true
+    "typescript-lsp@claude-plugins-official": true,
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true,
+    "taste-skill@taste-skill": true,
+    "agent-browser@agent-browser": true,
+    "marketing-skills@marketingskills": true,
+    "dotnet-claude-kit@dotnet-claude-kit": true
   }
 }
