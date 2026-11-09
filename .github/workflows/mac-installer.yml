@@ -52,12 +52,22 @@ jobs:
           fi
           printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
 
+      # O download do Electron sai do GitHub Releases, que vem devolvendo 504
+      # (Gateway Time-out) de forma intermitente e derrubou duas publicacoes
+      # seguidas. O espelho abaixo serve o mesmo arquivo, com o mesmo hash de
+      # verificacao, e o electron-builder tambem usa esta variavel para o
+      # binario do app empacotado.
       - run: npm ci
+        env:
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_CUSTOM_DIR: '{{ version }}'
 
       - name: Gerar os .dmg
         working-directory: desktop
         env:
           BUILD_NUMBER: ${{ github.run_number }}
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+          ELECTRON_CUSTOM_DIR: '{{ version }}'
         run: |
           npm install --no-audit --no-fund
           # Grava o número do build dentro do próprio app: é assim que o programa
