@@ -228,7 +228,7 @@ export default function PixCheckout({
       </div>
 
       <p className="mt-4 text-xs text-logic-text-dim text-center leading-snug">
-        O pagamento abre na página segura da InfinitePay, onde você escolhe PIX ou cartão.
+        O pagamento abre na página segura da InfinitePay, onde você escolhe PIX, cartão ou Apple Pay.
         Depois de pagar, volte para cá: a liberação é automática.
       </p>
 

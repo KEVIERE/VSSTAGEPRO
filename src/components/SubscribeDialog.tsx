@@ -214,10 +214,10 @@ export default function SubscribeDialog({
             PIX ou cartão. Antes havia um botão por forma de pagamento e o do
             cartão ia para a Stripe. */}
         <button type="button" onClick={() => { setError(null); setPixOpen(true); }} className="access-key mt-5">
-          <CreditCard size={16} /> Pagar {formatBRL(pixCents)}
+          <CreditCard size={16} /> Pagar {formatBRL(pixCents)} — escolher forma
         </button>
         <p className="mt-3 text-2xs text-logic-text-muted text-center flex items-center justify-center gap-1">
-          <ShieldCheck size={10} /> PIX ou cartão pela InfinitePay. O programa libera sozinho assim que o pagamento cai.
+          <ShieldCheck size={10} /> PIX, cartão ou Apple Pay. Você escolhe na próxima tela. O programa libera sozinho assim que o pagamento cai.
         </p>
       </div>
       {footer}
