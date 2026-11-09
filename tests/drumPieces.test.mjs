@@ -85,3 +85,26 @@ test('as peças separadas são convertidas para a taxa do dispositivo', () => {
   assert.match(fonte, /putClipAudio\(id, clip\.songId, await toClipAudioAsync\(peca\)\)/, 'o áudio guardado usa o buffer convertido');
   assert.match(fonte, /sampleRate: peca\.sampleRate/, 'o clipe guarda a taxa real do áudio');
 });
+
+// A página servida pelo próprio Mac na rede local (celular, TV, navegador) traz só
+// `window.__VS_LOCAL__`, sem a ponte `window.vsLocal` do app instalado. A detecção olhava apenas
+// para a ponte, então esse cliente era lido como "online" — e aparecia o botão "Solicitar
+// repertório", que no modo local não tem para onde ir (o áudio não passa pela nuvem). O produtor
+// via "Não foi possível enviar o pedido" sem motivo.
+test('a página servida na rede local é reconhecida como modo local', () => {
+  const fonte = fs.readFileSync(path.join(desktop, '..', 'src', 'lib', 'localNetwork.ts'), 'utf8');
+  const trecho = fonte.slice(fonte.indexOf('function readMode()'), fonte.indexOf('function readMode()') + 400);
+  assert.match(trecho, /if \(isLocalClient\(\)\) return 'local'/, 'a marca __VS_LOCAL__ decide o modo');
+});
+
+// Antes todo erro da nuvem virava `request_failed` e a tela dizia "confira a internet" mesmo
+// quando o código do show tinha vencido. Agora o código do servidor é preservado e traduzido.
+test('o pedido de repertório mostra o motivo real da falha', () => {
+  const audio = fs.readFileSync(path.join(desktop, '..', 'src', 'lib', 'prompterAudio.ts'), 'utf8');
+  assert.match(audio, /codigo \?\? 'network'/, 'o código do servidor é preservado');
+
+  const tela = fs.readFileSync(path.join(desktop, '..', 'src', 'components', 'prompter', 'RepertoireRequest.tsx'), 'utf8');
+  for (const codigo of ['invalid_code', 'forbidden', 'too_many_attempts', 'network']) {
+    assert.match(tela, new RegExp(`case '${codigo}'`), `a tela trata o erro ${codigo}`);
+  }
+});

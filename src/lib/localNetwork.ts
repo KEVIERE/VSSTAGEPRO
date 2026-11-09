@@ -207,7 +207,21 @@ export function localServerVersion(): string | null {
 const MODE_LS = 'vs_stage_network_mode';
 const listeners = new Set<() => void>();
 
+/**
+ * Em que modo este cliente está.
+ *
+ * Dois caminhos levam à Rede Local, e o segundo era esquecido: (1) o app instalado no Mac do
+ * diretor, que tem a ponte `window.vsLocal`; (2) um celular/TV/navegador abrindo a página servida
+ * pelo próprio Mac, onde só existe a marca `window.__VS_LOCAL__` injetada pelo servidor HTTP.
+ *
+ * Sem o segundo caso, quem estava na rede pelo navegador era lido como "online": aparecia o botão
+ * "Solicitar repertório" — que no modo local não tem para onde ir (o áudio não passa pela nuvem)
+ * — e o produtor via "Não foi possível enviar o pedido" sem entender o motivo.
+ */
 function readMode(): NetworkMode {
+  // Página servida pelo próprio Mac na rede local: não há escolha a fazer, ela só existe ali.
+  // O `__VS_LOCAL__` é injetado pelo servidor HTTP, então é a marca mais confiável deste caso.
+  if (isLocalClient()) return 'local';
   return localStorage.getItem(MODE_LS) === 'local' && localBridge() ? 'local' : 'online';
 }
 

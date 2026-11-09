@@ -8,9 +8,25 @@ const BUCKET = 'prompter-audio';
 const FN = 'prompter-audio';
 const REF_RATE = 22050;
 
+/**
+ * Chama a função da nuvem e devolve o corpo.
+ *
+ * O erro vem com o código do servidor (`invalid_code`, `forbidden`, `too_many_attempts`...), não
+ * com um texto genérico: quem chama precisa distinguir "o código do produtor venceu" de "sem
+ * internet" para avisar a pessoa certa. Antes tudo virava `request_failed`, e a tela culpava a
+ * internet mesmo quando o problema era outro.
+ */
 export async function callPrompterFn<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke(FN, { body });
-  if (error) throw new Error('request_failed');
+  if (error) {
+    // `FunctionsHttpError` traz a resposta no `context`: é de lá que sai o código do servidor.
+    let codigo: string | null = null;
+    try {
+      const resposta = await (error as { context?: Response }).context?.json?.();
+      if (resposta && typeof resposta === 'object' && 'error' in resposta) codigo = String(resposta.error);
+    } catch { /* sem corpo legível */ }
+    throw new Error(codigo ?? 'network');
+  }
   if (!data || typeof data !== 'object' || 'error' in data) throw new Error(String((data as { error?: string })?.error ?? 'request_failed'));
   return data as T;
 }

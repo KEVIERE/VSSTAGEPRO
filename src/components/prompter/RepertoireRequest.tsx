@@ -10,6 +10,25 @@ import { useNetworkMode } from '@/lib/localNetwork';
  * escrever outra letra, ele pede daqui: o programa do diretor recebe o pedido sozinho e envia
  * só as músicas que ainda não têm letra.
  */
+/** Traduz o código que a nuvem devolveu para uma frase que diz o que fazer. */
+function explainRequestError(err: unknown): string {
+  const codigo = err instanceof Error ? err.message : '';
+  switch (codigo) {
+    case 'invalid_code':
+      return 'O código deste show não vale mais. Peça ao diretor para abrir o link de novo pela Área do Produtor.';
+    case 'forbidden':
+      return 'Este show está desativado no programa do diretor. Ative o show para poder pedir o repertório.';
+    case 'too_many_attempts':
+      return 'Muitas tentativas em pouco tempo. Espere um minuto e tente de novo.';
+    case 'request_failed':
+      return 'O servidor não conseguiu registrar o pedido agora. Tente de novo em instantes.';
+    case 'network':
+      return 'Sem resposta do servidor. Confira a internet e tente de novo.';
+    default:
+      return 'Não foi possível enviar o pedido. Confira a internet e tente de novo.';
+  }
+}
+
 export default function RepertoireRequest({ code, semLetra, total }: {
   code: string;
   /** Músicas do show que ainda não têm letra escrita. */
@@ -39,9 +58,11 @@ export default function RepertoireRequest({ code, semLetra, total }: {
       await producerRequestRepertoire(code);
       setState('sent');
       setMessage('Pedido enviado. O programa do diretor manda as músicas que faltam letra assim que estiver aberto. Esta lista se atualiza sozinha.');
-    } catch {
+    } catch (err) {
       setState('error');
-      setMessage('Não foi possível enviar o pedido. Confira a internet e tente de novo.');
+      // Cada falha tem a sua explicação: antes tudo virava "confira a internet", o que mandava a
+      // pessoa conferir a rede quando o problema era o código do show ou o show desativado.
+      setMessage(explainRequestError(err));
     }
   };
 
