@@ -18,42 +18,43 @@ const drumPieces = require('../desktop/drumPieces.js');
 
 const desktop = path.join(import.meta.dirname, '..', 'desktop');
 
-test('as peças são bumbo, caixa, tons, chimbal e pratos', () => {
+test('as peças são bumbo, caixa, pratos e tons', () => {
   assert.deepEqual(
     drumPieces.PIECES.map((p) => p.id),
-    ['bumbo', 'caixa', 'tons', 'chimbal', 'pratos'],
+    ['bumbo', 'caixa', 'pratos', 'tons'],
   );
   assert.deepEqual(
     drumPieces.PIECES.map((p) => p.name),
-    ['Bumbo', 'Caixa', 'Tons', 'Chimbal', 'Pratos'],
+    ['Bumbo', 'Caixa', 'Pratos', 'Tons'],
   );
   for (const p of drumPieces.PIECES) assert.match(p.file, /\.wav$/);
 });
 
-test('o modelo é o MDX23C em OpenVINO, com o pipeline de 3 redes', () => {
+// O MDX23C tem SDR maior (0,9994 contra 0,9983) mas precisa de ~2 GB durante a inferência:
+// num Mac de 8 GB com swap cheio levava 19 minutos por música. O ZFTurbo roda em 52 s. A
+// diferença de qualidade é 0,0011 — não aparece no ouvido; a de tempo é 20x.
+test('o modelo é o DrumSep acústico da ZFTurbo', () => {
   const { MODEL } = drumPieces;
-  assert.match(MODEL.name, /MDX23C/);
-  assert.match(MODEL.base, /^https:\/\/huggingface\.co\//);
-  // pre (STFT) → fwd (rede) → post (iSTFT): o STFT não exporta para ONNX por causa dos complexos
-  assert.deepEqual(MODEL.files, ['mdx23c_pre', 'mdx23c_fwd', 'mdx23c_post']);
-  assert.ok(MODEL.bytes > 150 * 1024 * 1024, 'o modelo tem cerca de 215 MB');
+  assert.match(MODEL.name, /ZFTurbo/);
+  assert.equal(MODEL.file, 'drumsep.th');
+  assert.match(MODEL.url, /^https:\/\/github\.com\/ZFTurbo\//);
+  assert.ok(MODEL.bytes > 100 * 1024 * 1024, 'o modelo tem cerca de 160 MB');
 });
 
-test('o separador roda o pipeline correto e devolve as 5 peças na ordem do modelo', () => {
+test('o separador usa o modelo acústico e devolve 4 peças na ordem certa', () => {
   const script = fs.readFileSync(path.join(desktop, 'drumPieceSeparator.py'), 'utf8');
-  // o segmento é fixo: `pre` só aceita este tamanho
-  assert.match(script, /SEGMENTO = 523776/);
-  // normalização por segmento: sem ela a saída vem com amplitude errada por ordens de grandeza
-  assert.match(script, /normalizado = \(pedaco - media\) \/ \(desvio \+ 1e-8\)/);
+  // segmento de 10 s: o do treino do modelo
+  assert.match(script, /SEGMENTO = SAMPLE_RATE \* 10/);
   // a ordem das peças NÃO pode mudar: foi conferida com tom puro de 60 Hz e de 10 kHz
-  assert.match(script, /PIECES = \("bumbo", "caixa", "tons", "chimbal", "pratos"\)/);
+  assert.match(script, /PIECES = \("bumbo", "caixa", "pratos", "tons"\)/);
   // sobreposição entre segmentos, senão a emenda estala
   assert.match(script, /SOBREPOSICAO = 0\.25/);
+  assert.match(script, /drumsep\.th/);
 });
 
-test('o runtime checado é o OpenVINO, não o ONNX Runtime', () => {
+test('o runtime checado é o PyTorch (o modelo é um checkpoint HDemucs)', () => {
   const js = fs.readFileSync(path.join(desktop, 'drumPieces.js'), 'utf8');
-  assert.match(js, /import openvino, numpy/);
+  assert.match(js, /import torch, numpy/);
   assert.doesNotMatch(js, /onnxruntime==1\.20\.1/);
 });
 

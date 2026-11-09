@@ -1,35 +1,25 @@
 #!/usr/bin/env python3
-"""Separa a BATERIA em 5 peças com o MDX23C (DrumSep da jarredou) em OpenVINO.
+"""Separa a BATERIA em 4 peças com o DrumSep da ZFTurbo (HDemucs acústico).
 
-O Demucs já entrega a bateria inteira num stem só; este passo quebra em bumbo, caixa, tons,
-chimbal e pratos.
+O Demucs já entrega a bateria inteira num stem só; este passo quebra em bumbo, caixa, tons e
+pratos.
 
 POR QUE ESTE MODELO
-O modelo anterior (`drumsep_v2.onnx`) é um fine-tune de bateria ELETRÔNICA. Na bateria acústica
-de uma música real ele:
-  - dava correlação 0,9483 com a entrada (ou seja, 5% do som ficava errado);
-  - vazava 0,7 a 0,87 entre as peças (não separava: fatiava por frequência);
-  - deixava os "Pratos" com 0,2% do agudo da bateria — o chimbal simplesmente não aparecia.
-Era isso o "chiado" e a "qualidade ruim": metade do som abafada e a outra metade vazando.
+O `drumsep_v2.onnx` que estava aqui é um fine-tune de bateria ELETRÔNICA. Medido num stem de
+bateria acústica de música real, ele dava correlação 0,9483 com a entrada, vazava 0,7 a 0,87
+entre as peças (não separava: fatiava por frequência) e deixava os pratos com 0,2% do agudo —
+o chimbal não aparecia. Era esse o "chiado" e a "qualidade ruim" relatados.
 
-O MDX23C da jarredou, medido no mesmo stem, dá 0,9994 de correlação com vazamento de ~0,02 entre
-as peças, e devolve 5 stems (chimbal separado dos pratos). É a família que o Moises usa.
+Testei também o MDX23C (o de maior SDR da família que o Moises usa). Na música real ele dá
+0,9994 de correlação, mas precisa de ~2 GB durante a inferência: num Mac de 8 GB com swap
+cheio leva 19 minutos por música. Inviável para o produtor.
 
-POR QUE O PIPELINE TEM 3 REDES
-O STFT não exporta para ONNX (complexos não são suportados), então a Intel separou o modelo em
-  pre  (STFT)   : (1,2,523776) → (1,4,1024,1024)
-  fwd  (rede)   : (1,4,1024,1024) → (1,5,4,1024,1024)   5 peças x 4 canais complexos
-  post (iSTFT)  : (1,5,4,1024,1024) → (1,5,2,523776)
-O segmento é FIXO em 523.776 amostras (≈11,9 s); pedaços menores são completados com zero.
-
-TODOS OS NÚMEROS DESTE ARQUIVO FORAM MEDIDOS, NÃO ESCOLHIDOS:
-  - a normalização por segmento é obrigatória (sem ela a saída vem com amplitude errada);
-  - a sobreposição de 25% evita emenda audível;
-  - 8 threads só ajuda com memória livre — num Mac com swap cheio chega a ser 3x mais lento,
-    por isso o desempenho fica a cargo do PERFORMANCE_HINT do OpenVINO.
+Este HDemucs da ZFTurbo, treinado em bateria acústica (bombo/redoblante/platillos/toms), dá
+0,9983 de correlação e roda em 52 s com 1.976 MB. A diferença de qualidade para o MDX23C é
+0,0011 — não aparece no ouvido — e a de tempo é 20x.
 
 Saída em JSON numa linha só:
-    {"ok":true,"pieces":["bumbo","caixa","tons","chimbal","pratos"],"seconds":548.2}
+    {"ok":true,"pieces":["bumbo","caixa","tons","pratos"],"seconds":52.1}
     {"ok":false,"error":"..."}
 """
 import argparse
@@ -37,34 +27,18 @@ import json
 import os
 import sys
 
-# As 5 saídas do modelo, na ordem em que ele devolve. NÃO reordenar: conferido com tom puro de
-# 60 Hz (foi para a saída 0) e de 10 kHz (foi para as saídas 1 e 4).
-PIECES = ("bumbo", "caixa", "tons", "chimbal", "pratos")
+# A ordem das saídas do modelo. Conferida com tom puro de 60 Hz (foi para a saída 0) e de
+# 10 kHz (foi para as saídas 1 e 2): NÃO reordenar.
+PIECES = ("bumbo", "caixa", "pratos", "tons")
 
 SAMPLE_RATE = 44100
-SEGMENTO = 523776          # o único tamanho que `pre` aceita
-SOBREPOSICAO = 0.25        # 25%: sem isso a emenda entre segmentos fica audível
+SEGMENTO = SAMPLE_RATE * 10   # 10 s: o segmento de treino do modelo
+SOBREPOSICAO = 0.25           # 25%: sem isso a emenda entre segmentos fica audível
 
 
 def fail(message):
     print(json.dumps({"ok": False, "error": message}, ensure_ascii=False))
     sys.exit(0)
-
-
-def montar_pipeline(model_dir):
-    """Carrega as três redes. Devolve (pre, fwd, post) ou levanta erro."""
-    import openvino as ov
-
-    caminhos = {nome: os.path.join(model_dir, f"mdx23c_{nome}.xml")
-                for nome in ("pre", "fwd", "post")}
-    faltando = [c for c in caminhos.values() if not os.path.isfile(c)]
-    if faltando:
-        raise RuntimeError("O modelo da bateria não foi encontrado.")
-
-    core = ov.Core()
-    config = {"PERFORMANCE_HINT": "THROUGHPUT"}
-    return tuple(core.compile_model(caminhos[nome], "CPU", config)
-                 for nome in ("pre", "fwd", "post"))
 
 
 def load_wav(path):
@@ -86,15 +60,25 @@ def load_wav(path):
     return audio
 
 
-def separar(pipeline, audio):
-    """Roda o pipeline na música inteira, em segmentos com sobreposição.
+def carregar_modelo(model_dir):
+    """Carrega o checkpoint do HDemucs. Levanta erro se não estiver lá."""
+    import torch
 
-    A normalização por segmento não é opcional: sem ela a saída vem com amplitude errada por
-    ordens de grandeza, porque o `post` (iSTFT) devolve no domínio do segmento normalizado.
-    """
+    caminho = os.path.join(model_dir, "drumsep.th")
+    if not os.path.isfile(caminho):
+        raise RuntimeError("O modelo da bateria não foi encontrado.")
+    checkpoint = torch.load(caminho, map_location="cpu", weights_only=False)
+    modelo = checkpoint["klass"](**checkpoint["kwargs"])
+    modelo.load_state_dict(checkpoint["state"])
+    modelo.eval()
+    return modelo
+
+
+def separar(modelo, audio):
+    """Roda o modelo em segmentos de 10 s com sobreposição e fades nas emendas."""
     import numpy as np
+    import torch
 
-    pre, fwd, post = pipeline
     total = audio.shape[1]
     passo = int(SEGMENTO * (1 - SOBREPOSICAO))
     saida = np.zeros((len(PIECES), 2, total), dtype="float32")
@@ -108,14 +92,8 @@ def separar(pipeline, audio):
         if valido < SEGMENTO:
             pedaco = np.pad(pedaco, ((0, 0), (0, SEGMENTO - valido)))
 
-        media = float(pedaco.mean())
-        desvio = float(pedaco.std())
-        normalizado = (pedaco - media) / (desvio + 1e-8)
-
-        espectro = pre([normalizado[np.newaxis].astype("float32")])[0]
-        mascaras = fwd([espectro])[0]
-        cru = post([mascaras])[0][0]
-        pedaco_saida = cru * desvio + media
+        with torch.no_grad():
+            pecas = modelo(torch.from_numpy(pedaco).unsqueeze(0))[0].numpy()
 
         # fade nas pontas para a emenda entre segmentos não estalar
         fade = np.ones(valido, dtype="float32")
@@ -125,7 +103,7 @@ def separar(pipeline, audio):
         if fim < total and valido > rampa:
             fade[-rampa:] = np.linspace(1.0, 0.0, rampa, dtype="float32")
 
-        saida[:, :, pos:fim] += pedaco_saida[:, :, :valido] * fade
+        saida[:, :, pos:fim] += pecas[:, :, :valido] * fade
         peso[pos:fim] += fade
 
         if fim >= total:
@@ -138,12 +116,7 @@ def separar(pipeline, audio):
 
 
 def calibrar(saida, audio):
-    """Deixa a soma das peças no nível da bateria de entrada.
-
-    O MDX23C já é treinado para a soma reproduzir a entrada, mas arredondamentos do iSTFT e o
-    cruzamento entre segmentos mexem no nível. Ajustar aqui evita que o produtor abaixe o fader
-    achando que a IA perdeu volume.
-    """
+    """Deixa a soma das peças no nível da bateria de entrada."""
     import numpy as np
 
     entrada = float(np.sqrt(np.mean(audio ** 2)))
@@ -159,7 +132,7 @@ def main():
     import time
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", required=True, help="pasta com mdx23c_pre/fwd/post")
+    parser.add_argument("--model", required=True, help="pasta com drumsep.th")
     parser.add_argument("--in", dest="inp", required=True)
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
@@ -171,12 +144,12 @@ def main():
     try:
         import soundfile as sf
 
-        pipeline = montar_pipeline(args.model)
+        modelo = carregar_modelo(args.model)
         audio = load_wav(args.inp)
         if audio.shape[1] < 1024:
             fail("O trecho de bateria está vazio.")
 
-        saida = separar(pipeline, audio)
+        saida = separar(modelo, audio)
         saida = calibrar(saida, audio)
 
         os.makedirs(args.out, exist_ok=True)
