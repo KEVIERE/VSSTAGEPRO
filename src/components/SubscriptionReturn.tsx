@@ -99,7 +99,7 @@ export default function SubscriptionReturn() {
               </h1>
 
               <p className="text-sm sm:text-base text-logic-text-dim mt-4 leading-relaxed">
-                Seu pagamento foi confirmado com sucesso pelo Stripe. Toda a potência do motor profissional de áudio, timelines independentes, Timecode LTC blindado e rede de palco já estão liberados para você.
+                Seu pagamento foi confirmado com sucesso pela InfinitePay. Toda a potência do motor profissional de áudio, timelines independentes, Timecode LTC blindado e rede de palco já estão liberados para você.
               </p>
 
               {userEmail && (

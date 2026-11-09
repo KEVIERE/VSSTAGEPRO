@@ -19,7 +19,6 @@ import {
   MessageCircle,
   Mic2,
   MonitorPlay,
-  QrCode,
   Radio,
   ShieldCheck,
   Sparkles,
@@ -97,7 +96,7 @@ const PRICING_FAQS = [
   },
   {
     q: 'Quais são as formas de pagamento aceitas?',
-    a: 'PIX ou cartão de crédito. No PIX ou cartão pela InfinitePay, a assinatura é liberada sozinha assim que o pagamento cai: o plano mensal libera 1 mês e o anual libera 1 ano, e para continuar basta pagar de novo. Também aceitamos cartão pela Stripe, com as principais bandeiras nacionais e internacionais e renovação automática.',
+    a: 'PIX ou cartão de crédito, os dois pela InfinitePay. A assinatura é liberada sozinha assim que o pagamento cai: o plano mensal libera 1 mês e o anual libera 1 ano, e para continuar basta pagar de novo. O PIX não tem taxa. No cartão, aceitamos as principais bandeiras e o parcelamento em até 12x.',
   },
   {
     q: 'Se eu trocar de Mac ou formatar, perco minha assinatura?',
@@ -107,7 +106,6 @@ const PRICING_FAQS = [
 
 export default function PricingPage() {
   const [selectedPlan, setSelectedPlan] = useState<Plan>('yearly');
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [authName, setAuthName] = useState('');
@@ -119,8 +117,6 @@ export default function PricingPage() {
   const [authSuccessMsg, setAuthSuccessMsg] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  // Forma escolhida antes do login: depois de entrar, segue para ela
-  const [pendingMethod, setPendingMethod] = useState<'card' | 'pix'>('card');
   // Plano do PIX aberto (mostra o QR Code)
   const [pixPlan, setPixPlan] = useState<Plan | null>(null);
 
@@ -128,7 +124,6 @@ export default function PricingPage() {
     setSelectedPlan(plan);
     const { data } = await supabase.auth.getSession();
     if (!data.session?.user) {
-      setPendingMethod('pix');
       setAuthModalOpen(true);
       return;
     }
@@ -157,46 +152,6 @@ export default function PricingPage() {
     return () => sub?.subscription?.unsubscribe();
   }, []);
 
-  const handleStartCheckout = async (plan: Plan) => {
-    setSelectedPlan(plan);
-    setCheckoutBusy(true);
-
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      if (!sessionData.session?.user) {
-        // Usuário não está logado: abre modal para cadastrar/entrar e depois ir ao checkout
-        setPendingMethod('card');
-        setAuthModalOpen(true);
-        setCheckoutBusy(false);
-        return;
-      }
-
-      // Usuário logado: chama Edge Function stripe-checkout
-      const { data, error } = await supabase.functions.invoke('stripe-checkout', {
-        body: { plan },
-      });
-
-      if (error) {
-        const body = await (error as { context?: Response }).context?.json?.().catch(() => null);
-        throw new Error(body?.message || friendlyError(body?.error || 'checkout_failed'));
-      }
-
-      if (data?.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error('checkout_failed');
-      }
-    } catch (err) {
-      const msg = (err as Error).message;
-      if (msg === 'already_active') {
-        alert('Sua assinatura do VS Stage Pro já está ativa!');
-      } else {
-        alert(friendlyError(msg));
-      }
-    } finally {
-      setCheckoutBusy(false);
-    }
-  };
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -228,7 +183,7 @@ export default function PricingPage() {
           // O usuário JÁ POSSUI CONTA! Tenta autenticar diretamente com a senha informada
           const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
           if (!signInErr && signInData.session) {
-            // Sucesso! Logou na hora, prossegue direto para o Stripe Checkout abaixo
+            // Sucesso! Logou na hora, prossegue direto para o checkout.
             setCurrentUserEmail(signInData.session.user.email ?? email);
           } else {
             // A conta existe, mas a senha está errada
@@ -289,28 +244,11 @@ export default function PricingPage() {
         }
       }
 
-      // Sessão pronta e escolheu PIX: mostra o QR Code aqui mesmo
-      if (pendingMethod === 'pix') {
-        setAuthModalOpen(false);
-        setPixPlan(selectedPlan);
-        return;
-      }
-
-      // Sessão pronta: inicia checkout imediatamente no Stripe
-      const { data: chData, error: chErr } = await supabase.functions.invoke('stripe-checkout', {
-        body: { plan: selectedPlan },
-      });
-
-      if (chErr) {
-        const body = await (chErr as { context?: Response }).context?.json?.().catch(() => null);
-        throw new Error(body?.message || friendlyError(body?.error || 'checkout_failed'));
-      }
-
-      if (chData?.url) {
-        window.location.href = chData.url;
-      } else {
-        throw new Error('checkout_failed');
-      }
+      // Sessão pronta: abre o checkout da InfinitePay, onde o cliente escolhe
+      // PIX ou cartão. Não há mais um segundo caminho pela Stripe.
+      setAuthModalOpen(false);
+      setPixPlan(selectedPlan);
+      return;
     } catch (err) {
       const msg = (err as Error).message;
       if (msg === 'already_active') {
@@ -465,23 +403,11 @@ export default function PricingPage() {
               <div className="mt-8 pt-6 border-t border-white/[0.08]">
                 <button
                   type="button"
-                  disabled={checkoutBusy}
-                  onClick={() => handleStartCheckout('monthly')}
+                  onClick={() => handleStartPix('monthly')}
                   className="w-full h-13 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white font-semibold text-sm border border-white/15 transition-all duration-150 flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
                 >
-                  {checkoutBusy && selectedPlan === 'monthly' ? (
-                    <Loader2 size={18} className="animate-spin text-white" />
-                  ) : (
-                    <CreditCard size={18} />
-                  )}
+                  <CreditCard size={18} />
                   <span>Assinar Plano Mensal ({MONTHLY_PRICE}/mês)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStartPix('monthly')}
-                  className="console-key mt-3 w-full h-11 text-[1rem] flex items-center justify-center gap-2"
-                >
-                  <span className="console-led is-on-amber" /> <QrCode size={16} /> Pagar com PIX
                 </button>
               </div>
             </div>
@@ -566,24 +492,12 @@ export default function PricingPage() {
               <div className="mt-8 pt-6 border-t border-[#0071e3]/20">
                 <button
                   type="button"
-                  disabled={checkoutBusy}
-                  onClick={() => handleStartCheckout('yearly')}
+                  onClick={() => handleStartPix('yearly')}
                   className="relative overflow-hidden w-full h-13 rounded-full btn-apple-blue text-white font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-[#0071e3]/30"
                 >
-                  {checkoutBusy && selectedPlan === 'yearly' ? (
-                    <Loader2 size={18} className="animate-spin text-white" />
-                  ) : (
-                    <Zap size={18} />
-                  )}
+                  <Zap size={18} />
                   <span>Assinar Plano Anual ({YEARLY_MONTH_EQUIV}/mês)</span>
                   <ArrowRight size={16} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStartPix('yearly')}
-                  className="console-key mt-3 w-full h-11 text-[1rem] flex items-center justify-center gap-2"
-                >
-                  <span className="console-led is-on-amber" /> <QrCode size={16} /> Pagar com PIX
                 </button>
               </div>
             </div>
@@ -599,7 +513,7 @@ export default function PricingPage() {
             <div className="flex flex-col items-center">
               <ShieldCheck size={26} className="text-emerald-400 mb-2" />
               <div className="text-xs font-semibold text-white">Pagamento Seguro</div>
-              <div className="text-2xs text-apple-text-secondary mt-0.5">Criptografia bancária Stripe</div>
+              <div className="text-2xs text-apple-text-secondary mt-0.5">Pagamento seguro InfinitePay</div>
             </div>
             <div className="flex flex-col items-center">
               <Timer size={26} className="text-[#ff9f0a] mb-2" />
@@ -988,9 +902,8 @@ export default function PricingPage() {
             )}
 
             <div className="mt-5 text-center text-2xs text-apple-text-secondary">
-              {pendingMethod === 'pix'
-                ? 'Depois de entrar, o QR Code do PIX aparece aqui mesmo.'
-                : 'Pagamento 100% criptografado e seguro processado pela Stripe.'}
+              Depois de entrar, o pagamento abre na página segura da InfinitePay,
+              onde você escolhe PIX ou cartão.
             </div>
           </div>
         </div>
