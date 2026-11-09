@@ -1,7 +1,9 @@
-// Pagamento da assinatura por PIX: gera o QR Code e o "copia e cola" com o valor certo e confere
-// sozinho até o Asaas confirmar. Visual da mesa de som (console-*, access-*), igual ao SubscribeDialog.
+// Pagamento da assinatura pela InfinitePay: abre o link de checkout e confere
+// sozinho até o pagamento ser confirmado. A InfinitePay não devolve QR Code —
+// o PIX e o cartão são escolhidos na página dela. Visual da mesa de som
+// (console-*, access-*), igual ao SubscribeDialog.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ArrowLeft, Check, CheckCircle2, Copy, Loader2, MessageCircle, QrCode, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, CreditCard, ExternalLink, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { AccessNotice, FootKey } from '@/components/access/AccessChrome';
 import { createPix, getPixStatus, PIX_ERRORS, type PixCharge, type PixPlan } from '@/lib/pixCheckout';
 import { cpfCnpjDigits, formatBRL, maskCpfCnpj } from '@/lib/pixFormat';
@@ -38,7 +40,6 @@ export default function PixCheckout({
   const [charge, setCharge] = useState<PixCharge | null>(null);
   const [cpf, setCpf] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [pollStopped, setPollStopped] = useState(false);
   const [checking, setChecking] = useState(false);
   const onPaidRef = useRef(onPaid);
@@ -58,6 +59,9 @@ export default function PixCheckout({
       show(await createPix(plan, { cpfCnpj, couponCode }));
     } catch (e) {
       const code = (e as Error).message;
+      // A InfinitePay coleta os dados do pagador na página dela, então o CPF
+      // não é mais pedido aqui. A tela continua existindo como reserva, para o
+      // dia em que o servidor voltar a exigir.
       if (code === 'cpf_required' || code === 'invalid_cpf') {
         setPhase('cpf');
         if (code === 'invalid_cpf') setError(PIX_ERRORS.invalid_cpf);
@@ -109,19 +113,6 @@ export default function PixCheckout({
     }
   };
 
-  const copy = async () => {
-    if (!charge?.payload) return;
-    try {
-      await navigator.clipboard.writeText(charge.payload);
-    } catch {
-      const el = document.getElementById('pix-copia-e-cola') as HTMLInputElement | null;
-      el?.select();
-      document.execCommand?.('copy');
-    }
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2500);
-  };
-
   const back = onBack && (
     <button type="button" onClick={onBack} className="access-link mt-3 mx-auto flex items-center gap-1.5">
       <ArrowLeft size={12} /> Voltar para os planos
@@ -131,7 +122,7 @@ export default function PixCheckout({
   if (phase === 'loading') {
     return (
       <div className="console-display px-4 py-6 flex items-center justify-center gap-2.5 text-[0.82rem] text-logic-text-dim" role="status">
-        <Loader2 size={15} className="animate-spin text-logic-lcd-amber" /> Gerando o PIX…
+        <Loader2 size={15} className="animate-spin text-logic-lcd-amber" /> Abrindo o pagamento…
       </div>
     );
   }
@@ -147,11 +138,11 @@ export default function PixCheckout({
           placeholder="000.000.000-00"
         />
         <p className="mt-2 text-2xs text-logic-text-muted leading-snug">
-          O Asaas, que processa o PIX, pede o CPF ou CNPJ para gerar a cobrança. Pedimos só na primeira vez.
+          Os dados de pagamento são preenchidos na página da InfinitePay, no momento de pagar.
         </p>
         {error && <div className="mt-3"><AccessNotice tone="red"><p>{error}</p></AccessNotice></div>}
         <button type="submit" disabled={digits !== 11 && digits !== 14} className="access-key mt-4">
-          <QrCode size={16} /> Gerar PIX
+          <CreditCard size={16} /> Ir para o pagamento
         </button>
         {back}
       </form>
@@ -236,29 +227,26 @@ export default function PixCheckout({
         </span>
       </div>
 
-      <div className="console-bezel mt-3 mx-auto w-fit">
-        <div className="bg-white rounded-[3px] p-2.5">
-          {charge.image
-            ? <img src={`data:image/png;base64,${charge.image}`} alt="QR Code do PIX" width={196} height={196} className="block" />
-            : <div className="w-[196px] h-[196px]" />}
-        </div>
-      </div>
-      <p className="mt-3 text-xs text-logic-text-dim text-center leading-snug">
-        Abra o app do seu banco, escolha PIX e leia o QR Code. Ou copie o código abaixo.
+      <p className="mt-4 text-xs text-logic-text-dim text-center leading-snug">
+        O pagamento abre na página segura da InfinitePay, onde você escolhe PIX ou cartão.
+        Depois de pagar, volte para cá: a liberação é automática.
       </p>
 
-      <div className="mt-3 flex gap-2">
-        <input
-          id="pix-copia-e-cola" readOnly value={charge.payload ?? ''} onFocus={(e) => e.target.select()}
-          aria-label="Código PIX copia e cola" className="access-field is-plain flex-1 h-10 text-2xs font-mono"
-        />
-        <button
-          type="button" onClick={copy}
-          className={`console-key px-3 text-[0.95rem] flex items-center gap-1.5 shrink-0 ${copied ? 'is-lit-green' : ''}`}
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copiado' : 'Copiar'}
-        </button>
-      </div>
+      <a
+        href={charge.checkout_url ?? '#'}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`mt-3 access-key w-full justify-center flex items-center gap-2 ${charge.checkout_url ? '' : 'pointer-events-none opacity-50'}`}
+      >
+        <ExternalLink size={15} /> Ir para o pagamento
+      </a>
+
+      <button
+        type="button" onClick={checkNow} disabled={checking}
+        className="mt-2 w-full access-link justify-center flex items-center gap-1.5 disabled:opacity-50"
+      >
+        <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> Já paguei, conferir agora
+      </button>
 
       <div className="mt-4 console-display px-3 py-2.5 text-xs flex items-center gap-2.5" role="status">
         {pollStopped

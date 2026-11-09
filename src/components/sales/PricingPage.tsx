@@ -97,7 +97,7 @@ const PRICING_FAQS = [
   },
   {
     q: 'Quais são as formas de pagamento aceitas?',
-    a: 'PIX ou cartão de crédito. No PIX (processado pelo Asaas), a assinatura é liberada sozinha assim que o pagamento cai: o plano mensal libera 1 mês e o anual libera 1 ano, e para continuar basta pagar um novo PIX. No cartão (processado pela Stripe), aceitamos as principais bandeiras nacionais e internacionais, com renovação automática.',
+    a: 'PIX ou cartão de crédito. No PIX ou cartão pela InfinitePay, a assinatura é liberada sozinha assim que o pagamento cai: o plano mensal libera 1 mês e o anual libera 1 ano, e para continuar basta pagar de novo. Também aceitamos cartão pela Stripe, com as principais bandeiras nacionais e internacionais e renovação automática.',
   },
   {
     q: 'Se eu trocar de Mac ou formatar, perco minha assinatura?',

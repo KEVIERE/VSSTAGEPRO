@@ -1,4 +1,4 @@
-// Chamadas da tela para a função pix-checkout (Supabase), que fala com o Asaas.
+// Chamadas da tela para a função pix-checkout (Supabase), que fala com a InfinitePay.
 import { supabase } from '@/lib/supabaseClient';
 
 export type PixPlan = 'monthly' | 'yearly';
@@ -11,10 +11,11 @@ export type PixCharge = {
   status: PixStatus;
   expires_at: string;
   access_until: string | null;
-  /** Código "copia e cola" (só enquanto aguarda pagamento) */
-  payload: string | null;
-  /** QR Code em PNG base64 (só enquanto aguarda pagamento) */
-  image: string | null;
+  /**
+   * Link de pagamento da InfinitePay (só enquanto aguarda pagamento).
+   * A InfinitePay não devolve QR Code: o cliente paga na página dela.
+   */
+  checkout_url: string | null;
 };
 
 async function call(body: Record<string, unknown>): Promise<PixCharge> {
@@ -37,7 +38,7 @@ export const PIX_ERRORS: Record<string, string> = {
   blocked: 'Esta conta está suspensa. Fale com o suporte.',
   invalid_cpf: 'CPF ou CNPJ inválido. Confira os números.',
   invalid_coupon: 'Esse cupom não é mais válido.',
-  amount_too_low: 'Com esse cupom o valor fica abaixo do mínimo do PIX (R$ 5,00).',
+  amount_too_low: 'Com esse cupom o valor fica abaixo do mínimo permitido (R$ 5,00).',
   pix_not_configured: 'O PIX ainda não está disponível. Use o cartão ou tente mais tarde.',
   unauthorized: 'Sua sessão expirou. Entre de novo na sua conta.',
   not_found: 'Não encontramos esse PIX. Gere um novo.',

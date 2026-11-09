@@ -284,7 +284,7 @@ export default function SubscribeDialog({
               <QrCode size={16} /> Pagar {formatBRL(pixCents)} com PIX
             </button>
             <p className="mt-3 text-2xs text-logic-text-muted text-center flex items-center justify-center gap-1">
-              <ShieldCheck size={10} /> PIX pelo Asaas. O programa libera sozinho assim que o pagamento cai.
+              <ShieldCheck size={10} /> PIX ou cartão pela InfinitePay. O programa libera sozinho assim que o pagamento cai.
             </p>
           </>
         ) : (
