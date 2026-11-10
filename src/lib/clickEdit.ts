@@ -1,6 +1,7 @@
 import type { AudioClip, Song } from '@/types';
 
-// Contas do click (compasso antes do início e recriar metrônomo). Sem áudio, para dar para testar.
+// Contas do click (compasso antes do início, recriar metrônomo e o click do VS por IA). Sem áudio,
+// para dar para testar.
 
 export const CLICK_TRACK_ID = 'track-click';
 
@@ -164,4 +165,84 @@ export function alignHitsToGrid(times: number[], gridBeat: (t: number) => number
     const agree = win.filter((o) => Math.abs(o - median) <= spread).length;
     return agree >= Math.ceil(win.length * 0.7) ? gridBeat(t) : t;
   });
+}
+
+/**
+ * Batidas da grade da música de 0 até antes de `durationSeconds`: o click que o VS por IA põe na
+ * faixa. Mesma conta da grade da timeline (gridLines) e do nearestGridBeat do Recriar metrônomo:
+ * com trechos de andamento, cada trecho recomeça a contar na própria mudança. Conta por índice
+ * (início + k × tempo) para não acumular erro de soma.
+ */
+export function clickGridTimes(song: SongTempo, durationSeconds: number): number[] {
+  const times: number[] = [];
+  const segs = song.tempoSegments;
+  if (segs && segs.length > 1) {
+    const sorted = [...segs].sort((a, b) => a.startTime - b.startTime);
+    sorted.forEach((seg, idx) => {
+      const spb = 60 / (seg.bpm > 0 ? seg.bpm : song.bpm || 120);
+      const end = idx === sorted.length - 1 ? durationSeconds : Math.min(seg.endTime, durationSeconds);
+      for (let k = 0; ; k++) {
+        const t = seg.startTime + k * spb;
+        if (t >= end - 1e-6) break;
+        times.push(t);
+      }
+    });
+    return times;
+  }
+  const spb = 60 / (song.bpm > 0 ? song.bpm : 120);
+  for (let k = 0; ; k++) {
+    const t = k * spb;
+    if (t >= durationSeconds - 1e-6) break;
+    times.push(t);
+  }
+  return times;
+}
+
+/**
+ * Som do click em cada instante de `times` (segundos), num áudio de `length` amostras. O começo
+ * do som da amostra (clickOnsetIndex) fica em cima do instante; batida bem no começo entra
+ * inteira a partir do 0, sem cortar o ataque. É a conta do Recriar metrônomo e do VS por IA.
+ */
+export function placeClickSamples(
+  times: number[], length: number, sampleRate: number, sL: Float32Array, sR: Float32Array,
+): [Float32Array, Float32Array] {
+  const outL = new Float32Array(length);
+  const outR = new Float32Array(length);
+  const onset = clickOnsetIndex(sL);
+  for (const t of times) {
+    const start = Math.max(0, Math.round(t * sampleRate) - onset);
+    for (let i = 0; i < sL.length; i++) {
+      const dest = start + i;
+      if (dest >= length) break;
+      outL[dest] += sL[i];
+      outR[dest] += sR[i];
+    }
+  }
+  return [outL, outR];
+}
+
+/** Tamanho em amostras do áudio de click de `durationSeconds` (pelo menos 50 ms). */
+export function clickBufferLength(durationSeconds: number, sampleRate: number): number {
+  return Math.max(1, Math.ceil(Math.max(0.05, durationSeconds) * sampleRate));
+}
+
+/**
+ * Batidas do click que está na faixa, em segundos a partir do começo do clipe (Recriar
+ * metrônomo). Lê o canal mais forte de cada amostra (click em um lado só também vale) entre
+ * `playStart` e `playStart + playLen`, e leva para a grade só onde o click inteiro está deslocado
+ * por igual (alignHitsToGrid).
+ */
+export function remakeClickTimes(
+  channels: Float32Array[], playStart: number, playLen: number, sampleRate: number, clipStart: number, song: SongTempo,
+): number[] {
+  const data = new Float32Array(playLen);
+  for (const ch of channels) {
+    for (let i = 0; i < playLen; i++) {
+      const v = ch[playStart + i];
+      if (Math.abs(v) > Math.abs(data[i])) data[i] = v;
+    }
+  }
+  const hits = clickHits(data, sampleRate);
+  const onTimeline = hits.map((h) => clipStart + h / sampleRate);
+  return alignHitsToGrid(onTimeline, (t) => nearestGridBeat(song, t)).map((t) => t - clipStart);
 }

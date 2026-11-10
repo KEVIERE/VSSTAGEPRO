@@ -1,14 +1,10 @@
 import { audioEngine } from '@/lib/audioEngine';
-import { generateMarkers } from '@/lib/audioDecoder';
-import { putClipAudio, registerClipSource, toClipAudioAsync } from '@/lib/audioLibrary';
+import { makeClickClip } from '@/lib/clickClip';
 import { generateClickAt } from '@/lib/clickGenerator';
-import {
-  CLICK_TRACK_ID, alignHitsToGrid, barSeconds, clickClipsOf, clickHits, nearestGridBeat, playLength,
-} from '@/lib/clickEdit';
+import { barSeconds, clickClipsOf, playLength, remakeClickTimes } from '@/lib/clickEdit';
 import { clipInput, toDeviceRate } from '@/lib/clipStemSplit';
-import { encodeWavPcm24 } from '@/lib/wavEncoder';
 import { useStore } from '@/store';
-import type { AudioClip, Song } from '@/types';
+import type { AudioClip } from '@/types';
 
 // Comandos da faixa Click (botão direito na faixa ou no clipe de click):
 // - Adicionar um compasso antes do início: empurra o VS 1 compasso para a direita e põe 1
@@ -17,37 +13,6 @@ import type { AudioClip, Song } from '@/types';
 // Cada um é um passo só de desfazer (Cmd+Z). O áudio antigo continua guardado para o desfazer.
 
 export type ClickToolKind = 'bar' | 'remake';
-
-/** Transforma o áudio num clipe de click pronto (WAV, picos, áudio guardado). */
-async function makeClickClip(song: Song, buffer: AudioBuffer, startTime: number, base?: AudioClip): Promise<AudioClip> {
-  const id = `clip-${song.id}-click-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const name = base?.name ?? `${song.name} - Click`;
-  const wavBlob = new Blob([encodeWavPcm24(buffer)], { type: 'audio/wav' });
-  const peaks = audioEngine.generateWaveformPeaks(buffer, Math.min(24000, Math.max(8000, Math.round(buffer.duration * 100))));
-  registerClipSource(id, song.id, wavBlob);
-  putClipAudio(id, song.id, await toClipAudioAsync(buffer));
-  return {
-    // mantém volume, mudo e fades do click que já existia
-    ...(base ?? {
-      songId: song.id, bpm: null, routingMethod: 'ai', routingConfidence: 1, gain: 1, mute: false, solo: false,
-    } as Partial<AudioClip>),
-    id,
-    trackId: CLICK_TRACK_ID,
-    name,
-    fileName: `${name}.wav`,
-    filePath: URL.createObjectURL(wavBlob),
-    songId: song.id,
-    startTime,
-    duration: buffer.duration,
-    trimStart: 0,
-    trimEnd: 0,
-    sampleRate: buffer.sampleRate,
-    channels: buffer.numberOfChannels,
-    markers: generateMarkers(buffer.duration),
-    waveformPeaks: peaks,
-    groupId: undefined,
-  } as AudioClip;
-}
 
 /** O que impede o comando do click agora (ou null se pode). */
 export function clickAddBlocker(songId: string | null, kind: ClickToolKind): string | null {
@@ -133,19 +98,9 @@ export async function remakeMetronome(songId: string): Promise<number> {
     const sr = input.sampleRate;
     const playStart = Math.round((click.trimStart ?? 0) * sr);
     const playLen = Math.min(input.length - playStart, Math.round(playLength(click) * sr));
-    // as batidas pelo canal mais forte de cada amostra (click em um lado só também vale)
-    const data = new Float32Array(playLen);
-    for (let c = 0; c < input.numberOfChannels; c++) {
-      const ch = input.getChannelData(c);
-      for (let i = 0; i < playLen; i++) {
-        const v = ch[playStart + i];
-        if (Math.abs(v) > Math.abs(data[i])) data[i] = v;
-      }
-    }
-    const hits = clickHits(data, sr);
-    if (hits.length < 2) continue;
-    const onTimeline = hits.map((h) => click.startTime + h / sr);
-    const times = alignHitsToGrid(onTimeline, (t) => nearestGridBeat(song, t)).map((t) => t - click.startTime);
+    const channels = Array.from({ length: input.numberOfChannels }, (_, c) => input.getChannelData(c));
+    const times = remakeClickTimes(channels, playStart, playLen, sr, click.startTime, song);
+    if (times.length < 2) continue;
     const buffer = await generateClickAt(times, playLen / sr, sr);
     added.push(await makeClickClip(song, buffer, click.startTime, click));
     replaced.push(click.id);

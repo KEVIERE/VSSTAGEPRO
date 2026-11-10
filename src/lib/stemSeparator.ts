@@ -1,5 +1,5 @@
 import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
-import { generateClickTrack } from '@/lib/clickGenerator';
+import { gridClickBuffer, makeClickClip } from '@/lib/clickClip';
 import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
 import { isolateLiveCrowdAmbience } from '@/lib/crowdIsolation';
 import { encodeWavPcm24 } from '@/lib/wavEncoder';
@@ -235,7 +235,8 @@ export async function separateSongToVS(
   const leadIn = alignment.leadIn;
   const totalSongDuration = leadIn + duration;
 
-  // 2.6 Gera a trilha de Click (Metrônomo) cravada na grade métrica (andamento contínuo uniforme e firme)
+  // 2.6 Click na grade da música, pelo mesmo caminho do Recriar metrônomo (gridClickBuffer +
+  // makeClickClip): mesmo som, nível, taxa do aparelho e encaixe na grade.
   let clickBuffer: AudioBuffer | null = null;
   if (options.includeClick) {
     onProgress?.({
@@ -244,13 +245,7 @@ export async function separateSongToVS(
       percent: 92,
     });
 
-    clickBuffer = await generateClickTrack(
-      totalSongDuration,
-      finalBpm,
-      sampleRate,
-      0,
-      beatsPerBar
-    );
+    clickBuffer = await gridClickBuffer({ bpm: finalBpm, beatsPerBar }, totalSongDuration);
   }
 
   // 2.7 Bateria em peças (bumbo, caixa, pratos, tons), como o Moises faz. É um extra: sem o
@@ -405,17 +400,6 @@ export async function separateSongToVS(
     });
   }
 
-  if (clickBuffer) {
-    stemConfigs.push({
-      name: songName + ' - Click Metrônomo',
-      childName: 'Click',
-      buffer: clickBuffer,
-      parentTrackId: 'track-click',
-      startTime: 0,
-      duration: totalSongDuration,
-    });
-  }
-
   for (let i = 0; i < stemConfigs.length; i++) {
     const config = stemConfigs[i];
     const parentId = config.parentTrackId;
@@ -458,6 +442,9 @@ export async function separateSongToVS(
     store.addClip(clip);
   }
 
+  // O click entra montado igual ao do Recriar metrônomo (nome, WAV, faixa Click).
+  if (clickBuffer) store.addClip(await makeClickClip(song, clickBuffer, 0));
+
   store.selectSong(songId);
 
   onProgress?.({
@@ -471,6 +458,6 @@ export async function separateSongToVS(
     songName,
     bpm,
     duration,
-    stemsCount: stemConfigs.length,
+    stemsCount: stemConfigs.length + (clickBuffer ? 1 : 0),
   };
 }
