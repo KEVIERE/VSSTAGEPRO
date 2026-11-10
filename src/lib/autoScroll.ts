@@ -83,3 +83,25 @@ export function easeToward(current: number, target: number, dtMs: number, tauMs 
   const next = current + (target - current) * k;
   return Math.abs(target - next) < 0.5 ? target : next;
 }
+
+/**
+ * Letra aumentada ou diminuída: a cifra muda de altura (`oldContent` -> `newContent`). Devolve
+ * a posição da rolagem que deixa na linha de leitura (um terço da tela) o mesmo ponto da cifra
+ * que estava lá, para a tela não pular. No começo da cifra (topo) ela continua no topo.
+ */
+export function zoomedPosition(pos: number, oldContent: number, newContent: number, view: number): number {
+  if (!(oldContent > 0) || !(newContent > 0) || !Number.isFinite(pos)) return Math.max(0, pos || 0);
+  const max = Math.max(0, newContent - view);
+  if (pos <= 0) return 0;
+  const lead = view * READ_LEAD;
+  return clamp(((pos + lead) / oldContent) * newContent - lead, 0, max);
+}
+
+/**
+ * O ajuste do músico (rolou com o dedo, trocou a velocidade) em pixels cresce ou encolhe junto
+ * com a letra: assim a rolagem segue do mesmo ponto e no mesmo andamento.
+ */
+export function zoomedOffset(offset: number, oldContent: number, newContent: number): number {
+  if (!(oldContent > 0) || !(newContent > 0)) return offset;
+  return offset * (newContent / oldContent);
+}

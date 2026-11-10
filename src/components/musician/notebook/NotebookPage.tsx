@@ -24,26 +24,28 @@ function mapLine(doc: NotebookDoc, id: string, fn: (l: NotebookLine) => Notebook
   return { ...doc, lines: doc.lines.map((l) => (l.id === id ? fn(l) : l)) };
 }
 
-function AutoText({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+function AutoText({ value, onChange, placeholder, centered = false }: { value: string; onChange: (v: string) => void; placeholder: string; centered?: boolean }) {
+  const align = centered ? 'text-center' : '';
   return (
     <div className="grid">
-      <span aria-hidden className="invisible whitespace-pre-wrap break-words col-start-1 row-start-1 leading-relaxed">{value + ' '}</span>
+      <span aria-hidden className={`invisible whitespace-pre-wrap break-words col-start-1 row-start-1 leading-relaxed ${align}`}>{value + ' '}</span>
       <textarea
         value={value}
         rows={1}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="col-start-1 row-start-1 w-full resize-none overflow-hidden bg-transparent outline-none leading-relaxed placeholder:text-logic-text-muted/50"
+        className={`col-start-1 row-start-1 w-full resize-none overflow-hidden bg-transparent outline-none leading-relaxed placeholder:text-logic-text-muted/50 ${align}`}
         style={{ font: 'inherit', color: 'inherit', userSelect: 'text' }}
       />
     </div>
   );
 }
 
-function SectionLine({ label, selected, onChange }: { label: string; selected: boolean; onChange: (v: string) => void }) {
+function SectionLine({ label, selected, onChange, centered = false }: { label: string; selected: boolean; onChange: (v: string) => void; centered?: boolean }) {
   return (
     <div className="py-1">
       <div className="flex items-center gap-2">
+        {centered && <span className="flex-1 h-px bg-gradient-to-l from-logic-accent/40 to-transparent" />}
         <span className="px-2.5 py-0.5 rounded-md bg-logic-accent/20 text-logic-accent text-[0.72em] font-bold uppercase tracking-[0.12em] whitespace-nowrap">
           {label || 'Parte'}
         </span>
@@ -76,7 +78,7 @@ function SectionLine({ label, selected, onChange }: { label: string; selected: b
 export default function NotebookPage({
   doc, update, tool, inkColor, inkWidth, markerColor,
   selectedId, onSelect, editingId, onEditing,
-  activeChord, selectedNote, onSelectNote, brush, onAdd, readOnly = false,
+  activeChord, selectedNote, onSelectNote, brush, onAdd, readOnly = false, centered = false,
 }: {
   doc: NotebookDoc;
   update: Update;
@@ -95,6 +97,8 @@ export default function NotebookPage({
   onAdd: (kind: LineKind, mode?: 'notes' | 'blank') => void;
   /** Só para ler (Modo Palco): sem seleção, controles nem botões de adicionar. */
   readOnly?: boolean;
+  /** Cada linha no meio da página (Modo show). Acordes continuam em cima da sílaba deles. */
+  centered?: boolean;
 }) {
   const maxY = doc.strokes.reduce((m, s) => {
     for (let i = 1; i < s.points.length; i += 2) if (s.points[i] > m) m = s.points[i];
@@ -162,6 +166,7 @@ export default function NotebookPage({
               {line.kind === 'text' && (
                 <AutoText
                   value={line.text}
+                  centered={centered}
                   placeholder="Escreva aqui..."
                   onChange={(v) => update((d) => mapLine(d, line.id, (l) => ({ ...l, text: v })), `text:${line.id}`)}
                 />
@@ -169,6 +174,7 @@ export default function NotebookPage({
               {line.kind === 'section' && (
                 <SectionLine
                   label={line.label}
+                  centered={centered}
                   selected={selected}
                   onChange={(v) => update((d) => mapLine(d, line.id, (l) => ({ ...l, label: v })), `section:${line.id}`)}
                 />
@@ -176,6 +182,7 @@ export default function NotebookPage({
               {line.kind === 'chords' && (
                 <ChordLine
                   line={line}
+                  centered={centered}
                   selected={selected}
                   editing={editingId === line.id}
                   chordColor="#ffd60a"

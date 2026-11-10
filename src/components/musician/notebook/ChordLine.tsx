@@ -30,8 +30,10 @@ export function placeChord(chords: ChordMark[], at: number, chord: string): Chor
   return [...rest, { at, chord }].sort((a, b) => a.at - b.at);
 }
 
-export default function ChordLine({ line, selected, editing, chordColor, activeChord, onPlace, onEditLyric, onStartEdit, onStopEdit }: {
+export default function ChordLine({ line, selected, editing, chordColor, activeChord, onPlace, onEditLyric, onStartEdit, onStopEdit, centered = false }: {
   line: ChordData;
+  /** linha no meio da página (Modo show); cada acorde continua em cima da palavra dele */
+  centered?: boolean;
   selected: boolean;
   editing: boolean;
   chordColor: string;
@@ -59,7 +61,7 @@ export default function ChordLine({ line, selected, editing, chordColor, activeC
   }
 
   return (
-    <div className="flex items-end gap-y-1 flex-wrap py-0.5">
+    <div className={`flex items-end gap-y-1 flex-wrap py-0.5 ${centered ? 'justify-center' : ''}`}>
       {slots(line, selected).map((s) => (
         <button
           key={`${s.at}-${s.word}`}

@@ -5,6 +5,7 @@ import { currentPart, liveSheetKey } from '@/lib/medleySheets';
 import { docIsImageOnly, type NotebookLine } from '@/lib/notebook';
 import {
   SCROLL_SPEEDS, directorJumped, easeToward, offsetFor, parseScrollSpeed, respeedOffset, scrollSpeedLabel, scrollTarget, stepScrollSpeed,
+  zoomedOffset, zoomedPosition,
 } from '@/lib/autoScroll';
 import { useNotebook } from './notebook/useNotebook';
 import { useImageImport } from './notebook/useImageImport';
@@ -110,8 +111,9 @@ export default function StageView({
   const boxRef = useRef<HTMLDivElement>(null);
   const imgBoxRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
-  // rolagem automática: posição atual (com fração de pixel), ajuste do músico e o que foi escrito
-  const roll = useRef({ cur: 0, offset: 0, written: -1, speed: 1, manualUntil: 0, last: 0, lastProgress: null as number | null });
+  // rolagem automática: posição atual (com fração de pixel), ajuste do músico, o que foi escrito
+  // e a última posição e altura da cifra vistas (para segurar o ponto de leitura no zoom)
+  const roll = useRef({ cur: 0, offset: 0, written: -1, speed: 1, manualUntil: 0, last: 0, lastProgress: null as number | null, pos: 0, content: 0 });
   const [scale, setScale] = useState(1);
   const [cols, setCols] = useState(1);
 
@@ -143,7 +145,7 @@ export default function StageView({
   // música nova: fecha o envio e volta ao começo
   useEffect(() => {
     setSharing(false);
-    roll.current = { ...roll.current, cur: 0, offset: 0, written: -1, manualUntil: 0, lastProgress: null };
+    roll.current = { ...roll.current, cur: 0, offset: 0, written: -1, manualUntil: 0, lastProgress: null, pos: 0, content: 0 };
     if (boxRef.current) boxRef.current.scrollTop = 0;
     if (imgBoxRef.current) imgBoxRef.current.scrollLeft = 0;
   }, [songId]);
@@ -151,6 +153,8 @@ export default function StageView({
   // Página inteira: como num caderno de músicas impresso — em tela larga a cifra se divide em
   // colunas e, se ainda não couber, é reduzida (centralizada). Com desenhos à mão fica numa
   // coluna só, para os traços não saírem do lugar.
+  // A altura medida é a do layout (offsetHeight): com colunas o scrollHeight continua dando a
+  // altura de uma coluna só, e a conta nunca escolhia colunas (a letra ficava minúscula).
   useLayoutEffect(() => {
     if (!pageFit) { setScale(1); setCols(1); return; }
     const box = boxRef.current;
@@ -165,12 +169,17 @@ export default function StageView({
       for (let n = 1; n <= maxCols; n++) {
         page.style.columnCount = String(n);
         page.style.width = `${W}px`;
-        const s = Math.min(1, H / Math.max(1, page.scrollHeight), W / Math.max(1, page.scrollWidth));
+        const h = page.offsetHeight;
+        const w = Math.max(page.offsetWidth, page.scrollWidth);
+        const s = Math.min(1, H / Math.max(1, h), W / Math.max(1, w));
         if (s > best.s + 0.01) best = { n, s };
       }
       page.style.columnCount = String(best.n);
       setCols(best.n);
       setScale(Number.isFinite(best.s) && best.s > 0 ? best.s : 1);
+      // vindo do "Rolar sozinho", a caixa guardava a rolagem: a página reduzida ficava fora da tela
+      box.scrollTop = 0;
+      box.scrollLeft = 0;
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -201,6 +210,8 @@ export default function StageView({
       const content = across ? el.scrollWidth : el.scrollHeight;
       const view = across ? el.clientWidth : el.clientHeight;
       const { progress, speed: sp, playing } = rollInput.current;
+      s.pos = pos;
+      s.content = content;
       if (s.written < 0) {
         // música nova ou modo trocado: vai suave para o ponto certo da música
         s.cur = pos;
@@ -228,10 +239,32 @@ export default function StageView({
         if (across) el.scrollLeft = next; else el.scrollTop = next;
       }
       s.written = across ? el.scrollLeft : el.scrollTop;
+      s.pos = s.written;
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [pageFit, fillImages]);
+
+  // Letra maior ou menor: a cifra muda de altura. Antes de a tela ser desenhada, a rolagem vai
+  // para o ponto que deixa na linha de leitura o mesmo trecho que estava lá (sem pular nem
+  // tremer), e o ajuste do músico acompanha o tamanho novo: rolando, segue no mesmo andamento.
+  useLayoutEffect(() => {
+    if (pageFit || fillImages) return;
+    const el = boxRef.current;
+    const s = roll.current;
+    if (!el || !(s.content > 0)) return;
+    const content = el.scrollHeight;
+    if (content === s.content) return;
+    const view = el.clientHeight;
+    s.offset = zoomedOffset(s.offset, s.content, content);
+    s.cur = zoomedPosition(s.cur, s.content, content, view);
+    el.scrollTop = Math.round(zoomedPosition(s.pos, s.content, content, view));
+    s.written = el.scrollTop;
+    s.pos = el.scrollTop;
+    s.content = content;
+    // só a troca de tamanho da letra: trocar de modo recomeça a rolagem pelo efeito acima
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom]);
 
   const onManual = () => { roll.current.manualUntil = performance.now() + MANUAL_PAUSE_MS; };
   const key = (on: boolean) => `console-key flex items-center gap-1.5 h-8 px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
@@ -382,6 +415,7 @@ export default function StageView({
                   brush={{ dur: 'q', rest: false, dot: false, acc: null }}
                   onAdd={noop}
                   readOnly
+                  centered={doc.strokes.length === 0}
                 />
               </div>
             </div>

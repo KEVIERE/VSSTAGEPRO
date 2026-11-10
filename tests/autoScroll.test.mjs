@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_SCROLL_SPEED, READ_LEAD, SCROLL_SPEEDS, directorJumped, easeToward, offsetFor, parseScrollSpeed, respeedOffset,
-  scrollSpeedLabel, scrollTarget, stepScrollSpeed,
+  scrollSpeedLabel, scrollTarget, stepScrollSpeed, zoomedOffset, zoomedPosition,
 } from '../src/lib/autoScroll.ts';
 
 // cifra de 3000 px numa tela de 600 px: dá para rolar 2400 px
@@ -88,4 +88,46 @@ test('o diretor pula para outro ponto da música: a rolagem volta a seguir a mú
   assert.equal(directorJumped(0.40, 0.403), false); // relógio andando normal
   assert.equal(directorJumped(0.98, 0.01), true); // música recomeçou (repetição)
   assert.equal(directorJumped(0.2, 0.6), true); // avançou
+});
+
+// Letra maior ou menor: a mesma cifra fica mais alta ou mais baixa (zoom).
+const LEAD = V * READ_LEAD;
+/** Ponto da cifra (0 a 1) que está na linha de leitura com a rolagem em `pos`. */
+const pontoLido = (pos, content) => (pos + LEAD) / content;
+
+test('aumentar a letra deixa na linha de leitura o mesmo trecho da cifra (sem pular)', () => {
+  const pos = 1200;
+  for (const novo of [C * 1.5, C * 0.6, C * 2.5]) {
+    const p2 = zoomedPosition(pos, C, novo, V);
+    assert.ok(Math.abs(pontoLido(p2, novo) - pontoLido(pos, C)) < 1e-9, `altura ${novo}`);
+  }
+});
+
+test('zoom no começo da cifra continua no topo; no fim não passa do limite', () => {
+  assert.equal(zoomedPosition(0, C, C * 1.5, V), 0);
+  assert.equal(zoomedPosition(MAX, C, C * 0.5, V), C * 0.5 - V);
+  // cifra que passa a caber na tela não rola
+  assert.equal(zoomedPosition(900, C, 500, V), 0);
+  // altura estranha não quebra
+  assert.equal(zoomedPosition(300, 0, C, V), 300);
+});
+
+test('rolando sozinho: depois do zoom continua do mesmo ponto e no mesmo andamento', () => {
+  for (const speed of [0.5, 1, 1.75, 3]) {
+    // no meio da cifra em qualquer velocidade (no fim ela já está parada no limite)
+    const p = 0.4 / speed;
+    // o músico rolou com o dedo antes: há um ajuste
+    const off = offsetFor(scrollTarget(p, C, V, speed) + 200, p, C, V, speed);
+    const antes = scrollTarget(p, C, V, speed, off);
+    const novo = C * 1.4;
+    const off2 = zoomedOffset(off, C, novo);
+    const depois = scrollTarget(p, novo, V, speed, off2);
+    // sem pulo: a posição nova é a que segura o ponto de leitura
+    assert.ok(Math.abs(depois - zoomedPosition(antes, C, novo, V)) < 1e-6, `${speed}x sem pulo`);
+    // mesmo andamento: em fração da cifra, anda o mesmo tanto no mesmo trecho da música
+    const andouAntes = (scrollTarget(p + 0.02, C, V, speed, off) - antes) / C;
+    const andouDepois = (scrollTarget(p + 0.02, novo, V, speed, off2) - depois) / novo;
+    assert.ok(andouAntes > 0, `${speed}x está andando`);
+    assert.ok(Math.abs(andouAntes - andouDepois) < 1e-9, `${speed}x mesmo andamento`);
+  }
 });
