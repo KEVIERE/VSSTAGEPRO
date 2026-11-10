@@ -101,12 +101,12 @@ export default function SubscribeDialog({
       <AccessCard
         role="dialog" aria-modal="true" aria-labelledby="subscribe-title" width={420}
         onClick={(e) => e.stopPropagation()}
-        label="Pagamento PIX"
+        label="Pagamento"
         status={closeKey}
       >
         <div className="px-6 pt-6 pb-6">
-          <h1 id="subscribe-title" className="font-stage font-bold text-[1.6rem] leading-none text-logic-text text-center mb-5">
-            Pague com PIX
+          <h1 id="subscribe-title" className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">
+            Pague com PIX, cartão ou Apple Pay
           </h1>
           <PixCheckout
             key={`${plan}-${appliedCoupon?.code ?? ''}`}

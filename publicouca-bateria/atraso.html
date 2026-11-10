@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Teste de atraso no resample do app</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; padding: 24px; background: #17181c; color: #e8e9ed; }
+  pre { background: #202127; padding: 14px; border-radius: 8px; overflow: auto; }
+  .ok { color: #45c07a; }
+  .ruim { color: #e05a4f; }
+</style>
+</head>
+<body>
+<h1>O resample do app atrasa o áudio?</h1>
+<p>Simula o caminho real: WAV 44,1 kHz → decodeAudioData (48 kHz) → OfflineAudioContext 44,1 kHz → mede o impulso.</p>
+<pre id="saida">rodando...</pre>
+<script>
+const saida = document.getElementById('saida');
+const linhas = [];
+function log(t, classe) {
+  linhas.push(classe ? `<span class="${classe}">${t}</span>` : t);
+  saida.innerHTML = linhas.join('\n');
+}
+
+// WAV de impulso a 44100 Hz, impulso único na amostra 441000 (= 10.0 s)
+function criarImpulso(sampleRate, posicao, duracao) {
+  const n = Math.round(sampleRate * duracao);
+  const canais = [];
+  for (let c = 0; c < 2; c++) {
+    const dados = new Float32Array(n);
+    // impulso curto (3 ms) com decaimento
+    const largura = Math.round(0.003 * sampleRate);
+    for (let i = 0; i < largura; i++) {
+      dados[posicao + i] = Math.sin(i / largura * Math.PI) * 0.9;
+    }
+    canais.push(dados);
+  }
+  return canais;
+}
+
+function encodeWav(canais, sampleRate) {
+  const n = canais[0].length;
+  const ch = canais.length;
+  const bytes = 44 + n * ch * 2;
+  const ab = new ArrayBuffer(bytes);
+  const v = new DataView(ab);
+  const texto = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  texto(0, 'RIFF'); v.setUint32(4, bytes - 8, true); texto(8, 'WAVE');
+  texto(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, ch, true); v.setUint32(24, sampleRate, true);
+  v.setUint32(28, sampleRate * ch * 2, true); v.setUint16(32, ch * 2, true);
+  v.setUint16(34, 16, true); texto(36, 'data'); v.setUint32(40, n * ch * 2, true);
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < ch; c++) {
+      const s = Math.max(-1, Math.min(1, canais[c][i]));
+      v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      o += 2;
+    }
+  }
+  return ab;
+}
+
+function acharPico(canais) {
+  let maior = 0, pos = 0;
+  const dados = canais[0];
+  for (let i = 0; i < dados.length; i++) {
+    const a = Math.abs(dados[i]);
+    if (a > maior) { maior = a; pos = i; }
+  }
+  return { pos, valor: maior };
+}
+
+async function testar() {
+  const SR = 44100;
+  const POS = 441000;      // 10 s
+  const DUR = 30;
+  const canais = criarImpulso(SR, POS, DUR);
+  const wav = encodeWav(canais, SR);
+
+  log(`impulso original: amostra ${POS} (${(POS / SR).toFixed(4)} s)`);
+  log(`taxa nativa do AudioContext: ${new AudioContext().sampleRate} Hz`);
+  log('');
+
+  // 1. decodeAudioData — é o que o app faz para ler o áudio do clipe
+  const ctx = new AudioContext();
+  const decodificado = await ctx.decodeAudioData(wav.slice(0));
+  log(`1. decodeAudioData → ${decodificado.sampleRate} Hz, ${decodificado.length} amostras`);
+  const pico1 = acharPico([decodificado.getChannelData(0)]);
+  const seg1 = pico1.pos / decodificado.sampleRate;
+  log(`   pico em ${pico1.pos} = ${seg1.toFixed(6)} s`);
+  const erro1 = (seg1 - POS / SR) * 1000;
+  log(`   desvio: ${erro1 >= 0 ? '+' : ''}${erro1.toFixed(3)} ms`, Math.abs(erro1) > 1 ? 'ruim' : 'ok');
+
+  // 2. OfflineAudioContext a 44,1k — é o toStereo44k do app
+  const comprimento = Math.max(1, Math.ceil(decodificado.duration * SR));
+  const off = new OfflineAudioContext(2, comprimento, SR);
+  const src = off.createBufferSource();
+  src.buffer = decodificado;
+  src.connect(off.destination);
+  src.start();
+  const renderizado = await off.startRendering();
+  log('');
+  log(`2. toStereo44k (OfflineAudioContext) → ${renderizado.sampleRate} Hz, ${renderizado.length} amostras`);
+  const pico2 = acharPico([renderizado.getChannelData(0)]);
+  const seg2 = pico2.pos / renderizado.sampleRate;
+  log(`   pico em ${pico2.pos} = ${seg2.toFixed(6)} s`);
+  const erro2 = (seg2 - POS / SR) * 1000;
+  log(`   desvio ACUMULADO: ${erro2 >= 0 ? '+' : ''}${erro2.toFixed(3)} ms`, Math.abs(erro2) > 1 ? 'ruim' : 'ok');
+
+  // 3. comprimento: o buffer mudou de tamanho?
+  log('');
+  const durOriginal = POS / SR;
+  log(`duração esperada: ${durOriginal.toFixed(6)} s`);
+  log(`duração obtida:   ${renderizado.duration.toFixed(6)} s`);
+  const difDur = (renderizado.duration - durOriginal) * 1000;
+  log(`diferença: ${difDur >= 0 ? '+' : ''}${difDur.toFixed(3)} ms`, Math.abs(difDur) > 1 ? 'ruim' : 'ok');
+
+  log('');
+  if (Math.abs(erro2) > 2) {
+    log(`>>> O CAMINHO DO APP ATRASA ${erro2.toFixed(2)} ms. É essa a causa do desalinhamento.`, 'ruim');
+  } else {
+    log('>>> O caminho do app não atrasa. A causa está em outro lugar.', 'ok');
+  }
+}
+
+testar().catch((e) => log('ERRO: ' + e.message, 'ruim'));
+</script>
+</body>
+</html>

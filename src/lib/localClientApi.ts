@@ -58,25 +58,129 @@ export function localProducerPost(pin: string, path: 'prompter' | 'lyrics' | 'ly
   return withSession('producer', pin, 'Produtor', (t) => call(path, { method: 'POST', body: JSON.stringify(body) }, t));
 }
 
-export async function localMusicianState(pin: string, name: string): Promise<MusicianState> {
-  const data = await withSession('musician', pin, name, (t) => call('state', {}, t));
+/** VS Stage Remote: o Modo Show inteiro do Mac. */
+export async function localRemoteState(pin: string): Promise<{ remote: unknown; serverNow: number }> {
+  const data = await withSession('remote', pin, 'VS Stage Remote', (t) => call('remote-state', {}, t));
+  return { remote: data.remote, serverNow: typeof data.server_now === 'number' ? data.server_now : Date.now() };
+}
+
+/** VS Stage Remote: manda um comando para o programa do Mac. */
+export function localRemoteCommand(pin: string, cmd: unknown) {
+  return withSession('remote', pin, 'VS Stage Remote', (t) => call('transport', { method: 'POST', body: JSON.stringify(cmd) }, t));
+}
+
+// ---------- Músico com conta (usuário e senha) ----------
+
+const REMEMBER_LS = 'vs_local_musician_remember';
+let musicianToken: string | null = null;
+
+export type MusicianAuthError =
+  | 'invalid_code' | 'wrong_login' | 'blocked' | 'username_taken' | 'needs_password'
+  | 'bad_username' | 'weak_password' | 'pending' | 'logged_out' | 'offline';
+
+export type MusicianAuth = { pending: false; name: string } | { pending: true; name: string };
+
+export function musicianRemembered(): string | null {
+  try { return localStorage.getItem(REMEMBER_LS); } catch { return null; }
+}
+
+function keepRemember(remember: unknown) {
+  if (typeof remember !== 'string' || !remember) return;
+  try { localStorage.setItem(REMEMBER_LS, remember); } catch { /* aparelho sem armazenamento */ }
+}
+
+export function forgetMusician() {
+  musicianToken = null;
+  try { localStorage.removeItem(REMEMBER_LS); } catch { /* sem armazenamento */ }
+}
+
+async function musicianAuth(body: Record<string, unknown>): Promise<MusicianAuth> {
+  let res: Response;
+  try {
+    res = await fetch('/api/local/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'musician', ...body }),
+    });
+  } catch {
+    throw new Error('offline');
+  }
+  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  if (res.status === 200 && typeof data?.token === 'string') {
+    musicianToken = data.token;
+    keepRemember(data.remember);
+    return { pending: false, name: String(data.name ?? '') };
+  }
+  if (res.status === 202 && data?.pending) {
+    musicianToken = null;
+    keepRemember(data.remember);
+    return { pending: true, name: String(data.name ?? '') };
+  }
+  const code = typeof data?.error === 'string' ? data.error : (res.status >= 500 ? 'offline' : 'wrong_login');
+  throw new Error(code);
+}
+
+export function localMusicianSignup(p: { pin: string; name: string; instrument: string; username: string; password: string }) {
+  return musicianAuth({ mode: 'signup', ...p });
+}
+
+export function localMusicianLogin(p: { username: string; password?: string; pin?: string; newPassword?: string }) {
+  return musicianAuth({ mode: 'login', ...p });
+}
+
+/** Volta pelo aparelho lembrado, sem digitar nada. */
+export async function localMusicianResume(): Promise<MusicianAuth> {
+  const remember = musicianRemembered();
+  if (!remember) throw new Error('logged_out');
+  try {
+    return await musicianAuth({ mode: 'resume', remember });
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg !== 'offline') forgetMusician();
+    throw new Error(msg === 'offline' ? 'offline' : msg === 'blocked' ? 'blocked' : 'logged_out');
+  }
+}
+
+/** Chamada com a sessão do músico; se ela caiu (programa reaberto), volta pelo aparelho lembrado. */
+async function withMusician(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+  if (!musicianToken) {
+    const r = await localMusicianResume();
+    if (r.pending) throw new Error('pending');
+  }
+  try {
+    return await call(path, init, musicianToken!);
+  } catch (e) {
+    if ((e as Error).message !== 'invalid_code') throw e;
+    musicianToken = null;
+    const r = await localMusicianResume();
+    if (r.pending) throw new Error('pending');
+    return call(path, init, musicianToken!);
+  }
+}
+
+export async function localAccountState(): Promise<MusicianState> {
+  const data = await withMusician('state');
   const show = data.show as MusicianState['show'] | undefined;
   if (!show || typeof show !== 'object' || !show.setlist || !Array.isArray(show.setlist.songs)) throw new Error('offline');
   return data as unknown as MusicianState;
 }
 
-export async function localMusicianSheets(pin: string, name: string): Promise<SheetInfo[]> {
-  const data = await withSession('musician', pin, name, (t) => call('sheets', {}, t));
+export async function localAccountSheets(): Promise<SheetInfo[]> {
+  const data = await withMusician('sheets');
   return Array.isArray(data.sheets) ? (data.sheets as SheetInfo[]) : [];
 }
 
-export function localSheetBackend(pin: string, name: string): SheetBackend {
-  const get = (path: string) => withSession('musician', pin, name, (t) => call(path, {}, t));
-  const post = (path: string, body: unknown) =>
-    withSession('musician', pin, name, (t) => call(path, { method: 'POST', body: JSON.stringify(body) }, t));
+export async function localMusicianLogout() {
+  const remember = musicianRemembered();
+  try { if (musicianToken) await call('logout', { method: 'POST', body: JSON.stringify({ remember }) }, musicianToken); } catch { /* sai mesmo assim */ }
+  forgetMusician();
+}
+
+export function localAccountBackend(username: string): SheetBackend {
+  const post = (path: string, body: unknown) => withMusician(path, { method: 'POST', body: JSON.stringify(body) });
   return {
-    key: `local:${name.trim().toLowerCase()}`,
-    storedIn: 'no Mac do diretor',
+    key: `local:${username}`,
+    storedIn: 'na sua conta do show',
     async save(sheetId, songId, title, content) {
       const data = await post('sheet-save', { sheetId, songId, title, content });
       if (typeof data.id !== 'string') throw new Error('offline');
@@ -84,11 +188,11 @@ export function localSheetBackend(pin: string, name: string): SheetBackend {
     },
     async remove(sheetId) { await post('sheet-delete', { sheetId }); },
     async songLyrics(songId) {
-      const data = await get(`song-lyrics/${encodeURIComponent(songId)}`);
+      const data = await withMusician(`song-lyrics/${encodeURIComponent(songId)}`);
       return Array.isArray(data.texts) ? data.texts.filter((t): t is string => typeof t === 'string' && !!t.trim()) : [];
     },
     async colleagues() {
-      const data = await get('colleagues');
+      const data = await withMusician('colleagues');
       return Array.isArray(data.colleagues) ? (data.colleagues as ColleagueInfo[]) : [];
     },
     async share(sheetId, targets) {

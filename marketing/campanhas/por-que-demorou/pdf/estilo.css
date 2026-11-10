@@ -1,0 +1,506 @@
+/* Identidade visual dos PDFs da campanha
+   Jonatha e Cristiano - "Por Que Demorou?"
+
+   Paleta tirada do programa e do site do VS Stage:
+   fundo #111316, ambar #ffab1f, creme #e7e2d6.
+   O vermelho #9b0526 vem do "&" da logo da dupla.
+
+   ATENCAO - fonte do corpo:
+   Nao use Inter nem fonte carregada do Google Fonts para texto corrido.
+   O Chrome, ao imprimir PDF, grava o texto do Inter de um jeito que a
+   extracao le com letras fora de ordem ("INVESTIMENTTAL" em vez de
+   "INVESTIMENTO TOTAL"). O PDF continua bonito na tela, mas fica
+   impossivel de copiar, buscar e ler por leitor de tela.
+   Avenir Next e Helvetica Neue, que sao do sistema, extraem corretas.
+   Testado em 06/11/2026, ver LEIA-ME.md.
+*/
+
+@page {
+  size: A4;
+  margin: 0;
+}
+
+:root {
+  --bg: #111316;
+  --bg-panel: #191c21;
+  --bg-panel-2: #20242a;
+  --line: #2e333a;
+  --line-forte: #3b4148;
+  --cream: #e7e2d6;
+  --cream-dim: #a7a297;
+  --muted: #77736b;
+  --amber: #ffab1f;
+  --amber-escuro: #c27709;
+  --vermelho: #9b0526;
+  --vermelho-claro: #d81f45;
+  --verde: #3ee26e;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  background: var(--bg);
+  color: var(--cream);
+  /* Avenir Next extrai texto correto no PDF. Nao trocar por webfont. */
+  font-family: 'Avenir Next', 'Helvetica Neue', -apple-system, sans-serif;
+  font-size: 10pt;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- PÁGINA ---------- */
+
+.page {
+  width: 210mm;
+  height: 297mm;
+  padding: 20mm 18mm 16mm 18mm;
+  position: relative;
+  overflow: hidden;
+  page-break-after: always;
+  background: var(--bg);
+}
+
+.page:last-child { page-break-after: auto; }
+
+/* textura discreta de grade, como os paineis do programa */
+.page::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,.014) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.014) 1px, transparent 1px);
+  background-size: 8mm 8mm;
+  pointer-events: none;
+}
+
+/* brilho ambar no topo */
+.page::after {
+  content: "";
+  position: absolute;
+  top: -40mm; left: 50%;
+  width: 160mm; height: 80mm;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse at center, rgba(255,171,31,.13), transparent 70%);
+  pointer-events: none;
+}
+
+.conteudo { position: relative; z-index: 2; }
+
+/* ---------- CAPA ---------- */
+
+.capa {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+/* tres faixas: logo no topo, miolo centralizado, rodape embaixo */
+.capa > .conteudo:nth-child(1) { flex: 0 0 auto; }
+
+.capa > .conteudo:nth-child(2) {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.capa > .conteudo:nth-child(3) { flex: 0 0 auto; }
+
+.capa-logo { width: 58mm; opacity: .96; display: block; }
+
+.capa-centro { display: block; }
+
+.capa-etiqueta {
+  display: inline-block;
+  font-size: 7.5pt;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--amber);
+  border: 1px solid rgba(255,171,31,.35);
+  border-radius: 2px;
+  padding: 2mm 3.5mm;
+  margin-bottom: 8mm;
+}
+
+.capa-titulo {
+  font-family: 'Avenir Next Condensed', 'Impact', sans-serif;
+  font-size: 46pt;
+  font-weight: 700;
+  line-height: .94;
+  letter-spacing: -.015em;
+  text-transform: uppercase;
+  color: var(--cream);
+  margin-bottom: 6mm;
+}
+
+.capa-titulo em {
+  font-style: normal;
+  color: var(--amber);
+}
+
+.capa-sub {
+  font-size: 12pt;
+  color: var(--cream-dim);
+  max-width: 120mm;
+  line-height: 1.4;
+}
+
+.capa-rodape {
+  border-top: 1px solid var(--line);
+  padding-top: 5mm;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  font-size: 8pt;
+  color: var(--muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.capa-rodape strong { color: var(--cream-dim); font-weight: 600; }
+
+.numero-doc {
+  font-family: 'Avenir Next Condensed', 'Avenir Next', sans-serif;
+  font-size: 56pt;
+  font-weight: 700;
+  color: rgba(255,171,31,.13);
+  line-height: .8;
+  letter-spacing: -.03em;
+}
+
+/* ---------- CABEÇALHO DE PÁGINA INTERNA ---------- */
+
+.topo-doc {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 4mm;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 9mm;
+}
+
+.topo-doc .marca { width: 30mm; opacity: .85; }
+
+.topo-doc .trilha {
+  font-size: 7pt;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1.6;
+}
+
+.topo-doc .trilha b { color: var(--amber); font-weight: 600; }
+
+/* ---------- TÍTULOS ---------- */
+
+h1 {
+  font-family: 'Avenir Next Condensed', 'Avenir Next', sans-serif;
+  font-size: 22pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .005em;
+  line-height: 1.05;
+  color: var(--cream);
+  margin-bottom: 2mm;
+}
+
+h1 .marca-dagua {
+  color: var(--amber);
+}
+
+.linha-titulo {
+  width: 16mm;
+  height: 2px;
+  background: var(--amber);
+  margin: 3mm 0 6mm;
+}
+
+h2 {
+  font-family: 'Avenir Next Condensed', 'Avenir Next', sans-serif;
+  font-size: 12.5pt;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--amber);
+  margin: 7mm 0 3mm;
+}
+
+h2:first-child { margin-top: 0; }
+
+h3 {
+  font-size: 10pt;
+  font-weight: 700;
+  color: var(--cream);
+  margin: 5mm 0 2mm;
+  letter-spacing: .01em;
+}
+
+p { margin-bottom: 3mm; color: var(--cream-dim); }
+p strong { color: var(--cream); font-weight: 600; }
+p em { color: var(--amber); font-style: normal; }
+
+ul, ol { margin: 0 0 4mm 5mm; }
+li { margin-bottom: 1.8mm; color: var(--cream-dim); }
+li strong { color: var(--cream); }
+
+li::marker { color: var(--amber); }
+
+/* ---------- CAIXAS ---------- */
+
+.caixa {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-left: 2.5px solid var(--amber);
+  border-radius: 2px;
+  padding: 5mm 6mm;
+  margin: 5mm 0;
+}
+
+.caixa p:last-child { margin-bottom: 0; }
+
+.caixa-alerta {
+  border-left-color: var(--vermelho-claro);
+  background: linear-gradient(90deg, rgba(155,5,38,.11), var(--bg-panel) 40%);
+}
+
+.caixa-ok {
+  border-left-color: var(--verde);
+  background: linear-gradient(90deg, rgba(62,226,110,.07), var(--bg-panel) 40%);
+}
+
+.caixa-titulo {
+  font-size: 7.5pt;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--amber);
+  font-weight: 700;
+  margin-bottom: 2mm;
+}
+
+.caixa-alerta .caixa-titulo { color: var(--vermelho-claro); }
+.caixa-ok .caixa-titulo { color: var(--verde); }
+
+/* ---------- NÚMEROS GRANDES ---------- */
+
+.destaques {
+  display: flex;
+  gap: 4mm;
+  margin: 6mm 0;
+}
+
+.destaque {
+  flex: 1;
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 4mm;
+  text-align: center;
+}
+
+.destaque .valor {
+  font-family: 'Avenir Next Condensed', 'Avenir Next', sans-serif;
+  font-size: 20pt;
+  font-weight: 700;
+  color: var(--amber);
+  line-height: 1;
+  letter-spacing: -.01em;
+}
+
+.destaque .valor.pequeno { font-size: 15pt; }
+
+.destaque .rotulo {
+  font-size: 6.8pt;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 2mm;
+}
+
+/* ---------- TABELAS ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4mm 0 5mm;
+  font-size: 9pt;
+}
+
+thead th {
+  background: var(--bg-panel-2);
+  color: var(--amber);
+  font-size: 7pt;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  font-weight: 700;
+  text-align: left;
+  padding: 3mm 3.5mm;
+  border-bottom: 1px solid var(--amber-escuro);
+}
+
+tbody td {
+  padding: 2.8mm 3.5mm;
+  border-bottom: 1px solid var(--line);
+  color: var(--cream-dim);
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) { background: rgba(255,255,255,.018); }
+
+tbody td:first-child { color: var(--cream); font-weight: 500; }
+
+tbody tr.total td {
+  background: rgba(255,171,31,.09);
+  color: var(--cream);
+  font-weight: 700;
+  border-top: 1px solid var(--amber-escuro);
+  border-bottom: none;
+}
+
+tbody tr.total td:first-child { color: var(--amber); }
+
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---------- CRONOGRAMA VERTICAL ---------- */
+
+.linha-tempo {
+  margin: 6mm 0;
+  border-left: 1px solid var(--line-forte);
+  padding-left: 7mm;
+}
+
+.etapa {
+  position: relative;
+  padding-bottom: 6mm;
+}
+
+.etapa:last-child { padding-bottom: 0; }
+
+.etapa::before {
+  content: "";
+  position: absolute;
+  left: -8.2mm;
+  top: 1.2mm;
+  width: 2.4mm;
+  height: 2.4mm;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 2.5px var(--bg), 0 0 0 3.5px var(--amber-escuro);
+}
+
+.etapa .quando {
+  font-size: 7pt;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--amber);
+  font-weight: 700;
+  margin-bottom: 1mm;
+}
+
+.etapa .oque {
+  font-family: 'Avenir Next Condensed', 'Avenir Next', sans-serif;
+  font-size: 11pt;
+  font-weight: 600;
+  color: var(--cream);
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  margin-bottom: 1.5mm;
+}
+
+.etapa .verba {
+  display: inline-block;
+  font-size: 7.5pt;
+  color: var(--bg);
+  background: var(--amber);
+  padding: .8mm 2.5mm;
+  border-radius: 2px;
+  font-weight: 700;
+  margin-bottom: 2mm;
+}
+
+.etapa p, .etapa li { font-size: 9pt; }
+
+/* ---------- ROTEIRO DE VÍDEO ---------- */
+
+.roteiro {
+  background: var(--bg-panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 4mm 5mm;
+  margin: 4mm 0;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 8pt;
+  line-height: 1.9;
+  color: var(--cream-dim);
+}
+
+.roteiro .tempo {
+  display: inline-block;
+  width: 22mm;
+  color: var(--amber);
+  font-weight: 700;
+}
+
+/* ---------- TEXTO DE ANÚNCIO PARA COPIAR ---------- */
+
+.peca {
+  background: #0b0d10;
+  border: 1px dashed var(--line-forte);
+  border-radius: 2px;
+  padding: 4mm 5mm;
+  margin: 3mm 0 5mm;
+  font-size: 9.5pt;
+  color: var(--cream);
+  line-height: 1.5;
+}
+
+.peca .meta-info {
+  display: flex;
+  justify-content: space-between;
+  font-size: 6.8pt;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 2.5mm;
+  padding-bottom: 2mm;
+  border-bottom: 1px solid var(--line);
+}
+
+.peca .meta-info .contagem { color: var(--verde); font-weight: 700; }
+.peca .meta-info .contagem.apertado { color: var(--amber); }
+
+/* ---------- RODAPÉ ---------- */
+
+.rodape {
+  position: absolute;
+  left: 18mm; right: 18mm; bottom: 10mm;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 6.8pt;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  padding-top: 3mm;
+  z-index: 3;
+}
+
+.rodape .pag { color: var(--amber); font-weight: 700; }
+
+/* ---------- UTILITÁRIOS ---------- */
+
+.colunas { display: flex; gap: 6mm; }
+.colunas > * { flex: 1; }
+
+.sem-quebra { page-break-inside: avoid; }
+
+.destaque-num {
+  color: var(--amber);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.neg { color: var(--vermelho-claro); }
+.pos { color: var(--verde); }

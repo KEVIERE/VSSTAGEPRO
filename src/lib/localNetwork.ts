@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Setlist, ShowLive } from '@/lib/musicianTypes';
 import type { LyricPage } from '@/lib/prompterTypes';
+import type { RemoteState } from '@/lib/remoteProtocol';
 
 export type NetworkMode = 'online' | 'local';
 export type LocalRole = 'musician' | 'producer' | 'screen' | 'remote';
@@ -44,6 +45,8 @@ export interface LocalPublish {
   setlist: Setlist | null;
   live: ShowLive;
   lyrics: Record<string, LyricPage[]>;
+  /** Modo Show inteiro para o VS Stage Remote */
+  remote?: RemoteState;
 }
 
 /** Ponte que o app de Mac coloca na janela do diretor. Não existe no navegador. */
@@ -57,6 +60,9 @@ export interface LocalBridge {
   ackLyricsSave: () => Promise<void>;
   networkCheck: () => Promise<NetworkCheck[]>;
   openAction: (action: CheckAction) => Promise<void>;
+  /** Contas dos músicos do projeto aberto (versões antigas do app não têm). */
+  setMusicianBook?: (book: import('@/types').MusicianBook | null) => Promise<void>;
+  onMusicianAccounts?: (cb: (change: { book?: { id: string }; account?: import('@/types').MusicianAccount }) => void) => () => void;
 }
 
 /** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */
@@ -248,5 +254,5 @@ export const ROLE_LABEL: Record<LocalRole, string> = {
   musician: 'Músicos',
   producer: 'Produtor',
   screen: 'Tela do palco',
-  remote: 'Controle Celular',
+  remote: 'VS Stage Remote',
 };

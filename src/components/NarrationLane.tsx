@@ -37,6 +37,8 @@ interface NarrationLaneProps {
   onCreate: (start: number, end: number) => void;
   /** Botão direito numa marcação da contagem → editar a contagem inteira. */
   onEditCount?: (group: string) => void;
+  /** Arraste da seleção de clipes em andamento: as falas cujo áudio está nela andam junto. */
+  move?: { ids: Set<string>; delta: number } | null;
 }
 
 /**
@@ -49,10 +51,11 @@ interface NarrationLaneProps {
  *   menor = mais rápido, maior = mais devagar. A voz é gerada de novo sozinha.
  * - Clique duplo abre o editor; botão direito tem "Sincar no beat do cursor". Alt desliga o ímã.
  */
-export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount }: NarrationLaneProps) {
+export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move }: NarrationLaneProps) {
   const updateNarration = useStore((s) => s.updateNarration);
   const snapStep = useStore((s) => s.snapStep);
   const clips = useStore((s) => s.clips);
+  const selectedClipIds = useStore((s) => s.selectedClipIds);
   useSyncExternalStore(subscribeGenerating, generatingSnapshot);
   const [draft, setDraft] = useState<{ start: number; end: number } | null>(null);
   const [dragging, setDragging] = useState<{ id: string; start: number; end: number } | null>(null);
@@ -203,8 +206,11 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
       )}
       {narrations.map((n) => {
         const isDragging = dragging?.id === n.id;
-        const start = isDragging ? dragging!.start : n.start;
-        const end = isDragging ? dragging!.end : n.end;
+        // junto com a seleção (Cmd+A): aparece selecionada e anda no arraste dos clipes
+        const inSelection = !!n.clipId && selectedClipIds.includes(n.clipId);
+        const shift = n.clipId && move?.ids.has(n.clipId) ? move.delta : 0;
+        const start = isDragging ? dragging!.start : n.start + shift;
+        const end = isDragging ? dragging!.end : n.end + shift;
         // fora da tela: fica de fora do desenho
         if (start * zoomH > visible.end || end * zoomH < visible.start) return null;
         const width = Math.max(6, (end - start) * zoomH);
@@ -239,7 +245,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             data-narration-id={n.id}
             className={`absolute top-[3px] bottom-[3px] rounded-sm flex items-center select-none touch-none group overflow-hidden border hover:brightness-125 ${tone} ${
               isDragging ? 'cursor-grabbing z-20 shadow-lg' : 'cursor-grab z-10'
-            }`}
+            } ${inSelection ? 'ring-2 ring-white/80 brightness-125' : ''}`}
             style={{ left: `${start * zoomH}px`, width: `${width}px` }}
             onPointerDown={(e) => handleBarPointerDown(e, n)}
             onDoubleClick={(e) => { e.stopPropagation(); onEdit(n); }}
@@ -251,7 +257,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
               <MiniWave
                 peaks={clip.waveformPeaks}
                 widthPx={Math.max(1, clip.duration * zoomH)}
-                offsetPx={(clip.startTime - (clip.trimStart ?? 0) - start) * zoomH}
+                offsetPx={(clip.startTime + shift - (clip.trimStart ?? 0) - start) * zoomH}
               />
             )}
             <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize group-hover:bg-white/25" />

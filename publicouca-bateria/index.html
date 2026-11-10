@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VS Stage — conferir a separação da bateria</title>
+<style>
+  :root {
+    --fundo: #17181c;
+    --painel: #202127;
+    --painel-alto: #2a2c33;
+    --linha: #3a3d47;
+    --texto: #e8e9ed;
+    --texto-fraco: #9a9daa;
+    --ambar: #f0a92c;
+    --ambar-fraco: #7a5f1e;
+    --verde: #45c07a;
+    --vermelho: #e05a4f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--fundo);
+    color: var(--texto);
+    font: 15px/1.5 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    padding: 32px 20px 80px;
+  }
+  .painel {
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 21px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    margin: 0 0 4px;
+  }
+  .sub {
+    color: var(--texto-fraco);
+    font-size: 13.5px;
+    margin: 0 0 26px;
+  }
+  .grupo {
+    background: var(--painel);
+    border: 1px solid var(--linha);
+    border-radius: 10px;
+    margin-bottom: 14px;
+    overflow: hidden;
+  }
+  .grupo-topo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    background: var(--painel-alto);
+    border-bottom: 1px solid var(--linha);
+  }
+  .grupo-topo strong { font-size: 14px; font-weight: 600; }
+  .etiqueta {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--texto-fraco);
+    border: 1px solid var(--linha);
+    border-radius: 4px;
+    padding: 2px 6px;
+  }
+  .etiqueta.ok { color: var(--verde); border-color: #2c5f43; }
+  .faixa {
+    display: grid;
+    grid-template-columns: 132px 1fr 86px;
+    align-items: center;
+    gap: 13px;
+    padding: 9px 14px;
+    border-bottom: 1px solid #262830;
+  }
+  .faixa:last-child { border-bottom: 0; }
+  .faixa:hover { background: #24252c; }
+  .nome { font-size: 13.5px; }
+  .nome small {
+    display: block;
+    color: var(--texto-fraco);
+    font-size: 11.5px;
+  }
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 5px;
+    border-radius: 3px;
+    background: #34363f;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: var(--ambar);
+    cursor: pointer;
+    border: 2px solid #1a1b20;
+  }
+  .db {
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
+    color: var(--texto-fraco);
+    text-align: right;
+  }
+  .db.mudo { color: var(--vermelho); }
+  .solo {
+    background: transparent;
+    border: 1px solid var(--linha);
+    color: var(--texto-fraco);
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 6px;
+    cursor: pointer;
+    margin-left: 6px;
+  }
+  .solo.on { background: var(--ambar); border-color: var(--ambar); color: #17181c; }
+
+  .transporte {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: #1b1c22;
+    border: 1px solid var(--linha);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 16px;
+  }
+  .tocar {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 0;
+    background: var(--ambar);
+    color: #17181c;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    flex: none;
+  }
+  .tocar:active { transform: scale(0.96); }
+  .tempo {
+    font-variant-numeric: tabular-nums;
+    font-size: 13px;
+    color: var(--texto-fraco);
+    flex: none;
+  }
+  .barra {
+    flex: 1;
+    height: 6px;
+    background: #34363f;
+    border-radius: 3px;
+    overflow: hidden;
+    cursor: pointer;
+  }
+  .barra > div {
+    height: 100%;
+    width: 0;
+    background: var(--ambar);
+  }
+  .seletor {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+  .seletor button {
+    background: var(--painel);
+    border: 1px solid var(--linha);
+    color: var(--texto);
+    border-radius: 7px;
+    padding: 7px 13px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .seletor button.on {
+    background: var(--ambar);
+    border-color: var(--ambar);
+    color: #17181c;
+    font-weight: 600;
+  }
+  .dica {
+    color: var(--texto-fraco);
+    font-size: 12.5px;
+    margin: -6px 0 18px;
+  }
+  .aviso {
+    background: #2a2118;
+    border: 1px solid var(--ambar-fraco);
+    border-radius: 9px;
+    padding: 12px 14px;
+    font-size: 13px;
+    color: #f0d9a8;
+    margin-bottom: 20px;
+  }
+  .aviso b { color: var(--ambar); }
+  .oculto { display: none; }
+</style>
+</head>
+<body>
+<div class="painel">
+  <h1>Conferir a separação da bateria</h1>
+  <p class="sub">Henrique e Juliano — SAUDADE DE QUEM EU SOU. Ouça as peças, sozinhas e somadas, contra a bateria original.</p>
+
+  <div class="transporte">
+    <button class="tocar" id="tocar" title="Tocar / pausar">▶</button>
+    <span class="tempo" id="tempo">0:00 / 0:00</span>
+    <div class="barra" id="barra"><div id="progresso"></div></div>
+    <span class="tempo" id="dbgeral"></span>
+  </div>
+
+  <div class="seletor">
+    <button data-modo="todas" class="on">Todas as peças</button>
+    <button data-modo="original">Bateria original</button>
+    <button data-modo="musica">Música completa</button>
+  </div>
+
+  <p class="dica">
+    <b>http://localhost:8899/</b> — Use <b>SOLO</b> para ouvir uma peça sozinha. Deixe “Todas as peças” e desmute as outras para conferir se a soma
+    devolve a bateria.
+  </p>
+
+  <div class="aviso">
+    <b>O que o Moises usa:</b> a família <b>MDX23C / DrumSep</b>. Testei os dois melhores modelos abertos na
+    sua música, no mesmo trecho:</p>
+    <ul style="color:#f0d9a8;font-size:13px;margin:0 0 14px 18px;padding:0">
+      <li><b>MDX23C</b> (jarredou) — 5 peças com chimbal separado, correlação <b>0,9994</b></li>
+      <li><b>ZFTurbo</b> (HDemucs acústico) — 4 peças, correlação <b>0,9983</b></li>
+      <li><b>ONNX anterior</b> — 4 peças, correlação 0,9483 (o que você ouviu ruim)</li>
+    </ul>
+    <p style="margin:0"><b>O chiado era metade do som faltando.</b> A soma das peças entregava só <b>49%</b> da energia da
+    bateria, com o agudo em 26% — você ouvia a metade abafada com o ruído por cima. O ramo de frequência
+    do modelo precisa de peso 4 (medido contra a bateria real, não chutado): agora a energia fecha em
+    <b>92%</b>, o agudo em <b>95%</b> e o chiado em <b>18,6%</b> contra 19,7% da bateria de verdade.
+  </div>
+
+  <div id="grupos"></div>
+</div>
+
+<script>
+const GRUPOS = [
+  {
+    titulo: '★ MDX23C — 5 peças, correlação 0,9994',
+    nota: 'o melhor: chimbal separado',
+    estado: 'ok',
+    faixas: [
+      { id: 'm-kick',    nome: 'Bumbo',   dica: 'grave 47% · RMS 0,087', arquivo: 'mdx-kick.mp3',    db: 0 },
+      { id: 'm-snare',   nome: 'Caixa',   dica: 'agudo 55% · RMS 0,049', arquivo: 'mdx-snare.mp3',   db: 0 },
+      { id: 'm-toms',    nome: 'Tons',    dica: 'grave 46% · RMS 0,035', arquivo: 'mdx-toms.mp3',    db: 0 },
+      { id: 'm-hihat',   nome: 'Chimbal', dica: 'agudo 84% · RMS 0,011', arquivo: 'mdx-hihat.mp3',   db: 0 },
+      { id: 'm-cymbals', nome: 'Pratos',  dica: 'agudo 93% · RMS 0,012', arquivo: 'mdx-cymbals.mp3', db: 0 },
+    ],
+  },
+  {
+    titulo: 'ZFTurbo (HDemucs acústico) — 4 peças, 0,9983',
+    nota: 'bom, mas sem chimbal separado',
+    estado: '',
+    faixas: [
+      { id: 'z-bumbo',  nome: 'Bumbo',  dica: 'RMS 0,087',  arquivo: 'zf-bumbo.mp3',  db: 0 },
+      { id: 'z-caixa',  nome: 'Caixa',  dica: 'RMS 0,045',  arquivo: 'zf-caixa.mp3',  db: 0 },
+      { id: 'z-pratos', nome: 'Pratos', dica: 'RMS 0,016',  arquivo: 'zf-pratos.mp3', db: 0 },
+      { id: 'z-tons',   nome: 'Tons',   dica: 'RMS 0,039',  arquivo: 'zf-tons.mp3',   db: 0 },
+    ],
+  },
+  {
+    titulo: 'ONNX anterior (bateria eletrônica) — 0,9483',
+    nota: 'o que você ouviu com chiado',
+    estado: '',
+    faixas: [
+      { id: 'bumbo',  nome: 'Bumbo',  dica: 'grave firme',  arquivo: 'bumbo.mp3',  db: 0 },
+      { id: 'caixa',  nome: 'Caixa',  dica: 'com a cordinha', arquivo: 'caixa.mp3',  db: 0 },
+      { id: 'pratos', nome: 'Pratos', dica: 'chimbal no nível certo', arquivo: 'pratos.mp3', db: 0 },
+      { id: 'tons',   nome: 'Tons',   dica: 'definido', arquivo: 'tons.mp3', db: 0 },
+    ],
+  },
+  {
+    titulo: 'Referência',
+    nota: 'o que entrou e o que teria que sair igual',
+    estado: '',
+    faixas: [
+      { id: 'original', nome: 'Bateria original', dica: 'o stem que o Demucs entregou', arquivo: 'original-bateria.mp3', db: 0 },
+      { id: 'musica',   nome: 'Música completa',  dica: 'o mp3 original', arquivo: 'musica.mp3', db: -6 },
+    ],
+  },
+  {
+    titulo: 'Stems do Demucs',
+    nota: 'para comparar',
+    estado: '',
+    faixas: [
+      { id: 'd-drums',  nome: 'Bateria',  dica: 'stem do Demucs', arquivo: 'demucs-drums.mp3',   db: 0 },
+      { id: 'd-bass',   nome: 'Baixo',    dica: '', arquivo: 'demucs-bass.mp3',    db: 0 },
+      { id: 'd-vocals', nome: 'Voz',      dica: '', arquivo: 'demucs-vocals.mp3',  db: 0 },
+      { id: 'd-guitar', nome: 'Guitarra', dica: '', arquivo: 'demucs-guitar.mp3',  db: 0 },
+      { id: 'd-piano',  nome: 'Teclado',  dica: '', arquivo: 'demucs-piano.mp3',   db: 0 },
+      { id: 'd-other',  nome: 'Outros',   dica: '', arquivo: 'demucs-other.mp3',   db: 0 },
+    ],
+  },
+];
+
+const ctx = new AudioContext();
+const mestra = ctx.createGain();
+mestra.connect(ctx.destination);
+
+const faixas = new Map();   // id -> { ganho, dados, fonte, solo }
+const gruposModo = { todas: [], original: [], musica: [] };
+let tocando = false;
+let inicio = 0;
+let deslocamento = 0;
+let duracaoTotal = 0;
+let modo = 'todas';
+
+function dbParaGanho(db) { return db <= -60 ? 0 : Math.pow(10, db / 20); }
+
+function desenhar() {
+  const alvo = document.getElementById('grupos');
+  alvo.innerHTML = '';
+  for (const g of GRUPOS) {
+    const caixa = document.createElement('div');
+    caixa.className = 'grupo';
+    caixa.dataset.grupo = g.titulo;
+    caixa.innerHTML = `
+      <div class="grupo-topo">
+        <strong>${g.titulo}</strong>
+        <span class="etiqueta ${g.estado}">${g.nota}</span>
+      </div>`;
+    for (const f of g.faixas) {
+      const linha = document.createElement('div');
+      linha.className = 'faixa';
+      linha.innerHTML = `
+        <div class="nome">${f.nome}<small>${f.dica}</small></div>
+        <input type="range" min="-60" max="6" step="0.5" value="${f.db}" data-id="${f.id}">
+        <div class="db" id="db-${f.id}">
+          ${f.db > -60 ? (f.db > 0 ? '+' : '') + f.db.toFixed(1) + ' dB' : 'mudo'}
+          <button class="solo" data-solo="${f.id}">S</button>
+        </div>`;
+      caixa.appendChild(linha);
+    }
+    alvo.appendChild(caixa);
+  }
+
+  alvo.querySelectorAll('input[type=range]').forEach((el) => {
+    el.addEventListener('input', () => {
+      const id = el.dataset.id;
+      const db = parseFloat(el.value);
+      aplicarGanho(id, db);
+      const rotulo = document.getElementById('db-' + id);
+      rotulo.classList.toggle('mudo', db <= -60);
+      rotulo.firstChild.textContent = db > -60 ? (db > 0 ? '+' : '') + db.toFixed(1) + ' dB' : 'mudo';
+    });
+  });
+  alvo.querySelectorAll('.solo').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.solo;
+      const ativo = !b.classList.contains('on');
+      alvo.querySelectorAll('.solo').forEach((o) => o.classList.remove('on'));
+      if (ativo) b.classList.add('on');
+      for (const [fid, f] of faixas) {
+        f.solo = ativo ? fid === id : false;
+      }
+      atualizarSolo();
+    });
+  });
+  aplicarModo();
+}
+
+function aplicarGanho(id, db) {
+  const f = faixas.get(id);
+  if (!f) return;
+  f.db = db;
+  f.ganho.gain.setTargetAtTime(dbParaGanho(db), ctx.currentTime, 0.01);
+}
+
+function atualizarSolo() {
+  const temSolo = [...faixas.values()].some((f) => f.solo);
+  for (const [id, f] of faixas) {
+    const audivel = !temSolo || f.solo;
+    const alvo = audivel ? dbParaGanho(f.db) : 0;
+    f.ganho.gain.setTargetAtTime(alvo, ctx.currentTime, 0.01);
+  }
+}
+
+function aplicarModo() {
+  for (const [id, f] of faixas) {
+    const noModo = (gruposModo[modo] || []).includes(id) || id.startsWith('d-') || id === 'original' || id === 'musica';
+    f.ganho.gain.setTargetAtTime(noModo ? dbParaGanho(f.db) : 0, ctx.currentTime, 0.01);
+  }
+}
+
+async function carregar() {
+  for (const g of GRUPOS) {
+    for (const f of g.faixas) {
+      try {
+        const resp = await fetch(f.arquivo);
+        const dados = await resp.arrayBuffer();
+        const buffer = await ctx.decodeAudioData(dados);
+        const ganho = ctx.createGain();
+        ganho.gain.value = dbParaGanho(f.db);
+        ganho.connect(mestra);
+        faixas.set(f.id, { ganho, buffer, db: f.db, solo: false, fonte: null });
+        duracaoTotal = Math.max(duracaoTotal, buffer.duration);
+      } catch (e) {
+        console.warn('não carregou', f.arquivo, e);
+      }
+    }
+  }
+  if (duracaoTotal > 0) {
+    document.getElementById('tempo').textContent = '0:00 / ' + formatar(duracaoTotal);
+  }
+}
+
+function formatar(s) {
+  const m = Math.floor(s / 60);
+  const seg = Math.floor(s % 60);
+  return m + ':' + String(seg).padStart(2, '0');
+}
+
+function tocar() {
+  const agora = ctx.currentTime;
+  for (const f of faixas.values()) {
+    if (!f.buffer) continue;
+    const src = ctx.createBufferSource();
+    src.buffer = f.buffer;
+    src.connect(f.ganho);
+    src.start(agora, deslocamento % f.buffer.duration);
+    f.fonte = src;
+  }
+  inicio = agora;
+  tocando = true;
+  document.getElementById('tocar').textContent = '❚❚';
+  aplicarModo();
+}
+
+function pausar() {
+  deslocamento += ctx.currentTime - inicio;
+  for (const f of faixas.values()) {
+    if (f.fonte) { try { f.fonte.stop(); } catch {} f.fonte = null; }
+  }
+  tocando = false;
+  document.getElementById('tocar').textContent = '▶';
+}
+
+function animar() {
+  requestAnimationFrame(animar);
+  if (!tocando || duracaoTotal <= 0) return;
+  const pos = Math.min(duracaoTotal, deslocamento + (ctx.currentTime - inicio));
+  document.getElementById('progresso').style.width = (pos / duracaoTotal * 100) + '%';
+  document.getElementById('tempo').textContent = formatar(pos) + ' / ' + formatar(duracaoTotal);
+  if (pos >= duracaoTotal - 0.05) {
+    pausar();
+    deslocamento = 0;
+    document.getElementById('progresso').style.width = '0%';
+  }
+}
+
+document.getElementById('tocar').addEventListener('click', async () => {
+  if (ctx.state === 'suspended') await ctx.resume();
+  tocando ? pausar() : tocar();
+});
+
+document.getElementById('barra').addEventListener('click', (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const frac = (e.clientX - r.left) / r.width;
+  const estava = tocando;
+  if (tocando) pausar();
+  deslocamento = frac * duracaoTotal;
+  if (estava) tocar();
+});
+
+document.querySelectorAll('.seletor button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.seletor button').forEach((o) => o.classList.remove('on'));
+    b.classList.add('on');
+    modo = b.dataset.modo;
+    gruposModo.todas = ['m-kick','m-snare','m-toms','m-hihat','m-cymbals'];
+    gruposModo.original = ['original'];
+    gruposModo.musica = ['musica'];
+    aplicarModo();
+  });
+});
+
+gruposModo.todas = ['m-kick','m-snare','m-toms','m-hihat','m-cymbals'];
+gruposModo.original = ['original'];
+gruposModo.musica = ['musica'];
+
+carregar().then(() => {
+  desenhar();
+  animar();
+});
+</script>
+</body>
+</html>

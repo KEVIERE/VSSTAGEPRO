@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Magnet, RefreshCw, Loader2, CheckCheck } from 'lucide-react';
+import { Magnet, RefreshCw, Loader2, CheckCheck, Scissors } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
 import { barBeatLabel, gridLines, moveTempoChange, SNAP_LABELS, snapTempoChange, tempoChangeIndex, type SnapStep, type SongGrid } from '@/lib/grid';
 import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
+import { trimAllSongEnds, trimSongEnd } from '@/lib/songEndTools';
 import type { VisibleRange } from '@/components/ClipWaveform';
 
 const LINE_COLORS = {
@@ -211,6 +212,60 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
   );
 }
 
+/** "1:12" ou "8 s": quanto saiu do fim. */
+function cutText(seconds: number): string {
+  const s = Math.round(seconds);
+  return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s} s`;
+}
+
+/** Menu do botão "Ajustar fim": esta música ou todas. */
+function SongEndMenu({ x, y, hasSong, onPick, onClose }: {
+  x: number;
+  y: number;
+  hasSong: boolean;
+  onPick: (scope: 'song' | 'all') => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [onClose]);
+  const item = 'w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-40 disabled:pointer-events-none';
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-[300] min-w-56 py-1 bg-logic-bg-panel border border-logic-border-light shadow-2xl rounded text-xs text-logic-text"
+      style={{ left: Math.min(x, window.innerWidth - 240), top: Math.max(8, Math.min(y, window.innerHeight - 80)) }}
+      onContextMenu={(e) => e.preventDefault()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <button
+        className={item}
+        disabled={!hasSong}
+        onClick={() => { onClose(); onPick('song'); }}
+        title="Corta o silêncio do final desta música: termina 0,5 s depois do último som de harmonia (Cmd+Z desfaz)"
+      >
+        Ajustar fim desta música
+      </button>
+      <button
+        className={item}
+        onClick={() => { onClose(); onPick('all'); }}
+        title="Faz o mesmo em todas as músicas do show (Cmd+Z desfaz tudo de uma vez)"
+      >
+        Ajustar fim de todas as músicas
+      </button>
+    </div>,
+    document.body,
+  );
+}
+
 const METERS: Array<{ value: 3 | 4 | 6; label: string }> = [
   { value: 4, label: '4/4' },
   { value: 3, label: '3/4' },
@@ -228,6 +283,8 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
   const [measuring, setMeasuring] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [bpmDraft, setBpmDraft] = useState<string | null>(null);
+  const [endMenu, setEndMenu] = useState<{ x: number; y: number } | null>(null);
+  const [trimming, setTrimming] = useState(false);
 
   const commitBpm = () => {
     const value = Number((bpmDraft ?? '').replace(',', '.'));
@@ -255,6 +312,30 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
     setMeasuring(false);
     setNote(result === 'ok' ? null : result === 'no-source' ? 'Esta música não tem áudios' : 'BPM não encontrado — clique no BPM para digitar');
     if (result !== 'ok') window.setTimeout(() => setNote(null), 4000);
+  };
+
+  // Ajustar fim: corta o silêncio do final (desta música ou de todas)
+  const trimEnd = async (scope: 'song' | 'all') => {
+    if (trimming) return;
+    setTrimming(true);
+    setNote(scope === 'all' ? 'Ajustando o fim das músicas...' : 'Ajustando o fim...');
+    try {
+      if (scope === 'song') {
+        if (!song) return;
+        const cut = await trimSongEnd(song.id);
+        setNote(cut > 0 ? `Fim ajustado: ${cutText(cut)} de silêncio cortado` : 'O fim já estava certo');
+      } else {
+        const r = await trimAllSongEnds((done, total) => setNote(`Ajustando o fim das músicas... ${done + 1}/${total}`));
+        setNote(r.changed
+          ? `${r.changed} ${r.changed === 1 ? 'música ajustada' : 'músicas ajustadas'} (${cutText(r.cut)} cortados)${r.unchanged ? `, ${r.unchanged} já ${r.unchanged === 1 ? 'estava certa' : 'estavam certas'}` : ''}`
+          : 'O fim de todas as músicas já estava certo');
+      }
+    } catch (err) {
+      setNote(`Não deu para ajustar o fim: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setTrimming(false);
+      window.setTimeout(() => setNote(null), 5000);
+    }
   };
 
   const bpmText = song?.bpmDetected && song.bpm
@@ -337,6 +418,21 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
         {measuring ? <Loader2 size={10} className="animate-spin" /> : <RefreshCw size={10} />}
         <span className="hidden lg:inline">Medir BPM de novo</span>
       </button>
+      <button
+        className="console-key flex items-center gap-1 px-2 h-[20px] text-[12px] disabled:pointer-events-none"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setEndMenu({ x: r.left, y: r.bottom + 4 });
+        }}
+        disabled={trimming}
+        title="Corta o silêncio do final do VS, 0,5 s depois do último som de harmonia"
+      >
+        {trimming ? <Loader2 size={10} className="animate-spin" /> : <Scissors size={10} />}
+        <span className="hidden lg:inline">Ajustar fim</span>
+      </button>
+      {endMenu && (
+        <SongEndMenu x={endMenu.x} y={endMenu.y} hasSong={!!song} onPick={(scope) => void trimEnd(scope)} onClose={() => setEndMenu(null)} />
+      )}
       <button
         className="console-key flex items-center gap-1 px-2 h-[20px] text-[12px] disabled:pointer-events-none"
         onClick={onSelectAll}

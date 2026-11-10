@@ -6,7 +6,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const QRCode = require('qrcode');
 const { resolveStatic } = require('./staticFiles');
-const { LocalSheets } = require('./localSheets');
+const { LocalAccounts } = require('./musicianAccounts');
 
 const DEFAULT_PORT = 8080;
 const HOST_NAME = 'vsstage.local';
@@ -47,7 +47,7 @@ function safeEqual(a, b) {
 }
 
 class LocalServer {
-  constructor({ webRoot, storePath, version, onTransportCommand }) {
+  constructor({ webRoot, storePath, version, onTransportCommand, onAccountsChange }) {
     this.webRoot = webRoot;
     this.version = String(version || '');
     this.storePath = storePath;
@@ -68,7 +68,17 @@ class LocalServer {
     this.lyricsSave = { requestedAt: null, savedAt: null };
     this.pendingSaveRequest = null;
     this.qrCache = new Map();
-    this.sheets = new LocalSheets(path.join(path.dirname(storePath), 'rede-local-cadernos.json'));
+    // Contas dos músicos (usuário e senha) e os cadernos delas. Moram no projeto do show; aqui
+    // fica a cópia em uso e uma de segurança por projeto. Os cadernos antigos (por nome) vão
+    // para a conta de quem criar uma com o mesmo nome.
+    this.accounts = new LocalAccounts({
+      dir: path.join(path.dirname(storePath), 'rede-local-contas'),
+      legacyFile: path.join(path.dirname(storePath), 'rede-local-cadernos.json'),
+      onChange: (change) => {
+        this.dropLockedSessions();
+        if (onAccountsChange) onAccountsChange(change);
+      },
+    });
     const saved = this.load();
     this.pins = saved.pins;
     this.prompter = saved.prompter;
@@ -179,8 +189,23 @@ class LocalServer {
     });
   }
 
+  /** O programa manda as contas do projeto aberto (ou null sem projeto). */
+  setMusicianBook(book) {
+    this.accounts.setBook(book);
+    this.dropLockedSessions();
+  }
+
+  /** Conta bloqueada, apagada ou sem aprovação perde a sessão na hora. */
+  dropLockedSessions() {
+    for (const [token, s] of this.sessions) {
+      if (s.role !== 'musician') continue;
+      const acc = this.accounts.find(s.accountId);
+      if (!acc || acc.status !== 'approved') this.sessions.delete(token);
+    }
+  }
+
   stop() {
-    this.sheets.flush();
+    this.accounts.flush();
     this.stopMdns();
     this.sessions.clear();
     if (!this.server) return Promise.resolve();
@@ -258,6 +283,8 @@ class LocalServer {
       setlist: payload.setlist && Array.isArray(payload.setlist.songs) ? payload.setlist : null,
       live: payload.live && typeof payload.live === 'object' ? payload.live : null,
       lyrics: payload.lyrics && typeof payload.lyrics === 'object' ? payload.lyrics : {},
+      // Estado completo do Modo Show para o VS Stage Remote (celular)
+      remote: payload.remote && typeof payload.remote === 'object' ? payload.remote : null,
     };
     this.publishedAt = new Date().toISOString();
     if (this.clearOverridesOnPublish) {
@@ -435,26 +462,37 @@ class LocalServer {
       const role = body?.role;
       if (!ROLES.has(role)) return this.json(res, 400, { error: 'bad_request' });
       if (this.banned.has(`${role}|${addr}`)) return this.json(res, 403, { error: 'invalid_code' });
+      if (role === 'musician') return this.musicianLogin(res, body, addr);
       const pin = String(body.pin ?? '');
       const valid = role === 'screen' ? pin.toUpperCase() === SCREEN_CODE : safeEqual(pin, this.pins[role]);
       if (!valid) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
       this.failures.delete(addr);
       const token = crypto.randomBytes(24).toString('base64url');
       const name = String(body.name ?? '').trim().slice(0, 60) || (role === 'screen' ? 'Tela do palco' : 'Sem nome');
-      const sheetKey = role === 'musician' ? this.sheets.touch(name) : null;
-      this.sessions.set(token, { id: crypto.randomUUID(), role, name, sheetKey, address: addr, lastSeen: Date.now() });
+      this.sessions.set(token, { id: crypto.randomUUID(), role, name, address: addr, lastSeen: Date.now() });
       return this.json(res, 200, { token });
     }
 
     const s = this.session(req);
     if (!s) return this.json(res, 401, { error: 'invalid_code' });
 
+    // VS Stage Remote: o Modo Show inteiro, só para quem entrou com o PIN do Remote
+    if (route === 'remote-state' && req.method === 'GET') {
+      if (s.role !== 'remote') return this.json(res, 403, { error: 'forbidden' });
+      if (!this.published?.remote) return this.json(res, 503, { error: 'not_ready' });
+      return this.json(res, 200, { remote: this.published.remote, server_now: Date.now() });
+    }
+
     if (route === 'state' && req.method === 'GET') {
       if (!this.published?.setlist) return this.json(res, 503, { error: 'not_ready' });
       const now = new Date().toISOString();
       const show = { name: this.published.name, setlist: this.published.setlist, live: this.published.live, live_at: this.publishedAt };
       if (s.role === 'musician') {
-        return this.json(res, 200, { musician: { id: s.id, name: s.name, instrument: '' }, show, server_now: now });
+        const acc = this.accounts.find(s.accountId);
+        return this.json(res, 200, {
+          musician: { id: acc?.id ?? s.id, name: acc?.name ?? s.name, instrument: acc?.instrument ?? '', username: acc?.username ?? '' },
+          show, server_now: now,
+        });
       }
       const lyrics = Object.entries(this.mergedLyrics()).map(([song_id, pages]) => ({
         song_id, pages, updated_at: this.lyricsUpdatedAt[song_id] || this.publishedAt,
@@ -476,9 +514,12 @@ class LocalServer {
       });
     }
 
-    if (s.role === 'musician' && s.sheetKey) return this.musicianApi(req, res, route, s);
+    if (s.role === 'musician' && s.accountId) return this.musicianApi(req, res, route, s);
 
+    // Comandos do VS Stage Remote. Só o papel `remote` manda: a tela do palco entra com um
+    // código fixo e não pode tocar nem parar o show.
     if (route === 'transport' && req.method === 'POST') {
+      if (s.role !== 'remote') return this.json(res, 403, { error: 'forbidden' });
       const body = await this.readBody(req).catch(() => null);
       if (!body || typeof body.action !== 'string') return this.json(res, 400, { error: 'bad_request' });
       if (this.onTransportCommand) {
@@ -535,11 +576,46 @@ class LocalServer {
     return this.json(res, 404, { error: 'not_found' });
   }
 
+  /**
+   * Entrada do músico: `mode`
+   * - `signup`: PIN dos músicos + nome, instrumento, usuário e senha. A conta nasce pendente.
+   * - `login`: usuário e senha. Senha zerada pelo diretor: PIN + `newPassword`.
+   * - `resume`: o aparelho lembrado (`remember`), sem digitar nada.
+   * Pendente responde `{ pending: true, remember }`: o celular espera o diretor aprovar.
+   */
+  musicianLogin(res, body, addr) {
+    const mode = String(body.mode ?? 'login');
+    const pinOk = safeEqual(String(body.pin ?? ''), this.pins.musician);
+    let result;
+    if (mode === 'signup') {
+      if (!pinOk) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
+      result = this.accounts.signup({ username: body.username, password: body.password, name: body.name, instrument: body.instrument });
+      if (result.account && !result.error) result = { account: result.account, error: 'pending' };
+    } else if (mode === 'resume') {
+      result = this.accounts.resume(body.remember);
+    } else {
+      if (body.newPassword && !pinOk) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
+      result = this.accounts.login({ username: body.username, password: body.password, newPassword: body.newPassword, pinOk });
+    }
+    if (!result.account) {
+      if (result.error === 'wrong_login') this.noteFailure(addr);
+      const status = { wrong_login: 401, blocked: 403, username_taken: 409, needs_password: 409 }[result.error] || 400;
+      return this.json(res, status, { error: result.error || 'bad_request' });
+    }
+    this.failures.delete(addr);
+    const acc = result.account;
+    const remember = mode === 'resume' ? String(body.remember) : this.accounts.remember(acc);
+    if (result.error === 'pending') return this.json(res, 202, { pending: true, remember, name: acc.name });
+    const token = crypto.randomBytes(24).toString('base64url');
+    this.sessions.set(token, { id: crypto.randomUUID(), role: 'musician', name: acc.name, accountId: acc.id, address: addr, lastSeen: Date.now() });
+    return this.json(res, 200, { token, remember, name: acc.name });
+  }
+
   async musicianApi(req, res, route, s) {
-    const key = s.sheetKey;
+    const key = s.accountId;
     if (req.method === 'GET') {
-      if (route === 'sheets') return this.json(res, 200, { sheets: this.sheets.list(key) });
-      if (route === 'colleagues') return this.json(res, 200, { colleagues: this.sheets.colleagues(key) });
+      if (route === 'sheets') return this.json(res, 200, { sheets: this.accounts.list(key) });
+      if (route === 'colleagues') return this.json(res, 200, { colleagues: this.accounts.colleagues(key) });
       if (route.startsWith('song-lyrics/')) {
         const pages = this.mergedLyrics()[decodeURIComponent(route.slice('song-lyrics/'.length))];
         const texts = Array.isArray(pages) ? pages.map((p) => (p && typeof p.text === 'string' ? p.text : '')).filter((t) => t.trim()) : [];
@@ -551,16 +627,21 @@ class LocalServer {
     const body = await this.readBody(req).catch(() => null);
     if (!body || typeof body !== 'object') return this.json(res, 400, { error: 'bad_request' });
 
+    if (route === 'logout') {
+      this.accounts.forget(this.accounts.find(key), String(body.remember ?? ''));
+      for (const [token, x] of this.sessions) if (x === s) this.sessions.delete(token);
+      return this.json(res, 200, { ok: true });
+    }
     if (route === 'sheet-save') {
-      const id = this.sheets.save(key, body);
+      const id = this.accounts.save(key, body);
       return id ? this.json(res, 200, { id }) : this.json(res, 400, { error: 'bad_request' });
     }
     if (route === 'sheet-delete') {
-      this.sheets.remove(key, String(body.sheetId ?? ''));
+      this.accounts.remove(key, String(body.sheetId ?? ''));
       return this.json(res, 200, { ok: true });
     }
     if (route === 'sheet-share') {
-      const count = this.sheets.share(key, String(body.sheetId ?? ''), body.targets);
+      const count = this.accounts.share(key, String(body.sheetId ?? ''), body.targets);
       return count === null ? this.json(res, 400, { error: 'bad_request' }) : this.json(res, 200, { count });
     }
     return this.json(res, 404, { error: 'not_found' });

@@ -102,7 +102,7 @@ export function SectionPads({ song }: { song: Song }) {
   );
 }
 
-function followingRegion(regions: SongRegion[], time: number): SongRegion | null {
+export function followingRegion(regions: SongRegion[], time: number): SongRegion | null {
   const current = regionAt(regions, time);
   if (current) {
     const idx = regions.findIndex((r) => r.id === current.id);
@@ -112,7 +112,7 @@ function followingRegion(regions: SongRegion[], time: number): SongRegion | null
 }
 
 /** Termina a passada atual (mesmo em loop) e segue para a parte seguinte. */
-function skipSection(song: Song) {
+export function skipSection(song: Song) {
   const st = useStore.getState();
   const next = followingRegion(sortedRegions(song.regions), st.transport.currentTime);
   if (!next) return;
@@ -120,7 +120,7 @@ function skipSection(song: Song) {
   st.setQueuedRegion(queued ? null : { songId: song.id, regionId: next.id });
 }
 
-function pickSection(song: Song, region: SongRegion) {
+export function pickSection(song: Song, region: SongRegion) {
   const st = useStore.getState();
   const current = regionAt(song.regions, st.transport.currentTime);
   if (current?.id === region.id && st.transport.isPlaying) {

@@ -16,6 +16,7 @@ import {
 import { useStore } from '@/store';
 import { isCurrentOutput, isTimecodeTrackId, outputOptions, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import type { Track } from '@/types';
+import ClickMenuItems from '@/components/ClickMenuItems';
 
 const DAW_COLORS = [
   '#30d158', // Verde
@@ -74,6 +75,8 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
   const normalizeTrack = useStore((s) => s.normalizeTrack);
+  // a música que a timeline mostra: a selecionada ou, sem seleção, a primeira da playlist
+  const viewSongId = useStore((s) => s.selectedSongId ?? s.playlist[0]?.songId ?? null);
   // A pasta normaliza os clipes das subfaixas de dentro; a faixa normaliza os próprios.
   const clipCount = useStore((s) => {
     if (!s.tracks.some((t) => t.id === track.id)) return 0;
@@ -405,6 +408,17 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
             <span className="text-[9px] font-mono text-logic-text-muted shrink-0">{clipCount} clipe{clipCount === 1 ? '' : 's'}</span>
           </button>
         )
+      )}
+
+      {track.id === 'track-click' && (
+        <>
+          <div className="h-px bg-white/10 my-1" />
+          <ClickMenuItems
+            songId={viewSongId}
+            onClose={onClose}
+            itemClass="w-full px-3 py-2 text-left flex items-center justify-between gap-3 transition text-white/90 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          />
+        </>
       )}
 
       <div className="h-px bg-white/10 my-1" />

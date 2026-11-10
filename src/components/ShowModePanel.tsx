@@ -37,7 +37,7 @@ function useClock() {
 }
 
 // Nome curto da placa em uso: sem o "Default - " e sem o código USB do fim (ex.: "(1235:821d)").
-function interfaceName(label: string): string {
+export function interfaceName(label: string): string {
   const name = label.replace(/^Default\s*-\s*/i, '').replace(/\s*\([0-9a-f]{4}:[0-9a-f]{4}\)\s*$/i, '').trim();
   return !name || name === 'default' ? 'Saída padrão' : name;
 }

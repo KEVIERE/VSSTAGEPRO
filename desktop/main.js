@@ -325,6 +325,7 @@ handle('publish', (payload) => server.publish(payload));
 handle('regeneratePin', (role) => { server.regeneratePin(role); return server.info(); });
 handle('kick', (id) => server.kick(String(id)));
 handle('ackLyricsSave', () => server.ackLyricsSave());
+handle('setMusicianBook', (book) => server.setMusicianBook(book));
 handle('networkCheck', async () => (await networkCheck(server)).checks);
 handle('openAction', async (action) => {
   if (action === 'router') {
@@ -456,6 +457,10 @@ if (hasSingleInstance) app.whenReady().then(() => {
     version: app.getVersion(),
     onTransportCommand: (cmd) => {
       if (win && !win.isDestroyed()) win.webContents.send('remote:transport', cmd);
+    },
+    // conta nova, caderno salvo ou senha trocada pela rede: vai para o projeto aberto
+    onAccountsChange: (change) => {
+      if (win && !win.isDestroyed()) win.webContents.send('local:accounts', change);
     },
   });
 

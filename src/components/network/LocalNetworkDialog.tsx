@@ -5,6 +5,7 @@ import {
 import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { ROLE_LABEL, type LocalRole, type PinRole } from '@/lib/localNetwork';
 import NetworkAssistant from '@/components/network/NetworkAssistant';
+import MusicianAccountsPanel from '@/components/network/MusicianAccountsPanel';
 
 const ROLE_ICON: Record<LocalRole, typeof Music> = { musician: Music, producer: Clapperboard, screen: MonitorPlay, remote: Smartphone };
 const ROLE_TONE: Record<LocalRole, string> = {
@@ -64,7 +65,7 @@ function MacOnly() {
         {[
           ['Ligue o roteador do palco', 'Não precisa ter internet. O Mac e os aparelhos só precisam estar no mesmo Wi-Fi.'],
           ['Escolha Rede Local', 'Pela setinha ao lado do botão Show Online ou pelo menu Arquivo.'],
-          ['Mostre os QR codes', 'Produtor e TV do palco escaneiam e entram na hora. Os músicos escaneiam e digitam o PIN na primeira vez; depois o celular fica lembrado.'],
+          ['Mostre os QR codes', 'Produtor e TV do palco escaneiam e entram na hora. Cada músico escaneia, cria a conta dele (usuário, senha e o PIN dos músicos) e você aprova; depois ele entra só com usuário e senha.'],
           ['Use Configurar Rede', 'O programa testa tudo e avisa com "Rede pronta" quando estiver funcionando.'],
         ].map(([t, d], i) => (
           <li key={t} className="flex gap-3">
@@ -163,6 +164,8 @@ function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: 
           </ul>
         )}
       </section>
+
+      <MusicianAccountsPanel />
 
       <div className="flex items-center justify-between gap-3 pt-1">
         <p className="text-2xs text-logic-text-muted flex items-center gap-1.5"><Smartphone size={12} /> Todos precisam estar no mesmo Wi-Fi do Mac.</p>

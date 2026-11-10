@@ -10,6 +10,7 @@ import type { DirectorMusician, ShowInvite } from '@/lib/musicianTypes';
 import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
 import { publicLink, usePublicAddress } from '@/lib/publicUrl';
 import PublicLinkNotice from '@/components/PublicLinkNotice';
+import OnlineRemoteCard from '@/components/remote/OnlineRemoteCard';
 import { friendlyError } from '@/lib/friendlyError';
 
 const POLL_MS = 5000;
@@ -234,6 +235,7 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
         </div>
 
         <div className="flex-1 overflow-y-auto logic-scroll px-5 py-4">
+          <OnlineRemoteCard />
           {show && <div className="mb-3"><PublicLinkNotice /></div>}
           {error && (
             <div className="mb-3 px-3 py-2 rounded bg-logic-lcd-red/15 border border-logic-lcd-red/40 text-xs text-logic-lcd-red">

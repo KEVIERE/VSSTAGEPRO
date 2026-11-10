@@ -2360,6 +2360,7 @@ export default function TimelinePanel() {
                         onEdit={(n) => setReadingNarrationId(n.id)}
                         onCreate={createNarration}
                         onEditCount={(group) => setCountTarget({ kind: 'edit', group })}
+                        move={moveDrag}
                       />
                     )}
                     </div>

@@ -131,7 +131,7 @@ const CAP_CLASS: Record<CapTone, string> = {
 
 // Fader de mesa: escala impressa à esquerda, fenda no painel e a capa com frisos.
 // Curso exato em pixels: onde o mouse arrasta é onde a capa fica.
-function Fader({
+export function Fader({
   value,
   onChange,
   onDoubleClick,
@@ -188,7 +188,7 @@ function Fader({
   return (
     <div
       className="relative flex cursor-ns-resize select-none"
-      style={{ width: `${SCALE_W + width}px`, height: `${height}px` }}
+      style={{ width: `${SCALE_W + width}px`, height: `${height}px`, touchAction: 'none' }}
       onPointerDown={handleDown}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
       title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}

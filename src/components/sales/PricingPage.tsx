@@ -404,7 +404,7 @@ export default function PricingPage() {
                 <button
                   type="button"
                   onClick={() => handleStartPix('monthly')}
-                  className="w-full h-13 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white font-semibold text-sm border border-white/15 transition-all duration-150 flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                  className="w-full h-14 rounded-full bg-white/[0.08] hover:bg-white/[0.15] text-white font-semibold text-base border border-white/15 transition-all duration-150 flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
                 >
                   <CreditCard size={18} />
                   <span>Assinar Plano Mensal ({MONTHLY_PRICE}/mês)</span>
@@ -493,7 +493,7 @@ export default function PricingPage() {
                 <button
                   type="button"
                   onClick={() => handleStartPix('yearly')}
-                  className="relative overflow-hidden w-full h-13 rounded-full btn-apple-blue text-white font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-[#0071e3]/30"
+                  className="relative overflow-hidden w-full h-14 rounded-full btn-apple-blue text-white font-semibold text-base flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98] disabled:opacity-50 shadow-lg shadow-[#0071e3]/30"
                 >
                   <Zap size={18} />
                   <span>Assinar Plano Anual ({YEARLY_MONTH_EQUIV}/mês)</span>
@@ -685,9 +685,9 @@ export default function PricingPage() {
           onClick={() => setPixPlan(null)}
         >
           <AccessCard
-            role="dialog" aria-modal="true" aria-label="Pagamento PIX" width={420} className="max-w-full"
+            role="dialog" aria-modal="true" aria-label="Pagamento" width={420} className="max-w-full"
             onClick={(e) => e.stopPropagation()}
-            label="Pagamento PIX"
+            label="Pagamento"
             status={(
               <button className="console-key w-7 h-6 flex items-center justify-center" onClick={() => setPixPlan(null)} aria-label="Fechar">
                 <X size={13} />
@@ -695,7 +695,7 @@ export default function PricingPage() {
             )}
           >
             <div className="px-6 pt-6 pb-6">
-              <h2 className="font-stage font-bold text-[1.6rem] leading-none text-logic-text text-center mb-5">Pague com PIX</h2>
+              <h2 className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">Pague com PIX, cartão ou Apple Pay</h2>
               <PixCheckout
                 key={pixPlan}
                 plan={pixPlan}

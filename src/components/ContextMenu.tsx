@@ -7,6 +7,7 @@ import { canSplitClipStems, isDrumClip, isSplittingStems, startClipStemSplit } f
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
 import NarrationDialog from '@/components/NarrationDialog';
+import ClickMenuItems from '@/components/ClickMenuItems';
 
 interface ContextMenuState {
   visible: boolean;
@@ -331,6 +332,16 @@ export default function ContextMenu() {
               </button>
             );
           })()}
+          {clip.trackId === 'track-click' && (
+            <>
+              <div className="h-px bg-logic-border-dark my-1" />
+              <ClickMenuItems
+                songId={clip.songId}
+                onClose={closeMenu}
+                itemClass="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit"
+              />
+            </>
+          )}
         </>
       )}
 

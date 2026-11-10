@@ -1,0 +1,679 @@
+<title>Símbolo VS Stage Oficial</title>
+<style>
+  :root {
+    --bg-page: #0a0b0e;
+    --bg-card: #13141b;
+    --bg-card-hover: #191b24;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.22);
+    --text-primary: #ffffff;
+    --text-secondary: #9ea3b5;
+    --text-muted: #656a7d;
+    --accent-amber: #ff9f0a;
+    --accent-green: #22c55e;
+    --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg-page);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    padding-inline: 24px;
+    padding-block: 36px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background-image:
+      radial-gradient(ellipse at 50% 0%, rgba(255, 159, 10, 0.09) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 80%, rgba(34, 197, 94, 0.05) 0%, transparent 60%);
+  }
+
+  .container {
+    max-width: 1100px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .tag {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    font-weight: 700;
+    color: var(--accent-amber);
+    background: rgba(255, 159, 10, 0.12);
+    border: 1px solid rgba(255, 159, 10, 0.3);
+    padding: 4px 12px;
+    border-radius: 999px;
+  }
+
+  h1 {
+    font-size: clamp(24px, 4vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(180deg, #ffffff 0%, #b0b4c3 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--text-secondary);
+    max-width: 650px;
+    line-height: 1.6;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 22px;
+  }
+
+  .card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .card:hover {
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+  }
+
+  .card-badge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--accent-amber);
+    background: rgba(255, 159, 10, 0.12);
+    border: 1px solid rgba(255, 159, 10, 0.25);
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+
+  .logo-preview-box {
+    width: 100%;
+    aspect-ratio: 1;
+    background: radial-gradient(circle at center, #1a1c24 0%, #0c0d12 85%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.6);
+    padding: 20px;
+  }
+
+  .logo-preview-box svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.6));
+    transition: transform 0.3s ease;
+  }
+
+  .card:hover .logo-preview-box svg {
+    transform: scale(1.04);
+  }
+
+  .info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .title-row h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .desc {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  .details {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .detail-item {
+    font-size: 11.5px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    line-height: 1.4;
+  }
+
+  .detail-item strong {
+    color: #e0e3ed;
+  }
+
+  /* Seção de Demonstração no Dock */
+  .dock-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .dock-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+
+  .dock-bar {
+    background: rgba(24, 25, 34, 0.7);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 22px;
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 32px;
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+  }
+
+  .dock-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+
+  .dock-item:hover {
+    transform: translateY(-8px) scale(1.1);
+  }
+
+  .dock-icon-squircle {
+    width: 68px;
+    height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dock-icon-squircle svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  .dock-item span {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .dock-item.active span {
+    color: var(--accent-amber);
+  }
+</style>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+
+<div class="container">
+  <div class="header">
+    <div class="tag">Logo Oficial VS Stage Pro</div>
+    <h1>O Play com Onda Sonora & Timeline</h1>
+    <p class="subtitle">
+      A sua logo definitiva: o <strong>botão Play central em vidro/acrílico</strong>, a <strong>onda sonora fluída e luminosa</strong> cruzando o palco, o <strong>playhead âmbar vertical</strong> e a <strong>grade de compassos da timeline</strong> gravada no chassi do ícone.
+    </p>
+  </div>
+
+  <div class="card" style="border-color: rgba(255, 159, 10, 0.4); background: radial-gradient(circle at center, #1e202a 0%, #121318 80%); box-shadow: 0 0 40px rgba(255,159,10,0.15);">
+    <span class="card-badge" style="background: rgba(255,159,10,0.2); color: #ffb834; border-color: rgba(255,159,10,0.5);">Oficial Escolhida</span>
+    <div class="logo-preview-box" style="aspect-ratio: 16/9; max-height: 380px;">
+      <img src="/logo-nova.svg" alt="Logo Nova VS Stage Pro" style="max-height: 340px; width: auto; object-fit: contain; filter: drop-shadow(0 20px 30px rgba(0,0,0,0.7));" />
+    </div>
+    <div class="info">
+      <div class="title-row">
+        <h3 style="font-size: 20px;">VS Stage Pro — Live Performance Engine</h3>
+        <span class="daw-ref" style="font-size: 13px;">Padrão Mundial</span>
+      </div>
+      <p class="desc" style="font-size: 14px;">
+        O Play translúcido em metal e vidro escovado com o pulso sonoro cortando a timeline. Aplicada em 100% do aplicativo e do site oficial no padrão Apple Logic Pro.
+      </p>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- VARIAÇÃO 1: Timeline com Formas de Onda (Waveforms Reais) -->
+    <div class="card">
+      <span class="card-badge">Variação 1</span>
+      <div class="logo-preview-box">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
+          <defs>
+            <linearGradient id="appBase1" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#22242a" />
+              <stop offset="100%" stop-color="#0e0f13" />
+            </linearGradient>
+            <radialGradient id="sphere1" cx="45%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#555861" />
+              <stop offset="35%" stop-color="#15171c" />
+              <stop offset="85%" stop-color="#000000" />
+              <stop offset="100%" stop-color="#030303" />
+            </radialGradient>
+            <filter id="glowOrange1" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <filter id="glowGreen1" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <!-- Máscara do squircle para a timeline não vazar -->
+            <clipPath id="squircleClip1">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" />
+            </clipPath>
+          </defs>
+
+          <g transform="translate(160, 160)">
+            <!-- Fundo Squircle Base -->
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#appBase1)" stroke="#2c2f38" stroke-width="1.2" />
+
+            <!-- CAMADA ESMAECIDA: A TIMELINE REAL POR TRÁS -->
+            <g clip-path="url(#squircleClip1)" opacity="0.28">
+              <!-- Grade de Compassos da Timeline (Linhas Verticais) -->
+              <line x1="-80" y1="-110" x2="-80" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.3" stroke-dasharray="3 3" />
+              <line x1="-35" y1="-110" x2="-35" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.4" />
+              <line x1="10" y1="-110" x2="10" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.3" stroke-dasharray="3 3" />
+              <line x1="55" y1="-110" x2="55" y2="110" stroke="#ffffff" stroke-width="0.8" opacity="0.4" />
+
+              <!-- Faixa 1: Timecode Track (Superior) -->
+              <rect x="-110" y="-85" width="220" height="34" fill="#ff9f0a" opacity="0.08" />
+              <line x1="-110" y1="-51" x2="110" y2="-51" stroke="#ffffff" stroke-width="0.8" opacity="0.2" />
+              <!-- Bloco Timecode -->
+              <rect x="-70" y="-80" width="110" height="24" rx="4" fill="#ff9f0a" opacity="0.35" />
+              <polyline points="-65,-68 -55,-64 -45,-72 -35,-65 -25,-68 -15,-62 -5,-70 5,-66 15,-71 25,-67" fill="none" stroke="#fff" stroke-width="1.2" opacity="0.7" />
+
+              <!-- Faixa 2: Pista de Áudio (Central) -->
+              <rect x="-110" y="-51" width="220" height="48" fill="#000000" opacity="0.25" />
+              <line x1="-110" y1="-3" x2="110" y2="-3" stroke="#ffffff" stroke-width="0.8" opacity="0.2" />
+              <!-- Clipes de Áudio com Waveform -->
+              <rect x="-100" y="-45" width="85" height="36" rx="5" fill="#38bdf8" opacity="0.35" />
+              <polyline points="-95,-27 -85,-18 -75,-35 -65,-22 -55,-30 -45,-25 -35,-32 -25,-27" fill="none" stroke="#e0f2fe" stroke-width="1.5" opacity="0.8" />
+              <rect x="0" y="-45" width="95" height="36" rx="5" fill="#c084fc" opacity="0.35" />
+              <polyline points="5,-27 15,-18 25,-34 35,-20 45,-32 55,-24 65,-30 75,-27" fill="none" stroke="#f3e8ff" stroke-width="1.5" opacity="0.8" />
+
+              <!-- Faixa 3: Pista Maestro/Voz (Inferior) -->
+              <rect x="-110" y="-3" width="220" height="48" fill="#22c55e" opacity="0.06" />
+              <line x1="-110" y1="45" x2="110" y2="45" stroke="#ffffff" stroke-width="0.8" opacity="0.2" />
+              <!-- Clipes Maestro -->
+              <rect x="-60" y="5" width="130" height="34" rx="5" fill="#4ade80" opacity="0.3" />
+              <polyline points="-55,22 -45,15 -35,28 -25,18 -15,26 -5,20 5,27 15,19 25,24 35,20 45,26 55,22" fill="none" stroke="#dcfce7" stroke-width="1.3" opacity="0.7" />
+            </g>
+
+            <!-- ANÉIS DE ÓRBITA TRASEIROS -->
+            <g transform="rotate(22)">
+              <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+            </g>
+            <g transform="rotate(-18)">
+              <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+            </g>
+
+            <!-- ESFERA CENTRAL -->
+            <circle cx="0" cy="0" r="55" fill="url(#sphere1)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.08" />
+            <path d="M -35 40 A 45 45 0 0 0 35 40 Q 0 30 -35 40" fill="#4ade80" opacity="0.08" />
+
+            <!-- ANÉIS DE ÓRBITA FRONTAIS NÉON -->
+            <g transform="rotate(22)">
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#glowOrange1)" stroke-linecap="round" />
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.95" />
+            </g>
+            <g transform="rotate(-18)">
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glowGreen1)" stroke-linecap="round" />
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.95" />
+            </g>
+
+            <!-- BOTÃO PLAY -->
+            <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+          </g>
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>Waveforms & Stems</h3>
+        </div>
+        <p class="desc">
+          Faixas horizontais com blocos de áudio multitrack (azul, lilás e verde) e ondas senoidais esmaecidas por trás dos anéis.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Fundo:</strong> Clipes de áudio reais com formato de onda cortando o fundo.</div>
+        <div class="detail-item"><strong>Sensação:</strong> DAW de alta tecnologia em plena execução.</div>
+      </div>
+    </div>
+
+    <!-- VARIAÇÃO 2: Grade Arquitetural de DAW com Compassos -->
+    <div class="card">
+      <span class="card-badge">Variação 2</span>
+      <div class="logo-preview-box">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
+          <defs>
+            <linearGradient id="appBase2" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#24262c" />
+              <stop offset="100%" stop-color="#0d0e12" />
+            </linearGradient>
+            <radialGradient id="sphere2" cx="45%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#555861" />
+              <stop offset="35%" stop-color="#15171c" />
+              <stop offset="85%" stop-color="#000000" />
+              <stop offset="100%" stop-color="#030303" />
+            </radialGradient>
+            <filter id="glowOrange2" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <filter id="glowGreen2" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <clipPath id="squircleClip2">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" />
+            </clipPath>
+          </defs>
+
+          <g transform="translate(160, 160)">
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#appBase2)" stroke="#2c2f38" stroke-width="1.2" />
+
+            <!-- CAMADA ESMAECIDA: GRADE MINIMALISTA DE COMPASSOS & FADERS -->
+            <g clip-path="url(#squircleClip2)" opacity="0.22">
+              <!-- Grid denso de compassos (1, 2, 3, 4...) -->
+              <line x1="-90" y1="-110" x2="-90" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+              <line x1="-60" y1="-110" x2="-60" y2="110" stroke="#ffffff" stroke-width="0.5" opacity="0.2" />
+              <line x1="-30" y1="-110" x2="-30" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+              <line x1="0" y1="-110" x2="0" y2="110" stroke="#ff9f0a" stroke-width="1.5" opacity="0.5" /> <!-- Playhead central -->
+              <line x1="30" y1="-110" x2="30" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+              <line x1="60" y1="-110" x2="60" y2="110" stroke="#ffffff" stroke-width="0.5" opacity="0.2" />
+              <line x1="90" y1="-110" x2="90" y2="110" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+
+              <!-- Linhas horizontais das faixas -->
+              <line x1="-110" y1="-70" x2="110" y2="-70" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+              <line x1="-110" y1="-25" x2="110" y2="-25" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+              <line x1="-110" y1="20" x2="110" y2="20" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+              <line x1="-110" y1="65" x2="110" y2="65" stroke="#ffffff" stroke-width="1" opacity="0.2" />
+
+              <!-- Blocos sólidos geométricos de regiões -->
+              <rect x="-85" y="-66" width="50" height="38" rx="3" fill="#ffffff" opacity="0.15" />
+              <rect x="-30" y="-66" width="85" height="38" rx="3" fill="#ffffff" opacity="0.22" />
+              <rect x="-60" y="-21" width="115" height="38" rx="3" fill="#ffffff" opacity="0.25" />
+              <rect x="-85" y="24" width="70" height="38" rx="3" fill="#ffffff" opacity="0.18" />
+              <rect x="-10" y="24" width="75" height="38" rx="3" fill="#ffffff" opacity="0.22" />
+            </g>
+
+            <!-- ANÉIS DE ÓRBITA TRASEIROS -->
+            <g transform="rotate(22)">
+              <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+            </g>
+            <g transform="rotate(-18)">
+              <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+            </g>
+
+            <!-- ESFERA CENTRAL -->
+            <circle cx="0" cy="0" r="55" fill="url(#sphere2)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.08" />
+
+            <!-- ANÉIS DE ÓRBITA FRONTAIS NÉON -->
+            <g transform="rotate(22)">
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#glowOrange2)" stroke-linecap="round" />
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.95" />
+            </g>
+            <g transform="rotate(-18)">
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glowGreen2)" stroke-linecap="round" />
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.95" />
+            </g>
+
+            <!-- BOTÃO PLAY -->
+            <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+          </g>
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>Grid & Compassos</h3>
+        </div>
+        <p class="desc">
+          Grade arquitetural monocromática em alta precisão com linhas métricas e playhead central sob a esfera.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Fundo:</strong> Traços geométricos puros de tempo e compasso.</div>
+        <div class="detail-item"><strong>Sensação:</strong> Padrão sóbrio e industrial como hardware de rack.</div>
+      </div>
+    </div>
+
+    <!-- VARIAÇÃO 3: Multitrack Colors + Regiões de Medley -->
+    <div class="card">
+      <span class="card-badge">Variação 3</span>
+      <div class="logo-preview-box">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 320">
+          <defs>
+            <linearGradient id="appBase3" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#212328" />
+              <stop offset="100%" stop-color="#0c0d11" />
+            </linearGradient>
+            <radialGradient id="sphere3" cx="45%" cy="30%" r="65%">
+              <stop offset="0%" stop-color="#555861" />
+              <stop offset="35%" stop-color="#15171c" />
+              <stop offset="85%" stop-color="#000000" />
+              <stop offset="100%" stop-color="#030303" />
+            </radialGradient>
+            <filter id="glowOrange3" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <filter id="glowGreen3" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation="3.5" result="b1" /><feGaussianBlur stdDeviation="7" result="b2" />
+              <feMerge><feMergeNode in="b2" /><feMergeNode in="b1" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+            <clipPath id="squircleClip3">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" />
+            </clipPath>
+          </defs>
+
+          <g transform="translate(160, 160)">
+            <rect x="-110" y="-110" width="220" height="220" rx="55" fill="url(#appBase3)" stroke="#2c2f38" stroke-width="1.2" />
+
+            <!-- CAMADA ESMAECIDA: FAIXA MEDLEY SUPERIOR + BLOCOS DA TIMELINE -->
+            <g clip-path="url(#squircleClip3)" opacity="0.32">
+              <!-- Faixa de Medley colorida no topo da timeline -->
+              <rect x="-110" y="-95" width="90" height="18" fill="#a855f7" opacity="0.4" />
+              <rect x="-20" y="-95" width="130" height="18" fill="#3b82f6" opacity="0.4" />
+              <line x1="-110" y1="-77" x2="110" y2="-77" stroke="#ffffff" stroke-width="1" opacity="0.3" />
+
+              <!-- Pistas com blocos de áudio reais -->
+              <rect x="-110" y="-77" width="220" height="42" fill="#000" opacity="0.2" />
+              <rect x="-80" y="-72" width="70" height="32" rx="4" fill="#38bdf8" opacity="0.35" />
+              <rect x="0" y="-72" width="90" height="32" rx="4" fill="#38bdf8" opacity="0.35" />
+              <line x1="-110" y1="-35" x2="110" y2="-35" stroke="#ffffff" stroke-width="0.8" opacity="0.15" />
+
+              <rect x="-110" y="-35" width="220" height="42" fill="#000" opacity="0.3" />
+              <rect x="-100" y="-30" width="120" height="32" rx="4" fill="#eab308" opacity="0.35" />
+              <rect x="30" y="-30" width="70" height="32" rx="4" fill="#eab308" opacity="0.35" />
+              <line x1="-110" y1="7" x2="110" y2="7" stroke="#ffffff" stroke-width="0.8" opacity="0.15" />
+
+              <rect x="-110" y="7" width="220" height="42" fill="#000" opacity="0.2" />
+              <rect x="-70" y="12" width="140" height="32" rx="4" fill="#ec4899" opacity="0.3" />
+              <line x1="-110" y1="49" x2="110" y2="49" stroke="#ffffff" stroke-width="0.8" opacity="0.15" />
+
+              <!-- Linha de Playhead Brilhante descendo -->
+              <line x1="15" y1="-95" x2="15" y2="110" stroke="#ffffff" stroke-width="1.5" opacity="0.7" />
+            </g>
+
+            <!-- ANÉIS DE ÓRBITA TRASEIROS -->
+            <g transform="rotate(22)">
+              <ellipse cx="0" cy="0" rx="90" ry="22" fill="none" stroke="#9a3412" stroke-width="1.5" opacity="0.4" />
+            </g>
+            <g transform="rotate(-18)">
+              <ellipse cx="0" cy="0" rx="110" ry="28" fill="none" stroke="#14532d" stroke-width="1.5" opacity="0.4" />
+            </g>
+
+            <!-- ESFERA CENTRAL -->
+            <circle cx="0" cy="0" r="55" fill="url(#sphere3)" />
+            <path d="M -45 -15 A 50 50 0 0 1 45 -15 Q 0 10 -45 -15" fill="#ffffff" opacity="0.08" />
+
+            <!-- ANÉIS DE ÓRBITA FRONTAIS NÉON -->
+            <g transform="rotate(22)">
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#f59e0b" stroke-width="3.5" filter="url(#glowOrange3)" stroke-linecap="round" />
+              <path d="M -90 0 A 90 22 0 0 0 90 0" fill="none" stroke="#fde68a" stroke-width="1.2" stroke-linecap="round" opacity="0.95" />
+            </g>
+            <g transform="rotate(-18)">
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#22c55e" stroke-width="3.5" filter="url(#glowGreen3)" stroke-linecap="round" />
+              <path d="M -110 0 A 110 28 0 0 0 110 0" fill="none" stroke="#bbf7d0" stroke-width="1.5" stroke-linecap="round" opacity="0.95" />
+            </g>
+
+            <!-- BOTÃO PLAY -->
+            <polygon points="-8,-16 18,0 -8,16" fill="#ffffff" stroke="#ffffff" stroke-width="1" stroke-linejoin="round" />
+          </g>
+        </svg>
+      </div>
+      <div class="info">
+        <div class="title-row">
+          <h3>Medley & Multitrack</h3>
+        </div>
+        <p class="desc">
+          Inclui a faixa superior roxa/azul de Medley e blocos de clipes distribuídos com a agulha vertical do playhead.
+        </p>
+      </div>
+      <div class="details">
+        <div class="detail-item"><strong>Fundo:</strong> As cores autênticas dos stems do VS Stage Pro.</div>
+        <div class="detail-item"><strong>Sensação:</strong> Reconhecimento imediato do layout do software.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Demonstração Realista no Dock do Mac -->
+  <div class="dock-section">
+    <div class="dock-title">Visualização Aplicada no Dock do macOS</div>
+    <div class="dock-bar">
+      <!-- Item 1 -->
+      <div class="dock-item active" onclick="selectDock(1)">
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 320 320" fill="none">
+            <g transform="translate(160, 160)">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" fill="#1b1d24" stroke="#333" stroke-width="1" />
+              <!-- mini timeline -->
+              <line x1="-110" y1="-40" x2="110" y2="-40" stroke="#fff" opacity="0.15" />
+              <line x1="-110" y1="10" x2="110" y2="10" stroke="#fff" opacity="0.15" />
+              <rect x="-80" y="-35" width="60" height="35" rx="3" fill="#38bdf8" opacity="0.25" />
+              <rect x="-10" y="15" width="80" height="35" rx="3" fill="#4ade80" opacity="0.25" />
+              <!-- anéis e esfera -->
+              <ellipse cx="0" cy="0" rx="90" ry="22" stroke="#9a3412" stroke-width="1.5" opacity="0.4" transform="rotate(22)" />
+              <ellipse cx="0" cy="0" rx="110" ry="28" stroke="#14532d" stroke-width="1.5" opacity="0.4" transform="rotate(-18)" />
+              <circle cx="0" cy="0" r="55" fill="#101116" />
+              <g transform="rotate(22)"><path d="M -90 0 A 90 22 0 0 0 90 0" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" /></g>
+              <g transform="rotate(-18)"><path d="M -110 0 A 110 28 0 0 0 110 0" stroke="#22c55e" stroke-width="4" stroke-linecap="round" /></g>
+              <polygon points="-8,-16 18,0 -8,16" fill="#fff" />
+            </g>
+          </svg>
+        </div>
+        <span>Variação 1 (Waveforms)</span>
+      </div>
+
+      <!-- Item 2 -->
+      <div class="dock-item" onclick="selectDock(2)">
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 320 320" fill="none">
+            <g transform="translate(160, 160)">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" fill="#1b1d24" stroke="#333" stroke-width="1" />
+              <!-- mini grid -->
+              <line x1="-50" y1="-110" x2="-50" y2="110" stroke="#fff" opacity="0.15" />
+              <line x1="0" y1="-110" x2="0" y2="110" stroke="#ff9f0a" opacity="0.4" />
+              <line x1="50" y1="-110" x2="50" y2="110" stroke="#fff" opacity="0.15" />
+              <!-- anéis e esfera -->
+              <circle cx="0" cy="0" r="55" fill="#101116" />
+              <g transform="rotate(22)"><path d="M -90 0 A 90 22 0 0 0 90 0" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" /></g>
+              <g transform="rotate(-18)"><path d="M -110 0 A 110 28 0 0 0 110 0" stroke="#22c55e" stroke-width="4" stroke-linecap="round" /></g>
+              <polygon points="-8,-16 18,0 -8,16" fill="#fff" />
+            </g>
+          </svg>
+        </div>
+        <span>Variação 2 (Grid)</span>
+      </div>
+
+      <!-- Item 3 -->
+      <div class="dock-item" onclick="selectDock(3)">
+        <div class="dock-icon-squircle">
+          <svg viewBox="0 0 320 320" fill="none">
+            <g transform="translate(160, 160)">
+              <rect x="-110" y="-110" width="220" height="220" rx="55" fill="#1b1d24" stroke="#333" stroke-width="1" />
+              <!-- mini medley -->
+              <rect x="-110" y="-95" width="100" height="16" fill="#a855f7" opacity="0.3" />
+              <rect x="-10" y="-95" width="120" height="16" fill="#3b82f6" opacity="0.3" />
+              <circle cx="0" cy="0" r="55" fill="#101116" />
+              <g transform="rotate(22)"><path d="M -90 0 A 90 22 0 0 0 90 0" stroke="#f59e0b" stroke-width="4" stroke-linecap="round" /></g>
+              <g transform="rotate(-18)"><path d="M -110 0 A 110 28 0 0 0 110 0" stroke="#22c55e" stroke-width="4" stroke-linecap="round" /></g>
+              <polygon points="-8,-16 18,0 -8,16" fill="#fff" />
+            </g>
+          </svg>
+        </div>
+        <span>Variação 3 (Medley)</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function selectDock(id) {
+    document.querySelectorAll('.dock-item').forEach((el, idx) => {
+      if (idx + 1 === id) {
+        el.classList.add('active');
+        el.style.transform = 'translateY(-6px) scale(1.08)';
+      } else {
+        el.classList.remove('active');
+        el.style.transform = 'none';
+      }
+    });
+  }
+</script>

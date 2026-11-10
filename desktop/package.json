@@ -15,6 +15,7 @@
     "dist:signed": "npm run web && npm run file-icon && node scripts/bumpVersion.cjs && npm run background && npm run ensure-build-info && node scripts/patchDmgBuilder.cjs && electron-builder --mac --publish never"
   },
   "dependencies": {
+    "bcryptjs": "3.0.3",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

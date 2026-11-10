@@ -1,0 +1,7 @@
+{"codeCache":true,"readyAt":141,"domReady":453,"finishLoad":455,"firstPaint":236,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":2970}
+{"codeCache":true,"readyAt":108,"domReady":350,"finishLoad":357,"firstPaint":202,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":2867}
+{"codeCache":true,"readyAt":197,"domReady":491,"finishLoad":564,"firstPaint":234,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":3068}
+{"codeCache":true,"readyAt":102,"domReady":331,"finishLoad":331,"firstPaint":162,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":2841}
+{"codeCache":true,"readyAt":135,"domReady":353,"finishLoad":354,"firstPaint":144,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":2865}
+{"codeCache":true,"readyAt":36,"domReady":172,"finishLoad":173,"firstPaint":92,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":2680}
+{"codeCache":true,"readyAt":37,"domReady":208,"finishLoad":209,"firstPaint":131,"firstContentfulPaint":null,"rootChildren":1,"textLen":14802,"total":2724}

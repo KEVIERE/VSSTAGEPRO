@@ -10,6 +10,12 @@ contextBridge.exposeInMainWorld('vsLocal', {
   regeneratePin: call('regeneratePin'),
   kick: call('kick'),
   ackLyricsSave: call('ackLyricsSave'),
+  setMusicianBook: call('setMusicianBook'),
+  onMusicianAccounts: (cb) => {
+    const listener = (_event, change) => cb(change);
+    ipcRenderer.on('local:accounts', listener);
+    return () => ipcRenderer.removeListener('local:accounts', listener);
+  },
   networkCheck: call('networkCheck'),
   openAction: call('openAction'),
 });

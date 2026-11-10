@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>PROVA: 44,1k no worklet de 48k</title>
+<style>
+  body { font: 14px/1.6 -apple-system, system-ui, sans-serif; padding: 24px; background: #17181c; color: #e8e9ed; }
+  pre { background: #202127; padding: 14px; border-radius: 8px; white-space: pre-wrap; font-size: 13px; }
+  .ok { color: #45c07a; } .ruim { color: #e05a4f; } .aviso { color: #f0a92c; }
+</style>
+</head>
+<body>
+<h1>Um áudio de 44,1 kHz tocado por um worklet de 48 kHz</h1>
+<p>Reproduz o caminho das peças separadas: <code>Buffer 44100</code> → worklet que lê 1 amostra por frame de saída.</p>
+<pre id="saida">rodando...</pre>
+<script>
+const saida = document.getElementById('saida');
+const L = [];
+const log = (t, c) => { L.push(c ? `<span class="${c}">${t}</span>` : t); saida.innerHTML = L.join('\n'); };
+
+async function testar() {
+  const SR_CTX = 48000;     // taxa do dispositivo
+  const SR_AUDIO = 44100;   // taxa das peças separadas
+  const DUR = 30;
+
+  log(`worklet roda a ${SR_CTX} Hz`);
+  log(`peças estão a ${SR_AUDIO} Hz`);
+  log('');
+
+  // Buffer na taxa do ÁUDIO (44100), com impulsos em 1 s e 10 s
+  const n = SR_AUDIO * DUR;
+  const esquerda = new Float32Array(n);
+  const direita = new Float32Array(n);
+  const larg = Math.round(0.003 * SR_AUDIO);
+  for (const t of [1, 10]) {
+    const ini = Math.round(t * SR_AUDIO);
+    for (let i = 0; i < larg; i++) {
+      const v = Math.sin(i / larg * Math.PI) * 0.9;
+      esquerda[ini + i] = v;
+      direita[ini + i] = v;
+    }
+  }
+
+  // Gera o PCM como o app gera (Int16), na taxa do áudio
+  const int16 = new Int16Array(n);
+  for (let i = 0; i < n; i++) int16[i] = Math.round(esquerda[i] * 0x7fff);
+
+  // Simula o worklet: lê 1 amostra por frame na taxa do contexto.
+  // O frame de saída avança 1/SR_CTX em tempo real, mas o índice avança 1 amostra do áudio de 44100.
+  const framesDeSaida = Math.round(DUR * SR_CTX);
+  const saidaL = new Float32Array(framesDeSaida);
+  for (let f = 0; f < framesDeSaida; f++) {
+    saidaL[f] = f < int16.length ? int16[f] / 0x7fff : 0;
+  }
+
+  // Onde os impulsos caíram, medidos em SEGUNDOS REAIS (frames de saída / taxa do contexto)
+  const janela = Math.round(0.05 * SR_CTX);
+  log('Impulsos, medidos no tempo REAL de reprodução:');
+  for (const esperado of [1, 10]) {
+    const centro = Math.round(esperado * SR_CTX);
+    let maior = 0, pos = centro;
+    for (let i = Math.max(0, centro - janela * 20); i < Math.min(framesDeSaida, centro + janela * 20); i++) {
+      const a = Math.abs(saidaL[i]);
+      if (a > maior) { maior = a; pos = i; }
+    }
+    const realSeg = pos / SR_CTX;
+    const erroMs = (realSeg - esperado) * 1000;
+    log(`  deveria soar em ${esperado}.000 s → soou em ${realSeg.toFixed(4)} s  (${erroMs >= 0 ? '+' : ''}${erroMs.toFixed(0)} ms)`,
+        Math.abs(erroMs) > 20 ? 'ruim' : 'ok');
+  }
+
+  log('');
+  const razao = SR_CTX / SR_AUDIO;
+  log(`o áudio de 44,1k roda ${razao.toFixed(3)}x mais rápido (lê 1 amostra de 44100 por frame de 48000)`, 'ruim');
+  log(`a música de ${DUR} s termina em ${(DUR / razao).toFixed(2)} s`, 'ruim');
+  log(`deriva acumulada: ${((1 - 1/razao) * 100).toFixed(1)}%  →  ${((1 - 1/razao) * 60000).toFixed(0)} ms por minuto`, 'ruim');
+  log('');
+  log('>>> ISSO explica "peças vs música": as peças ficam ADIANTADAS e o erro cresce.', 'aviso');
+  log('As peças foram criadas a 44100 (toStereo44k) e guardadas com putClipAudio,', 'aviso');
+  log('que NÃO converte para a taxa do dispositivo (openClipAudio/readWav converte).', 'aviso');
+}
+
+testar().catch((e) => log('ERRO: ' + e.message, 'ruim'));
+</script>
+</body>
+</html>

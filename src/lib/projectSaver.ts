@@ -45,6 +45,7 @@ export type SavedManifest = {
   songKeys?: Record<string, { key: string; sig: string }>;
   dawMode?: boolean;
   lyricMaps?: ProjectState['lyricMaps'];
+  musicianBook?: ProjectState['musicianBook'];
   assets?: Array<{ clipId: string; path: string; offset: number; size: number }>;
 };
 
@@ -115,6 +116,7 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     dawMode: state.dawMode,
     audioInterface: state.audioInterface,
     lyricMaps: state.lyricMaps,
+    musicianBook: state.musicianBook ?? null,
   };
 }
 

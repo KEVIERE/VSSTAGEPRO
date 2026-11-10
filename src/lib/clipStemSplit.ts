@@ -43,7 +43,7 @@ export function cancelClipStemSplit(): void {
 
 const CANCELLED = 'stem_split_cancelled';
 
-async function clipInput(clip: AudioClip): Promise<AudioBuffer> {
+export async function clipInput(clip: AudioClip): Promise<AudioBuffer> {
   const source = getClipSource(clip.id);
   if (source) return decodeBlob(source);
   const raw = getClipAudio(clip.id);
@@ -72,7 +72,7 @@ async function toStereo44k(input: AudioBuffer): Promise<AudioBuffer> {
  * eram guardadas com `putClipAudio`, que — ao contrário de `openClipAudio`/`readWav` — não
  * converte para a taxa do dispositivo.
  */
-async function toDeviceRate(input: AudioBuffer): Promise<AudioBuffer> {
+export async function toDeviceRate(input: AudioBuffer): Promise<AudioBuffer> {
   const rate = deviceSampleRate();
   if (input.sampleRate === rate) return input;
   const length = Math.max(1, Math.round(input.duration * rate));

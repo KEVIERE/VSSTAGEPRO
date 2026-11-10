@@ -344,7 +344,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                         <button
                           onClick={() => start(build)}
                           disabled={busy}
-                          className={`relative overflow-hidden w-full h-13 rounded-full font-bold text-sm tracking-tight flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-[0.98] ${
+                          className={`relative overflow-hidden w-full h-14 rounded-full font-bold text-sm tracking-tight flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-[0.98] ${
                             isSuggested
                               ? 'bg-[#0071e3] hover:bg-[#0077ed] text-white shadow-lg shadow-[#0071e3]/30'
                               : 'bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15'

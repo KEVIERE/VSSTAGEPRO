@@ -5,7 +5,7 @@ import { computeNextSongId } from '@/lib/playFlow';
 import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
-  MaestroNarration,
+  MaestroNarration, MusicianAccount, MusicianBook,
 } from '@/types';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
@@ -15,6 +15,7 @@ import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENG
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
 import { moveTempoChange, tempoChangeIndex, type SnapStep } from '@/lib/grid';
+import { shiftSong } from '@/lib/clickEdit';
 import { MAESTRO_IA_TRACK_ID, sortedNarrations } from '@/lib/narrations';
 
 export interface InstantPrep {
@@ -175,11 +176,39 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   playbackError: null,
   preparingParams: null,
   lyricMaps: {},
+  musicianBook: null,
 };
+
+/** Livro de contas dos músicos lido do projeto: só o que tem formato de conta. */
+function normalizeMusicianBook(raw: unknown): MusicianBook | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const b = raw as Partial<MusicianBook>;
+  if (typeof b.id !== 'string' || !Array.isArray(b.accounts)) return null;
+  const accounts = b.accounts.filter((a): a is MusicianAccount =>
+    !!a && typeof a === 'object' && typeof a.id === 'string' && typeof a.username === 'string');
+  return {
+    id: b.id,
+    accounts: accounts.map((a) => ({
+      ...a,
+      status: a.status === 'approved' || a.status === 'blocked' ? a.status : 'pending',
+      remember: Array.isArray(a.remember) ? a.remember : [],
+      sheets: a.sheets && typeof a.sheets === 'object' ? a.sheets : {},
+    })),
+    removed: Array.isArray(b.removed) ? b.removed.filter((x): x is string => typeof x === 'string') : [],
+  };
+}
 
 interface StoreActions {
   setProjectName: (name: string) => void;
   setLyricMaps: (maps: ProjectState['lyricMaps']) => void;
+  /** Mudança que veio da rede local (conta nova, caderno salvo, senha trocada). */
+  applyMusicianChange: (change: { book?: { id: string }; account?: MusicianAccount }) => void;
+  /** Diretor: aprovar, bloquear ou voltar a liberar um músico. */
+  setMusicianStatus: (accountId: string, status: MusicianAccount['status']) => void;
+  /** Diretor: zera a senha (o músico cria outra no próximo acesso, com o PIN) e esquece os aparelhos. */
+  resetMusicianPassword: (accountId: string) => void;
+  /** Diretor: apaga a conta e os cadernos dela. */
+  removeMusicianAccount: (accountId: string) => void;
   selectTrack: (id: string | null) => void;
   selectSong: (id: string | null) => void;
   selectClip: (id: string | null, additive?: boolean) => void;
@@ -242,6 +271,13 @@ interface StoreActions {
   splitClipsAt: (clipIds: string[], atSeconds: number) => boolean;
   removeClip: (clipId: string) => void;
   removeClips: (clipIds: string[]) => void;
+  /**
+   * Comandos do click (compasso antes do início, recriar metrônomo) num passo só de desfazer:
+   * empurra a música `shift` segundos, tira `removeClipIds`, põe `addClips` e aplica `songPatch`.
+   */
+  /** Ajustar fim: aplica os cortes do final de várias músicas num passo só de desfazer. */
+  applySongEnds: (edits: { songId: string; trims: { id: string; trimEnd: number }[]; removeIds: string[] }[]) => void;
+  applyClickEdit: (edit: { songId: string; shift?: number; removeClipIds: string[]; addClips: AudioClip[]; songPatch?: Partial<Song> }) => void;
   routeClip: (clipId: string, targetTrackId: string) => void;
   resetClipRouting: (clipId: string) => void;
   setClipMarkers: (clipId: string, markers: AudioClip['markers']) => void;
@@ -460,10 +496,10 @@ export function historyEqual(a: HistoryState, b: HistoryState): boolean {
 
 // Aviso de "alteração não salva": compara o projeto com o do último salvamento. Vale o que entra
 // no Desfazer, mais os mapas de letra (o produtor pode mandá-los pela rede).
-export type ProjectSnapshot = { history: HistoryState; lyricMaps: ProjectState['lyricMaps'] };
+export type ProjectSnapshot = { history: HistoryState; lyricMaps: ProjectState['lyricMaps']; musicianBook: ProjectState['musicianBook'] };
 
 export function projectSnapshot(state: Store): ProjectSnapshot {
-  return { history: partializeHistory(state), lyricMaps: state.lyricMaps };
+  return { history: partializeHistory(state), lyricMaps: state.lyricMaps, musicianBook: state.musicianBook };
 }
 
 // Medidor e pico de clip mudam sozinhos tocando; uma faixa de projeto antigo pode nem ter esses campos.
@@ -488,6 +524,7 @@ export function hasUnsavedChanges(state: Store): boolean {
   // projeto novo, nunca salvo: só tem o que perder depois de entrar alguma música
   if (!saved) return state.songs.length > 0 || state.clips.length > 0;
   if (state.lyricMaps !== saved.lyricMaps) return true;
+  if (state.musicianBook !== saved.musicianBook) return true;
   const now = partializeHistory(state);
   for (const key of Object.keys(now) as Array<keyof HistoryState>) {
     if (key === 'tracks' ? !sameSavedTracks(now.tracks, saved.history.tracks) : now[key] !== saved.history[key]) return true;
@@ -502,6 +539,44 @@ export const useStore = create<Store>()(
 
       setProjectName: (name) => set({ projectName: name }),
       setLyricMaps: (maps) => set({ lyricMaps: maps }),
+
+      applyMusicianChange: (change) => set((s) => {
+        let book = s.musicianBook;
+        if (change.book && !book) book = { id: change.book.id, accounts: [], removed: [] };
+        const acc = change.account;
+        if (!acc) return book === s.musicianBook ? s : { musicianBook: book };
+        if (!book) book = { id: crypto.randomUUID(), accounts: [], removed: [] };
+        if (book.removed.includes(acc.id)) return s;
+        const exists = book.accounts.some((a) => a.id === acc.id);
+        return {
+          musicianBook: {
+            ...book,
+            accounts: exists ? book.accounts.map((a) => (a.id === acc.id ? acc : a)) : [...book.accounts, acc],
+          },
+        };
+      }),
+      setMusicianStatus: (accountId, status) => set((s) => {
+        const book = s.musicianBook;
+        if (!book) return s;
+        const at = new Date().toISOString();
+        return { musicianBook: { ...book, accounts: book.accounts.map((a) => (a.id === accountId ? { ...a, status, updatedAt: at } : a)) } };
+      }),
+      resetMusicianPassword: (accountId) => set((s) => {
+        const book = s.musicianBook;
+        if (!book) return s;
+        const at = new Date().toISOString();
+        return {
+          musicianBook: {
+            ...book,
+            accounts: book.accounts.map((a) => (a.id === accountId ? { ...a, passwordHash: null, remember: [], updatedAt: at } : a)),
+          },
+        };
+      }),
+      removeMusicianAccount: (accountId) => set((s) => {
+        const book = s.musicianBook;
+        if (!book) return s;
+        return { musicianBook: { ...book, accounts: book.accounts.filter((a) => a.id !== accountId), removed: [...book.removed, accountId] } };
+      }),
       selectTrack: (id) => set({ selectedTrackId: id }),
       selectSong: (id) => set((s) => {
         if (id === s.selectedSongId || s.transport.isPlaying) return { selectedSongId: id };
@@ -571,9 +646,29 @@ export const useStore = create<Store>()(
           if (!touched.has(c.songId)) continue;
           ends.set(c.songId, Math.max(ends.get(c.songId) ?? 0, c.startTime + clipPlayLength(c)));
         }
+        // Áudio de uma fala do Maestro IA arrastado junto com a seleção (Cmd+A e arrastar): a
+        // marcação da fala anda o mesmo tanto, senão o áudio e a marcação se separavam.
+        // Só quando é mudança de lugar (corte do começo também mexe no trimStart: esse não leva).
+        const moved = new Map<string, number>();
+        for (const c of s.clips) {
+          const patch = map.get(c.id);
+          if (patch?.startTime !== undefined && patch.trimStart === undefined && Math.abs(patch.startTime - c.startTime) > 1e-6) {
+            moved.set(c.id, patch.startTime - c.startTime);
+          }
+        }
+        const shiftNarrations = (sg: Song): Song => {
+          if (!moved.size || !sg.narrations?.some((n) => n.clipId && moved.has(n.clipId))) return sg;
+          return {
+            ...sg,
+            narrations: sortedNarrations(sg.narrations.map((n) => {
+              const d = n.clipId ? moved.get(n.clipId) : undefined;
+              return d === undefined ? n : { ...n, start: Math.max(0, n.start + d), end: Math.max(0, n.end + d) };
+            })),
+          };
+        };
         return {
           clips,
-          songs: s.songs.map((sg) => ends.has(sg.id) ? { ...sg, duration: ends.get(sg.id)! } : sg),
+          songs: s.songs.map((sg) => shiftNarrations(ends.has(sg.id) ? { ...sg, duration: ends.get(sg.id)! } : sg)),
           playlist: s.playlist.map((p) => ends.has(p.songId) ? { ...p, duration: ends.get(p.songId)! } : p),
         };
       }),
@@ -775,6 +870,7 @@ export const useStore = create<Store>()(
           songs,
           tracks,
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
+          musicianBook: normalizeMusicianBook(data.musicianBook),
           shows: normalizeShows(data.shows),
           activeShowId: null,
           defaultPlaylist: null,
@@ -1027,6 +1123,45 @@ export const useStore = create<Store>()(
 
         return true;
       },
+      applySongEnds: (edits) => set((s) => {
+        if (!edits.length) return s;
+        const trimById = new Map<string, number>();
+        const gone = new Set<string>();
+        for (const e of edits) {
+          e.trims.forEach((t) => trimById.set(t.id, t.trimEnd));
+          e.removeIds.forEach((id) => gone.add(id));
+        }
+        const clips = s.clips
+          .filter((c) => !gone.has(c.id))
+          .map((c) => (trimById.has(c.id) ? { ...c, trimEnd: trimById.get(c.id)! } : c));
+        const durations = new Map<string, number>();
+        for (const { songId } of edits) {
+          const own = clips.filter((c) => c.songId === songId);
+          durations.set(songId, own.length ? Math.max(0.1, ...own.map((c) => c.startTime + clipPlayLength(c))) : 0);
+        }
+        return {
+          clips,
+          selectedClipIds: s.selectedClipIds.filter((id) => !gone.has(id)),
+          songs: s.songs.map((sg) => (durations.has(sg.id) ? { ...sg, duration: durations.get(sg.id)! } : sg)),
+          playlist: s.playlist.map((p) => (durations.has(p.songId) ? { ...p, duration: durations.get(p.songId)! } : p)),
+        };
+      }),
+      applyClickEdit: ({ songId, shift = 0, removeClipIds, addClips, songPatch }) => set((s) => {
+        const song = s.songs.find((sg) => sg.id === songId);
+        if (!song) return s;
+        const moved = shiftSong(song, s.clips, shift);
+        const gone = new Set(removeClipIds);
+        const clips = [...moved.clips.filter((c) => !gone.has(c.id)), ...addClips];
+        const songClips = clips.filter((c) => c.songId === songId);
+        const duration = songClips.length > 0 ? Math.max(0.1, ...songClips.map((c) => c.startTime + clipPlayLength(c))) : 0;
+        const nextSong: Song = { ...moved.song, ...songPatch, duration };
+        return {
+          clips,
+          selectedClipIds: s.selectedClipIds.filter((id) => !gone.has(id)),
+          songs: s.songs.map((sg) => (sg.id === songId ? nextSong : sg)),
+          playlist: s.playlist.map((p) => (p.songId === songId ? { ...p, duration } : p)),
+        };
+      }),
       removeClip: (clipId) => set((s) => {
         const target = s.clips.find((c) => c.id === clipId);
         const nextClips = s.clips.filter((c) => c.id !== clipId);

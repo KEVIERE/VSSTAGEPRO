@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>O sampleRate do clipe desalinha?</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; padding: 24px; background: #17181c; color: #e8e9ed; }
+  pre { background: #202127; padding: 14px; border-radius: 8px; white-space: pre-wrap; }
+  .ok { color: #45c07a; } .ruim { color: #e05a4f; } .aviso { color: #f0a92c; }
+</style>
+</head>
+<body>
+<h1>O <code>sampleRate</code> mentiroso do clipe desalinha?</h1>
+<p>O app guarda no clipe a taxa do <b>arquivo lido</b>, mas toca o áudio na taxa do <b>AudioWorklet</b>. Simula as duas taxas.</p>
+<pre id="saida">rodando...</pre>
+<script>
+const saida = document.getElementById('saida');
+const linhas = [];
+const log = (t, c) => { linhas.push(c ? `<span class="${c}">${t}</span>` : t); saida.innerHTML = linhas.join('\n'); };
+
+function encodeWav(canais, sampleRate) {
+  const n = canais[0].length, ch = canais.length, bytes = 44 + n * ch * 2;
+  const v = new DataView(new ArrayBuffer(bytes));
+  const txt = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  txt(0,'RIFF'); v.setUint32(4, bytes-8, true); txt(8,'WAVE'); txt(12,'fmt ');
+  v.setUint32(16,16,true); v.setUint16(20,1,true); v.setUint16(22,ch,true);
+  v.setUint32(24,sampleRate,true); v.setUint32(28,sampleRate*ch*2,true);
+  v.setUint16(32,ch*2,true); v.setUint16(34,16,true); txt(36,'data'); v.setUint32(40,n*ch*2,true);
+  let o = 44;
+  for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) {
+    const s = Math.max(-1, Math.min(1, canais[c][i]));
+    v.setInt16(o, s < 0 ? s*0x8000 : s*0x7fff, true); o += 2;
+  }
+  return v.buffer;
+}
+
+function pico(dados) {
+  let maior = 0, pos = 0;
+  for (let i = 0; i < dados.length; i++) { const a = Math.abs(dados[i]); if (a > maior) { maior = a; pos = i; } }
+  return { pos, valor: maior };
+}
+
+async function testar() {
+  const SR = 44100, POS = 441000, DUR = 30;
+  const n = SR * DUR;
+  const L = new Float32Array(n), R = new Float32Array(n);
+  const larg = Math.round(0.003 * SR);
+  for (let i = 0; i < larg; i++) { L[POS+i] = Math.sin(i/larg*Math.PI)*0.9; R[POS+i] = L[POS+i]; }
+
+  const wav = encodeWav([L, R], SR);
+  const ctx = new AudioContext();
+  log(`AudioWorklet / AudioContext: ${ctx.sampleRate} Hz`);
+  log(`WAV de origem: ${SR} Hz, impulso em ${POS} = ${(POS/SR).toFixed(4)} s`);
+  log('');
+
+  const dec = await ctx.decodeAudioData(wav.slice(0));
+  log(`decodeAudioData devolve: ${dec.sampleRate} Hz, ${dec.length} amostras`);
+  const p = pico(dec.getChannelData(0));
+  log(`  impulso agora em ${p.pos} = ${(p.pos/dec.sampleRate).toFixed(6)} s`);
+  log('');
+
+  // O app passa part.buffer (44,1k) para o toClipAudioAsync, que guarda a taxa REAL.
+  // Mas o CLIPE herda clip.sampleRate via ...clip, que é a taxa do arquivo lido (48k).
+  // Se algum trecho usar clip.sampleRate para converter tempo<->amostra, erra 8,8%.
+  const taxaDoClipe = dec.sampleRate;       // 48000, herdada pelo ...clip
+  const taxaReal = SR;                       // 44100, a do buffer separado
+  log('--- o que acontece se o tempo for convertido com a taxa errada ---');
+  const amostrasEm10s = {
+    'taxa do clipe (48k)': 10 * taxaDoClipe,
+    'taxa real do áudio (44,1k)': 10 * taxaReal,
+  };
+  for (const [rot, a] of Object.entries(amostrasEm10s)) log(`  10 s → ${a.toFixed(0)} amostras  (${rot})`);
+  const erroMs = Math.abs(10 * taxaDoClipe / taxaReal - 10) * 1000;
+  log(`  diferença ao longo de 10 s: ${erroMs.toFixed(1)} ms`, erroMs > 5 ? 'ruim' : 'ok');
+  const erro150s = Math.abs(150 * taxaDoClipe / taxaReal - 150) * 1000;
+  log(`  diferença ao longo de 2:30: ${erro150s.toFixed(0)} ms`, erro150s > 50 ? 'ruim' : 'ok');
+  log('');
+  log('>>> É esse erro que cresce ao longo da música e desalinha as peças.', 'aviso');
+}
+
+testar().catch((e) => log('ERRO: ' + e.message, 'ruim'));
+</script>
+</body>
+</html>

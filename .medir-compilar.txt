@@ -1,0 +1,18 @@
+[
+  {
+    "build": "dist",
+    "arquivo": "index-BQXDo9L3.js",
+    "KB": 1411.4,
+    "compilar_ms_mediana": 15.1,
+    "compilar_ms_min": 14.9,
+    "compilar_ms_max": 17.7
+  },
+  {
+    "build": ".medir-antes",
+    "arquivo": "index-C7dU3dgY.js",
+    "KB": 1889.2,
+    "compilar_ms_mediana": 18.8,
+    "compilar_ms_min": 18.4,
+    "compilar_ms_max": 19.5
+  }
+]

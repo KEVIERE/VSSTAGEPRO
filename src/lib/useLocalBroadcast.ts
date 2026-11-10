@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { snapshot } from '@/lib/useLiveBroadcast';
+import { buildRemoteState, remoteSignature } from '@/lib/remoteHost';
+import { subscribeShowClock } from '@/lib/showClock';
 import {
   localBridge, setNetworkMode, useNetworkMode,
   type LocalInfo, type NetworkMode, type PinRole,
@@ -63,7 +65,7 @@ export function useLocalBroadcast(): LocalBroadcast {
         do {
           again = false;
           const snap = snapshot(true, true);
-          await bridge.publish({ name: snap.name, setlist: snap.setlist, live: snap.live, lyrics: useStore.getState().lyricMaps });
+          await bridge.publish({ name: snap.name, setlist: snap.setlist, live: snap.live, lyrics: useStore.getState().lyricMaps, remote: buildRemoteState() });
         } while (again);
       } catch (e) {
         setError(errMsg(e));
@@ -74,7 +76,10 @@ export function useLocalBroadcast(): LocalBroadcast {
 
     publish();
     let prev = useStore.getState();
+    let prevRemote = remoteSignature(prev);
     let cursorTimer: number | null = null;
+    // cronômetro "Falta no show" mexido (no Mac ou pelo Remote)
+    const unsubClock = subscribeShowClock(() => publish());
     const unsub = useStore.subscribe((s) => {
       const a = prev.transport;
       const b = s.transport;
@@ -83,9 +88,13 @@ export function useLocalBroadcast(): LocalBroadcast {
         a.isPlaying !== b.isPlaying || a.isPaused !== b.isPaused || a.isStopped !== b.isStopped ||
         a.currentSongId !== b.currentSongId || a.nextSongId !== b.nextSongId || a.playFlow !== b.playFlow ||
         s.songs !== prev.songs || s.blocks !== prev.blocks || s.playlistOrder !== prev.playlistOrder ||
-        s.lyricMaps !== prev.lyricMaps || s.activeShowId !== prev.activeShowId || s.shows !== prev.shows;
+        s.lyricMaps !== prev.lyricMaps || s.activeShowId !== prev.activeShowId || s.shows !== prev.shows ||
+        s.playlist !== prev.playlist;
       prev = s;
-      if (immediate) {
+      const remote = remoteSignature(s);
+      const remoteChanged = remote !== prevRemote;
+      prevRemote = remote;
+      if (immediate || remoteChanged) {
         if (cursorTimer !== null) { window.clearTimeout(cursorTimer); cursorTimer = null; }
         publish();
       } else if (cursorMovedWhileStopped) {
@@ -107,6 +116,7 @@ export function useLocalBroadcast(): LocalBroadcast {
 
     return () => {
       unsub();
+      unsubClock();
       if (cursorTimer !== null) window.clearTimeout(cursorTimer);
       window.clearInterval(beat);
     };

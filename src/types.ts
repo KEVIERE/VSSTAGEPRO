@@ -276,6 +276,45 @@ export type PanelVisibility = {
   timeline: boolean;
 };
 
+/** Caderno de um músico numa música (cifra, partitura, desenho). `deleted` = apagado pelo músico. */
+export interface MusicianSheetRecord {
+  id: string;
+  song_id: string;
+  title?: string;
+  content?: string;
+  shared_from?: string | null;
+  updated_at: string;
+  deleted?: boolean;
+}
+
+/**
+ * Conta de um músico no show: usuário e senha próprios, criada por ele e aprovada pelo diretor.
+ * A senha só existe embaralhada (bcrypt $2a$, o mesmo formato do Supabase).
+ */
+export interface MusicianAccount {
+  id: string;
+  username: string;
+  name: string;
+  instrument: string;
+  avatar: string | null;
+  /** null = o diretor zerou: o músico cria outra no próximo acesso (com o PIN dos músicos) */
+  passwordHash: string | null;
+  status: 'pending' | 'approved' | 'blocked';
+  /** aparelhos lembrados (só o hash do código) */
+  remember: string[];
+  createdAt: string;
+  updatedAt: string;
+  sheets: Record<string, MusicianSheetRecord>;
+}
+
+/** As contas dos músicos guardadas no projeto do show. */
+export interface MusicianBook {
+  id: string;
+  accounts: MusicianAccount[];
+  /** contas apagadas pelo diretor (não voltam ao juntar com a cópia de segurança) */
+  removed: string[];
+}
+
 export interface ProjectState {
   projectName: string;
   tracks: Track[];
@@ -321,6 +360,8 @@ export interface ProjectState {
   playbackError: string | null;
   preparingParams: { done: number; total: number } | null;
   lyricMaps: Record<string, LyricPage[]>;
+  /** Contas e cadernos dos músicos (Rede Local e Show Online). Fica no projeto. */
+  musicianBook: MusicianBook | null;
   /** Anti-clip do master: limitador de pico em -0,1 dBFS na saída do master (igual ao dos canais). */
   masterAntiClip?: boolean;
   /** Volume igual entre os VS: cada música recebe o ganho para o mesmo loudness, sem clipar. */

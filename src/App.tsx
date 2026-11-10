@@ -22,6 +22,7 @@ import MixerPanel from '@/components/MixerPanel';
 import ContextMenu from '@/components/ContextMenu';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ShowManagerDialog from '@/components/ShowManagerDialog';
+import { startMusicianBookSync } from '@/lib/musicianBookSync';
 import MusicianArea from '@/components/MusicianArea';
 import StageScreenPage from '@/components/prompter/StageScreenPage';
 import ProducerArea from '@/components/prompter/ProducerArea';
@@ -52,11 +53,14 @@ import type { License } from '@/components/DirectorAccess';
 import LocalNetworkDialog from '@/components/network/LocalNetworkDialog';
 import { isLocalClient } from '@/lib/localNetwork';
 import { useLocalBroadcast } from '@/lib/useLocalBroadcast';
+import { applyRemoteCommand } from '@/lib/remoteHost';
+import { useOnlineRemote } from '@/lib/useOnlineRemote';
 import { useReferenceAutoSync } from '@/lib/useReferenceAutoSync';
 import { useLiveBroadcast } from '@/lib/useLiveBroadcast';
 import { usePendingRequests } from '@/lib/usePendingRequests';
 import JoinRequestsBanner from '@/components/JoinRequestsBanner';
 import StemSplitStatus from '@/components/StemSplitStatus';
+import ClickStatus from '@/components/ClickStatus';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
@@ -293,6 +297,8 @@ function DirectorApp({ license }: { license: License }) {
   const [aiSeparatorOpen, setAiSeparatorOpen] = useState(false);
   const broadcast = useLiveBroadcast();
   const local = useLocalBroadcast();
+  // VS Stage Remote pelo Show Online (na Rede Local ele vai pelo servidor do Mac)
+  useOnlineRemote(local.mode === 'online' && !broadcast.yielded);
   const joinRequests = usePendingRequests(broadcast.show);
   const pendingRequests = joinRequests.pending.length;
   const lyricsSync = useProjectLyricsSync(broadcast.show);
@@ -314,6 +320,8 @@ function DirectorApp({ license }: { license: License }) {
   }, [lyricsSync, local]);
 
   useFeatureTracking();
+  // contas e cadernos dos músicos: projeto <-> rede local
+  useEffect(() => startMusicianBookSync(), []);
   useEffect(() => { if (showManagerOpen) trackFeature('show_manager'); }, [showManagerOpen]);
   useEffect(() => { if (prompterOpen) trackFeature('teleprompter'); }, [prompterOpen]);
   useEffect(() => { if (localOpen) trackFeature('local_network'); }, [localOpen]);
@@ -464,33 +472,8 @@ function DirectorApp({ license }: { license: License }) {
 
   useEffect(() => {
     if (!window.vsDesktop?.onRemoteTransport) return;
-    return window.vsDesktop.onRemoteTransport((cmd: { action: string; songId?: string }) => {
-      const st = useStore.getState();
-      if (cmd.action === 'play') {
-        startPlayback();
-      } else if (cmd.action === 'pause') {
-        st.pause(audioEngine.getCurrentTime());
-      } else if (cmd.action === 'stop') {
-        stopPlayback();
-      } else if (cmd.action === 'next') {
-        const nextId = st.transport.nextSongId;
-        if (nextId) {
-          st.selectSong(nextId);
-          startPlayback();
-        }
-      } else if (cmd.action === 'prev') {
-        const pList = st.playlist;
-        const curId = st.transport.currentSongId ?? st.selectedSongId;
-        const idx = pList.findIndex((p) => p.songId === curId);
-        if (idx > 0) {
-          st.selectSong(pList[idx - 1].songId);
-          startPlayback();
-        }
-      } else if (cmd.action === 'selectSong' && cmd.songId) {
-        st.selectSong(cmd.songId);
-        startPlayback();
-      }
-    });
+    // VS Stage Remote pela Rede Local: o comando chega do servidor do Mac
+    return window.vsDesktop.onRemoteTransport((cmd) => applyRemoteCommand(cmd));
   }, []);
 
   useEffect(() => startInstantStartBuilder({ isBusy: () => audioEngine.isStarting(), pitchFor: headPitchFor }), []);
@@ -770,6 +753,7 @@ function DirectorApp({ license }: { license: License }) {
         {!playlistMaximized && <MixerPanel />}
         <ContextMenu />
         <StemSplitStatus />
+        <ClickStatus />
         <BounceDialog />
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
         {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}

@@ -65,6 +65,14 @@ export function isSpeechTrack(track: Track): boolean {
   return track.id === MAESTRO_IA_TRACK_ID || track.parentId === 'track-maestro';
 }
 
+/**
+ * Faixas que entram quase secas no Play (0,2 ms): fala do Maestro e Click. Com a rampa normal
+ * (10 a 20 ms) o primeiro click saía abafado, porque o som dele chega no pico em ~7 ms.
+ */
+export function entersDry(track: Track): boolean {
+  return isSpeechTrack(track) || track.id === 'track-click' || track.parentId === 'track-click';
+}
+
 export function isMelodicTrack(track: Track, all: Track[]): boolean {
   let t: Track | undefined = track;
   while (t) {
@@ -1457,7 +1465,7 @@ class AudioEngine {
       // A rampa de entrada (10 ms a 48 kHz) suaviza o começo de música, mas numa fala do Maestro ela
       // abafa a primeira sílaba: a contagem ("Um!") entrava depois da linha da grade e mais fraca.
       // Fala e click entram quase secos (0,2 ms para não estalar).
-      const isSpeech = isSpeechTrack(track);
+      const isSpeech = entersDry(track);
 
       const node = this.createPlayer(ctx, bufferLength, {
         sampleRate,
