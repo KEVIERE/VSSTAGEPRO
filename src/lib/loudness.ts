@@ -121,9 +121,9 @@ function gate(power: Float64Array): number {
 }
 
 // Sobreamostragem 4× por FIR (sinc com janela de Kaiser), como os medidores de true peak.
-const TP_TAPS = 12; // por fase
-const TP_PHASES = 4;
-const tpKernel: Float32Array[] = (() => {
+export const TP_TAPS = 12; // por fase
+export const TP_PHASES = 4;
+export const tpKernel: Float32Array[] = (() => {
   const phases: Float32Array[] = [];
   const beta = 6;
   const bessel = (x: number) => { let s = 1, t = 1; for (let k = 1; k < 25; k++) { t *= (x / (2 * k)) ** 2; s += t; } return s; };
