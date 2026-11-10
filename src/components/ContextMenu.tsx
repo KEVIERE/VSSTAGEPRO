@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { RoutingTarget } from '@/types';
-import { masterAudioClip } from '@/lib/voiceMastering';
+import { masterAudioClip, masterRoleForClip } from '@/lib/clipMastering';
+import { MASTER_PROFILES, type MasterProfile } from '@/lib/mastering';
 import { reclassifyClipWithAi } from '@/lib/aiRouter';
 import { canSplitClipStems, isDrumClip, isSplittingStems, startClipStemSplit } from '@/lib/clipStemSplit';
 import { glueSelectedClips } from '@/lib/clipGlue';
@@ -21,6 +22,7 @@ export default function ContextMenu() {
     visible: false, x: 0, y: 0, clipId: null,
   });
   const [submenuOpen, setSubmenuOpen] = useState(false);
+  const [masterOpen, setMasterOpen] = useState(false);
   const [normalizeOpen, setNormalizeOpen] = useState(false);
   const [normalizeDb, setNormalizeDb] = useState('-2');
   const ref = useRef<HTMLDivElement>(null);
@@ -39,6 +41,7 @@ export default function ContextMenu() {
     e.preventDefault();
     setState({ visible: true, x: e.clientX, y: e.clientY, clipId });
     setSubmenuOpen(false);
+    setMasterOpen(false);
     setNormalizeOpen(false);
   }, []);
 
@@ -297,16 +300,52 @@ export default function ContextMenu() {
       {clip && (
         <>
           <div className="h-px bg-logic-border-dark my-1" />
-          <button
-            className="w-full flex items-center justify-between px-3 py-1.5 text-left text-amber-400 hover:bg-amber-500 hover:text-black font-semibold transition-colors duration-75"
-            onClick={() => {
-              if (clip) masterAudioClip(clip.id);
-              closeMenu();
-            }}
-          >
-            <span>✨ Masterizar com IA</span>
-            <span className="text-[10px] opacity-75 font-normal">Estúdio</span>
-          </button>
+          {(() => {
+            // Masteriza qualquer áudio. A IA reconhece o clipe: na música inteira (ou playback
+            // LR) o padrão é o perfil Equilibrado; em voz e stem que tocam com outros, o padrão
+            // é manter o volume (o equilíbrio do VS), mas dá para levar ao volume de um perfil.
+            const who = masterRoleForClip(clip.id);
+            const stem = !!who && who.role !== 'mix';
+            const options: Array<{ id: MasterProfile | 'manter'; label: string; hint: string }> = [
+              ...(stem ? [{ id: 'manter' as const, label: 'Manter o volume', hint: who.role === 'voice' ? 'voz do VS · recomendado' : 'stem do VS · recomendado' }] : []),
+              { id: 'equilibrado', label: MASTER_PROFILES.equilibrado.label, hint: stem ? '-10 LUFS' : '-10 LUFS · recomendado' },
+              { id: 'show', label: MASTER_PROFILES.show.label, hint: '-8 LUFS · mais alto' },
+              { id: 'streaming', label: MASTER_PROFILES.streaming.label, hint: '-14 LUFS · plataformas' },
+            ];
+            return (
+              <div className="relative" onMouseEnter={() => setMasterOpen(true)} onMouseLeave={() => setMasterOpen(false)}>
+                <button
+                  className="w-full flex items-center justify-between px-3 py-1.5 text-left text-amber-400 hover:bg-amber-500 hover:text-black font-semibold transition-colors duration-75"
+                  title="A IA ouve o áudio e escolhe EQ, compressão, estéreo e limitador"
+                  onClick={() => {
+                    masterAudioClip(clip.id);
+                    closeMenu();
+                  }}
+                >
+                  <span>✨ Masterizar com IA</span>
+                  <span className="text-[10px] opacity-75 font-normal">&rarr;</span>
+                </button>
+                {masterOpen && (
+                  <div className="absolute left-full top-0 min-w-56 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded">
+                    <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-logic-text-muted">Volume da master</div>
+                    {options.map((o) => (
+                      <button
+                        key={o.id}
+                        className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-amber-500 hover:text-black transition-colors duration-75"
+                        onClick={() => {
+                          masterAudioClip(clip.id, o.id);
+                          closeMenu();
+                        }}
+                      >
+                        <span className="font-semibold">{o.label}</span>
+                        <span className="text-[10px] opacity-75 tabular-nums">{o.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           {(() => {
             // Separar stems: bateria vira bumbo, caixa, pratos, tons e sala; os outros áudios viram
             // voz, baixo, bateria, guitarra/violão, teclado e outros, cada um na sua faixa.
