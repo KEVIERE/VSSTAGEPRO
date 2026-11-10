@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type Session } from '@supabase/supabase-js';
 
 const url =
   (import.meta.env.VITE_SUPABASE_URL as string) || 'https://eknjqqiamuztomdygalv.supabase.co';
@@ -75,4 +75,19 @@ export function clearLocalSession(): void {
     localStorage.removeItem(`${AUTH_STORAGE_KEY}-code-verifier`);
   } catch { /* sem storage */ }
   supabase.auth.signOut().catch(() => { /* best effort — já saímos localmente */ });
+}
+
+// Sessão guardada no aparelho. Sem internet, o supabase-js não consegue renovar o acesso
+// vencido (dura 1 hora) e getSession() responde "sem sessão", mas mantém a sessão guardada
+// enquanto o erro for de rede. Com ela a tela sabe quem é a pessoa e usa a última
+// conferência da conta; quando a internet volta, o próprio supabase-js renova o acesso.
+export function storedSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as Session;
+    return s?.access_token && s.refresh_token && s.user?.id ? s : null;
+  } catch {
+    return null;
+  }
 }

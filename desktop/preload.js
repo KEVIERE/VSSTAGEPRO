@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   separateDrumPieces: call('separateDrumPieces'),
   drumPiecesStatus: call('drumPiecesStatus'),
   openVoiceSettings: call('openVoiceSettings'),
+  licenseCacheLoad: call('licenseCacheLoad'),
+  licenseCacheSave: call('licenseCacheSave'),
+  licenseCacheClear: call('licenseCacheClear'),
   projectFileUrl: (filePath) => `vsstage://project/${encodeURIComponent(filePath)}`,
   onSeparationProgress: (cb) => {
     const listener = (_event, data) => cb(data);

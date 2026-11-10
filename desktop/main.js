@@ -13,6 +13,7 @@ const maestroVoice = require('./maestroVoice');
 const maestroQwen = require('./maestroQwen');
 const maestroVoiceDownload = require('./maestroVoiceDownload');
 const { initAntiTamper } = require('./antiTamper');
+const licenseCache = require('./licenseCache');
 
 const SCHEME = 'vsstage';
 const hasSingleInstance = app.requestSingleInstanceLock();
@@ -357,6 +358,10 @@ ipcMain.on('local:meters', (event, meters) => {
   if (fromDirector(event)) server.publishMeters(meters);
 });
 handle('networkCheck', async () => (await networkCheck(server)).checks);
+// Última conferência da conta, para abrir sem internet (ver licenseCache.js).
+handle('licenseCacheLoad', () => licenseCache.load());
+handle('licenseCacheSave', (userId, license) => licenseCache.save(userId, license));
+handle('licenseCacheClear', () => licenseCache.clear());
 handle('openAction', async (action) => {
   if (action === 'router') {
     const gw = await defaultGateway();
@@ -517,6 +522,7 @@ if (hasSingleInstance) app.whenReady().then(() => {
   // O antiTamper lê e calcula o hash do app.asar: fica fora do caminho da abertura, senão a
   // janela nasce com a tela presa (ver readIntegrityAsync em antiTamper.js).
   setImmediate(() => initAntiTamper());
+  licenseCache.startClockWatch();
 
   createSplash();
   createWindow();

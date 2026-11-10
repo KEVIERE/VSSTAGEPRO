@@ -1,9 +1,10 @@
 import { adminApi } from '@/components/admin/adminApi';
 import { authRedirect } from '@/lib/authRedirect';
-import { useEffect, useState } from 'react';
-import { BadgeCheck, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, QrCode, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BadgeCheck, CheckCircle2, CloudOff, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, QrCode, RefreshCw, Tag, Timer, User, WifiOff, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, emailLinkType, storedSession, supabase } from '@/lib/supabaseClient';
+import { NEED_INTERNET_TEXT, decideOffline, type LicenseCache, type NeedInternetReason } from '@/lib/offlineLicense';
 import { AccessCard, AccessFoot, AccessNotice, AccessStage, AccessStatus, AccessTitle, FootKey, TrialClock } from '@/components/access/AccessChrome';
 import { friendlyError } from '@/lib/friendlyError';
 import SubscribeDialog from '@/components/SubscribeDialog';
@@ -23,7 +24,25 @@ export type License = {
   current_period_end?: string | null;
   /** Parceiro / Endorse: acesso completo dado pelo admin, sem pagamento */
   partner?: boolean;
+  /** Sem internet: a licença veio da última conferência guardada no Mac (quando foi, em ms) */
+  offline_checked_at?: number;
+  /** Sem internet: até quando a última conferência vale (ms) */
+  offline_until?: number;
 };
+
+// Respostas do servidor que valem guardar para usar sem internet.
+const CACHEABLE = new Set<License['status']>(['trial', 'active', 'expired', 'blocked']);
+
+// Sem internet o supabase-js tenta renovar o acesso por até ~30 s antes de responder.
+// A tela não espera isso: com o Mac sem rede segue na hora; com rede lenta, espera no máximo isto.
+const NET_WAIT_MS = 6000;
+const SESSION_WAIT_MS = 2500;
+function waitAtMost<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
+  const wait = typeof navigator !== 'undefined' && navigator.onLine === false ? 0 : ms;
+  return Promise.race([p, new Promise<'timeout'>((r) => window.setTimeout(() => r('timeout'), wait))]);
+}
+
+const formatCheckDate = (ms: number) => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 // Código digitado na tela de entrada: é resgatado assim que a conta entra
 // (fica guardado caso o cadastro peça confirmação de e-mail antes).
@@ -151,6 +170,9 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   // o estado da tela é zerado na hora do clique, sem esperar nenhuma resposta de rede.
   const doSignOut = () => {
     clearLocalSession();
+    window.vsDesktop?.licenseCacheClear?.().catch(() => {});
+    lastCheckRef.current = null;
+    setNeedInternet(null);
     setSession(null);
     setLicense(null);
     setView('signin');
@@ -164,8 +186,29 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   // cliente. No app do Mac (window.vsDesktop) isso não entra em jogo: é sempre liberado.
   const isWebEnvironment = !window.vsDesktop;
   const [isAdmin, setIsAdmin] = useState<boolean | null>(isWebEnvironment ? null : true);
+  // Sem internet e sem conferência que valha: o motivo aparece na tela (nunca libera o editor).
+  const [needInternet, setNeedInternet] = useState<NeedInternetReason | null>(null);
+  // Última resposta do servidor nesta abertura: vale como conferência se o Mac não tiver a guardada.
+  const lastCheckRef = useRef<LicenseCache | null>(null);
 
-  const loadLicense = async (): Promise<License> => {
+  // Não deu para conferir no servidor: decide pela última conferência (ver offlineLicense.ts).
+  const applyLastCheck = async () => {
+    const userId = storedSession()?.user.id;
+    if (!userId) return;
+    const saved = (await window.vsDesktop?.licenseCacheLoad?.().catch(() => null)) ?? null;
+    const d = decideOffline(saved ?? lastCheckRef.current, userId, Date.now());
+    if (d.kind === 'need_internet') {
+      setLicense(null);
+      setNeedInternet(d.reason);
+      return;
+    }
+    setNeedInternet(null);
+    if (d.kind === 'expired') setLicense({ status: 'expired', offline_checked_at: d.checkedAt });
+    else if (d.kind === 'blocked') setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt });
+    else setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt, offline_until: d.until });
+  };
+
+  const askServer = async (): Promise<License> => {
     const { data, error: err } = await supabase.rpc('license_status');
     if (err) throw err;
     const lic = { ...(data as License) };
@@ -176,12 +219,40 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         if ((p as { partner?: boolean } | null)?.partner) lic.partner = true;
       } catch { /* sem o selo, o acesso continua igual */ }
     }
+    return lic;
+  };
+
+  // A resposta do servidor sempre manda: libera, bloqueia ou encerra, e fica guardada no Mac.
+  const loadLicense = async (waitMs = NET_WAIT_MS): Promise<License> => {
+    const ask = askServer();
+    const answer = await waitAtMost(ask, waitMs).catch(async (err) => {
+      await applyLastCheck();
+      throw err;
+    });
+    if (answer === 'timeout') {
+      // se o servidor responder depois, vale a resposta dele
+      ask.then(applyServer).catch(() => {});
+      await applyLastCheck();
+      throw new Error('license_timeout');
+    }
+    applyServer(answer);
+    return answer;
+  };
+
+  const applyServer = (lic: License) => {
+    if (!storedSession()) return; // saiu da conta enquanto esperava
     setLicense(lic);
+    setNeedInternet(null);
+    const userId = storedSession()?.user.id;
+    if (userId && CACHEABLE.has(lic.status)) {
+      const now = Date.now();
+      lastCheckRef.current = { userId, license: lic, checkedAt: now, maxSeen: now };
+      window.vsDesktop?.licenseCacheSave?.(userId, lic).catch(() => {});
+    }
 
     // Registra presença e IP do computador silenciosamente para antifraude e contagem de versões
     const appVersion = window.__VS_VERSION__ || (window.vsDesktop ? 'Desktop App' : 'Navegador Web');
     adminApi.pingPresence(appVersion).catch(() => {});
-    return lic;
   };
 
   const checkAdmin = async () => {
@@ -197,20 +268,27 @@ export default function DirectorAccess({ children }: { children: (license: Licen
 
   useEffect(() => {
     let alive = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!alive) return;
+    let started = false;
+    // sem internet o acesso vencido não renova: segue com a sessão guardada no aparelho
+    waitAtMost(supabase.auth.getSession(), SESSION_WAIT_MS).then((got) => {
+      if (!alive || started) return;
+      started = true;
+      const data = { session: (got === 'timeout' ? null : got.data.session) ?? storedSession() };
       setSession(data.session);
       setReady(true);
       if (data.session) {
         if (emailLinkType === 'signup') setJustConfirmed(true);
         (async () => {
-          try { await loadLicense(); } catch { /* manter tela de login */ }
+          // o login não respondeu: o servidor também não vai; usa o guardado já (se ele responder depois, vale ele)
+          try { await loadLicense(got === 'timeout' ? 0 : NET_WAIT_MS); } catch { /* manter tela de login */ }
         })();
         checkAdmin();
       }
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, signal) => {
       (async () => {
+        // "sem sessão" por falta de internet não é saída da conta: só SIGNED_OUT tira a pessoa
+        const s = signal ?? (event === 'SIGNED_OUT' ? null : storedSession());
         setSession(s);
         // entrou ou saiu da conta: as vozes de nuvem do Maestro mudam (precisam do login)
         forgetVoices();
@@ -219,6 +297,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           checkAdmin();
         } else {
           setLicense(null);
+          setNeedInternet(null);
           setIsAdmin(isWebEnvironment ? null : true);
         }
       })();
@@ -236,9 +315,12 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     const refresh = () => { loadLicense().catch(() => {}); };
     window.addEventListener(LICENSE_REFRESH_EVENT, refresh);
     window.addEventListener('focus', refresh);
+    // a internet voltou: confere de novo em segundo plano
+    window.addEventListener('online', refresh);
     return () => {
       window.removeEventListener(LICENSE_REFRESH_EVENT, refresh);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
     };
   }, [session]);
 
@@ -287,6 +369,21 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     check();
     return () => window.clearTimeout(timer);
   }, [license?.status, license?.ends_at]);
+
+  // Sem internet, a última conferência tem prazo: ao chegar nele, decide de novo
+  // (teste encerrado ou "conecte à internet"), mesmo com o programa aberto.
+  useEffect(() => {
+    const until = license?.offline_until;
+    if (!until) return;
+    let timer = 0;
+    const check = () => {
+      const ms = until - Date.now();
+      if (ms <= 0) { applyLastCheck().catch(() => {}); return; }
+      timer = window.setTimeout(check, Math.min(ms, MAX_TIMER_MS));
+    };
+    check();
+    return () => window.clearTimeout(timer);
+  }, [license?.offline_until]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -372,7 +469,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     </div>
   );
 
-  const showingEditor = !!session && gatePassed && license?.status !== 'blocked' && license?.status !== 'expired';
+  const showingEditor = !!session && gatePassed && !(needInternet && !license) && license?.status !== 'blocked' && license?.status !== 'expired';
   useEffect(() => {
     if (!ready || showingEditor) return;
     const id = requestAnimationFrame(() => window.vsDesktop?.appReady());
@@ -542,6 +639,25 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     );
   }
 
+  if (needInternet && !license) {
+    return (
+      <AccessStage>
+        <AccessCard label="Sem internet" status={<AccessStatus tone="amber">Offline</AccessStatus>}>
+          <div className="px-6 pt-7 pb-6 text-center">
+            <AccessTitle title="Conecte à internet" subtitle={session.user.email} />
+            <AccessNotice tone="red"><p>{NEED_INTERNET_TEXT[needInternet]}</p></AccessNotice>
+            <button type="button" onClick={() => { loadLicense().catch(() => {}); }} className="access-key mt-5">
+              <RefreshCw size={16} /> Tentar de novo
+            </button>
+          </div>
+          <AccessFoot cols={1}>
+            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
+    );
+  }
+
   if (license?.status === 'blocked') {
     return (
       <AccessStage>
@@ -580,7 +696,9 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                   onClick={async () => {
                     // assinatura paga, bônus ou parceiro adicionado pelo admin: libera na hora
                     const lic = await loadLicense().catch(() => null);
-                    if (lic?.status !== 'active') {
+                    if (!lic) {
+                      setPromoNotice({ ok: false, text: 'Sem internet agora. Conecte o Mac à internet para conferir a assinatura.' });
+                    } else if (lic.status !== 'active') {
                       setPromoNotice({ ok: false, text: 'Ainda não encontramos assinatura ativa nesta conta. Se acabou de assinar, aguarde um instante e tente de novo.' });
                     }
                   }}
@@ -659,6 +777,12 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </div>
             )}
             {endsAt !== null && statusText && <p className="text-xs text-logic-text-dim mt-3">{statusText}</p>}
+            {license?.offline_checked_at && (
+              <p className="text-xs text-logic-text-dim mt-3 inline-flex items-center gap-1.5">
+                <WifiOff size={12} className="text-logic-lcd-amber" />
+                Sem internet: usando a última conferência ({formatCheckDate(license.offline_checked_at)}).
+              </p>
+            )}
 
             <button type="button" onClick={passGate} disabled={loading} autoFocus className="access-key mt-5">
               {loading && <Loader2 size={16} className="animate-spin" />}
@@ -703,6 +827,22 @@ function formatRemaining(ms: number) {
 }
 
 export function TrialBadge({ license }: { license: License | null }) {
+  const badge = <LicenseBadge license={license} />;
+  if (!license?.offline_checked_at) return badge;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        title={`Sem internet: usando a última conferência da conta (${formatCheckDate(license.offline_checked_at)}). VS por IA na nuvem, Show Online e pagamento precisam de internet.`}
+        className="inline-flex items-center gap-1 px-2 h-5 rounded bg-white/5 text-logic-text-dim text-2xs font-bold"
+      >
+        <CloudOff size={11} /> Sem internet
+      </span>
+      {badge}
+    </span>
+  );
+}
+
+function LicenseBadge({ license }: { license: License | null }) {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
   useEffect(() => {

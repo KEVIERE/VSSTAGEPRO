@@ -165,6 +165,10 @@ declare global {
       /** A pessoa escolheu "Salvar" ao fechar: a tela salva e responde se deu certo. */
       onSaveBeforeClose?: (cb: () => Promise<boolean>) => () => void;
       notifySessionState?: (active: boolean) => void;
+      /** Última conferência da conta guardada no Mac (criptografada), para abrir sem internet. */
+      licenseCacheLoad?: () => Promise<import('@/lib/offlineLicense').LicenseCache | null>;
+      licenseCacheSave?: (userId: string, license: object) => Promise<boolean>;
+      licenseCacheClear?: () => Promise<void>;
     };
     __VS_LOCAL__?: number;
     __VS_HOST__?: string;
