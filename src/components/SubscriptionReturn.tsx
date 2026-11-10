@@ -1,174 +1,29 @@
-// Página de volta da InfinitePay (/#assinatura). A pessoa chega aqui depois de
-// pagar; a página confere o pagamento sozinha e mostra "Pagamento confirmado"
-// ou "Aguardando confirmação" até a InfinitePay confirmar.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Apple,
   ArrowRight,
   CheckCircle2,
   Download,
+  HelpCircle,
   Laptop,
-  Loader2,
+  Layers,
+  Lock,
   MessageCircle,
-  RefreshCw,
+  MonitorPlay,
+  Music,
+  Radio,
   ShieldCheck,
+  Sparkles,
+  Wifi,
   XCircle,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
 import { supportWhatsAppUrl } from '@/lib/support';
 import { supabase } from '@/lib/supabaseClient';
-import { getLatestPix, getPixStatus, type PixCharge } from '@/lib/pixCheckout';
-import { formatBrasiliaDate } from '@/lib/pixFormat';
-import { readPixReturn } from '@/lib/pixReturn';
-
-// Confere a cada 4 s por até 5 min; depois mostra "ainda aguardando" com o botão de conferir de novo.
-const RETURN_POLL_MS = 4000;
-const RETURN_WAIT_MS = 5 * 60_000;
-
-type ReturnState = 'checking' | 'waiting' | 'late' | 'paid' | 'mismatch' | 'signed_out' | 'unknown';
-
-/** Situação do pagamento que trouxe a pessoa de volta da InfinitePay. */
-function usePaymentReturn(active: boolean) {
-  const [state, setState] = useState<ReturnState>('checking');
-  const [charge, setCharge] = useState<PixCharge | null>(null);
-  const [round, setRound] = useState(0);
-  const info = useMemo(
-    () => (typeof window === 'undefined' ? null : readPixReturn(window.location.search, window.location.hash)),
-    [],
-  );
-
-  useEffect(() => {
-    if (!active || !info) return;
-    let stopped = false;
-    let timer: number | undefined;
-    const started = Date.now();
-
-    const ask = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (stopped) return;
-      // Sem login neste navegador (ex.: pagou pelo app do Mac): a confirmação aparece no programa.
-      if (!data.session) { setState('signed_out'); return; }
-      try {
-        const c = info.id ? await getPixStatus(info.id, info.codes) : await getLatestPix(info.codes);
-        if (stopped) return;
-        setCharge(c);
-        if (c.status === 'paid') { setState('paid'); return; }
-        if (c.status === 'amount_mismatch') { setState('mismatch'); return; }
-      } catch (e) {
-        if (stopped) return;
-        const code = (e as Error).message;
-        if (code === 'not_found' || code === 'unauthorized') { setState('unknown'); return; }
-        // Erro passageiro (rede): tenta de novo na próxima volta.
-      }
-      if (Date.now() - started > RETURN_WAIT_MS) { setState('late'); return; }
-      setState('waiting');
-      timer = window.setTimeout(ask, RETURN_POLL_MS);
-    };
-
-    setState('checking');
-    ask();
-    return () => { stopped = true; window.clearTimeout(timer); };
-  }, [active, info, round]);
-
-  // Confirmado: também no título da aba.
-  useEffect(() => {
-    if (state !== 'paid') return;
-    const before = document.title;
-    document.title = 'Pagamento confirmado · VS Stage Pro';
-    return () => { document.title = before; };
-  }, [state]);
-
-  return { state, charge, retry: () => setRound((r) => r + 1) };
-}
-
-/** Visor da mesa de som com a situação do pagamento. */
-function PaymentStatusPanel({ state, charge, onRetry }: { state: ReturnState; charge: PixCharge | null; onRetry: () => void }) {
-  if (state === 'paid') {
-    return (
-      <div className="console-bezel max-w-md mx-auto" role="status" aria-live="assertive">
-        <div className="console-display px-5 py-5 flex flex-col items-center gap-2.5">
-          <span className="console-legend uppercase tracking-[0.14em] flex items-center gap-1.5">
-            <span className="console-led is-on-green" /> Pagamento
-          </span>
-          <span className="flex items-center gap-2.5 font-stage text-[1.9rem] font-bold leading-none text-logic-lcd-green console-glow">
-            <CheckCircle2 size={26} /> Pagamento confirmado
-          </span>
-          {charge?.access_until && (
-            <span className="text-xs text-logic-text-dim">Assinatura liberada até {formatBrasiliaDate(charge.access_until)}.</span>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (state === 'mismatch') {
-    return (
-      <div className="max-w-md mx-auto text-left">
-        <div className="console-bezel" role="alert">
-          <div className="console-display px-4 py-3.5 text-xs leading-relaxed flex items-start gap-2.5">
-            <span className="console-lamp is-on mt-[3px] shrink-0" />
-            <div className="flex-1 space-y-1.5 text-[#ff7a70]">
-              <p>O valor pago é diferente do valor cobrado, então a assinatura não foi liberada automaticamente.</p>
-              <p>Fale com o suporte que resolvemos.</p>
-            </div>
-          </div>
-        </div>
-        <a
-          href={supportWhatsAppUrl(`Olá! Paguei a assinatura do VS Stage Pro com valor diferente. Código do pagamento: ${charge?.id ?? '-'}`)}
-          target="_blank" rel="noreferrer" className="access-key mt-4"
-        >
-          <MessageCircle size={16} /> Falar com o suporte
-        </a>
-      </div>
-    );
-  }
-
-  const title = state === 'checking' ? 'Conferindo o pagamento'
-    : state === 'late' ? 'Ainda aguardando a confirmação'
-    : state === 'unknown' ? 'Obrigado!'
-    : 'Aguardando confirmação';
-  const text = state === 'checking' ? 'Só um instante.'
-    : state === 'waiting' ? 'A InfinitePay está confirmando o seu pagamento. Esta página atualiza sozinha, não precisa recarregar.'
-    : state === 'late' ? 'Alguns pagamentos levam alguns minutos. Quando a InfinitePay confirmar, o acesso é liberado sozinho: não precisa pagar de novo.'
-    : state === 'signed_out' ? 'Volte para o VS Stage Pro: a confirmação aparece lá sozinha, em alguns segundos. Não precisa pagar de novo.'
-    : 'Se você concluiu o pagamento, a liberação é automática em alguns segundos.';
-  const spinning = state === 'checking' || state === 'waiting';
-
-  return (
-    <div className="max-w-md mx-auto">
-      <div className="console-bezel" role="status" aria-live="polite">
-        <div className="console-display px-5 py-5 flex flex-col items-center gap-2.5">
-          <span className="console-legend uppercase tracking-[0.14em] flex items-center gap-1.5">
-            <span className="console-led is-on-amber" /> Pagamento
-          </span>
-          <span className="flex items-center gap-2.5 font-stage text-[1.6rem] font-bold leading-none text-logic-lcd-amber console-glow">
-            {spinning && <Loader2 size={20} className="animate-spin" />} {title}
-          </span>
-          <span className="text-xs text-logic-text-dim leading-relaxed">{text}</span>
-        </div>
-      </div>
-      {state === 'late' && (
-        <div className="mt-4 grid gap-2">
-          <button type="button" onClick={onRetry} className="access-key">
-            <RefreshCw size={16} /> Conferir de novo
-          </button>
-          <a
-            href={supportWhatsAppUrl(`Olá! Paguei a assinatura do VS Stage Pro e ainda não foi confirmada. Código do pagamento: ${charge?.id ?? '-'}`)}
-            target="_blank" rel="noreferrer" className="access-link mx-auto flex items-center gap-1.5"
-          >
-            <MessageCircle size={12} /> Falar com o suporte
-          </a>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function SubscriptionReturn() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const ok = typeof window !== 'undefined' && !window.location.hash.includes('cancelada');
-  const { state, charge, retry } = usePaymentReturn(ok);
-  const paid = state === 'paid';
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -223,32 +78,28 @@ export default function SubscriptionReturn() {
           <div className="space-y-10 animate-[fadeIn_300ms_ease-out]">
             {/* Bloco Hero de Boas-Vindas */}
             <div className="text-center max-w-2xl mx-auto">
-              {/* Ícone de Sucesso Animado (só com o pagamento confirmado) */}
-              {paid && (
-                <div className="relative mx-auto w-20 h-20 mb-6 flex items-center justify-center">
-                  <div className="absolute inset-0 rounded-full bg-logic-lcd-green/25 blur-xl animate-pulse" />
-                  <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-b from-[#182a1d] to-[#0e1610] border-2 border-logic-lcd-green/60 shadow-[0_0_40px_rgba(48,209,88,0.3)] flex items-center justify-center text-logic-lcd-green">
-                    <CheckCircle2 size={42} strokeWidth={2.5} />
-                  </div>
+              {/* Ícone de Sucesso Animado */}
+              <div className="relative mx-auto w-20 h-20 mb-6 flex items-center justify-center">
+                <div className="absolute inset-0 rounded-full bg-logic-lcd-green/25 blur-xl animate-pulse" />
+                <div className="relative w-20 h-20 rounded-3xl bg-gradient-to-b from-[#182a1d] to-[#0e1610] border-2 border-logic-lcd-green/60 shadow-[0_0_40px_rgba(48,209,88,0.3)] flex items-center justify-center text-logic-lcd-green">
+                  <CheckCircle2 size={42} strokeWidth={2.5} />
                 </div>
-              )}
+              </div>
 
-              {/* Situação do pagamento: confirmado, aguardando ou conferindo */}
-              <div className="mb-7">
-                <PaymentStatusPanel state={state} charge={charge} onRetry={retry} />
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-logic-lcd-green/10 border border-logic-lcd-green/30 text-logic-lcd-green text-xs font-extrabold uppercase tracking-wider mb-4">
+                <Sparkles size={14} />
+                <span>Assinatura Confirmada & Ativa</span>
               </div>
 
               <h1 className="text-3xl sm:text-5xl font-black text-white tracking-tight leading-tight">
-                {paid ? 'Seja muito bem-vindo ao' : 'Obrigado por escolher o'} <br />
+                Seja muito bem-vindo ao <br />
                 <span className="bg-gradient-to-r from-logic-lcd-green via-emerald-300 to-logic-lcd-amber bg-clip-text text-transparent">
                   VS Stage Pro!
                 </span>
               </h1>
 
               <p className="text-sm sm:text-base text-logic-text-dim mt-4 leading-relaxed">
-                {paid
-                  ? 'Seu pagamento foi confirmado pela InfinitePay. Toda a potência do motor profissional de áudio, timelines independentes, Timecode LTC blindado e rede de palco já estão liberados para você.'
-                  : 'Assim que a InfinitePay confirmar o pagamento, tudo é liberado sozinho na sua conta. Enquanto isso, siga os passos abaixo para instalar o programa.'}
+                Seu pagamento foi confirmado com sucesso pela InfinitePay. Toda a potência do motor profissional de áudio, timelines independentes, Timecode LTC blindado e rede de palco já estão liberados para você.
               </p>
 
               {userEmail && (
