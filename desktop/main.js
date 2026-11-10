@@ -14,6 +14,7 @@ const maestroQwen = require('./maestroQwen');
 const maestroVoiceDownload = require('./maestroVoiceDownload');
 const { initAntiTamper } = require('./antiTamper');
 const licenseCache = require('./licenseCache');
+const { deviceInfo } = require('./deviceInfo');
 
 const SCHEME = 'vsstage';
 const hasSingleInstance = app.requestSingleInstanceLock();
@@ -362,6 +363,8 @@ handle('networkCheck', async () => (await networkCheck(server)).checks);
 handle('licenseCacheLoad', () => licenseCache.load());
 handle('licenseCacheSave', (userId, license) => licenseCache.save(userId, license));
 handle('licenseCacheClear', () => licenseCache.clear());
+// Quem é este Mac, para a regra de um Mac por vez em cada conta (ver deviceInfo.js).
+handle('deviceInfo', () => deviceInfo());
 handle('openAction', async (action) => {
   if (action === 'router') {
     const gw = await defaultGateway();

@@ -69,12 +69,26 @@ const AUTH_STORAGE_KEY = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;
 // Esta função limpa o armazenamento local de forma síncrona (nunca depende de
 // rede) e dispara o aviso ao servidor em paralelo, best-effort — use-a em conjunto
 // com um reset direto do estado do componente (não espere pelo evento).
-export function clearLocalSession(): void {
+// scope 'local' encerra só a sessão deste aparelho (o padrão do supabase-js encerra todas).
+export function clearLocalSession(scope: 'global' | 'local' = 'global'): void {
   try {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     localStorage.removeItem(`${AUTH_STORAGE_KEY}-code-verifier`);
   } catch { /* sem storage */ }
-  supabase.auth.signOut().catch(() => { /* best effort — já saímos localmente */ });
+  supabase.auth.signOut({ scope }).catch(() => { /* best effort — já saímos localmente */ });
+}
+
+// Chama uma função do banco com o acesso guardado agora, sem esperar resposta. Serve logo antes
+// de sair da conta: depois de clearLocalSession o supabase-js já não tem o acesso para mandar.
+export function rpcWithStoredSession(fn: string, args: Record<string, unknown>): void {
+  const token = storedSession()?.access_token;
+  if (!token) return;
+  fetch(`${url}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: { apikey: anonKey, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+    keepalive: true,
+  }).catch(() => { /* best effort */ });
 }
 
 // Sessão guardada no aparelho. Sem internet, o supabase-js não consegue renovar o acesso

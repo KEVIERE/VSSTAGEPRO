@@ -169,6 +169,8 @@ declare global {
       licenseCacheLoad?: () => Promise<import('@/lib/offlineLicense').LicenseCache | null>;
       licenseCacheSave?: (userId: string, license: object) => Promise<boolean>;
       licenseCacheClear?: () => Promise<void>;
+      /** quem é este Mac (um Mac por vez em cada conta) */
+      deviceInfo?: () => Promise<{ id: string; name: string }>;
     };
     __VS_LOCAL__?: number;
     __VS_HOST__?: string;

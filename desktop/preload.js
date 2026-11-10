@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   licenseCacheLoad: call('licenseCacheLoad'),
   licenseCacheSave: call('licenseCacheSave'),
   licenseCacheClear: call('licenseCacheClear'),
+  deviceInfo: call('deviceInfo'),
   projectFileUrl: (filePath) => `vsstage://project/${encodeURIComponent(filePath)}`,
   onSeparationProgress: (cb) => {
     const listener = (_event, data) => cb(data);

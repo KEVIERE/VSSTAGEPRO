@@ -3,7 +3,9 @@ import { authRedirect } from '@/lib/authRedirect';
 import { useEffect, useRef, useState } from 'react';
 import { BadgeCheck, CheckCircle2, CloudOff, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, QrCode, RefreshCw, Tag, Timer, User, WifiOff, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { clearLocalSession, emailLinkType, storedSession, supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, emailLinkType, rpcWithStoredSession, storedSession, supabase } from '@/lib/supabaseClient';
+import { REFUSED_TEXT, REPLACED_TEXT, lastSeenText, otherDeviceLabel, readDeviceVerdict, type DeviceVerdict } from '@/lib/deviceLock';
+import { useStore } from '@/store';
 import { NEED_INTERNET_TEXT, decideOffline, type LicenseCache, type NeedInternetReason } from '@/lib/offlineLicense';
 import { AccessCard, AccessFoot, AccessNotice, AccessStage, AccessStatus, AccessTitle, FootKey, TrialClock } from '@/components/access/AccessChrome';
 import { friendlyError } from '@/lib/friendlyError';
@@ -29,6 +31,16 @@ export type License = {
   /** Sem internet: até quando a última conferência vale (ms) */
   offline_until?: number;
 };
+
+// Um Mac por vez: a conta está aberta em outro Mac (conflict) ou este foi desconectado (replaced).
+type DeviceStop = Exclude<DeviceVerdict, { status: 'ok' }>;
+class DeviceLockError extends Error {
+  verdict: DeviceStop;
+  constructor(verdict: DeviceStop) {
+    super('device_lock');
+    this.verdict = verdict;
+  }
+}
 
 // Respostas do servidor que valem guardar para usar sem internet.
 const CACHEABLE = new Set<License['status']>(['trial', 'active', 'expired', 'blocked']);
@@ -168,11 +180,17 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   // de invalidar a sessão — se a rede falhar ou demorar, a tela de "Sair"/"Entrar
   // com outra conta" fica parada sem nenhum aviso. Aqui a saída é sempre instantânea:
   // o estado da tela é zerado na hora do clique, sem esperar nenhuma resposta de rede.
-  const doSignOut = () => {
-    clearLocalSession();
+  // scope 'local': sair aqui não encerra a sessão do outro Mac (recusou ou foi desconectado)
+  const doSignOut = (scope: 'global' | 'local' = 'global') => {
+    // libera a vaga deste Mac na conta, para o próximo Mac entrar sem pergunta
+    if (deviceRef.current) rpcWithStoredSession('device_release', { p_device: deviceRef.current.id });
+    clearLocalSession(scope);
     window.vsDesktop?.licenseCacheClear?.().catch(() => {});
     lastCheckRef.current = null;
     setNeedInternet(null);
+    setDeviceConflict(null);
+    setDeviceError(null);
+    setNotice(null);
     setSession(null);
     setLicense(null);
     setView('signin');
@@ -190,6 +208,67 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const [needInternet, setNeedInternet] = useState<NeedInternetReason | null>(null);
   // Última resposta do servidor nesta abertura: vale como conferência se o Mac não tiver a guardada.
   const lastCheckRef = useRef<LicenseCache | null>(null);
+  // Um Mac por vez: quem é este Mac e a pergunta quando a conta está aberta em outro.
+  const deviceRef = useRef<{ id: string; name: string } | null>(null);
+  const [deviceConflict, setDeviceConflict] = useState<{ otherName: string | null; otherSeen: string | null } | null>(null);
+  const [takingOver, setTakingOver] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  // Aviso na tela de entrada (este Mac foi desconectado, ou recusou desconectar o outro).
+  const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
+
+  const getDevice = async () => {
+    if (deviceRef.current) return deviceRef.current;
+    const d = await window.vsDesktop?.deviceInfo?.().catch(() => null);
+    if (d?.id) deviceRef.current = d;
+    return deviceRef.current;
+  };
+
+  // No navegador ou em programa antigo não há regra; erro de rede ou banco sem a regra: não bloqueia.
+  const claimDevice = async (take = false): Promise<DeviceVerdict> => {
+    const device = await getDevice();
+    if (!device) return { status: 'ok' };
+    const { data, error: err } = await supabase.rpc('device_claim', { p_device: device.id, p_name: device.name, p_take: take });
+    if (err) {
+      if (take) throw err;
+      return { status: 'ok' };
+    }
+    return readDeviceVerdict(data);
+  };
+
+  const applyDevice = (v: DeviceStop) => {
+    if (!storedSession()) return;
+    // no meio de uma música não derruba o show: a próxima conferência tenta de novo
+    if (useStore.getState().transport.isPlaying) return;
+    if (v.status === 'replaced') {
+      doSignOut('local');
+      setNotice({ tone: 'red', text: REPLACED_TEXT });
+      return;
+    }
+    setLicense(null);
+    setNeedInternet(null);
+    setDeviceError(null);
+    setDeviceConflict({ otherName: v.otherName, otherSeen: v.otherSeen });
+  };
+
+  const takeOver = async () => {
+    setTakingOver(true);
+    setDeviceError(null);
+    try {
+      const v = await claimDevice(true);
+      if (v.status !== 'ok') throw new Error('device_take_failed');
+      setDeviceConflict(null);
+      await loadLicense().catch(() => {});
+    } catch {
+      setDeviceError('Não deu para desconectar o outro computador agora. Confira a internet e tente de novo.');
+    } finally {
+      setTakingOver(false);
+    }
+  };
+
+  const refuseTakeOver = () => {
+    doSignOut('local');
+    setNotice({ tone: 'green', text: REFUSED_TEXT });
+  };
 
   // Não deu para conferir no servidor: decide pela última conferência (ver offlineLicense.ts).
   const applyLastCheck = async () => {
@@ -212,6 +291,11 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     const { data, error: err } = await supabase.rpc('license_status');
     if (err) throw err;
     const lic = { ...(data as License) };
+    if (lic.status === 'trial' || lic.status === 'active') {
+      // um Mac por vez: confere se a conta não está aberta em outro Mac
+      const verdict = await claimDevice().catch((): DeviceVerdict => ({ status: 'ok' }));
+      if (verdict.status !== 'ok') throw new DeviceLockError(verdict);
+    }
     if (lic.status === 'active') {
       // parceiro (endorse): o acesso já vem liberado pelo servidor; aqui só descobre o selo
       try {
@@ -226,12 +310,13 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const loadLicense = async (waitMs = NET_WAIT_MS): Promise<License> => {
     const ask = askServer();
     const answer = await waitAtMost(ask, waitMs).catch(async (err) => {
-      await applyLastCheck();
+      if (err instanceof DeviceLockError) applyDevice(err.verdict);
+      else await applyLastCheck();
       throw err;
     });
     if (answer === 'timeout') {
       // se o servidor responder depois, vale a resposta dele
-      ask.then(applyServer).catch(() => {});
+      ask.then(applyServer).catch((err) => { if (err instanceof DeviceLockError) applyDevice(err.verdict); });
       await applyLastCheck();
       throw new Error('license_timeout');
     }
@@ -243,6 +328,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     if (!storedSession()) return; // saiu da conta enquanto esperava
     setLicense(lic);
     setNeedInternet(null);
+    setDeviceConflict(null);
     const userId = storedSession()?.user.id;
     if (userId && CACHEABLE.has(lic.status)) {
       const now = Date.now();
@@ -392,6 +478,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     setErrorIsAlreadyRegistered(false);
     setErrorHasNoAccount(false);
     setInfo(null);
+    setNotice(null);
     try {
       const code = promo.trim().toUpperCase();
       if (code) {
@@ -417,7 +504,8 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           password,
           options: {
           data: { name: name.trim(), phone: normalizedPhone },
-          emailRedirectTo: authRedirect('/'),
+          // confirmou o e-mail: vai direto para a página de downloads do Mac
+          emailRedirectTo: authRedirect('/#baixar'),
         },
         });
         if (err) throw err;
@@ -469,7 +557,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     </div>
   );
 
-  const showingEditor = !!session && gatePassed && !(needInternet && !license) && license?.status !== 'blocked' && license?.status !== 'expired';
+  const showingEditor = !!session && gatePassed && !deviceConflict && !(needInternet && !license) && license?.status !== 'blocked' && license?.status !== 'expired';
   useEffect(() => {
     if (!ready || showingEditor) return;
     const id = requestAnimationFrame(() => window.vsDesktop?.appReady());
@@ -547,6 +635,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </AccessNotice>
             )}
             {info && <AccessNotice tone="green"><p>{info}</p></AccessNotice>}
+            {notice && !info && !error && <AccessNotice tone={notice.tone}><p>{notice.text}</p></AccessNotice>}
 
             {view === 'forgot' ? (
               <Field icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail cadastrado" autoComplete="email" required autoFocus />
@@ -639,6 +728,39 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     );
   }
 
+  if (deviceConflict) {
+    const seen = lastSeenText(deviceConflict.otherSeen, Date.now());
+    return (
+      <AccessStage>
+        <AccessCard label="Conta em outro Mac" status={<AccessStatus tone="amber">1 Mac por vez</AccessStatus>}>
+          <div className="px-6 pt-7 pb-6 text-center">
+            <AccessTitle
+              title="Sua conta já está aberta em outro computador"
+              subtitle={session.user.email}
+            />
+            <div className="console-display px-4 py-3 flex items-center justify-center gap-2.5 min-h-[3.25rem] text-[0.82rem]">
+              <Laptop size={14} className="text-logic-lcd-amber shrink-0" />
+              <span className="text-logic-text-dim">
+                Aberta em <span className="text-logic-text">{otherDeviceLabel(deviceConflict.otherName)}</span>{seen ? ` (${seen})` : ''}.
+              </span>
+            </div>
+            <p className="text-sm text-logic-text-dim mt-4 leading-relaxed">
+              A conta funciona em um Mac por vez. Aceita desconectar o outro computador para entrar neste?
+            </p>
+            {deviceError && <div className="mt-4"><AccessNotice tone="red"><p>{deviceError}</p></AccessNotice></div>}
+            <button type="button" onClick={takeOver} disabled={takingOver} autoFocus className="access-key mt-5">
+              {takingOver && <Loader2 size={16} className="animate-spin" />}
+              Sim, desconectar o outro e entrar aqui
+            </button>
+          </div>
+          <AccessFoot cols={1}>
+            <FootKey disabled={takingOver} onClick={refuseTakeOver}><X size={14} /> Não, manter o outro computador</FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
+    );
+  }
+
   if (needInternet && !license) {
     return (
       <AccessStage>
@@ -651,7 +773,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </button>
           </div>
           <AccessFoot cols={1}>
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
           </AccessFoot>
         </AccessCard>
       </AccessStage>
@@ -672,7 +794,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </p>
           </div>
           <AccessFoot cols={1}>
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
           </AccessFoot>
         </AccessCard>
       </AccessStage>
@@ -705,7 +827,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                 >
                   <RefreshCw size={14} /> Já assinei
                 </FootKey>
-                <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+                <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
               </AccessFoot>
             </>
           )}
@@ -731,7 +853,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </a>
           </div>
           <AccessFoot cols={1}>
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
           </AccessFoot>
         </AccessCard>
       </AccessStage>
@@ -800,7 +922,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                 <CreditCard size={14} /> Assinar agora
               </FootKey>
             )}
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Trocar de conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Trocar de conta</FootKey>
           </AccessFoot>
         </AccessCard>
         {promoToast}
