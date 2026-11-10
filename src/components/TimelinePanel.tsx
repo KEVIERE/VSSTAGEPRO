@@ -1949,6 +1949,20 @@ export default function TimelinePanel() {
     const el = timelinePanelRef.current;
     if (!el) return;
 
+    // O trackpad manda vários eventos por quadro; junta todos e aplica o zoom uma vez só por quadro.
+    let pendingZoom: { factor: number; mouseX: number } | null = null;
+    let zoomFrame = 0;
+    const queueZoom = (factor: number, mouseX: number) => {
+      pendingZoom = { factor: (pendingZoom?.factor ?? 1) * factor, mouseX };
+      if (zoomFrame) return;
+      zoomFrame = requestAnimationFrame(() => {
+        zoomFrame = 0;
+        const pending = pendingZoom;
+        pendingZoom = null;
+        if (pending) zoomAround(pending.factor, pending.mouseX);
+      });
+    };
+
     const onWheel = (e: WheelEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
@@ -1957,7 +1971,7 @@ export default function TimelinePanel() {
       const rect = scrollEl ? scrollEl.getBoundingClientRect() : el.getBoundingClientRect();
       const mouseX = Math.max(0, e.clientX - rect.left);
       const factor = Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.015);
-      zoomAround(factor, mouseX);
+      queueZoom(factor, mouseX);
     };
 
     // Suporte a gestos nativos de pinça (pinch) no Safari e Chromium do macOS
@@ -1972,14 +1986,16 @@ export default function TimelinePanel() {
       const rect = scrollEl ? scrollEl.getBoundingClientRect() : el.getBoundingClientRect();
       const mouseX = Math.max(0, e.clientX - rect.left);
       const targetZoom = Math.max(1, Math.min(200, gestureStartZoom * (e.scale || 1)));
-      const factor = targetZoom / Math.max(0.1, useStore.getState().zoomH);
-      zoomAround(factor, mouseX);
+      const currentZoom = useStore.getState().zoomH * (pendingZoom?.factor ?? 1);
+      const factor = targetZoom / Math.max(0.1, currentZoom);
+      queueZoom(factor, mouseX);
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });
     el.addEventListener('gesturestart', onGestureStart as EventListener, { passive: false });
     el.addEventListener('gesturechange', onGestureChange as EventListener, { passive: false });
     return () => {
+      if (zoomFrame) cancelAnimationFrame(zoomFrame);
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('gesturestart', onGestureStart as EventListener);
       el.removeEventListener('gesturechange', onGestureChange as EventListener);

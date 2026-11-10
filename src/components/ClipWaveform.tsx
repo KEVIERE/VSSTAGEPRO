@@ -8,6 +8,34 @@ export const WAVE_TILE_PX = 2048;
 const SETTLE_MS = 160;
 const MAX_STRETCH = 2;
 
+// Desenha as ondas em fila, no máximo 4 ms por quadro, para que muitas faixas
+// redesenhando juntas depois do zoom não travem a tela.
+const drawQueue = new Set<() => void>();
+let drawFrame = 0;
+function flushDrawQueue() {
+  drawFrame = 0;
+  const deadline = performance.now() + 4;
+  while (drawQueue.size > 0 && performance.now() < deadline) {
+    const draw = drawQueue.values().next().value;
+    if (!draw) break;
+    drawQueue.delete(draw);
+    draw();
+  }
+  if (drawQueue.size > 0) drawFrame = requestAnimationFrame(flushDrawQueue);
+}
+
+function scheduleDraw(draw: () => void) {
+  drawQueue.add(draw);
+  if (!drawFrame) drawFrame = requestAnimationFrame(flushDrawQueue);
+  return () => {
+    drawQueue.delete(draw);
+    if (drawQueue.size === 0 && drawFrame) {
+      cancelAnimationFrame(drawFrame);
+      drawFrame = 0;
+    }
+  };
+}
+
 export interface VisibleRange {
   start: number;
   end: number;
@@ -35,7 +63,7 @@ interface TileProps {
 const WaveTile = memo(function WaveTile({ peaks, audio, duration, color, gain = 1, fullWidth, offset, width, height }: TileProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
+  useEffect(() => scheduleDraw(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
@@ -137,7 +165,7 @@ const WaveTile = memo(function WaveTile({ peaks, audio, duration, color, gain = 
     ctx.strokeStyle = `${color}cc`;
     ctx.lineWidth = 0.8;
     ctx.stroke();
-  }, [peaks, audio, duration, color, gain, fullWidth, offset, width, height]);
+  }), [peaks, audio, duration, color, gain, fullWidth, offset, width, height]);
 
   return (
     <canvas
