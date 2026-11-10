@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CLOCK_BACK_TOLERANCE_MS, NEED_INTERNET_TEXT, OFFLINE_MAX_MS, PAID_GRACE_MS, decideOffline,
+  CLOCK_BACK_TOLERANCE_MS, NEED_INTERNET_TEXT, OFFLINE_MAX_MS, decideOffline,
 } from '../src/lib/offlineLicense.ts';
 
 const H = 3600 * 1000;
@@ -74,12 +74,13 @@ test('assinante sem internet há mais de 30 dias: precisa de internet', () => {
   assert.deepEqual(decideOffline(c, 'u1', T0 + 30 * D), { kind: 'need_internet', reason: 'too_long' });
 });
 
-test('assinatura com fim do período: vale até 3 dias depois, sem internet', () => {
+test('assinatura vencida sem pagamento e sem internet: bloqueia na data do vencimento, sem folga', () => {
   const c = cache({ status: 'active', subscription: 'pix', current_period_end: iso(T0 + 10 * D) });
-  const d = decideOffline(c, 'u1', T0 + 12 * D);
+  const d = decideOffline(c, 'u1', T0 + 10 * D - 1000);
   assert.equal(d.kind, 'use');
-  assert.equal(d.until, T0 + 10 * D + PAID_GRACE_MS);
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 13 * D), { kind: 'need_internet', reason: 'paid_period_over' });
+  assert.equal(d.until, T0 + 10 * D);
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 10 * D), { kind: 'need_internet', reason: 'paid_period_over' });
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 11 * D), { kind: 'need_internet', reason: 'paid_period_over' });
 });
 
 test('período pago longe: o limite é o de 30 dias', () => {
@@ -90,7 +91,7 @@ test('período pago longe: o limite é o de 30 dias', () => {
 test('bônus (promo) com fim em ends_at também tem limite', () => {
   const c = cache({ status: 'active', plan: 'promo', ends_at: iso(T0 + 2 * D) });
   assert.equal(decideOffline(c, 'u1', T0 + D).kind, 'use');
-  assert.equal(decideOffline(c, 'u1', T0 + 6 * D).kind, 'need_internet');
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 2 * D), { kind: 'need_internet', reason: 'paid_period_over' });
 });
 
 test('relógio voltado não estica a assinatura', () => {

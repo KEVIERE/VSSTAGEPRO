@@ -4,14 +4,13 @@
 // pelo Keychain, em desktop/licenseCache.js). Esta regra só entra quando não dá para conferir:
 // - bloqueio e teste encerrado continuam valendo sem internet;
 // - teste grátis: o prazo continua contando pelo relógio do Mac;
-// - assinante: até 30 dias desde a última conferência, e no máximo 3 dias depois do fim do
-//   período pago que o servidor informou;
+// - assinante: até 30 dias desde a última conferência, e nunca depois do fim do período pago
+//   que o servidor informou (sem folga: venceu, precisa de internet para confirmar a renovação);
 // - relógio do Mac voltado para trás, ou fora da hora do servidor na última conferência:
 //   não vale o guardado, precisa de internet;
 // - nunca conferiu neste Mac, ou outra conta: precisa de internet.
 
 export const OFFLINE_MAX_MS = 30 * 24 * 3600 * 1000;
-export const PAID_GRACE_MS = 3 * 24 * 3600 * 1000;
 // Ajuste automático do relógio mexe em segundos; mais de 1 hora para trás é relógio voltado.
 export const CLOCK_BACK_TOLERANCE_MS = 3600 * 1000;
 
@@ -76,7 +75,7 @@ export function decideOffline(cache: LicenseCache | null | undefined, userId: st
 
   if (license.status === 'active') {
     const periodEnd = time(license.current_period_end) ?? time(license.ends_at);
-    const paidEnd = periodEnd === null ? Infinity : periodEnd + PAID_GRACE_MS;
+    const paidEnd = periodEnd ?? Infinity;
     const until = Math.min(paidEnd, offlineEnd);
     if (t >= until) return { kind: 'need_internet', reason: paidEnd <= offlineEnd ? 'paid_period_over' : 'too_long' };
     return { kind: 'use', license, checkedAt, until };
