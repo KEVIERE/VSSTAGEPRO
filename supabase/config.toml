@@ -74,3 +74,7 @@ verify_jwt = false
 # Webhook da Twilio: a autenticação é o header X-Twilio-Signature, não um JWT do Supabase.
 [functions.twilio-inbound]
 verify_jwt = false
+
+# Chamada pelo agendamento do banco (pg_cron), sem login: confere a senha do Vault.
+[functions.pix-renewal-reminder]
+verify_jwt = false
