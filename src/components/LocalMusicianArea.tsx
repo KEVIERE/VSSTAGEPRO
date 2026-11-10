@@ -27,6 +27,7 @@ function errorText(msg: string): string {
     case 'bad_username': return 'Usuário com 3 a 30 letras ou números (pode usar ponto, hífen e _).';
     case 'weak_password': return 'A senha precisa ter pelo menos 6 caracteres.';
     case 'logged_out': return 'Entre de novo com seu usuário e senha.';
+    case 'disconnected': return 'O diretor musical desconectou este aparelho. Entre de novo com seu usuário e senha.';
     default: return 'Não encontrei o Mac do diretor. Confira se você está no mesmo Wi-Fi do palco.';
   }
 }
@@ -63,7 +64,7 @@ export default function LocalMusicianArea() {
         const msg = (e as Error).message;
         // sem achar o Mac: continua tentando, sem pedir login de novo
         if (msg === 'offline') { setOffline(true); window.setTimeout(() => { if (alive) setRetry((n) => n + 1); }, 2000); return; }
-        toForm(msg === 'blocked' ? errorText('blocked') : null);
+        toForm(msg === 'blocked' || msg === 'disconnected' ? errorText(msg) : null);
       });
     return () => { alive = false; };
   }, [phase, retry, toForm]);
@@ -96,7 +97,7 @@ export default function LocalMusicianArea() {
       } catch (e) {
         const msg = (e as Error).message;
         if (msg === 'pending') { setPhase('pending'); return; }
-        if (msg === 'logged_out' || msg === 'blocked') { toForm(errorText(msg)); return; }
+        if (msg === 'logged_out' || msg === 'blocked' || msg === 'disconnected') { toForm(errorText(msg)); return; }
         setOffline(true);
       }
       if (alive) timer = window.setTimeout(loop, POLL_MS);

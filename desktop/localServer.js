@@ -201,12 +201,16 @@ class LocalServer {
     this.dropLockedSessions();
   }
 
-  /** Conta bloqueada, apagada ou sem aprovação perde a sessão na hora. */
+  /**
+   * Conta bloqueada, apagada ou sem aprovação perde a sessão na hora. "Desconectar" do diretor
+   * (`disconnectedAt`) derruba quem entrou antes dele; a conta continua na lista.
+   */
   dropLockedSessions() {
     for (const [token, s] of this.sessions) {
       if (s.role !== 'musician') continue;
       const acc = this.accounts.find(s.accountId);
-      if (!acc || acc.status !== 'approved') this.sessions.delete(token);
+      const cut = acc?.disconnectedAt ? Date.parse(acc.disconnectedAt) : NaN;
+      if (!acc || acc.status !== 'approved' || (Number.isFinite(cut) && (s.since || 0) <= cut)) this.sessions.delete(token);
     }
   }
 
@@ -259,7 +263,7 @@ class LocalServer {
     const now = Date.now();
     const clients = [...this.sessions.values()]
       .filter((s) => now - s.lastSeen < ONLINE_WINDOW_MS)
-      .map(({ id, role, name, address, lastSeen }) => ({ id, role, name, address, lastSeen }));
+      .map(({ id, role, name, address, lastSeen, accountId }) => ({ id, role, name, address, lastSeen, accountId: accountId || null }));
     return {
       running: this.running,
       port: this.port,
@@ -482,7 +486,7 @@ class LocalServer {
       this.failures.delete(addr);
       const token = crypto.randomBytes(24).toString('base64url');
       const name = String(body.name ?? '').trim().slice(0, 60) || (role === 'screen' ? 'Tela do palco' : 'Sem nome');
-      this.sessions.set(token, { id: crypto.randomUUID(), role, name, address: addr, lastSeen: Date.now() });
+      this.sessions.set(token, { id: crypto.randomUUID(), role, name, address: addr, lastSeen: Date.now(), since: Date.now() });
       return this.json(res, 200, { token });
     }
 
@@ -618,7 +622,7 @@ class LocalServer {
     }
     if (!result.account) {
       if (result.error === 'wrong_login') this.noteFailure(addr);
-      const status = { wrong_login: 401, blocked: 403, username_taken: 409, needs_password: 409 }[result.error] || 400;
+      const status = { wrong_login: 401, disconnected: 401, blocked: 403, username_taken: 409, needs_password: 409 }[result.error] || 400;
       return this.json(res, status, { error: result.error || 'bad_request' });
     }
     this.failures.delete(addr);
@@ -626,7 +630,7 @@ class LocalServer {
     const remember = mode === 'resume' ? String(body.remember) : this.accounts.remember(acc);
     if (result.error === 'pending') return this.json(res, 202, { pending: true, remember, name: acc.name });
     const token = crypto.randomBytes(24).toString('base64url');
-    this.sessions.set(token, { id: crypto.randomUUID(), role: 'musician', name: acc.name, accountId: acc.id, address: addr, lastSeen: Date.now() });
+    this.sessions.set(token, { id: crypto.randomUUID(), role: 'musician', name: acc.name, accountId: acc.id, address: addr, lastSeen: Date.now(), since: Date.now() });
     return this.json(res, 200, { token, remember, name: acc.name });
   }
 

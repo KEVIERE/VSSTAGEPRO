@@ -106,6 +106,10 @@ function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: 
   }
 
   const address = info.hostName ? `${info.hostName}:${info.port}` : info.addresses[0] ? `${info.addresses[0]}:${info.port}` : null;
+  // músicos com conta aparecem na lista de músicos do show (com a luz de online); aqui ficam os outros aparelhos
+  const online = new Map<string, number>();
+  for (const c of info.clients) if (c.role === 'musician' && c.accountId) online.set(c.accountId, c.lastSeen);
+  const devices = info.clients.filter((c) => !(c.role === 'musician' && c.accountId));
 
   return (
     <div className="p-5 space-y-5">
@@ -134,15 +138,17 @@ function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: 
         ))}
       </div>
 
+      <MusicianAccountsPanel online={online} />
+
       <section>
-        <h3 className="text-xs font-semibold text-logic-text mb-2">Conectados agora <span className="text-logic-text-muted font-normal">({info.clients.length})</span></h3>
-        {info.clients.length === 0 ? (
+        <h3 className="text-xs font-semibold text-logic-text mb-2">Outros aparelhos conectados agora <span className="text-logic-text-muted font-normal">({devices.length})</span></h3>
+        {devices.length === 0 ? (
           <p className="text-2xs text-logic-text-muted py-4 text-center border border-dashed border-logic-border rounded-lg">
-            Ninguém conectado ainda. Peça para escanearem o QR code no mesmo Wi-Fi.
+            Produtor, tela do palco e VS Stage Remote aparecem aqui quando escanearem o QR code no mesmo Wi-Fi.
           </p>
         ) : (
           <ul className="divide-y divide-logic-border-dark border border-logic-border-dark rounded-lg overflow-hidden">
-            {info.clients.map((c) => {
+            {devices.map((c) => {
               const Icon = ROLE_ICON[c.role];
               return (
                 <li key={c.id} className="group flex items-center gap-3 px-3 py-2 bg-logic-bg-deep/40">
@@ -164,8 +170,6 @@ function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: 
           </ul>
         )}
       </section>
-
-      <MusicianAccountsPanel />
 
       <div className="flex items-center justify-between gap-3 pt-1">
         <p className="text-2xs text-logic-text-muted flex items-center gap-1.5"><Smartphone size={12} /> Todos precisam estar no mesmo Wi-Fi do Mac.</p>

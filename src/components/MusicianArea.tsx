@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Music } from 'lucide-react';
 import MusicianAccess from '@/components/MusicianAccess';
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
@@ -38,20 +38,32 @@ export default function MusicianArea() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sync, setSync] = useState({ lagMs: 0, receivedAt: 0 });
+  // hora (do servidor) em que este aparelho entrou no show: "Desconectar" do diretor depois
+  // dela derruba o aparelho
+  const since = useRef<string | null>(null);
+  const [disconnected, setDisconnected] = useState(false);
 
   const applyState = useCallback((s: MusicianState) => {
+    if (!since.current) since.current = s.server_now;
     setState(s);
     setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at), receivedAt: Date.now() });
   }, []);
 
+  /** Entrando agora (código, conta ou de novo depois de desconectado): conta a partir daqui. */
+  const freshEntry = () => { since.current = null; setDisconnected(false); };
+
   const loadState = useCallback(async (c: string) => {
     try {
-      const s = await musicianState(c);
+      const s = await musicianState(c, since.current);
       applyState(s);
       setError(null);
     } catch (e) {
       const msg = (e as Error).message;
-      if (msg === 'invalid_code') {
+      if (msg === 'disconnected') {
+        setDisconnected(true);
+        setError('O diretor musical desconectou você deste show.');
+        setState(null);
+      } else if (msg === 'invalid_code') {
         setError(c.startsWith('acct:')
           ? 'Seu acesso a este show foi removido ou bloqueado pelo diretor.'
           : 'Código inválido.');
@@ -74,6 +86,7 @@ export default function MusicianArea() {
   const enterWithCode = async (raw: string): Promise<string | null> => {
     const c = raw.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
     if (c.length < 8) return 'Código inválido.';
+    freshEntry();
     try {
       const s = await musicianState(c);
       applyState(s);
@@ -95,6 +108,7 @@ export default function MusicianArea() {
     const cred = `acct:${memberId}`;
     localStorage.removeItem(CODE_LS);
     setLoading(true);
+    freshEntry();
     try {
       const s = await musicianState(cred);
       applyState(s);
@@ -137,7 +151,7 @@ export default function MusicianArea() {
   }, [applyState, loadSheets]);
 
   useEffect(() => {
-    if (!code || view === 'login') return;
+    if (!code || view === 'login' || disconnected) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const loop = async () => {
@@ -146,7 +160,14 @@ export default function MusicianArea() {
     };
     timer = setTimeout(loop, POLL_MS);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [code, view, loadState]);
+  }, [code, view, loadState, disconnected]);
+
+  /** Depois de desconectado pelo diretor: entra de novo com o mesmo código ou conta. */
+  const reconnect = async () => {
+    freshEntry();
+    setError(null);
+    await loadState(code);
+  };
 
   const isAccount = code.startsWith('acct:');
   const backend = useMemo(() => onlineSheetBackend(code), [code]);
@@ -165,6 +186,7 @@ export default function MusicianArea() {
     setState(null);
     setSheets([]);
     setError(null);
+    freshEntry();
     setView('login');
   };
 
@@ -192,9 +214,12 @@ export default function MusicianArea() {
   if (!state) {
     return (
       <div className="flex items-center justify-center bg-logic-bg-deep" style={{ height: '100%' }}>
-        <div className="text-center">
+        <div className="text-center px-6">
           {error && <p className="text-sm text-logic-lcd-red mb-3">{error}</p>}
-          <button className="logic-btn" onClick={handleLogout}>Voltar ao login</button>
+          <div className="flex flex-wrap justify-center gap-2">
+            {disconnected && <button className="console-key is-lit-amber h-10 px-4 text-[13px]" onClick={reconnect}>Entrar de novo</button>}
+            <button className="logic-btn" onClick={handleLogout}>Voltar ao login</button>
+          </div>
         </div>
       </div>
     );

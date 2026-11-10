@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { X, Copy, RefreshCw, Trash2, Plus, Users, Share2, Radio, Square, AlertTriangle, Check, Ban, Ticket, UserCheck, KeyRound, Type } from 'lucide-react';
+import { X, Copy, RefreshCw, Trash2, Plus, Users, Share2, Radio, Square, AlertTriangle, Check, Ban, Ticket, UserCheck, KeyRound, Type, WifiOff } from 'lucide-react';
 import {
   createShow, directorListMusicians,
-  directorAddMusician, directorRegenerateCode, directorRemoveMusician,
+  directorAddMusician, directorDisconnectMusician, directorRegenerateCode, directorRemoveMusician,
   directorInvite, directorResetInvite, directorSetCodeLogin, directorSetStatus, directorMusicianAvatars,
 } from '@/lib/musicianApi';
 import { Avatar } from '@/components/musician/MusicianAvatar';
@@ -56,6 +56,7 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   usePublicAddress();
   const [confirmRegen, setConfirmRegen] = useState<string | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
   const [confirmStop, setConfirmStop] = useState(false);
   const [now, setNow] = useState(Date.now());
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -144,6 +145,17 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
     setBusy(true); setError(null);
     try {
       await directorRemoveMusician(show.showId, show.directorKey, id);
+      await refreshMusicians();
+    } catch (e) { setError(friendlyError(e)); }
+    finally { setBusy(false); }
+  };
+
+  // derruba agora; o músico continua na lista e entra de novo pelo celular
+  const handleDisconnect = async (id: string) => {
+    if (!show) return;
+    setBusy(true); setError(null);
+    try {
+      await directorDisconnectMusician(show.showId, show.directorKey, id);
       await refreshMusicians();
     } catch (e) { setError(friendlyError(e)); }
     finally { setBusy(false); }
@@ -505,11 +517,12 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                     <Avatar src={avatars[m.id]} name={m.name} size={34} />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${m.online ? 'bg-logic-lcd-green' : 'bg-logic-text-muted'}`} />
+                        <span className={`console-led shrink-0 ${m.online ? 'is-on-green' : ''}`} title={m.online ? 'Online agora' : 'Offline'} />
                         <span className="text-sm font-medium text-logic-text truncate">{m.name}</span>
                         {m.instrument && (
                           <span className="text-2xs text-logic-text-muted">{m.instrument}</span>
                         )}
+                        <span className={`text-2xs ${m.online ? 'text-logic-lcd-green font-semibold' : 'text-logic-text-muted'}`}>{m.online ? 'Online' : 'Offline'}</span>
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         {m.status === 'blocked' ? (
@@ -569,6 +582,16 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                         )}
                       </>
                     )}
+                    {m.online && m.status !== 'blocked' && (
+                      <button
+                        className="flex items-center gap-1 px-2 py-1.5 rounded text-xs text-logic-text-muted hover:text-logic-lcd-amber hover:bg-logic-bg-panel-light transition-colors disabled:opacity-50"
+                        onClick={() => handleDisconnect(m.id)}
+                        disabled={busy}
+                        title="Derruba agora. Ele continua na lista e entra de novo pelo celular."
+                      >
+                        <WifiOff size={13} /> Desconectar
+                      </button>
+                    )}
                     {m.status === 'blocked' ? (
                       <button
                         className="px-2 py-1 rounded text-2xs font-medium text-logic-lcd-green hover:bg-logic-lcd-green/15 transition-colors"
@@ -587,13 +610,29 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                         <Ban size={14} />
                       </button>
                     )}
-                    <button
-                      className="p-1.5 rounded text-logic-text-muted hover:text-logic-lcd-red hover:bg-logic-bg-panel-light transition-colors"
-                      onClick={() => handleRemove(m.id)}
-                      title="Remover músico"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {confirmRemove === m.id ? (
+                      <span className="flex items-center gap-1 animate-[fadeIn_150ms_ease-out]">
+                        <span className="text-2xs text-logic-lcd-amber max-w-[12rem] leading-snug">Sai da lista; para voltar precisa do convite ou de um código novo.</span>
+                        <button
+                          className="px-2 py-1 rounded bg-logic-lcd-red text-white text-2xs font-semibold disabled:opacity-50"
+                          onClick={() => { setConfirmRemove(null); handleRemove(m.id); }}
+                          disabled={busy}
+                        >
+                          Excluir
+                        </button>
+                        <button className="px-1.5 py-1 rounded text-2xs text-logic-text-muted hover:text-logic-text" onClick={() => setConfirmRemove(null)}>
+                          Não
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        className="p-1.5 rounded text-logic-text-muted hover:text-logic-lcd-red hover:bg-logic-bg-panel-light transition-colors"
+                        onClick={() => setConfirmRemove(m.id)}
+                        title="Excluir da lista"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

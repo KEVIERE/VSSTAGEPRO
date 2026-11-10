@@ -99,3 +99,72 @@ test('medidores do Remote: o programa publica e a aba Mixer lê; músico não l�
     assert.equal((await ctx.get('remote-meters', musician)).status, 403);
   } finally { await ctx.close(); }
 });
+
+// Lista de músicos do diretor: o programa manda o livro de contas como o store deixa depois de
+// "Desconectar" (aparelhos lembrados saem, hora da desconexão) ou de "Excluir" (conta some).
+function asDirector(ctx, change) {
+  const book = JSON.parse(JSON.stringify(ctx.srv.accounts.book));
+  ctx.srv.setMusicianBook(change(book));
+}
+
+test('lista de músicos: cada um aparece online pela conta e o diretor vê quem está no ar', async () => {
+  const ctx = await setup();
+  try {
+    const token = await musicianToken(ctx);
+    assert.equal((await ctx.get('sheets', token)).status, 200);
+    const info = await ctx.srv.info();
+    const acc = ctx.srv.accounts.findByUsername('joao.baixo');
+    assert.deepEqual(info.clients.filter((c) => c.role === 'musician').map((c) => c.accountId), [acc.id]);
+  } finally { await ctx.close(); }
+});
+
+test('Desconectar: cai agora, continua na lista e entra de novo com usuário e senha', async () => {
+  const ctx = await setup();
+  try {
+    const login = await ctx.post('login', { role: 'musician', mode: 'signup', pin: ctx.srv.pins.musician, username: 'ana.voz', password: 'segredo1', name: 'Ana', instrument: 'Voz' });
+    const { remember } = await login.json();
+    asDirector(ctx, (b) => { b.accounts[0].status = 'approved'; b.accounts[0].updatedAt = new Date(Date.now() + 1).toISOString(); return b; });
+    const back = await ctx.post('login', { role: 'musician', mode: 'resume', remember });
+    assert.equal(back.status, 200);
+    const token = (await back.json()).token;
+    assert.equal((await ctx.get('sheets', token)).status, 200);
+
+    // o diretor aperta Desconectar (mesma mudança que o store faz)
+    await new Promise((r) => setTimeout(r, 5));
+    asDirector(ctx, (b) => {
+      const a = b.accounts[0];
+      const at = new Date().toISOString();
+      Object.assign(a, { dropped: [...a.remember], remember: [], disconnectedAt: at, updatedAt: at });
+      return b;
+    });
+    assert.equal((await ctx.get('sheets', token)).status, 401, 'a sessão caiu');
+    assert.ok(ctx.srv.accounts.findByUsername('ana.voz'), 'continua na lista');
+    const again = await ctx.post('login', { role: 'musician', mode: 'resume', remember });
+    assert.equal(again.status, 401);
+    assert.equal((await again.json()).error, 'disconnected', 'o celular sabe que foi o diretor');
+
+    // entra de novo com usuário e senha, e a nova sessão não cai
+    await new Promise((r) => setTimeout(r, 5));
+    const relog = await ctx.post('login', { role: 'musician', mode: 'login', username: 'ana.voz', password: 'segredo1' });
+    assert.equal(relog.status, 200);
+    const token2 = (await relog.json()).token;
+    ctx.srv.dropLockedSessions();
+    assert.equal((await ctx.get('sheets', token2)).status, 200);
+  } finally { await ctx.close(); }
+});
+
+test('Excluir: sai da lista e precisa do PIN dos músicos para voltar', async () => {
+  const ctx = await setup();
+  try {
+    const token = await musicianToken(ctx);
+    const id = ctx.srv.accounts.findByUsername('joao.baixo').id;
+    asDirector(ctx, (b) => ({ ...b, accounts: b.accounts.filter((a) => a.id !== id), removed: [...b.removed, id] }));
+    assert.equal((await ctx.get('sheets', token)).status, 401);
+    const relog = await ctx.post('login', { role: 'musician', mode: 'login', username: 'joao.baixo', password: 'segredo1' });
+    assert.equal(relog.status, 401, 'usuário e senha não bastam');
+    const semPin = await ctx.post('login', { role: 'musician', mode: 'signup', pin: '000000', username: 'joao.baixo', password: 'segredo1', name: 'João' });
+    assert.equal(semPin.status, 401);
+    const comPin = await ctx.post('login', { role: 'musician', mode: 'signup', pin: ctx.srv.pins.musician, username: 'joao.baixo', password: 'segredo1', name: 'João' });
+    assert.equal(comPin.status, 202, 'com o PIN cria a conta de novo e espera a aprovação');
+  } finally { await ctx.close(); }
+});

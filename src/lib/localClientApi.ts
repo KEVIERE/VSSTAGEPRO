@@ -82,7 +82,7 @@ let musicianToken: string | null = null;
 
 export type MusicianAuthError =
   | 'invalid_code' | 'wrong_login' | 'blocked' | 'username_taken' | 'needs_password'
-  | 'bad_username' | 'weak_password' | 'pending' | 'logged_out' | 'offline';
+  | 'bad_username' | 'weak_password' | 'pending' | 'logged_out' | 'disconnected' | 'offline';
 
 export type MusicianAuth = { pending: false; name: string } | { pending: true; name: string };
 
@@ -143,7 +143,7 @@ export async function localMusicianResume(): Promise<MusicianAuth> {
   } catch (e) {
     const msg = (e as Error).message;
     if (msg !== 'offline') forgetMusician();
-    throw new Error(msg === 'offline' ? 'offline' : msg === 'blocked' ? 'blocked' : 'logged_out');
+    throw new Error(msg === 'offline' || msg === 'blocked' || msg === 'disconnected' ? msg : 'logged_out');
   }
 }
 

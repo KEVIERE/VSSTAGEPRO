@@ -209,6 +209,8 @@ interface StoreActions {
   resetMusicianPassword: (accountId: string) => void;
   /** Diretor: apaga a conta e os cadernos dela. */
   removeMusicianAccount: (accountId: string) => void;
+  /** Derruba o músico agora (ele continua na lista e entra de novo com usuário e senha). */
+  disconnectMusician: (accountId: string) => void;
   selectTrack: (id: string | null) => void;
   selectSong: (id: string | null) => void;
   selectClip: (id: string | null, additive?: boolean) => void;
@@ -576,6 +578,19 @@ export const useStore = create<Store>()(
         const book = s.musicianBook;
         if (!book) return s;
         return { musicianBook: { ...book, accounts: book.accounts.filter((a) => a.id !== accountId), removed: [...book.removed, accountId] } };
+      }),
+      disconnectMusician: (accountId) => set((s) => {
+        const book = s.musicianBook;
+        if (!book) return s;
+        const at = new Date().toISOString();
+        return {
+          musicianBook: {
+            ...book,
+            accounts: book.accounts.map((a) => (a.id === accountId
+              ? { ...a, remember: [], dropped: [...new Set([...(a.dropped ?? []), ...a.remember])].slice(-20), disconnectedAt: at, updatedAt: at }
+              : a)),
+          },
+        };
       }),
       selectTrack: (id) => set({ selectedTrackId: id }),
       selectSong: (id) => set((s) => {

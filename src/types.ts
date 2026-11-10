@@ -305,6 +305,10 @@ export interface MusicianAccount {
   createdAt: string;
   updatedAt: string;
   sheets: Record<string, MusicianSheetRecord>;
+  /** "Desconectar" do diretor: quem entrou antes disso cai e precisa entrar de novo (continua na lista) */
+  disconnectedAt?: string | null;
+  /** aparelhos desconectados pelo diretor (só o hash), para o celular dizer por que saiu */
+  dropped?: string[];
 }
 
 /** As contas dos músicos guardadas no projeto do show. */

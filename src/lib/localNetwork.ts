@@ -13,6 +13,8 @@ export interface LocalClient {
   name: string;
   address: string;
   lastSeen: number;
+  /** músico com conta: a conta dele (para a lista de músicos mostrar quem está online) */
+  accountId?: string | null;
 }
 
 export interface LocalInfo {

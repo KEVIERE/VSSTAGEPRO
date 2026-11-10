@@ -80,6 +80,17 @@ export async function directorRemoveMusician(
   assertOk(data, 'director_remove_musician failed');
 }
 
+/** "Desconectar": derruba o músico agora; ele continua na lista e entra de novo. */
+export async function directorDisconnectMusician(
+  showId: string, directorKey: string, musicianId: string,
+): Promise<void> {
+  const { data, error } = await supabase.rpc('director_disconnect_musician', {
+    p_show: showId, p_key: directorKey, p_musician: musicianId,
+  });
+  if (error) throw error;
+  assertOk(data, 'director_disconnect_musician failed');
+}
+
 export async function directorInvite(showId: string, directorKey: string): Promise<ShowInvite> {
   const { data, error } = await supabase.rpc('director_invite', { p_show: showId, p_key: directorKey });
   if (error) throw error;
@@ -147,8 +158,22 @@ export async function memberUpdateProfile(name: string, instrument: string): Pro
   assertOk(data, 'member_update_profile failed');
 }
 
-export async function musicianState(code: string): Promise<MusicianState> {
-  const { data, error } = await supabase.rpc('musician_state', { p_code: code });
+/** Banco ainda sem `musician_live` (o upgrade do banco não rodou): usa a consulta antiga. */
+let liveMissing = false;
+
+/**
+ * Estado do show para o músico. `since`: hora (do servidor) em que este aparelho entrou; se o
+ * diretor apertou "Desconectar" depois dela, dá erro `disconnected`. Sem `since` entra normal.
+ */
+export async function musicianState(code: string, since: string | null = null): Promise<MusicianState> {
+  let res = liveMissing
+    ? await supabase.rpc('musician_state', { p_code: code })
+    : await supabase.rpc('musician_live', { p_code: code, p_since: since });
+  if (!liveMissing && res.error && (res.error.code === 'PGRST202' || /musician_live/.test(res.error.message))) {
+    liveMissing = true;
+    res = await supabase.rpc('musician_state', { p_code: code });
+  }
+  const { data, error } = res;
   if (error) {
     if (error.message.includes('too_many_attempts')) throw new Error('too_many_attempts');
     throw error;

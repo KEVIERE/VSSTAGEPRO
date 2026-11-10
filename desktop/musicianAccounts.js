@@ -273,7 +273,8 @@ class LocalAccounts {
     if (typeof token !== 'string' || !token) return { error: 'wrong_login' };
     const h = sha256(token);
     const acc = this.accounts.find((a) => (a.remember || []).includes(h));
-    if (!acc) return { error: 'wrong_login' };
+    // aparelho que o diretor desconectou: o celular avisa por que saiu e pede usuário e senha
+    if (!acc) return { error: this.accounts.some((a) => (a.dropped || []).includes(h)) ? 'disconnected' : 'wrong_login' };
     if (acc.status === 'blocked') return { error: 'blocked' };
     if (acc.status !== 'approved') return { account: acc, error: 'pending' };
     return { account: acc };
