@@ -1,6 +1,10 @@
 // Cobrança da assinatura pela InfinitePay (Checkout Integrado).
-//   { action: 'create', plan, couponCode? } → cria o LINK de pagamento
+//   { action: 'create', plan, couponCode? } → cria o LINK de pagamento (vale 30 minutos)
 //   { action: 'status', id }                → a tela consulta até o pagamento ser confirmado
+//   { action: 'latest' }                    → último pagamento da conta (página de volta de link antigo)
+// 'status' e 'latest' aceitam também transaction_nsu, slug e order_nsu: são os
+// códigos que a InfinitePay põe no endereço da página de volta. Com eles a
+// confirmação sai na hora, sem esperar o aviso automático.
 //
 // Diferença em relação ao Asaas: a InfinitePay não devolve QR Code nem
 // copia-e-cola. Ela devolve uma URL de checkout para onde o cliente é enviado,
@@ -9,8 +13,10 @@
 // se um aviso se perder.
 import { createClient, type User } from 'npm:@supabase/supabase-js@2.57.4';
 import { InfinitePayError, infinitePayClient } from '../_shared/infinitepay.ts';
-import { MIN_PIX_CENTS, PIX_PLANS, type Plan, discountedCents, pixDueDate } from '../_shared/pix.ts';
-import { applyPaymentByOrder } from '../_shared/pixDb.ts';
+import {
+  MIN_PIX_CENTS, PIX_PLANS, type Plan, discountedCents, pixLinkExpiresAt, reusableLink, statusCheckPlan,
+} from '../_shared/pix.ts';
+import { applyPaymentByOrder, setInfinitePayIds } from '../_shared/pixDb.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -31,8 +37,16 @@ const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE
 
 // Com o link aberto há tempo, a tela pergunta à InfinitePay no máximo a cada 15 s.
 const RECHECK_MS = 15_000;
-// Link aberto é reaproveitado se ainda faltar pelo menos isso para vencer.
-const REUSE_MARGIN_MS = 15 * 60_000;
+// Quando a página de volta traz os códigos da InfinitePay que ainda não temos,
+// pergunta logo (no máximo a cada 3 s): com eles a confirmação sai na hora.
+const RECHECK_WITH_IDS_MS = 3_000;
+// Página de volta sem pedido no endereço (link antigo): olha o último pagamento de até 1 dia.
+const LATEST_WINDOW_MS = 24 * 3600_000;
+
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+// Códigos da InfinitePay vindos do endereço da página de volta (o cliente pode mexer neles).
+const SAFE_ID_RE = /^[A-Za-z0-9_.:-]{1,120}$/;
+const safeId = (v: unknown) => (typeof v === 'string' && SAFE_ID_RE.test(v) ? v : undefined);
 
 type PixRow = {
   id: string; user_id: string; plan: Plan; amount_cents: number; status: string;
@@ -40,6 +54,9 @@ type PixRow = {
   transaction_nsu: string | null; invoice_slug: string | null;
   expires_at: string; checked_at: string | null; access_until: string | null;
 };
+
+/** Códigos da InfinitePay que a página de volta recebeu no endereço. */
+type Ids = { transactionNsu?: string; slug?: string };
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
@@ -56,6 +73,8 @@ function view(row: PixRow) {
     expires_at: row.expires_at,
     access_until: row.access_until,
     checkout_url: pending ? row.checkout_url : null,
+    // Hora do servidor: a contagem regressiva da tela não depende do relógio do computador.
+    now: new Date().toISOString(),
   };
 }
 
@@ -64,27 +83,63 @@ function view(row: PixRow) {
  *
  * O webhook da InfinitePay não tem assinatura, então o aviso sozinho não prova
  * nada: qualquer um poderia forjar um POST dizendo que o pedido foi pago. A
- * confirmação de verdade é esta consulta — o atacante pode inventar um aviso,
+ * confirmação de verdade é esta consulta: o atacante pode inventar um aviso,
  * mas não consegue obrigar a InfinitePay a responder "pago".
+ *
+ * O /payment_check precisa do transaction_nsu e do slug, que chegam pelo aviso
+ * ou no endereço da página de volta. Os da página de volta só são usados quando
+ * ainda não temos os do aviso, e só são guardados se a InfinitePay confirmar.
  */
-async function confirmado(orderNsu: string): Promise<{ pago: boolean; valor: number | null }> {
-  const { data: row } = await admin
-    .from('pix_payments')
-    .select('transaction_nsu, invoice_slug')
-    .eq('order_nsu', orderNsu)
-    .maybeSingle();
+async function confirmado(row: PixRow, ids?: Ids): Promise<{ pago: boolean; valor: number | null }> {
+  const orderNsu = row.order_nsu!;
+  const transactionNsu = row.transaction_nsu ?? ids?.transactionNsu;
+  const slug = row.invoice_slug ?? ids?.slug;
 
   const r = await infinitepay.conferirPagamento({
     handle: HANDLE || undefined,
     order_nsu: orderNsu,
-    transaction_nsu: (row?.transaction_nsu as string | null) ?? undefined,
-    slug: (row?.invoice_slug as string | null) ?? undefined,
+    transaction_nsu: transactionNsu ?? undefined,
+    slug: slug ?? undefined,
   });
 
   if (!r.paid) return { pago: false, valor: null };
+  // Confirmado com os códigos da página de volta: guarda, agora que valem.
+  if (transactionNsu !== (row.transaction_nsu ?? undefined) || slug !== (row.invoice_slug ?? undefined)) {
+    await setInfinitePayIds(admin, orderNsu, transactionNsu ?? null, slug ?? null)
+      .catch((e) => console.error('pix-checkout ids', orderNsu, e instanceof Error ? e.message : e));
+  }
   // `paid_amount` pode ser maior que `amount` quando o cliente parcela com as
   // taxas repassadas: vale o que ele pagou, não o valor combinado.
   return { pago: true, valor: Math.round(r.paid_amount ?? r.amount ?? 0) };
+}
+
+const nowIso = () => new Date().toISOString();
+
+async function markClosed(id: string, status: 'expired' | 'canceled') {
+  await admin.from('pix_payments').update({ status, updated_at: nowIso() }).eq('id', id).eq('status', 'pending');
+}
+
+/**
+ * Atualiza a situação do pedido: pergunta à InfinitePay quando precisa (ver
+ * statusCheckPlan) e, passado o prazo de 30 min sem pagamento, marca como vencido.
+ */
+async function refresh(row: PixRow, ids?: Ids): Promise<PixRow> {
+  const newIds = (!!ids?.transactionNsu && !row.transaction_nsu) || (!!ids?.slug && !row.invoice_slug);
+  const plan = statusCheckPlan(row, Date.now(), newIds ? RECHECK_WITH_IDS_MS : RECHECK_MS);
+  if (!plan.check) return row;
+
+  await admin.from('pix_payments').update({ checked_at: nowIso() }).eq('id', row.id);
+  try {
+    const c = await confirmado(row, ids);
+    if (c.pago) await applyPaymentByOrder(admin, row.order_nsu!, c.valor);
+    else if (plan.expire) await markClosed(row.id, 'expired');
+  } catch (e) {
+    console.error('pix-checkout status', row.order_nsu, e);
+    // InfinitePay fora do ar e o prazo acabou: a tela mostra vencido; se o
+    // pagamento for confirmado depois, o webhook ainda libera o acesso.
+    if (plan.expire) await markClosed(row.id, 'expired');
+  }
+  return (await loadRowById(row.id)) ?? row;
 }
 
 // Cobranças ligadas: a chave cadastrada e a tabela criada (migração aplicada).
@@ -100,6 +155,12 @@ async function pixAvailable(): Promise<boolean> {
 
 async function loadRow(id: string, userId: string): Promise<PixRow | null> {
   const { data, error } = await admin.from('pix_payments').select('*').eq('id', id).eq('user_id', userId).maybeSingle();
+  if (error) throw error;
+  return data as PixRow | null;
+}
+
+async function loadRowById(id: string): Promise<PixRow | null> {
+  const { data, error } = await admin.from('pix_payments').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
   return data as PixRow | null;
 }
@@ -130,24 +191,36 @@ async function create(user: User, body: Record<string, unknown>) {
   const amount = discountedCents(PIX_PLANS[plan].cents, percent);
   if (amount < MIN_PIX_CENTS) return json({ error: 'amount_too_low' }, 400);
 
-  // Link igual ainda aberto (mesmo plano e valor): reaproveita em vez de gerar outro
+  // Link igual ainda aberto (mesmo plano e valor) e com pelo menos 10 min pela
+  // frente: reaproveita em vez de gerar outro (ver reusableLink).
   const { data: openRows, error: openErr } = await admin
     .from('pix_payments').select('*').eq('user_id', user.id).eq('status', 'pending').order('created_at', { ascending: false });
   if (openErr) throw openErr;
   const open = (openRows ?? []) as PixRow[];
-  const reuse = open.find((r) =>
-    r.plan === plan && r.amount_cents === amount && r.checkout_url &&
-    Date.parse(r.expires_at) - Date.now() > REUSE_MARGIN_MS
-  );
+  const reuse = reusableLink(open, plan, amount, Date.now());
   if (reuse) return json(view(reuse));
   // Só um link pagável por vez: os outros desta conta deixam de valer aqui.
-  // (A InfinitePay não permite cancelar um link pela API; ele apenas expira.)
+  // (A InfinitePay não permite cancelar um link pela API; ele apenas expira.
+  // Se alguém pagar um link trocado, o pagamento ainda é liberado.)
   for (const r of open) {
-    await admin.from('pix_payments').update({ status: 'canceled', updated_at: new Date().toISOString() })
-      .eq('id', r.id).eq('status', 'pending');
+    // Já chegou aviso deste link (temos os códigos): antes de trocar, confere se
+    // foi pago. Ex.: a pessoa pagou e recarregou a página antes da liberação.
+    if (r.order_nsu && r.transaction_nsu && r.invoice_slug) {
+      try {
+        const c = await confirmado(r);
+        if (c.pago) {
+          await applyPaymentByOrder(admin, r.order_nsu, c.valor);
+          const done = await loadRow(r.id, user.id);
+          if (done && done.status !== 'pending') return json(view(done));
+        }
+      } catch (e) {
+        console.error('pix-checkout create check', r.order_nsu, e);
+      }
+    }
+    await markClosed(r.id, Date.parse(r.expires_at) <= Date.now() ? 'expired' : 'canceled');
   }
 
-  const { expiresAt } = pixDueDate(new Date());
+  const expiresAt = pixLinkExpiresAt(new Date());
   const orderNsu = `vs-${user.id.slice(0, 8)}-${Date.now()}`;
 
   const { data: inserted, error: insErr } = await admin
@@ -170,7 +243,9 @@ async function create(user: User, body: Record<string, unknown>) {
         description: PIX_PLANS[plan].description + (couponCode ? ` — cupom ${couponCode}` : ''),
       }],
       order_nsu: orderNsu,
-      redirect_url: `${SITE_URL}/#assinatura`,
+      // A página de volta confere este pedido sozinha. A InfinitePay acrescenta
+      // order_nsu, transaction_nsu e slug ao endereço.
+      redirect_url: `${SITE_URL}/?pagamento=${row.id}#assinatura`,
       webhook_url: WEBHOOK_URL || undefined,
       customer: {
         name: String(user.user_metadata?.name ?? '').trim() || undefined,
@@ -181,7 +256,7 @@ async function create(user: User, body: Record<string, unknown>) {
         single_payment: true,
         // O cliente escolhe entre PIX e cartão na página deles.
         payment_methods_enabled: ['credit_card', 'pix'],
-        // O link vence junto com o nosso controle de prazo.
+        // O link vence junto com o nosso controle de prazo (30 minutos).
         valid_until: expiresAt.toISOString(),
       },
     });
@@ -206,38 +281,35 @@ async function create(user: User, body: Record<string, unknown>) {
   }
 }
 
+/** Códigos da página de volta. Só valem se o pedido que veio junto for este. */
+function returnIds(row: PixRow, body: Record<string, unknown>): Ids | undefined {
+  const transactionNsu = safeId(body.transaction_nsu);
+  const slug = safeId(body.slug);
+  if (!transactionNsu && !slug) return undefined;
+  const orderNsu = safeId(body.order_nsu);
+  if (orderNsu && orderNsu !== row.order_nsu) return undefined;
+  return { transactionNsu, slug };
+}
+
 async function status(user: User, body: Record<string, unknown>) {
   const id = String(body.id ?? '');
-  if (!/^[0-9a-f-]{36}$/i.test(id)) return json({ error: 'not_found' }, 404);
-  let row = await loadRow(id, user.id);
+  if (!UUID_RE.test(id)) return json({ error: 'not_found' }, 404);
+  const row = await loadRow(id, user.id);
   if (!row) return json({ error: 'not_found' }, 404);
+  return json(view(await refresh(row, returnIds(row, body))));
+}
 
-  if (row.status === 'pending' && row.order_nsu) {
-    const expired = Date.parse(row.expires_at) <= Date.now();
-    const stale = !row.checked_at || Date.now() - Date.parse(row.checked_at) > RECHECK_MS;
-    if (expired || stale) {
-      await admin.from('pix_payments').update({ checked_at: new Date().toISOString() }).eq('id', row.id);
-      try {
-        const c = await confirmado(row.order_nsu);
-        if (c.pago) {
-          await applyPaymentByOrder(admin, row.order_nsu, c.valor);
-        } else if (expired) {
-          await admin.from('pix_payments').update({ status: 'expired', updated_at: new Date().toISOString() })
-            .eq('id', row.id).eq('status', 'pending');
-        }
-      } catch (e) {
-        console.error('pix-checkout status', row.order_nsu, e);
-        // InfinitePay fora do ar e o prazo acabou: a tela mostra vencido; se o
-        // pagamento for confirmado depois, o webhook ainda libera o acesso.
-        if (expired) {
-          await admin.from('pix_payments').update({ status: 'expired', updated_at: new Date().toISOString() })
-            .eq('id', row.id).eq('status', 'pending');
-        }
-      }
-      row = (await loadRow(id, user.id)) ?? row;
-    }
-  }
-  return json(view(row));
+/** Página de volta de um link sem o nosso código no endereço (gerado antes desta versão):
+ *  o pedido que a InfinitePay informou ou, sem ele, o último pagamento da conta (até 1 dia). */
+async function latest(user: User, body: Record<string, unknown>) {
+  const orderNsu = safeId(body.order_nsu);
+  let q = admin.from('pix_payments').select('*').eq('user_id', user.id);
+  q = orderNsu ? q.eq('order_nsu', orderNsu) : q.gte('created_at', new Date(Date.now() - LATEST_WINDOW_MS).toISOString());
+  const { data, error } = await q.order('created_at', { ascending: false }).limit(1).maybeSingle();
+  if (error) throw error;
+  if (!data) return json({ error: 'not_found' }, 404);
+  const row = data as PixRow;
+  return json(view(await refresh(row, returnIds(row, body))));
 }
 
 Deno.serve(async (req) => {
@@ -256,6 +328,7 @@ Deno.serve(async (req) => {
   try {
     if (body.action === 'create') return await create(auth.user, body);
     if (body.action === 'status') return await status(auth.user, body);
+    if (body.action === 'latest') return await latest(auth.user, body);
     return json({ error: 'invalid_action' }, 400);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);

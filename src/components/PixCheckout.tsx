@@ -1,28 +1,31 @@
 // Pagamento da assinatura pela InfinitePay: abre o link de checkout e confere
-// sozinho até o pagamento ser confirmado. A InfinitePay não devolve QR Code —
-// o PIX e o cartão são escolhidos na página dela. Visual da mesa de som
-// (console-*, access-*), igual ao SubscribeDialog.
+// sozinho até o pagamento ser confirmado. A InfinitePay não devolve QR Code:
+// o PIX e o cartão são escolhidos na página dela. O link vale 30 minutos, com
+// contagem regressiva; ao vencer, a tela oferece gerar outro. Visual da mesa de
+// som (console-*, access-*), igual ao SubscribeDialog.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowLeft, CheckCircle2, CreditCard, ExternalLink, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { AccessNotice, FootKey } from '@/components/access/AccessChrome';
 import { createPix, getPixStatus, PIX_ERRORS, type PixCharge, type PixPlan } from '@/lib/pixCheckout';
-import { cpfCnpjDigits, formatBRL, maskCpfCnpj } from '@/lib/pixFormat';
+import {
+  cpfCnpjDigits, formatBRL, formatBrasiliaDate, formatBrasiliaDateTime, formatCountdown, maskCpfCnpj,
+} from '@/lib/pixFormat';
 import { refreshLicense } from '@/lib/licenseEvents';
 import { supportWhatsAppUrl } from '@/lib/support';
 
-// Confere o pagamento a cada 4 s; depois de 30 min para e deixa o botão "Já paguei".
+// Enquanto o link vale, confere o pagamento a cada 4 s, e na hora quando a
+// pessoa volta para esta janela (ela paga em outra aba ou no navegador).
 const POLL_MS = 4000;
-const POLL_LIMIT_MS = 30 * 60 * 1000;
+// Depois de vencido, ainda confere por 5 min, a cada 10 s: pega o pagamento
+// feito no último segundo, que a InfinitePay confirma um pouco depois.
+const LATE_POLL_MS = 10_000;
+const LATE_WATCH_MS = 5 * 60_000;
+// Faltando menos que isso, a contagem fica vermelha.
+const HURRY_MS = 5 * 60_000;
 // Tempo mostrando "Pagamento confirmado" antes de liberar o programa.
-const PAID_HOLD_MS = 2500;
+const PAID_HOLD_MS = 4000;
 
 type Phase = 'loading' | 'cpf' | 'waiting' | 'paid' | 'closed' | 'mismatch' | 'error';
-
-const BRASILIA = 'America/Sao_Paulo';
-const fmtDateTime = (iso: string) =>
-  new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: BRASILIA });
-const fmtDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: BRASILIA });
 
 export default function PixCheckout({
   plan, couponCode, onBack, onPaid, paidNote,
@@ -40,21 +43,31 @@ export default function PixCheckout({
   const [charge, setCharge] = useState<PixCharge | null>(null);
   const [cpf, setCpf] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [pollStopped, setPollStopped] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [, setTick] = useState(0);
   const onPaidRef = useRef(onPaid);
   onPaidRef.current = onPaid;
   const startedRef = useRef(false);
+  // Diferença entre o relógio do servidor e o do computador: a contagem usa a hora do servidor.
+  const skewRef = useRef(0);
+  // Pagamento mostrado agora: uma resposta atrasada de um link trocado não volta para a tela.
+  const currentIdRef = useRef<string | null>(null);
+  const serverNow = () => Date.now() + skewRef.current;
 
   const show = (c: PixCharge) => {
+    if (c.now) skewRef.current = Date.parse(c.now) - Date.now();
+    currentIdRef.current = c.id;
     setCharge(c);
     setPhase(c.status === 'pending' ? 'waiting' : c.status === 'paid' ? 'paid' : c.status === 'amount_mismatch' ? 'mismatch' : 'closed');
+  };
+  const showIfCurrent = (c: PixCharge) => {
+    if (c.id === currentIdRef.current) show(c);
   };
 
   const generate = useCallback(async (cpfCnpj?: string) => {
     setPhase('loading');
     setError(null);
-    setPollStopped(false);
+    currentIdRef.current = null;
     try {
       show(await createPix(plan, { cpfCnpj, couponCode }));
     } catch (e) {
@@ -80,34 +93,56 @@ export default function PixCheckout({
     generate();
   }, [generate]);
 
-  // Enquanto aguarda, confere o pagamento de tempos em tempos
   const chargeId = charge?.id;
-  useEffect(() => {
-    if (phase !== 'waiting' || !chargeId || pollStopped) return;
-    const started = Date.now();
-    let busy = false;
-    const t = window.setInterval(async () => {
-      if (Date.now() - started > POLL_LIMIT_MS) { setPollStopped(true); return; }
-      if (busy) return;
-      busy = true;
-      try { show(await getPixStatus(chargeId)); } catch { /* tenta de novo na próxima volta */ } finally { busy = false; }
-    }, POLL_MS);
-    return () => window.clearInterval(t);
-  }, [phase, chargeId, pollStopped]);
+  const expiresMs = charge ? Date.parse(charge.expires_at) : 0;
+  // Confere enquanto o link vale e, depois de vencido, por mais alguns minutos.
+  const watching = !!chargeId && (phase === 'waiting' || (phase === 'closed' && charge?.status === 'expired'));
 
-  // Pago: mostra a confirmação e depois pede ao programa para conferir a licença
+  // Contagem regressiva: atualiza a tela a cada segundo enquanto aguarda.
+  useEffect(() => {
+    if (phase !== 'waiting') return;
+    const t = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [phase]);
+
+  useEffect(() => {
+    if (!watching || !chargeId) return;
+    let busy = false;
+    const poll = async () => {
+      if (busy || serverNow() - expiresMs > LATE_WATCH_MS) return;
+      busy = true;
+      try {
+        const c = await getPixStatus(chargeId);
+        if (c.id === currentIdRef.current) show(c);
+      } catch { /* tenta de novo na próxima volta */ } finally { busy = false; }
+    };
+    const t = window.setInterval(poll, phase === 'waiting' ? POLL_MS : LATE_POLL_MS);
+    // Voltou para esta janela (pagou na outra aba ou no navegador): confere na hora.
+    const onReturn = () => { if (document.visibilityState === 'visible') poll(); };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [watching, chargeId, phase, expiresMs]);
+
+  // Pago: mostra a confirmação (também no título da aba, visível de outra aba) e
+  // depois pede ao programa para conferir a licença.
   useEffect(() => {
     if (phase !== 'paid') return;
+    const before = document.title;
+    document.title = 'Pagamento confirmado · VS Stage Pro';
     const t = window.setTimeout(() => { refreshLicense(); onPaidRef.current?.(); }, PAID_HOLD_MS);
-    return () => window.clearTimeout(t);
+    return () => { window.clearTimeout(t); document.title = before; };
   }, [phase]);
 
   const checkNow = async () => {
     if (!charge) return;
     setChecking(true);
     try {
-      show(await getPixStatus(charge.id));
-      setPollStopped(false);
+      showIfCurrent(await getPixStatus(charge.id));
     } catch { /* o aviso automático continua valendo */ } finally {
       setChecking(false);
     }
@@ -151,14 +186,17 @@ export default function PixCheckout({
 
   if (phase === 'paid' && charge) {
     return (
-      <div className="text-center" role="status">
+      <div className="text-center" role="status" aria-live="assertive">
         <div className="console-bezel">
-          <div className="console-display px-4 py-5 flex flex-col items-center gap-2">
-            <span className="flex items-center gap-2 font-stage text-[1.5rem] font-bold leading-none text-logic-lcd-green console-glow">
-              <CheckCircle2 size={22} /> Pagamento confirmado
+          <div className="console-display px-4 py-6 flex flex-col items-center gap-3">
+            <span className="w-14 h-14 rounded-full flex items-center justify-center border-2 border-logic-lcd-green/70 text-logic-lcd-green shadow-[0_0_26px_rgba(62,226,110,0.35)]">
+              <CheckCircle2 size={30} />
+            </span>
+            <span className="font-stage text-[1.8rem] font-bold leading-none text-logic-lcd-green console-glow">
+              Pagamento confirmado
             </span>
             {charge.access_until && (
-              <span className="text-xs text-logic-text-dim">Assinatura liberada até {fmtDate(charge.access_until)}.</span>
+              <span className="text-xs text-logic-text-dim">Assinatura liberada até {formatBrasiliaDate(charge.access_until)}.</span>
             )}
           </div>
         </div>
@@ -188,16 +226,29 @@ export default function PixCheckout({
     );
   }
 
-  if (phase === 'closed' && charge) {
+  // Venceu: vale o que o servidor disse ou, antes da resposta, a própria contagem.
+  const remaining = charge ? expiresMs - serverNow() : 0;
+  const expiredHere = phase === 'waiting' && remaining <= 0;
+  const expired = !!charge && ((phase === 'closed' && charge.status === 'expired') || expiredHere);
+
+  if (charge && (phase === 'closed' || expiredHere)) {
     return (
       <div>
         <AccessNotice tone="red">
-          <p>{charge.status === 'expired' ? 'Este PIX venceu e não pode mais ser pago.' : 'Este PIX foi trocado por outro e não vale mais.'}</p>
-          <p>Gere um novo para continuar.</p>
+          <p>{expired ? 'Este link de pagamento venceu e não pode mais ser pago. Cada link vale 30 minutos.' : 'Este link foi trocado por outro e não vale mais.'}</p>
+          <p>Gere outro para continuar.</p>
         </AccessNotice>
         <button type="button" onClick={() => generate()} className="access-key mt-4">
-          <RefreshCw size={16} /> Gerar novo PIX
+          <RefreshCw size={16} /> Gerar outro link
         </button>
+        {expired && (
+          <button
+            type="button" onClick={checkNow} disabled={checking}
+            className="mt-2 w-full access-link justify-center flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> Paguei no último minuto, conferir
+          </button>
+        )}
         {back}
       </div>
     );
@@ -248,17 +299,27 @@ export default function PixCheckout({
         <RefreshCw size={12} className={checking ? 'animate-spin' : ''} /> Já paguei, conferir agora
       </button>
 
-      <div className="mt-4 console-display px-3 py-2.5 text-xs flex items-center gap-2.5" role="status">
-        {pollStopped
-          ? <span className="console-led is-on-amber shrink-0" />
-          : <Loader2 size={13} className="animate-spin text-logic-lcd-amber shrink-0" />}
-        <span className="flex-1 text-logic-text-dim">
-          {pollStopped ? 'Paramos de conferir sozinhos. Se já pagou, toque em "Já paguei".' : 'Aguardando o pagamento. A tela confirma sozinha.'}
-        </span>
+      <div className="mt-4 console-bezel">
+        <div className="console-display px-3 py-2.5 flex items-center justify-between gap-3">
+          <span className="console-legend uppercase tracking-[0.12em] flex items-center gap-1.5">
+            <span className="console-led is-on-amber" /> Link vale por
+          </span>
+          <span
+            role="timer" aria-label={`Faltam ${formatCountdown(remaining)} para o link vencer`}
+            className={`font-stage text-[1.45rem] font-bold leading-none tabular-nums console-glow ${remaining <= HURRY_MS ? 'text-logic-lcd-red' : 'text-logic-lcd-amber'}`}
+          >
+            {formatCountdown(remaining)}
+          </span>
+        </div>
       </div>
-      <p className="mt-2 text-2xs text-logic-text-muted text-center">
-        Vale até {fmtDateTime(charge.expires_at)} (horário de Brasília).
+      <p className="mt-1.5 text-2xs text-logic-text-muted text-center">
+        Até {formatBrasiliaDateTime(charge.expires_at)} (horário de Brasília). Depois disso, é só gerar outro.
       </p>
+
+      <div className="mt-3 console-display px-3 py-2.5 text-xs flex items-center gap-2.5" role="status">
+        <Loader2 size={13} className="animate-spin text-logic-lcd-amber shrink-0" />
+        <span className="flex-1 text-logic-text-dim">Aguardando o pagamento. A tela confirma sozinha.</span>
+      </div>
 
       <div className={`mt-4 grid gap-2 ${onBack ? 'grid-cols-2' : 'grid-cols-1'}`}>
         {onBack && <FootKey onClick={onBack}><ArrowLeft size={14} /> Voltar</FootKey>}

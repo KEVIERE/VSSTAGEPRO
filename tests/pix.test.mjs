@@ -4,12 +4,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  PIX_PLANS, asaasBaseUrl, asaasPaymentKind, centsFromReais, discountedCents, isValidCpfCnpj, onlyDigits, pixDueDate,
-  safeEqual,
+  PIX_LATE_CHECK_MS, PIX_LINK_TTL_MS, PIX_PLANS, asaasBaseUrl, asaasPaymentKind, centsFromReais, discountedCents,
+  isValidCpfCnpj, onlyDigits, pixLinkExpiresAt, reusableLink, safeEqual, statusCheckPlan,
 } from '../supabase/functions/_shared/pix.ts';
 import { handleAsaasWebhook } from '../supabase/functions/_shared/asaasWebhook.ts';
 import { asaasClient } from '../supabase/functions/_shared/asaas.ts';
-import { formatBRL, maskCpfCnpj } from '../src/lib/pixFormat.ts';
+import { formatBRL, formatBrasiliaDate, formatBrasiliaDateTime, formatCountdown, maskCpfCnpj } from '../src/lib/pixFormat.ts';
+import { isPixReturnSearch, readPixReturn } from '../src/lib/pixReturn.ts';
 
 test('preços do PIX iguais aos do cartão', () => {
   assert.equal(PIX_PLANS.monthly.cents, 5500);
@@ -44,16 +45,128 @@ test('valor do Asaas em reais vira centavos sem erro de arredondamento', () => {
   assert.equal(centsFromReais('abc'), -1);
 });
 
-test('PIX vence no fim do dia seguinte, horário de Brasília', () => {
-  // 03/11 às 23:30 em Brasília (04/11 02:30 UTC) → vence 04/11 23:59:59 de Brasília
-  const a = pixDueDate(new Date('2026-11-04T02:30:00Z'));
-  assert.equal(a.dueDate, '2026-11-04');
-  assert.equal(a.expiresAt.toISOString(), '2026-11-05T02:59:59.000Z');
-  // 04/11 às 10:00 em Brasília → vence 05/11
-  const b = pixDueDate(new Date('2026-11-04T13:00:00Z'));
-  assert.equal(b.dueDate, '2026-11-05');
-  // virada de mês e de ano
-  assert.equal(pixDueDate(new Date('2026-12-31T15:00:00Z')).dueDate, '2027-01-01');
+// ─── Validade de 30 minutos do link de pagamento ─────────────────────────────
+
+const MIN = 60_000;
+
+test('link de pagamento vale 30 minutos', () => {
+  assert.equal(PIX_LINK_TTL_MS, 30 * MIN);
+  // 10/11 às 14:00 em Brasília (17:00 UTC) → vence 14:30 de Brasília
+  const at = pixLinkExpiresAt(new Date('2026-11-10T17:00:00Z'));
+  assert.equal(at.toISOString(), '2026-11-10T17:30:00.000Z');
+  assert.equal(formatBrasiliaDateTime(at.toISOString()), '10/11, 14:30');
+});
+
+test('link de 30 minutos perto da virada do dia, no horário de Brasília', () => {
+  // 10/11 às 23:50 em Brasília (11/11 02:50 UTC) → vence 00:20 de 11/11 em Brasília
+  const at = pixLinkExpiresAt(new Date('2026-11-11T02:50:00Z'));
+  assert.equal(at.toISOString(), '2026-11-11T03:20:00.000Z');
+  assert.equal(formatBrasiliaDateTime(at.toISOString()), '11/11, 00:20');
+  // 20:40 em Brasília já é outro dia em UTC (23:40 → 00:10 UTC), mas em Brasília continua 10/11
+  const b = pixLinkExpiresAt(new Date('2026-11-10T23:40:00Z'));
+  assert.equal(b.toISOString(), '2026-11-11T00:10:00.000Z');
+  assert.equal(formatBrasiliaDateTime(b.toISOString()), '10/11, 21:10');
+  // virada do ano: 31/12 às 23:45 em Brasília → 00:15 de 01/01
+  const c = pixLinkExpiresAt(new Date('2027-01-01T02:45:00Z'));
+  assert.equal(formatBrasiliaDateTime(c.toISOString()), '01/01, 00:15');
+  assert.equal(formatBrasiliaDate(c.toISOString()), '01/01/2027');
+});
+
+test('contagem regressiva da tela', () => {
+  assert.equal(formatCountdown(30 * MIN), '30:00');
+  assert.equal(formatCountdown(29 * MIN + 41_000), '29:41');
+  assert.equal(formatCountdown(65_000), '01:05');
+  assert.equal(formatCountdown(400), '00:01'); // meio segundo ainda conta como 1 s
+  assert.equal(formatCountdown(0), '00:00');
+  assert.equal(formatCountdown(-5000), '00:00'); // vencido nunca fica negativo
+  assert.equal(formatCountdown(3600_000 + 5 * MIN), '1:05:00');
+});
+
+test('reaproveita o link aberto só com pelo menos 10 minutos pela frente', () => {
+  const now = Date.parse('2026-11-10T17:00:00Z');
+  const link = (minutesLeft, extra = {}) => ({
+    plan: 'monthly', amount_cents: 5500, checkout_url: 'https://checkout/x',
+    expires_at: new Date(now + minutesLeft * MIN).toISOString(), ...extra,
+  });
+  assert.ok(reusableLink([link(25)], 'monthly', 5500, now));
+  assert.ok(reusableLink([link(11)], 'monthly', 5500, now));
+  assert.equal(reusableLink([link(9)], 'monthly', 5500, now), undefined);
+  assert.equal(reusableLink([link(-1)], 'monthly', 5500, now), undefined);
+  // outro plano, outro valor (cupom) ou sem link: gera outro
+  assert.equal(reusableLink([link(25)], 'yearly', 5500, now), undefined);
+  assert.equal(reusableLink([link(25)], 'monthly', 4675, now), undefined);
+  assert.equal(reusableLink([link(25, { checkout_url: null })], 'monthly', 5500, now), undefined);
+  // link do prazo antigo (até o fim do dia seguinte) não é mostrado: todo link vale no máximo 30 min
+  assert.equal(reusableLink([link(20 * 60)], 'monthly', 5500, now), undefined);
+  // escolhe o que serve entre vários
+  const ok = link(20, { id: 'b' });
+  assert.equal(reusableLink([link(5, { id: 'a' }), ok], 'monthly', 5500, now), ok);
+});
+
+test('consulta de status: vencido sem pagamento vira vencido', () => {
+  const now = Date.parse('2026-11-10T17:00:00Z');
+  const row = (status, expiresInMin, checkedAgoS = null) => ({
+    status, order_nsu: 'vs-1', expires_at: new Date(now + expiresInMin * MIN).toISOString(),
+    checked_at: checkedAgoS === null ? null : new Date(now - checkedAgoS * 1000).toISOString(),
+  });
+  // aberto: pergunta à InfinitePay no máximo a cada 15 s
+  assert.deepEqual(statusCheckPlan(row('pending', 20), now, 15_000), { check: true, expire: false });
+  assert.deepEqual(statusCheckPlan(row('pending', 20, 5), now, 15_000), { check: false, expire: false });
+  assert.deepEqual(statusCheckPlan(row('pending', 20, 20), now, 15_000), { check: true, expire: false });
+  // passou dos 30 min: pergunta uma última vez e, sem pagamento, marca vencido
+  assert.deepEqual(statusCheckPlan(row('pending', 0), now, 15_000), { check: true, expire: true });
+  assert.deepEqual(statusCheckPlan(row('pending', -1, 2), now, 15_000), { check: true, expire: true });
+  // já vencido ou trocado: ainda confere por 2 h (pagamento no último segundo), sem mudar a situação
+  assert.deepEqual(statusCheckPlan(row('expired', -10), now, 15_000), { check: true, expire: false });
+  assert.deepEqual(statusCheckPlan(row('canceled', -10, 5), now, 15_000), { check: false, expire: false });
+  assert.deepEqual(statusCheckPlan(row('expired', -(PIX_LATE_CHECK_MS / MIN) - 1), now, 15_000), { check: false, expire: false });
+  // pago ou com valor errado: não pergunta mais
+  assert.deepEqual(statusCheckPlan(row('paid', 20), now, 15_000), { check: false, expire: false });
+  assert.deepEqual(statusCheckPlan(row('amount_mismatch', 20), now, 15_000), { check: false, expire: false });
+  // pedido do Asaas antigo (sem order_nsu): nada a perguntar
+  assert.deepEqual(statusCheckPlan({ ...row('pending', 0), order_nsu: null }, now, 15_000), { check: false, expire: false });
+});
+
+// ─── Página de volta da InfinitePay ──────────────────────────────────────────
+
+const ID = '0f8b7c1e-2a3d-4e5f-9a8b-7c6d5e4f3a2b';
+const TX = 'a1b2c3d4-0000-4000-8000-123456789abc';
+
+test('página de volta: códigos na query, antes do #', () => {
+  const r = readPixReturn(
+    `?pagamento=${ID}&receipt_url=https%3A%2F%2Frecibo%2F1&order_nsu=vs-abc-1&slug=Xy12&capture_method=pix&transaction_nsu=${TX}`,
+    '#assinatura',
+  );
+  assert.equal(r.id, ID);
+  assert.deepEqual(r.codes, { order_nsu: 'vs-abc-1', transaction_nsu: TX, slug: 'Xy12' });
+  assert.equal(r.method, 'pix');
+});
+
+test('página de volta: códigos depois do #, com ? ou &', () => {
+  const a = readPixReturn(`?pagamento=${ID}`, `#assinatura?order_nsu=vs-abc-1&slug=Xy12&transaction_nsu=${TX}`);
+  assert.equal(a.id, ID);
+  assert.deepEqual(a.codes, { order_nsu: 'vs-abc-1', transaction_nsu: TX, slug: 'Xy12' });
+  const b = readPixReturn(`?pagamento=${ID}`, `#assinatura&slug=Xy12&capture_method=credit_card`);
+  assert.deepEqual(b.codes, { slug: 'Xy12' });
+  assert.equal(b.method, 'credit_card');
+  // "?" a mais colado no nosso código
+  const c = readPixReturn(`?pagamento=${ID}?order_nsu=vs-abc-1&slug=Xy12`, '#assinatura');
+  assert.equal(c.id, ID);
+  assert.deepEqual(c.codes, { order_nsu: 'vs-abc-1', slug: 'Xy12' });
+});
+
+test('página de volta: link antigo, sem nosso código, e valores estranhos', () => {
+  const old = readPixReturn('', '#assinatura');
+  assert.equal(old.id, null);
+  assert.deepEqual(old.codes, {});
+  const bad = readPixReturn('?pagamento=nao-e-uuid&slug=<script>&order_nsu=' + 'x'.repeat(200), '#assinatura');
+  assert.equal(bad.id, null);
+  assert.deepEqual(bad.codes, {});
+  // a rota da página de volta vale mesmo se o #assinatura se perder no caminho
+  assert.equal(isPixReturnSearch(`?pagamento=${ID}&slug=Xy12`), true);
+  assert.equal(isPixReturnSearch(`?order_nsu=vs-1&pagamento=${ID}`), true);
+  assert.equal(isPixReturnSearch('?musico=1'), false);
+  assert.equal(isPixReturnSearch(''), false);
 });
 
 test('situação da cobrança no Asaas', () => {

@@ -16,7 +16,12 @@ export type PixCharge = {
    * A InfinitePay não devolve QR Code: o cliente paga na página dela.
    */
   checkout_url: string | null;
+  /** Hora do servidor na resposta: a contagem regressiva usa ela, não o relógio do computador. */
+  now?: string;
 };
+
+/** Códigos que a InfinitePay põe no endereço da página de volta (ver pixReturn.ts). */
+export type PixReturnCodes = { order_nsu?: string; transaction_nsu?: string; slug?: string };
 
 async function call(body: Record<string, unknown>): Promise<PixCharge> {
   const { data, error } = await supabase.functions.invoke('pix-checkout', { body });
@@ -31,7 +36,10 @@ async function call(body: Record<string, unknown>): Promise<PixCharge> {
 export const createPix = (plan: PixPlan, opts: { cpfCnpj?: string; couponCode?: string } = {}) =>
   call({ action: 'create', plan, ...opts });
 
-export const getPixStatus = (id: string) => call({ action: 'status', id });
+export const getPixStatus = (id: string, codes: PixReturnCodes = {}) => call({ action: 'status', id, ...codes });
+
+/** Página de volta de um link sem o nosso código no endereço: o pedido informado ou o último da conta. */
+export const getLatestPix = (codes: PixReturnCodes = {}) => call({ action: 'latest', ...codes });
 
 export const PIX_ERRORS: Record<string, string> = {
   already_active: 'Sua assinatura no cartão já está ativa.',
@@ -41,6 +49,6 @@ export const PIX_ERRORS: Record<string, string> = {
   amount_too_low: 'Com esse cupom o valor fica abaixo do mínimo permitido (R$ 5,00).',
   pix_not_configured: 'O PIX ainda não está disponível. Use o cartão ou tente mais tarde.',
   unauthorized: 'Sua sessão expirou. Entre de novo na sua conta.',
-  not_found: 'Não encontramos esse PIX. Gere um novo.',
+  not_found: 'Não encontramos esse pagamento. Gere um novo link.',
   pix_failed: 'Não foi possível gerar o PIX agora. Tente de novo em instantes.',
 };

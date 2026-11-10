@@ -2,6 +2,7 @@ import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Radio } from 'lucide-react';
 import { useStore } from '@/store';
+import { isPixReturnSearch } from '@/lib/pixReturn';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
@@ -107,7 +108,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
 
   if (isMobileDevice && !window.vsDesktop) {
     if (hash.startsWith('#show') || hash.startsWith('#controle') || hash.startsWith('#remoto') || seg === 'show' || seg === 'controle' || seg === 'remoto') return 'remote';
-    if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado') return 'subscribed';
+    if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado' || isPixReturnSearch(search)) return 'subscribed';
     if (hash.startsWith('#baixar') || seg === 'baixar') return 'download';
     if (hash.startsWith('#planos') || seg === 'planos' || hash.startsWith('#assinar')) return 'pricing';
     if (hash.startsWith('#musico') || hash.startsWith('#m=') || hash.startsWith('#join=') || new URLSearchParams(search).has('musico')) return 'musician';
@@ -118,7 +119,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
     return 'sales';
   }
 
-  if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado') return 'subscribed';
+  if (hash.startsWith('#assinatura') || seg === 'assinatura' || hash.startsWith('#obrigado') || seg === 'obrigado' || isPixReturnSearch(search)) return 'subscribed';
   if (hash.startsWith('#programa')) return 'director';
 
   // Na web pública, rota sem hash ou apenas "#" mostra a página de vendas (nunca o editor/tela preta).

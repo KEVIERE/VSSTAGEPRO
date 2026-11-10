@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { infinitePayClient, InfinitePayError } from '../supabase/functions/_shared/infinitepay.ts';
+import { handleInfinitePayWebhook } from '../supabase/functions/_shared/infinitepayWebhook.ts';
 
 /** fetch falso: registra a chamada e devolve o que o teste mandar. */
 function fakeFetch(respostas) {
@@ -86,45 +87,134 @@ test('conferir pagamento: não pago devolve paid=false', async () => {
   assert.equal(r.paid, false);
 });
 
+// ─── Webhook com InfinitePay e banco falsos (o handler de verdade) ───────────
 /*
  * A regra de ouro: um aviso de webhook, sozinho, NÃO libera pagamento.
- * Ele só é aceito se a InfinitePay confirmar. Este teste simula o caminho que
- * a função de borda faz e prova as duas pontas.
+ * Ele só é aceito se a InfinitePay confirmar em /payment_check.
  */
-async function webhookDecide(anunciado, confirmado) {
-  // 1) o aviso chega dizendo o que quiser
-  if (!anunciado.order_nsu) return 'rejeitado: sem pedido';
-  // 2) a verdade é a consulta, não o aviso
-  if (!confirmado.paid) return 'rejeitado: InfinitePay não confirmou';
-  const pago = Math.round(confirmado.paid_amount ?? confirmado.amount ?? 0);
-  return { liberado: true, valor: pago };
+
+function fakeWorld() {
+  const db = new Map(); // order_nsu → { status, amount, grants, tx, slug }
+  const pagos = new Map(); // order_nsu → resposta do /payment_check
+  const checks = [];
+  const deps = {
+    handle: 'minhaloja',
+    findOrder: async (orderNsu) => {
+      const row = db.get(orderNsu);
+      return row ? { status: row.status } : null;
+    },
+    saveIds: async (orderNsu, tx, slug) => {
+      const row = db.get(orderNsu);
+      if (row) { row.tx = tx ?? row.tx; row.slug = slug ?? row.slug; }
+    },
+    checkPayment: async (input) => {
+      checks.push(input);
+      const r = pagos.get(input.order_nsu);
+      if (r instanceof Error) throw r;
+      return r ?? { success: true, paid: false };
+    },
+    applyPayment: async (orderNsu, cents) => {
+      const row = db.get(orderNsu);
+      if (!row) return { result: 'unknown_payment' };
+      if (row.status === 'paid') return { result: 'already_paid' };
+      if (cents < row.amount) { row.status = 'amount_mismatch'; return { result: 'amount_mismatch', expected_cents: row.amount, paid_cents: cents }; }
+      row.status = 'paid'; row.grants += 1; row.paid = cents;
+      return { result: 'activated', access_until: '2026-12-10T17:00:00Z' };
+    },
+    log: () => {},
+    error: () => {},
+  };
+  return { db, pagos, checks, deps };
 }
 
-test('aviso forjado, sem confirmação da InfinitePay, não libera', async () => {
-  const r = await webhookDecide(
-    { order_nsu: 'vs-1', paid_amount: 5500 },   // o aviso JURA que foi pago
-    { success: true, paid: false },             // a InfinitePay diz que não
-  );
-  assert.equal(r, 'rejeitado: InfinitePay não confirmou');
+const hook = (deps, body) =>
+  handleInfinitePayWebhook(new Request('https://x/functions/v1/infinitepay-webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  }), deps);
+
+const aviso = { order_nsu: 'vs-1', transaction_nsu: 'tx-1', invoice_slug: 'abc', amount: 5500, paid_amount: 5500, capture_method: 'pix' };
+
+test('webhook: aviso falso (a InfinitePay não confirma) não libera', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  // o aviso JURA que foi pago, mas a InfinitePay diz que não
+  const res = await hook(w.deps, aviso);
+  assert.equal(res.status, 400); // 400: se for cedo demais, a InfinitePay tenta de novo
+  assert.deepEqual(await res.json(), { error: 'not_paid' });
+  assert.equal(w.db.get('vs-1').grants, 0);
+  assert.equal(w.db.get('vs-1').status, 'pending');
+  // a confirmação foi pedida à InfinitePay, com os códigos do aviso
+  assert.deepEqual(w.checks, [{ handle: 'minhaloja', order_nsu: 'vs-1', transaction_nsu: 'tx-1', slug: 'abc' }]);
 });
 
-test('aviso sem order_nsu é descartado', async () => {
-  const r = await webhookDecide({ paid_amount: 5500 }, { paid: true, amount: 5500 });
-  assert.equal(r, 'rejeitado: sem pedido');
+test('webhook: aviso verdadeiro libera uma vez só, mesmo repetido', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5500 });
+  let res = await hook(w.deps, aviso);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { result: 'activated' });
+  assert.equal(w.db.get('vs-1').grants, 1);
+  // os códigos da InfinitePay ficam guardados para a tela conferir depois
+  assert.equal(w.db.get('vs-1').tx, 'tx-1');
+  assert.equal(w.db.get('vs-1').slug, 'abc');
+  res = await hook(w.deps, aviso);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { result: 'already_paid' });
+  assert.equal(w.db.get('vs-1').grants, 1);
 });
 
-test('aviso legítimo, confirmado, libera pelo valor pago', async () => {
-  const r = await webhookDecide(
-    { order_nsu: 'vs-1', paid_amount: 5500 },
-    { success: true, paid: true, amount: 5500, paid_amount: 5510 }, // parcelado com taxa
-  );
-  assert.deepEqual(r, { liberado: true, valor: 5510 });
+test('webhook: vale o valor que a InfinitePay confirma, não o do aviso', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  // parcelado com taxas: pagou mais que o combinado
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5700 });
+  const res = await hook(w.deps, { ...aviso, paid_amount: 1 });
+  assert.deepEqual(await res.json(), { result: 'activated' });
+  assert.equal(w.db.get('vs-1').paid, 5700);
 });
 
-test('valor pago maior que o combinado é aceito (parcelamento com taxas)', async () => {
-  const r = await webhookDecide(
-    { order_nsu: 'vs-1' },
-    { success: true, paid: true, amount: 5500, paid_amount: 5700 },
-  );
-  assert.equal(r.valor, 5700);
+test('webhook: valor menor que o cobrado não libera', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 100, paid_amount: 100 });
+  const res = await hook(w.deps, { ...aviso, paid_amount: 5500 });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { result: 'amount_mismatch' });
+  assert.equal(w.db.get('vs-1').grants, 0);
+});
+
+test('webhook: pedido que não é nosso ou sem order_nsu é recusado sem consultar', async () => {
+  const w = fakeWorld();
+  w.pagos.set('vs-inventado', { success: true, paid: true, amount: 5500 });
+  let res = await hook(w.deps, { ...aviso, order_nsu: 'vs-inventado' });
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'unknown_order' });
+  res = await hook(w.deps, { paid_amount: 5500 });
+  assert.deepEqual(await res.json(), { error: 'missing_order_nsu' });
+  res = await hook(w.deps, 'isto não é json');
+  assert.deepEqual(await res.json(), { error: 'invalid_body' });
+  assert.equal(w.checks.length, 0);
+});
+
+test('webhook: pago depois do prazo de 30 minutos ainda libera', async () => {
+  const w = fakeWorld();
+  // a tela já marcou como vencido, mas o dinheiro entrou no último segundo
+  w.db.set('vs-1', { status: 'expired', amount: 5500, grants: 0 });
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5500 });
+  const res = await hook(w.deps, aviso);
+  assert.deepEqual(await res.json(), { result: 'activated' });
+  assert.equal(w.db.get('vs-1').grants, 1);
+});
+
+test('webhook: InfinitePay fora do ar responde 400 para ela tentar de novo', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  w.pagos.set('vs-1', new Error('rede'));
+  const res = await hook(w.deps, aviso);
+  assert.equal(res.status, 400);
+  assert.deepEqual(await res.json(), { error: 'confirm_failed' });
+  assert.equal(w.db.get('vs-1').grants, 0);
 });

@@ -1,4 +1,4 @@
-// Regras do PIX (Asaas) sem dependências externas.
+// Regras do pagamento (InfinitePay e o antigo Asaas) sem dependências externas.
 // Usadas pelas funções pix-checkout e asaas-webhook e pelos testes (tests/pix.test.mjs, npm test).
 
 export type Plan = 'monthly' | 'yearly';
@@ -68,13 +68,53 @@ export function centsFromReais(value: unknown): number {
   return Number.isFinite(n) ? Math.round(n * 100) : -1;
 }
 
-/** O PIX vence no fim do dia seguinte, no horário de Brasília (o Brasil não tem mais horário de verão).
- *  Depois disso a cobrança é apagada no Asaas para o QR Code não poder mais ser pago. */
-export function pixDueDate(now: Date): { dueDate: string; expiresAt: Date } {
-  const brasilia = new Date(now.getTime() - 3 * 3600_000);
-  brasilia.setUTCDate(brasilia.getUTCDate() + 1);
-  const dueDate = brasilia.toISOString().slice(0, 10);
-  return { dueDate, expiresAt: new Date(`${dueDate}T23:59:59-03:00`) };
+// ─── Prazo do link de pagamento (InfinitePay) ────────────────────────────────
+
+/** O link de pagamento vale 30 minutos a partir de quando é gerado. */
+export const PIX_LINK_TTL_MS = 30 * 60_000;
+
+/** Um link aberto só é reaproveitado se ainda faltar pelo menos isso: dá tempo de pagar com calma. */
+export const PIX_REUSE_MARGIN_MS = 10 * 60_000;
+
+/** Depois de vencido ou trocado, o pedido ainda é conferido na InfinitePay por este tempo.
+ *  Pega o PIX pago no último segundo quando o aviso automático se perde. */
+export const PIX_LATE_CHECK_MS = 2 * 3600_000;
+
+/** Quando o link gerado agora deixa de valer. O prazo é contado em minutos, então não depende do fuso:
+ *  23:50 de Brasília vira 00:20 do dia seguinte. */
+export function pixLinkExpiresAt(now: Date): Date {
+  return new Date(now.getTime() + PIX_LINK_TTL_MS);
+}
+
+type OpenLink = { plan: string; amount_cents: number; checkout_url: string | null; expires_at: string };
+
+/** Link aberto (mesmo plano e valor) que ainda pode ser mostrado em vez de gerar outro.
+ *  Links do prazo antigo (até o fim do dia seguinte) não entram: todo link mostrado vale no máximo 30 min. */
+export function reusableLink<T extends OpenLink>(open: T[], plan: string, amountCents: number, nowMs: number): T | undefined {
+  return open.find((r) => {
+    const left = Date.parse(r.expires_at) - nowMs;
+    return r.plan === plan && r.amount_cents === amountCents && !!r.checkout_url &&
+      left > PIX_REUSE_MARGIN_MS && left <= PIX_LINK_TTL_MS;
+  });
+}
+
+type CheckableRow = { status: string; expires_at: string; checked_at: string | null; order_nsu: string | null };
+
+/** Quando a consulta de status precisa perguntar à InfinitePay.
+ *  `check`: pergunta agora. `expire`: se ela não disser que foi pago, o pedido passa a vencido. */
+export function statusCheckPlan(row: CheckableRow, nowMs: number, recheckMs: number): { check: boolean; expire: boolean } {
+  if (!row.order_nsu) return { check: false, expire: false };
+  const expiresMs = Date.parse(row.expires_at);
+  const stale = !row.checked_at || nowMs - Date.parse(row.checked_at) > recheckMs;
+  if (row.status === 'pending') {
+    const expire = expiresMs <= nowMs;
+    return { check: expire || stale, expire };
+  }
+  // Já fechado (vencido ou trocado por outro), mas pago no limite: ainda confere por um tempo.
+  if (row.status === 'expired' || row.status === 'canceled') {
+    return { check: stale && nowMs - expiresMs < PIX_LATE_CHECK_MS, expire: false };
+  }
+  return { check: false, expire: false };
 }
 
 export type AsaasPaymentKind = 'paid' | 'pending' | 'overdue' | 'deleted' | 'refunded' | 'other';
