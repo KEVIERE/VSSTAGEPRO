@@ -37,6 +37,22 @@ const METERS_ASK_MS = 2000;
 const LOST_MS = 6000;
 const PIN_SS = 'vs_remote_pin';
 
+const RELOAD_SS = 'vs_remote_reload';
+
+/**
+ * Rede Local: a página vem do programa do Mac. Se o programa foi atualizado com a página já
+ * aberta no celular, ela continuava com o código velho (por exemplo, sem a seleção pela Lista).
+ * Recarrega uma vez quando a versão do Mac é outra.
+ */
+function reloadIfOtherVersion(app: unknown) {
+  if (typeof app !== 'string' || !app || app === __APP_VERSION__) return;
+  try {
+    if (sessionStorage.getItem(RELOAD_SS) === app) return;
+    sessionStorage.setItem(RELOAD_SS, app);
+  } catch { return; }
+  window.location.reload();
+}
+
 function haptic() {
   try { navigator.vibrate?.(20); } catch { /* sem vibração */ }
 }
@@ -70,6 +86,7 @@ export function useRemoteLink(): RemoteLink {
     if (raw.at < lastAt.current) return;
     lastAt.current = raw.at;
     offset.current = raw.at - Date.now();
+    if (isLocalClient()) reloadIfOtherVersion(raw.app);
     setState(raw);
     setStatus('live');
   }, []);

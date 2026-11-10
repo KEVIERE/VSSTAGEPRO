@@ -77,6 +77,14 @@ export interface RemoteCard {
   duration: number;
 }
 
+/** Resposta do Mac a um pedido do celular que leva número (`req`), como a seleção da Lista. */
+export interface RemoteReply {
+  req: string;
+  ok: boolean;
+  /** por que o Mac não fez (só quando `ok` é falso) */
+  reason: string | null;
+}
+
 export interface RemoteState {
   v: number;
   /** relógio do Mac (ms) no momento em que o estado foi montado */
@@ -116,6 +124,10 @@ export interface RemoteState {
   blockColors: string[];
   tracks: RemoteTrack[];
   master: number;
+  /** última resposta do Mac a um pedido com número (programas antigos não mandam) */
+  reply?: RemoteReply | null;
+  /** versão do programa do Mac (a página da Rede Local se recarrega se for de outra versão) */
+  app?: string;
 }
 
 export type AdjustKind = 'bpm' | 'tuner';
@@ -129,8 +141,9 @@ export type RemoteCommand =
   | { action: 'next' }
   | { action: 'prev' }
   | { action: 'selectSong'; songId: string }
-  // Lista: tocar na música só seleciona (como o clique na playlist do Mac), sem tocar
-  | { action: 'select'; songId: string }
+  // Lista: tocar na música só seleciona (como o clique na playlist do Mac), sem tocar.
+  // `req` é o número do pedido: o Mac responde em `reply` se selecionou ou por que não.
+  | { action: 'select'; songId: string; req?: string }
   // Modo Show
   | { action: 'pick'; songId: string }
   | { action: 'setNext'; songId: string | null }
@@ -177,6 +190,11 @@ function name(v: unknown): string | null {
   return t ? t : null;
 }
 
+/** Número do pedido: letras, números, - e _, até 40. */
+function reqId(v: unknown): string | null {
+  return typeof v === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(v) ? v : null;
+}
+
 function dir(v: unknown): 1 | -1 | null {
   return v === 1 || v === -1 ? v : null;
 }
@@ -196,7 +214,14 @@ export function parseRemoteCommand(raw: unknown): RemoteCommand | null {
     case 'play': case 'stop': case 'pause': case 'next': case 'prev':
     case 'towerBpm': case 'towerTuner': case 'clockStart': case 'clockReset': case 'dismissError':
       return { action: c.action };
-    case 'selectSong': case 'select': case 'pick': case 'skipSection': case 'duplicate': case 'createBlock': {
+    case 'select': {
+      const songId = id(c.songId);
+      if (!songId) return null;
+      if (c.req === undefined || c.req === null) return { action: 'select', songId };
+      const req = reqId(c.req);
+      return req ? { action: 'select', songId, req } : null;
+    }
+    case 'selectSong': case 'pick': case 'skipSection': case 'duplicate': case 'createBlock': {
       const songId = id(c.songId);
       return songId ? { action: c.action, songId } : null;
     }
@@ -306,6 +331,47 @@ export function unpackMeters(m: RemoteMeters): Map<string, number> {
   m.ids.forEach((id, i) => { if (typeof id === 'string') out.set(id, meterValue(m.levels[i])); });
   out.set('master', meterValue(m.master));
   return out;
+}
+
+// ---------- seleção pela Lista do celular ----------
+
+/** Sem resposta do Mac nesse tempo, a seleção tocada no celular volta e o celular avisa. */
+export const PICK_TIMEOUT_MS = 5000;
+
+/** Música tocada na Lista que espera a resposta do Mac. `at` é o relógio do celular no toque. */
+export interface PendingPick {
+  songId: string;
+  req: string;
+  at: number;
+}
+
+export type PickCheck =
+  | { kind: 'wait' }
+  | { kind: 'done' }
+  | { kind: 'refused'; reason: string };
+
+export const PICK_NO_ANSWER = 'O Mac não respondeu. Confira se o programa está aberto e conectado, e toque de novo.';
+
+/**
+ * Como está a música tocada no celular:
+ * - o Mac respondeu ao pedido: selecionou (`done`) ou recusou, com o motivo (`refused`);
+ * - o Mac já mostra a música selecionada (programa antigo, que não responde): `done`;
+ * - passou do tempo sem nada: `refused` (o destaque volta para a seleção do Mac);
+ * - senão espera (`wait`), com a música já destacada no celular.
+ */
+export function checkPick(pick: PendingPick, state: RemoteState, now: number): PickCheck {
+  const reply = state.reply;
+  if (reply && reply.req === pick.req) {
+    return reply.ok ? { kind: 'done' } : { kind: 'refused', reason: reply.reason || 'O Mac não selecionou a música.' };
+  }
+  if (state.selectedId === pick.songId) return { kind: 'done' };
+  if (now - pick.at >= PICK_TIMEOUT_MS) return { kind: 'refused', reason: PICK_NO_ANSWER };
+  return { kind: 'wait' };
+}
+
+/** Música destacada na Lista: a tocada agora (sem esperar o Mac) ou a selecionada no Mac. */
+export function shownSelection(pick: PendingPick | null, state: RemoteState): string | null {
+  return pick ? pick.songId : state.selectedId;
 }
 
 /** Estado que chegou e parece inteiro. */

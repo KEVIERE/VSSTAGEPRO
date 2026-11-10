@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isRemoteMeters, isRemoteState, liveProgressPct, livePos, liveRemaining, packMeters, parseRemoteCommand, unpackMeters,
+  PICK_NO_ANSWER, PICK_TIMEOUT_MS, checkPick, isRemoteMeters, isRemoteState, liveProgressPct, livePos, liveRemaining, packMeters,
+  parseRemoteCommand, shownSelection, unpackMeters,
 } from '../src/lib/remoteProtocol.ts';
 
 test('comandos do Modo Show passam', () => {
@@ -23,6 +24,47 @@ test('tocar na música da lista só seleciona (comando próprio, sem tocar)', ()
   assert.equal(parseRemoteCommand({ action: 'select' }), null);
   assert.equal(parseRemoteCommand({ action: 'select', songId: '' }), null);
   assert.equal(parseRemoteCommand({ action: 'select', songId: 'x'.repeat(500) }), null);
+});
+
+test('a seleção da lista leva o número do pedido (para o Mac responder)', () => {
+  assert.deepEqual(parseRemoteCommand({ action: 'select', songId: 's1', req: 'k3x9_a-1' }), { action: 'select', songId: 's1', req: 'k3x9_a-1' });
+  // celular antigo, sem número: continua valendo
+  assert.deepEqual(parseRemoteCommand({ action: 'select', songId: 's1', req: null }), { action: 'select', songId: 's1' });
+  assert.equal(parseRemoteCommand({ action: 'select', songId: 's1', req: 'tem espaço' }), null);
+  assert.equal(parseRemoteCommand({ action: 'select', songId: 's1', req: 'x'.repeat(41) }), null);
+  assert.equal(parseRemoteCommand({ action: 'select', songId: 's1', req: 7 }), null);
+});
+
+// Estado mínimo do Mac para a Lista: só o que a seleção usa.
+const macState = (selectedId, reply) => ({ selectedId, ...(reply === undefined ? {} : { reply }) });
+const pick = { songId: 's2', req: 'r1', at: 1000 };
+
+test('tocar na música destaca na hora, antes da resposta do Mac', () => {
+  const st = macState('s1', null);
+  assert.equal(shownSelection(pick, st), 's2');
+  assert.deepEqual(checkPick(pick, st, 1200), { kind: 'wait' });
+  // sem pedido pendente vale a seleção do Mac
+  assert.equal(shownSelection(null, st), 's1');
+});
+
+test('o Mac selecionou: confirma pela resposta ou pela seleção (programa antigo)', () => {
+  assert.deepEqual(checkPick(pick, macState('s2', { req: 'r1', ok: true, reason: null }), 1300), { kind: 'done' });
+  assert.deepEqual(checkPick(pick, macState('s2'), 1300), { kind: 'done' });
+});
+
+test('o Mac recusou: o destaque volta e o celular diz o motivo', () => {
+  const st = macState('s1', { req: 'r1', ok: false, reason: 'Essa música não está mais na lista do Mac.' });
+  assert.deepEqual(checkPick(pick, st, 1300), { kind: 'refused', reason: 'Essa música não está mais na lista do Mac.' });
+  // recusa sem motivo ainda tem texto
+  const semMotivo = checkPick(pick, macState('s1', { req: 'r1', ok: false, reason: null }), 1300);
+  assert.equal(semMotivo.kind, 'refused');
+  assert.ok(semMotivo.reason.length > 0);
+});
+
+test('resposta de outro pedido não conta; sem resposta no prazo, avisa', () => {
+  const outro = macState('s1', { req: 'r0', ok: true, reason: null });
+  assert.deepEqual(checkPick(pick, outro, 1000 + PICK_TIMEOUT_MS - 1), { kind: 'wait' });
+  assert.deepEqual(checkPick(pick, outro, 1000 + PICK_TIMEOUT_MS), { kind: 'refused', reason: PICK_NO_ANSWER });
 });
 
 test('o fader fica entre 0 e +12 dB', () => {

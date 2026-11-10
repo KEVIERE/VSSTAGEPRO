@@ -20,12 +20,30 @@ import { pickSection, skipSection } from '@/components/SectionPads';
 import { interfaceName } from '@/components/ShowModePanel';
 import {
   REMOTE_VERSION, packMeters, parseRemoteCommand,
-  type RemoteCard, type RemoteMeters, type RemoteState, type RemoteSong,
+  type RemoteCard, type RemoteMeters, type RemoteReply, type RemoteState, type RemoteSong,
 } from '@/lib/remoteProtocol';
 import { meterLevel } from '@/lib/meterBus';
 import type { Song } from '@/types';
 
 type Store = ReturnType<typeof useStore.getState>;
+
+// Resposta ao último pedido com número (a seleção da Lista). Vai no estado; quem transmite
+// (Rede Local ou Show Online) é avisado para mandar o estado na hora, mesmo quando o Mac recusa
+// e nada mais muda.
+let lastReply: RemoteReply | null = null;
+const replyListeners = new Set<() => void>();
+
+function answer(req: string | undefined, ok: boolean, reason: string | null = null) {
+  if (!req) return;
+  lastReply = { req, ok, reason: ok ? null : reason };
+  replyListeners.forEach((cb) => cb());
+}
+
+/** Avisa quando o Mac responde a um pedido do celular (para transmitir o estado na hora). */
+export function onRemoteReply(cb: () => void): () => void {
+  replyListeners.add(cb);
+  return () => { replyListeners.delete(cb); };
+}
 
 function songBpmOf(song: Song | undefined): number | null {
   return song?.bpmDetected && song.bpm ? song.bpm : null;
@@ -167,6 +185,8 @@ export function buildRemoteState(): RemoteState {
       duration: st.playlist.reduce((a, p) => a + (p.blockId === b.id ? playedDuration(st.songs.find((s) => s.id === p.songId), p.duration) : 0), 0),
     })),
     blockColors: [...BLOCK_COLORS],
+    reply: lastReply,
+    app: __APP_VERSION__,
     tracks: ROUTABLE_TRACKS
       .map((id) => st.tracks.find((tr) => tr.id === id))
       .filter((tr): tr is NonNullable<typeof tr> => !!tr && !tr.parentId)
@@ -202,7 +222,12 @@ export function applyRemoteCommand(raw: unknown): void {
     case 'selectSong': st.selectSong(cmd.songId); startPlayback(); return;
     // Lista do Remote: igual ao clique na playlist do Mac (seleciona, não toca)
     case 'select':
-      if (st.playlist.some((p) => p.songId === cmd.songId)) st.selectSong(cmd.songId);
+      if (!st.playlist.some((p) => p.songId === cmd.songId)) {
+        answer(cmd.req, false, 'Essa música não está mais na lista do Mac.');
+        return;
+      }
+      st.selectSong(cmd.songId);
+      answer(cmd.req, useStore.getState().selectedSongId === cmd.songId, 'O Mac não conseguiu selecionar essa música.');
       return;
 
     // Pesquisar do Modo Show: escolhe a música; com o show parado ela vira a Próxima

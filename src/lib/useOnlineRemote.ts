@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { useStore } from '@/store';
-import { buildRemoteState, applyRemoteCommand, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
+import { buildRemoteState, applyRemoteCommand, onRemoteReply, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
 import { subscribeShowClock } from '@/lib/showClock';
 import { remoteChannelName, setOnlineRemotePhones, useOnlineRemoteConfig } from '@/lib/onlineRemote';
 
@@ -81,6 +81,7 @@ export function useOnlineRemote(enabled: boolean): void {
       if (changed || sigChanged) sendSoon();
     });
     const unsubClock = subscribeShowClock(sendSoon);
+    const unsubReply = onRemoteReply(sendSoon);
     // medidores dos faders: mais devagar que na rede local, para poupar a cota de mensagens
     const stopMeters = startRemoteMeterFeed(
       (m) => { channel.send({ type: 'broadcast', event: 'meters', payload: m }).catch(() => {}); },
@@ -97,6 +98,7 @@ export function useOnlineRemote(enabled: boolean): void {
       alive = false;
       unsub();
       unsubClock();
+      unsubReply();
       stopMeters();
       window.clearInterval(beat);
       if (timer !== null) window.clearTimeout(timer);

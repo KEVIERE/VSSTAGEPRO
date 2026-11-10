@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { snapshot } from '@/lib/useLiveBroadcast';
-import { buildRemoteState, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
+import { buildRemoteState, onRemoteReply, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
 import { subscribeShowClock } from '@/lib/showClock';
 import {
   localBridge, setNetworkMode, useNetworkMode,
@@ -83,6 +83,8 @@ export function useLocalBroadcast(): LocalBroadcast {
     let cursorTimer: number | null = null;
     // cronômetro "Falta no show" mexido (no Mac ou pelo Remote)
     const unsubClock = subscribeShowClock(() => publish());
+    // resposta do Mac a um pedido do Remote (seleção recusada não muda mais nada no programa)
+    const unsubReply = onRemoteReply(() => publish());
     const unsub = useStore.subscribe((s) => {
       const a = prev.transport;
       const b = s.transport;
@@ -120,6 +122,7 @@ export function useLocalBroadcast(): LocalBroadcast {
     return () => {
       unsub();
       unsubClock();
+      unsubReply();
       if (cursorTimer !== null) window.clearTimeout(cursorTimer);
       window.clearInterval(beat);
     };

@@ -6,7 +6,10 @@ import {
 } from 'lucide-react';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import { formatTime } from '@/components/ShowRundown';
-import type { AdjustKind, RemoteBlock, RemoteCommand, RemotePart, RemoteSong, RemoteState } from '@/lib/remoteProtocol';
+import {
+  PICK_TIMEOUT_MS, checkPick, shownSelection,
+  type AdjustKind, type PendingPick, type RemoteBlock, type RemoteCommand, type RemotePart, type RemoteSong, type RemoteState,
+} from '@/lib/remoteProtocol';
 
 type Send = (cmd: RemoteCommand) => void;
 
@@ -164,6 +167,7 @@ function SongRow({ song, index, state, send, open, selected, onTap, isLast }: {
           <span className="flex items-center gap-2.5 mt-0.5 font-stage text-[13px] tabular-nums text-logic-text-dim">
             {isCurrent && <span className="console-display px-1.5 text-[11px] font-semibold text-logic-lcd-green">No ar</span>}
             {isNext && <span className="console-display px-1.5 text-[11px] font-semibold text-logic-lcd-amber">Próxima</span>}
+            {isSelected && !isCurrent && <span className="console-display px-1.5 text-[11px] font-semibold text-logic-accent-hover">Selecionada</span>}
             <span>{song.bpm} BPM</span>
             <span className={song.tuner !== 0 ? 'text-logic-lcd-amber' : ''}>{song.tone}</span>
             <span className="text-logic-text">{formatTime(song.duration)}</span>
@@ -220,25 +224,46 @@ function SongRow({ song, index, state, send, open, selected, onTap, isLast }: {
   );
 }
 
-/** Quanto tempo a música tocada fica marcada aqui esperando o Mac confirmar a seleção. */
-const PICK_HOLD_MS = 2000;
+/** Número do pedido de seleção (o Mac devolve na resposta). */
+function newReq(): string {
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Quanto tempo o aviso de seleção recusada fica na tela. */
+const NOTICE_MS = 6000;
 
 export default function RemoteSetlist({ state, send }: { state: RemoteState; send: Send }) {
   const [openId, setOpenId] = useState<string | null>(null);
-  // a música tocada fica marcada na hora; o Mac confirma em seguida (selectedId do estado)
-  const [picked, setPicked] = useState<string | null>(null);
+  // a música tocada fica destacada na hora; o Mac responde se selecionou (ou por que não)
+  const [pick, setPick] = useState<PendingPick | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
-    if (!picked) return;
-    if (state.selectedId === picked) { setPicked(null); return; }
-    const t = window.setTimeout(() => setPicked(null), PICK_HOLD_MS);
+    if (!pick) return;
+    const check = () => {
+      const r = checkPick(pick, state, Date.now());
+      if (r.kind === 'wait') return false;
+      setPick(null);
+      // recusou ou não respondeu: o destaque volta para a música selecionada no Mac
+      if (r.kind === 'refused') setNotice(r.reason);
+      return true;
+    };
+    if (check()) return;
+    const t = window.setTimeout(check, Math.max(0, pick.at + PICK_TIMEOUT_MS - Date.now()) + 20);
     return () => window.clearTimeout(t);
-  }, [picked, state.selectedId]);
-  const selectedId = picked ?? state.selectedId;
+  }, [pick, state]);
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+  const selectedId = shownSelection(pick, state);
   const tap = (songId: string) => {
     // tocar na música seleciona no Mac, como o clique na playlist do programa
-    if (songId !== state.selectedId) {
-      send({ action: 'select', songId });
-      setPicked(songId);
+    if (songId !== selectedId) {
+      const req = newReq();
+      send({ action: 'select', songId, req });
+      setPick({ songId, req, at: Date.now() });
+      setNotice(null);
     }
     setOpenId((id) => (id === songId ? null : songId));
   };
@@ -248,6 +273,13 @@ export default function RemoteSetlist({ state, send }: { state: RemoteState; sen
   let lastBlock: string | null = null;
   return (
     <div className="pb-4">
+      {notice && (
+        <div role="alert" className="sticky top-0 z-10 flex items-center gap-2.5 px-4 py-2.5 bg-logic-bg-deep border-b border-logic-lcd-red/60 shadow-[0_6px_16px_rgba(0,0,0,0.45)]">
+          <AlertTriangle size={16} className="text-logic-lcd-red shrink-0" />
+          <span className="flex-1 min-w-0 text-[13px] leading-snug text-logic-text"><span className="font-semibold text-logic-lcd-red">Não selecionou.</span> {notice}</span>
+          <button className="console-key h-9 px-3 text-[13px] shrink-0" onClick={() => setNotice(null)}>OK</button>
+        </div>
+      )}
       {state.songs.map((song, index) => {
         const block = song.blockId ? state.blocks.find((b) => b.id === song.blockId) : undefined;
         const showBlock = !!block && block.id !== lastBlock;
