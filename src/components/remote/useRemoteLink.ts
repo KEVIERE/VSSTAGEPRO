@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { isLocalClient, takePinFromLink } from '@/lib/localNetwork';
-import { localForget, localRemoteCommand, localRemoteState } from '@/lib/localClientApi';
+import { localForget, localRemoteCommand, localRemoteMeters, localRemoteState } from '@/lib/localClientApi';
 import { remoteChannelName, remoteKeyFromLink } from '@/lib/onlineRemote';
-import { isRemoteState, type RemoteCommand, type RemoteState } from '@/lib/remoteProtocol';
+import { isRemoteMeters, isRemoteState, type RemoteCommand, type RemoteMeters, type RemoteState } from '@/lib/remoteProtocol';
 
 /** Como o celular está ligado ao Mac agora. */
 export type LinkStatus =
@@ -25,9 +25,15 @@ export interface RemoteLink {
   send: (cmd: RemoteCommand) => void;
   submitPin: (pin: string) => void;
   pinError: string | null;
+  /** Medidores dos faders: chama `cb` a cada pacote enquanto estiver ligado (aba Mixer aberta). */
+  watchMeters: (cb: (m: RemoteMeters) => void) => () => void;
 }
 
 const POLL_MS = 300;
+/** Rede Local: medidores buscados ~11 vezes por segundo, só com a aba Mixer aberta */
+const METERS_POLL_MS = 90;
+/** Show Online: o pedido de medidores é renovado a cada 2 s (o Mac para sozinho depois de 5 s) */
+const METERS_ASK_MS = 2000;
 const LOST_MS = 6000;
 const PIN_SS = 'vs_remote_pin';
 
@@ -49,6 +55,14 @@ export function useRemoteLink(): RemoteLink {
   const offset = useRef(0);
   const lastAt = useRef(0);
   const sendRef = useRef<(cmd: RemoteCommand) => void>(() => {});
+  const meterWatchers = useRef(new Set<(m: RemoteMeters) => void>());
+  const askMeters = useRef<() => void>(() => {});
+  const lastMetersAt = useRef(0);
+  const dispatchMeters = useCallback((raw: unknown) => {
+    if (!isRemoteMeters(raw) || raw.at < lastMetersAt.current) return;
+    lastMetersAt.current = raw.at;
+    meterWatchers.current.forEach((cb) => cb(raw));
+  }, []);
 
   const accept = useCallback((raw: unknown) => {
     if (!isRemoteState(raw)) return;
@@ -95,8 +109,15 @@ export function useRemoteLink(): RemoteLink {
     };
     poll();
     const id = window.setInterval(poll, POLL_MS);
-    return () => { alive = false; window.clearInterval(id); };
-  }, [via, pin, accept]);
+    let metersBusy = false;
+    const pollMeters = async () => {
+      if (metersBusy || !alive || meterWatchers.current.size === 0) return;
+      metersBusy = true;
+      try { dispatchMeters(await localRemoteMeters(pin)); } catch { /* a próxima busca tenta de novo */ } finally { metersBusy = false; }
+    };
+    const metersId = window.setInterval(pollMeters, METERS_POLL_MS);
+    return () => { alive = false; window.clearInterval(id); window.clearInterval(metersId); };
+  }, [via, pin, accept, dispatchMeters]);
 
   // ---------- Show Online ----------
   useEffect(() => {
@@ -109,6 +130,7 @@ export function useRemoteLink(): RemoteLink {
     });
     channel
       .on('broadcast', { event: 'state' }, ({ payload }) => { if (alive) accept(payload); })
+      .on('broadcast', { event: 'meters' }, ({ payload }) => { if (alive) dispatchMeters(payload); })
       .subscribe((st) => {
         if (st !== 'SUBSCRIBED' || !alive) return;
         channel.track({ role: 'remote', at: Date.now() }).catch(() => {});
@@ -117,6 +139,10 @@ export function useRemoteLink(): RemoteLink {
     sendRef.current = (cmd) => {
       channel.send({ type: 'broadcast', event: 'cmd', payload: cmd }).catch(() => {});
     };
+    askMeters.current = () => {
+      if (alive && meterWatchers.current.size > 0) channel.send({ type: 'broadcast', event: 'meters-on', payload: {} }).catch(() => {});
+    };
+    const askEvery = window.setInterval(() => askMeters.current(), METERS_ASK_MS);
     // sem estado novo há 6 s: o Mac sumiu (o programa manda pelo menos a cada 3 s)
     const watch = window.setInterval(() => {
       if (!alive) return;
@@ -128,10 +154,12 @@ export function useRemoteLink(): RemoteLink {
     }, 2000);
     return () => {
       alive = false;
+      askMeters.current = () => {};
       window.clearInterval(watch);
+      window.clearInterval(askEvery);
       supabase.removeChannel(channel);
     };
-  }, [via, accept]);
+  }, [via, accept, dispatchMeters]);
 
   const send = useCallback((cmd: RemoteCommand) => {
     // fader arrastado não vibra a cada passo
@@ -158,5 +186,11 @@ export function useRemoteLink(): RemoteLink {
 
   const macNow = useCallback(() => Date.now() + offset.current, []);
 
-  return { via, status, state, macNow, send, submitPin, pinError };
+  const watchMeters = useCallback((cb: (m: RemoteMeters) => void) => {
+    meterWatchers.current.add(cb);
+    askMeters.current();
+    return () => { meterWatchers.current.delete(cb); };
+  }, []);
+
+  return { via, status, state, macNow, send, submitPin, pinError, watchMeters };
 }

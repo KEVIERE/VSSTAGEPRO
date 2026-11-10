@@ -176,7 +176,7 @@ export default function MobileShowRemote() {
       <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto logic-scroll overscroll-contain">
         {tab === 'show' && <RemoteShowTab state={state} macNow={link.macNow} send={link.send} />}
         {tab === 'lista' && <RemoteSetlist state={state} send={link.send} />}
-        {tab === 'mixer' && <RemoteMixer state={state} send={link.send} />}
+        {tab === 'mixer' && <RemoteMixer state={state} send={link.send} watchMeters={link.watchMeters} />}
       </main>
       <nav className="console-rail grid grid-cols-3 gap-1.5 px-3 pt-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
         {TABS.map((t) => (

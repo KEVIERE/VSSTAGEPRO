@@ -173,8 +173,11 @@ export default function MusicianWorkspace({
     />
   );
 
+  // Altura exata da tela (como no VS Stage Remote). Com "100%" a página do músico crescia do
+  // tamanho da cifra, porque nada acima dela tem altura fixa: a área da cifra nunca tinha o que
+  // rolar e o "Rolar sozinho" ficava parado (quem rolava era a página inteira, com o dedo).
   return (
-    <div className="relative flex flex-col bg-logic-bg-deep" style={{ height: '100%' }}>
+    <div className="relative flex flex-col bg-logic-bg-deep h-[100dvh] overflow-hidden">
       {photoMsg && (
         <div
           role="status"

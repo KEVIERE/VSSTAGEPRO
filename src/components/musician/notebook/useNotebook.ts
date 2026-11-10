@@ -56,21 +56,27 @@ export function useNotebook({ backend, songId, songName, sheet, onSheetsChanged 
   const titleRef = useRef('');
   const lastSynced = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inflight = useRef(new Set<string>());
+  // gravação em andamento de cada música (o botão Salvar espera ela terminar)
+  const inflight = useRef(new Map<string, Promise<boolean>>());
   const again = useRef(new Map<string, Pending>());
   const onChangedRef = useRef(onSheetsChanged);
   onChangedRef.current = onSheetsChanged;
 
   const setSheetId = (id: string | null) => { sheetIdRef.current = id; setSheetIdState(id); };
 
-  const persist = useCallback(async (p: Pending): Promise<void> => {
-    if (inflight.current.has(p.songId)) { again.current.set(p.songId, p); return; }
-    inflight.current.add(p.songId);
+  /** Grava uma versão. Devolve true quando chegou; false fica na fila deste aparelho. */
+  const persist = useCallback(async (p: Pending): Promise<boolean> => {
+    const running = inflight.current.get(p.songId);
+    if (running) { again.current.set(p.songId, p); return running; }
+    let finish: (ok: boolean) => void = () => {};
+    inflight.current.set(p.songId, new Promise<boolean>((resolve) => { finish = resolve; }));
     const isCurrent = () => songRef.current === p.songId;
     if (isCurrent()) setStatus('saving');
     let savedId: string | null = null;
+    let ok = false;
     try {
       savedId = await backend.save(p.sheetId, p.songId, p.title, p.content);
+      ok = true;
       const q = readQueue(queueKey);
       if (q[p.songId] && q[p.songId].at <= p.at) { delete q[p.songId]; writeQueue(queueKey, q); }
       if (isCurrent()) {
@@ -85,12 +91,14 @@ export function useNotebook({ backend, songId, songName, sheet, onSheetsChanged 
       if (isCurrent()) setStatus('offline');
     } finally {
       inflight.current.delete(p.songId);
+      finish(ok);
       const next = again.current.get(p.songId);
       if (next) {
         again.current.delete(p.songId);
         void persist({ ...next, sheetId: next.sheetId ?? savedId });
       }
     }
+    return ok;
   }, [backend, queueKey]);
 
   const snapshot = useCallback((): Pending | null => {
@@ -108,6 +116,29 @@ export function useNotebook({ backend, songId, songName, sheet, onSheetsChanged 
     if (p.content.length > MAX_DOC_BYTES) { setStatus('too_big'); return; }
     await persist(p);
   }, [persist, snapshot]);
+
+  /**
+   * Botão "Salvar": grava agora a página aberta (sem esperar a gravação automática) e o que
+   * ficou guardado neste aparelho de outras músicas. Devolve como ficou.
+   */
+  const saveNow = useCallback(async (): Promise<'saved' | 'offline' | 'too_big' | 'empty'> => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const id = songRef.current;
+    if (!id) return 'empty';
+    // uma gravação desta música já em andamento termina antes (a nossa leva a versão mais nova)
+    again.current.delete(id);
+    for (let running = inflight.current.get(id); running; running = inflight.current.get(id)) {
+      await running;
+      again.current.delete(id);
+    }
+    if (songRef.current !== id) return 'empty';
+    const p = snapshot();
+    if (!p) return 'empty';
+    if (p.content.length > MAX_DOC_BYTES) { setStatus('too_big'); return 'too_big'; }
+    const others = Object.values(readQueue(queueKey)).filter((q) => q.songId !== id && !inflight.current.has(q.songId));
+    const results = await Promise.all([persist(p), ...others.map((q) => persist(q))]);
+    return results.every(Boolean) ? 'saved' : 'offline';
+  }, [persist, snapshot, queueKey]);
 
   const schedule = useCallback(() => {
     if (!songRef.current) return;
@@ -258,6 +289,7 @@ export function useNotebook({ backend, songId, songName, sheet, onSheetsChanged 
     sheetId,
     sharedFrom,
     flush,
+    saveNow,
     resetAfterDelete,
   };
 }

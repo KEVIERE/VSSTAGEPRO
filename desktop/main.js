@@ -105,6 +105,32 @@ function saveFromWindow() {
   });
 }
 
+// "Salvar" de um músico pela rede local: a tela grava o projeto e responde como ficou
+// ('saved', 'later', 'no_file' ou 'error'). Cada pedido tem número próprio: vários músicos
+// podem apertar ao mesmo tempo.
+let projectSaveSeq = 0;
+const PROJECT_SAVE_TIMEOUT_MS = 120_000;
+function askProjectSave() {
+  return new Promise((resolve) => {
+    if (!win || win.isDestroyed()) { resolve('error'); return; }
+    const wc = win.webContents;
+    const id = ++projectSaveSeq;
+    let timer = null;
+    const done = (status) => {
+      clearTimeout(timer);
+      ipcMain.removeListener('local:projectSaved', onSaved);
+      wc.removeListener('render-process-gone', onGone);
+      resolve(typeof status === 'string' ? status : 'error');
+    };
+    const onSaved = (event, replyId, status) => { if (event.sender === wc && replyId === id) done(status); };
+    const onGone = () => done('error');
+    timer = setTimeout(() => done('error'), PROJECT_SAVE_TIMEOUT_MS);
+    ipcMain.on('local:projectSaved', onSaved);
+    wc.on('render-process-gone', onGone);
+    wc.send('local:saveProject', id);
+  });
+}
+
 async function askBeforeClosing(quit) {
   if (closeAsking || !win || win.isDestroyed()) return;
   closeAsking = true;
@@ -326,6 +352,10 @@ handle('regeneratePin', (role) => { server.regeneratePin(role); return server.in
 handle('kick', (id) => server.kick(String(id)));
 handle('ackLyricsSave', () => server.ackLyricsSave());
 handle('setMusicianBook', (book) => server.setMusicianBook(book));
+// medidores dos faders para o VS Stage Remote: muitas vezes por segundo, sem resposta
+ipcMain.on('local:meters', (event, meters) => {
+  if (fromDirector(event)) server.publishMeters(meters);
+});
 handle('networkCheck', async () => (await networkCheck(server)).checks);
 handle('openAction', async (action) => {
   if (action === 'router') {
@@ -462,6 +492,8 @@ if (hasSingleInstance) app.whenReady().then(() => {
     onAccountsChange: (change) => {
       if (win && !win.isDestroyed()) win.webContents.send('local:accounts', change);
     },
+    // botão "Salvar" da Área do Músico
+    onProjectSave: askProjectSave,
   });
 
   protocol.handle(SCHEME, (request) => {

@@ -19,9 +19,10 @@ import { bumpAdjust, shownAdjust } from '@/components/AdjustmentsTower';
 import { pickSection, skipSection } from '@/components/SectionPads';
 import { interfaceName } from '@/components/ShowModePanel';
 import {
-  REMOTE_VERSION, parseRemoteCommand,
-  type RemoteCard, type RemoteState, type RemoteSong,
+  REMOTE_VERSION, packMeters, parseRemoteCommand,
+  type RemoteCard, type RemoteMeters, type RemoteState, type RemoteSong,
 } from '@/lib/remoteProtocol';
+import { meterLevel } from '@/lib/meterBus';
 import type { Song } from '@/types';
 
 type Store = ReturnType<typeof useStore.getState>;
@@ -199,6 +200,10 @@ export function applyRemoteCommand(raw: unknown): void {
       return;
     }
     case 'selectSong': st.selectSong(cmd.songId); startPlayback(); return;
+    // Lista do Remote: igual ao clique na playlist do Mac (seleciona, não toca)
+    case 'select':
+      if (st.playlist.some((p) => p.songId === cmd.songId)) st.selectSong(cmd.songId);
+      return;
 
     // Pesquisar do Modo Show: escolhe a música; com o show parado ela vira a Próxima
     case 'pick':
@@ -283,6 +288,35 @@ export function applyRemoteCommand(raw: unknown): void {
       if (st.blocks.some((b) => b.id === cmd.blockId) && BLOCK_COLORS.includes(cmd.color)) st.setBlockColor(cmd.blockId, cmd.color);
       return;
   }
+}
+
+/** Canais que o Remote mostra (os mesmos do mixer do Mac, na mesma ordem). */
+function remoteTrackIds(st: Store): string[] {
+  return ROUTABLE_TRACKS.filter((id) => st.tracks.some((tr) => tr.id === id && !tr.parentId));
+}
+
+/**
+ * Medidores do Remote: manda o nível de cada canal e do master a cada `intervalMs` enquanto
+ * `enabled()` deixar. Em silêncio repete no máximo uma vez por segundo (o celular apaga a barra
+ * sozinho se parar de chegar).
+ */
+export function startRemoteMeterFeed(
+  push: (m: RemoteMeters) => void,
+  opts: { intervalMs: number; enabled?: () => boolean },
+): () => void {
+  let lastKey = '';
+  let lastAt = 0;
+  const timer = window.setInterval(() => {
+    if (opts.enabled && !opts.enabled()) return;
+    const now = Date.now();
+    const m = packMeters(remoteTrackIds(useStore.getState()), meterLevel, now);
+    const key = `${m.ids.join()}|${m.levels.join()}|${m.master}`;
+    if (key === lastKey && now - lastAt < 1000) return;
+    lastKey = key;
+    lastAt = now;
+    push(m);
+  }, opts.intervalMs);
+  return () => window.clearInterval(timer);
 }
 
 /**

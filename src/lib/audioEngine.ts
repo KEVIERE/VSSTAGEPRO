@@ -2323,18 +2323,10 @@ class AudioEngine {
     const chGain = channelGainFor(track, all, track.volume);
     this.rampParam(channel.gain.gain, chGain);
     this.rampParam(channel.panner.pan, effectivePan(track.id, track.pan, lrActive));
-
-    // Também garante silenciamento a nível de clipe para trilhas raiz (Guia, Click, Maestro)
-    const store = useStore.getState();
-    store.clips.forEach((c) => {
-      if (c.trackId === trackId) {
-        const g = this.clipGains.get(c.id);
-        if (g) {
-          const songClips = store.clips.filter((sc) => sc.songId === c.songId);
-          this.rampParam(g.gain, chGain * clipGainFor(c, songClips));
-        }
-      }
-    });
+    // Os clipes de uma faixa raiz (Guia, Click, Maestro) passam pelo ganho do canal acima, que já
+    // aplica o fader e o mudo. Antes o fader também ia para o ganho de cada clipe: mexido durante
+    // a música, o volume valia duas vezes (o fader em -6 dB soava -12 dB até a próxima música) e
+    // o fade do clipe era cortado. Ao tocar, o clipe nasce só com o próprio ganho (clipGainFor).
   }
 
   // Ganho/mute/solo de UM clipe mudou (modo DAW): reaplica só o clipGain dele, sem

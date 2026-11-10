@@ -11,10 +11,22 @@ contextBridge.exposeInMainWorld('vsLocal', {
   kick: call('kick'),
   ackLyricsSave: call('ackLyricsSave'),
   setMusicianBook: call('setMusicianBook'),
+  // medidores dos faders para o VS Stage Remote (sem esperar resposta)
+  publishMeters: (meters) => ipcRenderer.send('local:meters', meters),
   onMusicianAccounts: (cb) => {
     const listener = (_event, change) => cb(change);
     ipcRenderer.on('local:accounts', listener);
     return () => ipcRenderer.removeListener('local:accounts', listener);
+  },
+  // "Salvar" de um músico: a tela grava o projeto e responde como ficou
+  onProjectSaveRequest: (cb) => {
+    const listener = async (_event, id) => {
+      let status = 'error';
+      try { status = String(await cb()); } catch { status = 'error'; }
+      ipcRenderer.send('local:projectSaved', id, status);
+    };
+    ipcRenderer.on('local:saveProject', listener);
+    return () => ipcRenderer.removeListener('local:saveProject', listener);
   },
   networkCheck: call('networkCheck'),
   openAction: call('openAction'),

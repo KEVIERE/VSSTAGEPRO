@@ -25,6 +25,11 @@ function subscribe(listener: () => void) {
   return () => { listeners.delete(listener); };
 }
 
+/** Nível atual de um canal fora do React (o VS Stage Remote lê daqui). */
+export function meterLevel(id: string): number {
+  return levels.get(id) ?? 0;
+}
+
 export function useMeterLevel(id: string): number {
   return useSyncExternalStore(subscribe, () => levels.get(id) ?? 0);
 }

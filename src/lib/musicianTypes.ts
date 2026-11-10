@@ -98,12 +98,26 @@ export interface ColleagueInfo {
   instrument: string;
 }
 
+/**
+ * Botão "Salvar" do músico na Rede Local: como ficou o arquivo do projeto no Mac do diretor.
+ * - saved: gravado agora
+ * - later: o diretor está tocando; grava assim que a música parar
+ * - no_file: o projeto nunca foi salvo (o diretor precisa salvar uma vez)
+ * - error: não deu para gravar
+ * - unavailable: o programa não tem essa função
+ */
+export type ProjectSaveStatus = 'saved' | 'later' | 'no_file' | 'error' | 'unavailable';
+
+export const PROJECT_SAVE_STATUSES: readonly ProjectSaveStatus[] = ['saved', 'later', 'no_file', 'error', 'unavailable'];
+
 /** Where a musician's sheets live: the online account or the director's Mac on the local network. */
 export interface SheetBackend {
   key: string;
   /** Text used where the sheets are stored, e.g. "na sua conta". */
   storedIn: string;
   save(sheetId: string | null, songId: string, title: string, content: string): Promise<string>;
+  /** Rede Local: pede ao Mac do diretor para gravar o projeto (onde moram os cadernos). */
+  saveProject?(): Promise<ProjectSaveStatus>;
   remove(sheetId: string): Promise<void>;
   songLyrics(songId: string): Promise<string[]>;
   colleagues(): Promise<ColleagueInfo[]>;

@@ -63,6 +63,10 @@ export interface LocalBridge {
   /** Contas dos músicos do projeto aberto (versões antigas do app não têm). */
   setMusicianBook?: (book: import('@/types').MusicianBook | null) => Promise<void>;
   onMusicianAccounts?: (cb: (change: { book?: { id: string }; account?: import('@/types').MusicianAccount }) => void) => () => void;
+  /** Medidores dos faders para o VS Stage Remote (versões antigas do app não têm). */
+  publishMeters?: (meters: import('@/lib/remoteProtocol').RemoteMeters) => void;
+  /** Um músico apertou "Salvar": a tela grava o projeto e responde como ficou. */
+  onProjectSaveRequest?: (cb: () => Promise<import('@/lib/musicianTypes').ProjectSaveStatus>) => () => void;
 }
 
 /** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */

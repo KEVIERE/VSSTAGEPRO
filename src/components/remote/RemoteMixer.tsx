@@ -1,15 +1,20 @@
-// Aba "Mixer" do VS Stage Remote: fader, Mudo e Solo de cada canal e o fader do master, com os
-// mesmos faders do Mixer do programa. Pan, anti-clip e roteamento ficam só no Mac.
+// Aba "Mixer" do VS Stage Remote: fader, medidor de LEDs, Mudo e Solo de cada canal e o fader do
+// master, com os mesmos faders e medidores do Mixer do programa. Pan, anti-clip e roteamento
+// ficam só no Mac.
 import { useEffect, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { Fader } from '@/components/MixerPanel';
+import { LedMeter } from '@/components/MeterMask';
 import { volumeToDb } from '@/lib/audioEngine';
-import type { RemoteCommand, RemoteState } from '@/lib/remoteProtocol';
+import { publishMeters, resetMeters } from '@/lib/meterBus';
+import { unpackMeters, type RemoteCommand, type RemoteMeters, type RemoteState } from '@/lib/remoteProtocol';
 
 type Send = (cmd: RemoteCommand) => void;
 
 const SEND_GAP_MS = 70;
 const HOLD_MS = 900;
+/** sem medidor novo por este tempo (Mac parou, Wi-Fi caiu): as barras apagam */
+const METERS_STALE_MS = 1500;
 
 function dbText(v: number): string {
   const db = volumeToDb(v);
@@ -44,8 +49,8 @@ function useHeldFader(remote: number, push: (v: number) => void) {
   return { value: held ?? remote, onChange };
 }
 
-function Strip({ name, volume, mute, solo, locked, tone, height, onVolume, onMute, onSolo }: {
-  name: string; volume: number; height: number; mute?: boolean; solo?: boolean; locked?: boolean; tone: 'cue' | 'band' | 'master';
+function Strip({ meterId, name, volume, mute, solo, locked, tone, height, onVolume, onMute, onSolo }: {
+  meterId: string; name: string; volume: number; height: number; mute?: boolean; solo?: boolean; locked?: boolean; tone: 'cue' | 'band' | 'master';
   onVolume: (v: number) => void; onMute?: () => void; onSolo?: () => void;
 }) {
   const fader = useHeldFader(volume, onVolume);
@@ -55,16 +60,20 @@ function Strip({ name, volume, mute, solo, locked, tone, height, onVolume, onMut
         <span className="line-clamp-2 break-words text-center">{name}</span>
       </div>
       <span className="console-readout font-stage text-[12px] tabular-nums text-logic-lcd-text">{dbText(fader.value)}</span>
-      <div className={`relative ${locked ? 'opacity-50 pointer-events-none' : ''}`}>
-        <Fader
-          value={fader.value}
-          onChange={fader.onChange}
-          onDoubleClick={() => fader.onChange(0.8)}
-          width={30}
-          height={height}
-          tone={tone}
-        />
-        {locked && <Lock size={14} className="absolute top-1 right-1 text-logic-lcd-amber" aria-label="Fader travado no Mac" />}
+      <div className="flex gap-[3px] items-end">
+        <div className={`relative ${locked ? 'opacity-50 pointer-events-none' : ''}`}>
+          <Fader
+            value={fader.value}
+            onChange={fader.onChange}
+            onDoubleClick={() => fader.onChange(0.8)}
+            width={26}
+            height={height}
+            tone={tone}
+          />
+          {locked && <Lock size={14} className="absolute top-1 right-1 text-logic-lcd-amber" aria-label="Fader travado no Mac" />}
+        </div>
+        {/* nível do som agora, igual ao medidor do mixer do Mac */}
+        <LedMeter id={meterId} off={mute} height={height} smooth />
       </div>
       {onMute && onSolo ? (
         <div className="flex gap-1.5 mt-1">
@@ -79,7 +88,30 @@ function Strip({ name, volume, mute, solo, locked, tone, height, onVolume, onMut
 // espaço do canal fora o fader: fita, visor de dB, teclas M/S e margens
 const STRIP_CHROME = 150;
 
-export default function RemoteMixer({ state, send }: { state: RemoteState; send: Send }) {
+/**
+ * Liga os medidores enquanto a aba Mixer está aberta: cada pacote do Mac vai para os medidores
+ * deste celular; se parar de chegar, as barras apagam.
+ */
+function useRemoteMeters(watchMeters: (cb: (m: RemoteMeters) => void) => () => void) {
+  useEffect(() => {
+    let last = 0;
+    const off = watchMeters((m) => {
+      last = Date.now();
+      publishMeters(unpackMeters(m));
+    });
+    const stale = window.setInterval(() => {
+      if (last && Date.now() - last > METERS_STALE_MS) { last = 0; resetMeters(); }
+    }, 500);
+    return () => { off(); window.clearInterval(stale); resetMeters(); };
+  }, [watchMeters]);
+}
+
+export default function RemoteMixer({ state, send, watchMeters }: {
+  state: RemoteState;
+  send: Send;
+  watchMeters: (cb: (m: RemoteMeters) => void) => () => void;
+}) {
+  useRemoteMeters(watchMeters);
   // o fader cresce até a altura que sobra na tela (celular em pé tem espaço de sobra)
   const boxRef = useRef<HTMLDivElement>(null);
   const [faderH, setFaderH] = useState(230);
@@ -99,6 +131,7 @@ export default function RemoteMixer({ state, send }: { state: RemoteState; send:
           {state.tracks.map((t) => (
             <Strip
               key={t.id}
+              meterId={t.id}
               name={t.name}
               volume={t.volume}
               mute={t.mute}
@@ -111,11 +144,11 @@ export default function RemoteMixer({ state, send }: { state: RemoteState; send:
               onSolo={() => send({ action: 'solo', trackId: t.id })}
             />
           ))}
-          <Strip name="Master" volume={state.master} tone="master" height={faderH} onVolume={(v) => send({ action: 'master', value: v })} />
+          <Strip meterId="master" name="Master" volume={state.master} tone="master" height={faderH} onVolume={(v) => send({ action: 'master', value: v })} />
         </div>
       </div>
       <p className="px-4 py-3 text-center text-xs text-logic-text-muted">
-        Arraste o fader para cima ou para baixo. Dois toques voltam para 0 dB. Pan e roteamento ficam no Mac.
+        Arraste o fader para cima ou para baixo. Dois toques voltam para 0 dB. A barra ao lado mostra o som de cada canal agora. Pan e roteamento ficam no Mac.
       </p>
     </div>
   );

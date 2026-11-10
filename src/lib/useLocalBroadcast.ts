@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { snapshot } from '@/lib/useLiveBroadcast';
-import { buildRemoteState, remoteSignature } from '@/lib/remoteHost';
+import { buildRemoteState, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
 import { subscribeShowClock } from '@/lib/showClock';
 import {
   localBridge, setNetworkMode, useNetworkMode,
@@ -12,6 +12,7 @@ import { friendlyError } from '@/lib/friendlyError';
 const INFO_POLL_MS = 2000;
 const HEARTBEAT_PLAYING_MS = 500;
 const HEARTBEAT_IDLE_MS = 3000;
+const REMOTE_METERS_MS = 80;
 
 export interface LocalBroadcast {
   /** O app de Mac está rodando e pode criar a rede local. */
@@ -38,6 +39,8 @@ export function useLocalBroadcast(): LocalBroadcast {
   const [error, setError] = useState<string | null>(null);
   const [lyricsReceived, setLyricsReceived] = useState<number | null>(null);
   const appliedSaveAt = useRef<string | null>(null);
+  // há celular com o VS Stage Remote conectado (só então os medidores vão para a rede)
+  const remotePhones = useRef(false);
   const active = mode === 'local' && !!bridge;
 
   useEffect(() => {
@@ -129,6 +132,7 @@ export function useLocalBroadcast(): LocalBroadcast {
       try {
         const i = await bridge.getInfo();
         if (!alive) return;
+        remotePhones.current = i.clients.some((c) => c.role === 'remote');
         setInfo(i);
         setError(i.error);
         const req = i.lyricsSaveRequestedAt;
@@ -152,6 +156,15 @@ export function useLocalBroadcast(): LocalBroadcast {
     tick();
     const id = window.setInterval(tick, INFO_POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
+  }, [bridge, active]);
+
+  // Medidores dos faders para a aba Mixer do VS Stage Remote: ~12 por segundo
+  useEffect(() => {
+    if (!bridge?.publishMeters || !active) return;
+    return startRemoteMeterFeed((m) => bridge.publishMeters?.(m), {
+      intervalMs: REMOTE_METERS_MS,
+      enabled: () => remotePhones.current,
+    });
   }, [bridge, active]);
 
   const setMode = useCallback((m: NetworkMode) => {

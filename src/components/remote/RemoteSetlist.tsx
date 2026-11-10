@@ -1,6 +1,6 @@
 // Aba "Lista" do VS Stage Remote: a playlist do Modo Show, com blocos, ajustes de BPM e de tom,
 // medley e a edição da lista (renomear, duplicar, mudar a ordem, blocos). Excluir fica só no Mac.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   AlertTriangle, ArrowDown, ArrowUp, Check, Copy, CornerDownRight, FlagTriangleRight, Link, Minus, Palette, Pencil, Plus,
 } from 'lucide-react';
@@ -134,21 +134,26 @@ function MedleyParts({ song, number, state, send }: { song: RemoteSong; number: 
   );
 }
 
-function SongRow({ song, index, state, send, open, onToggle, isLast }: {
-  song: RemoteSong; index: number; state: RemoteState; send: Send; open: boolean; onToggle: () => void; isLast: boolean;
+function SongRow({ song, index, state, send, open, selected, onTap, isLast }: {
+  song: RemoteSong; index: number; state: RemoteState; send: Send; open: boolean;
+  /** selecionada no Mac (ou acabou de ser tocada aqui e o Mac ainda não respondeu) */
+  selected: boolean;
+  /** toque na música: seleciona no Mac e abre/fecha as opções */
+  onTap: () => void;
+  isLast: boolean;
 }) {
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(song.name);
   const isCurrent = state.playing && song.id === state.currentId;
   const isNext = song.id === state.nextId;
-  const isSelected = song.id === state.selectedId;
+  const isSelected = selected;
   const currentIndex = state.playing ? state.songs.findIndex((s) => s.id === state.currentId) : -1;
   const played = currentIndex >= 0 && index < currentIndex;
   const tone = isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : 'text-logic-text-muted';
   const umaUma = state.flow === 'uma-uma';
   return (
     <div className={`cue-row border-b border-black/60 ${isCurrent ? 'is-current' : isNext ? 'is-next' : isSelected ? 'is-selected' : ''} ${played && !open ? 'opacity-50' : ''}`}>
-      <button className="relative w-full flex items-center gap-3 pl-7 pr-3 min-h-[60px] text-left" onClick={onToggle} aria-expanded={open}>
+      <button className="relative w-full flex items-center gap-3 pl-7 pr-3 min-h-[60px] text-left" onClick={onTap} aria-expanded={open} aria-current={isSelected ? 'true' : undefined}>
         <span className={`console-led is-lg absolute left-[9px] top-1/2 -translate-y-1/2 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
         <SegmentDisplay text={String(index + 1).padStart(2, '0')} label={`Música ${index + 1}`} ghost={isCurrent || isNext} className={`h-[17px] shrink-0 ${tone}`} />
         <span className="flex-1 min-w-0">
@@ -215,8 +220,28 @@ function SongRow({ song, index, state, send, open, onToggle, isLast }: {
   );
 }
 
+/** Quanto tempo a música tocada fica marcada aqui esperando o Mac confirmar a seleção. */
+const PICK_HOLD_MS = 2000;
+
 export default function RemoteSetlist({ state, send }: { state: RemoteState; send: Send }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  // a música tocada fica marcada na hora; o Mac confirma em seguida (selectedId do estado)
+  const [picked, setPicked] = useState<string | null>(null);
+  useEffect(() => {
+    if (!picked) return;
+    if (state.selectedId === picked) { setPicked(null); return; }
+    const t = window.setTimeout(() => setPicked(null), PICK_HOLD_MS);
+    return () => window.clearTimeout(t);
+  }, [picked, state.selectedId]);
+  const selectedId = picked ?? state.selectedId;
+  const tap = (songId: string) => {
+    // tocar na música seleciona no Mac, como o clique na playlist do programa
+    if (songId !== state.selectedId) {
+      send({ action: 'select', songId });
+      setPicked(songId);
+    }
+    setOpenId((id) => (id === songId ? null : songId));
+  };
   if (state.songs.length === 0) {
     return <div className="p-8 text-center text-sm text-logic-text-muted">Nenhuma música na playlist do Mac.</div>;
   }
@@ -236,13 +261,14 @@ export default function RemoteSetlist({ state, send }: { state: RemoteState; sen
               state={state}
               send={send}
               open={openId === song.id}
-              onToggle={() => setOpenId((id) => (id === song.id ? null : song.id))}
+              selected={song.id === selectedId}
+              onTap={() => tap(song.id)}
               isLast={index === state.songs.length - 1}
             />
           </div>
         );
       })}
-      <p className="px-4 pt-4 text-center text-xs text-logic-text-muted">Toque numa música para as opções. Excluir música só no Mac.</p>
+      <p className="px-4 pt-4 text-center text-xs text-logic-text-muted">Toque numa música para selecionar no Mac e ver as opções. Excluir música só no Mac.</p>
     </div>
   );
 }

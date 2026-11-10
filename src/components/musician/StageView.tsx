@@ -1,12 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, ImagePlus, Loader2, Maximize, Minus, MoveHorizontal, PenLine, Plus, Share2 } from 'lucide-react';
+import { ArrowDownWideNarrow, ImagePlus, Loader2, Maximize, Minus, MoveHorizontal, PenLine, Plus, Rabbit, Share2, Turtle } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetBackend, SheetInfo, ShowLive } from '@/lib/musicianTypes';
 import { currentPart, liveSheetKey } from '@/lib/medleySheets';
 import { docIsImageOnly, type NotebookLine } from '@/lib/notebook';
+import {
+  SCROLL_SPEEDS, directorJumped, easeToward, offsetFor, parseScrollSpeed, respeedOffset, scrollSpeedLabel, scrollTarget, stepScrollSpeed,
+} from '@/lib/autoScroll';
 import { useNotebook } from './notebook/useNotebook';
 import { useImageImport } from './notebook/useImageImport';
 import NotebookPage from './notebook/NotebookPage';
 import SharePane from './notebook/SharePane';
+import SaveButton from './notebook/SaveButton';
 import { NowNextDisplays, SignalBanner } from './LivePanel';
 
 // Modo Show da Área do Músico: em cima os dois displays do programa (Tocando e Próxima); embaixo,
@@ -19,8 +23,10 @@ type ImgFit = 'fill' | 'width';
 const FIT_LS = 'vs_stage_fit';
 const IMG_FIT_LS = 'vs_stage_img_fit';
 const ZOOM_LS = 'vs_stage_zoom';
-// depois que o músico rola com o dedo, a rolagem automática espera um pouco antes de voltar
-const MANUAL_PAUSE_MS = 6000;
+const SPEED_LS = 'vs_stage_scroll_speed';
+// enquanto o dedo mexe (e o embalo da rolagem termina) a rolagem automática espera; depois
+// continua de onde o músico deixou
+const MANUAL_PAUSE_MS = 2000;
 
 type ImageLine = Extract<NotebookLine, { kind: 'image' }>;
 
@@ -86,8 +92,9 @@ export default function StageView({
     const z = Number((() => { try { return localStorage.getItem(ZOOM_LS); } catch { return null; } })());
     return z >= 0.6 && z <= 2.5 ? z : 1;
   });
+  const [speed, setSpeed] = useState(() => parseScrollSpeed((() => { try { return localStorage.getItem(SPEED_LS); } catch { return null; } })()));
   const [sharing, setSharing] = useState(false);
-  const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
+  const [toast, setToast] = useState<{ ok: boolean; text: string; warn?: boolean } | null>(null);
 
   // Num medley, a cifra mostrada é a da parte tocando (ou a da música inteira, se só ela existir).
   const part = currentPart(currentSong, live, lv.currentTime);
@@ -103,7 +110,8 @@ export default function StageView({
   const boxRef = useRef<HTMLDivElement>(null);
   const imgBoxRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
-  const manualUntil = useRef(0);
+  // rolagem automática: posição atual (com fração de pixel), ajuste do músico e o que foi escrito
+  const roll = useRef({ cur: 0, offset: 0, written: -1, speed: 1, manualUntil: 0, last: 0, lastProgress: null as number | null });
   const [scale, setScale] = useState(1);
   const [cols, setCols] = useState(1);
 
@@ -123,6 +131,8 @@ export default function StageView({
     setZoom(v);
     writeLs(ZOOM_LS, String(v));
   };
+  const saveSpeed = (s: number) => { setSpeed(s); writeLs(SPEED_LS, String(s)); };
+  const scrolls = imageOnly || fit === 'scroll';
 
   useEffect(() => {
     if (!toast) return;
@@ -133,7 +143,7 @@ export default function StageView({
   // música nova: fecha o envio e volta ao começo
   useEffect(() => {
     setSharing(false);
-    manualUntil.current = 0;
+    roll.current = { ...roll.current, cur: 0, offset: 0, written: -1, manualUntil: 0, lastProgress: null };
     if (boxRef.current) boxRef.current.scrollTop = 0;
     if (imgBoxRef.current) imgBoxRef.current.scrollLeft = 0;
   }, [songId]);
@@ -169,32 +179,61 @@ export default function StageView({
   }, [pageFit, doc, zoom]);
 
   // Rolagem automática: a cifra (ou as páginas de foto, de lado) acompanha o andamento da
-  // música, um pouco à frente. Suave, e pausa quando o músico rola com o dedo.
+  // música na velocidade escolhida, com a linha tocando a um terço da tela. Se o músico rola
+  // com o dedo, ela espera o dedo sair e continua dali (não volta para onde estava).
+  // O relógio do diretor chega 4 vezes por segundo; a posição anda suave entre um e outro.
+  const rollInput = useRef({ progress: scrollProgress, speed, playing: isPlaying });
+  rollInput.current = { progress: scrollProgress, speed, playing: isPlaying };
   useEffect(() => {
-    if (pageFit || !isPlaying) return;
+    if (pageFit) return;
+    const s = roll.current;
+    s.written = -1;
+    s.last = 0;
     let raf = 0;
-    const tick = () => {
-      if (Date.now() > manualUntil.current) {
-        const target = Math.max(0, Math.min(1, (scrollProgress - 0.04) / 0.92));
-        const img = fillImages ? imgBoxRef.current : null;
-        const box = fillImages ? null : boxRef.current;
-        if (img) {
-          const max = img.scrollWidth - img.clientWidth;
-          const delta = target * max - img.scrollLeft;
-          if (max > 0 && Math.abs(delta) > 0.5) img.scrollLeft += delta * 0.08;
-        } else if (box) {
-          const max = box.scrollHeight - box.clientHeight;
-          const delta = target * max - box.scrollTop;
-          if (max > 0 && Math.abs(delta) > 0.5) box.scrollTop += delta * 0.08;
-        }
-      }
+    const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
+      const dt = s.last ? now - s.last : 0;
+      s.last = now;
+      const el = fillImages ? imgBoxRef.current : boxRef.current;
+      if (!el) return;
+      const across = fillImages;
+      const pos = across ? el.scrollLeft : el.scrollTop;
+      const content = across ? el.scrollWidth : el.scrollHeight;
+      const view = across ? el.clientWidth : el.clientHeight;
+      const { progress, speed: sp, playing } = rollInput.current;
+      if (s.written < 0) {
+        // música nova ou modo trocado: vai suave para o ponto certo da música
+        s.cur = pos;
+        s.offset = 0;
+        s.speed = sp;
+        s.written = pos;
+      } else if (Math.abs(pos - s.written) > 2) {
+        // o músico rolou com o dedo: a rolagem segue de onde ele deixou
+        s.cur = pos;
+        s.offset = offsetFor(pos, progress, content, view, sp);
+        s.written = pos;
+      }
+      // o diretor pulou para outro ponto (recomeçou, repetiu um trecho): segue a música de novo
+      if (directorJumped(s.lastProgress, progress)) s.offset = 0;
+      s.lastProgress = progress;
+      // velocidade trocada: continua do ponto atual, sem pular
+      if (sp !== s.speed) {
+        s.offset = respeedOffset(s.offset, progress, content, s.speed, sp);
+        s.speed = sp;
+      }
+      if (!playing || now < s.manualUntil) return;
+      s.cur = easeToward(s.cur, scrollTarget(progress, content, view, sp, s.offset), dt);
+      const next = Math.round(s.cur);
+      if (next !== pos) {
+        if (across) el.scrollLeft = next; else el.scrollTop = next;
+      }
+      s.written = across ? el.scrollLeft : el.scrollTop;
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [pageFit, fillImages, isPlaying, scrollProgress]);
+  }, [pageFit, fillImages]);
 
-  const onManual = () => { manualUntil.current = Date.now() + MANUAL_PAUSE_MS; };
+  const onManual = () => { roll.current.manualUntil = performance.now() + MANUAL_PAUSE_MS; };
   const key = (on: boolean) => `console-key flex items-center gap-1.5 h-8 px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
 
   return (
@@ -229,8 +268,39 @@ export default function StageView({
               </div>
             </>
           )}
+          {scrolls && (
+            <div
+              className="flex items-center gap-1 ml-1"
+              title={`Velocidade da rolagem. 1x: a cifra inteira passa ao longo da música. Ela rola enquanto o diretor está tocando.${isPlaying ? '' : ' Agora está parada: começa com o play do diretor.'}`}
+            >
+              <span className="console-legend hidden sm:inline">Velocidade</span>
+              <button
+                className="console-key w-8 h-8 flex items-center justify-center"
+                onClick={() => saveSpeed(stepScrollSpeed(speed, -1))}
+                disabled={speed <= SCROLL_SPEEDS[0]}
+                aria-label="Rolar mais devagar"
+              ><Turtle size={14} /></button>
+              <span className="console-display h-8 min-w-[48px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums" aria-live="polite">
+                {scrollSpeedLabel(speed)}
+              </span>
+              <button
+                className="console-key w-8 h-8 flex items-center justify-center"
+                onClick={() => saveSpeed(stepScrollSpeed(speed, 1))}
+                disabled={speed >= SCROLL_SPEEDS[SCROLL_SPEEDS.length - 1]}
+                aria-label="Rolar mais rápido"
+              ><Rabbit size={14} /></button>
+              <span className={`console-led ml-0.5 ${isPlaying ? 'is-on-green' : ''}`} aria-hidden />
+              {!isPlaying && <span className="console-legend hidden md:inline">Rola com o play</span>}
+            </div>
+          )}
           {songId && (
             <div className="flex items-center gap-1.5 ml-auto">
+              <SaveButton
+                saveNow={nb.saveNow}
+                status={nb.status}
+                backend={backend}
+                onResult={(o) => setToast({ ok: o.tone === 'ok', warn: o.tone === 'warn', text: o.text })}
+              />
               <button className={key(false)} onClick={images.open} disabled={images.adding} title="Importar a foto da sua partitura ou cifra para esta música">
                 {images.adding ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
                 <span className="hidden sm:inline">Importar imagem</span>
@@ -328,8 +398,10 @@ export default function StageView({
       )}
 
       {toast && (
-        <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-50 max-w-[90%] px-4 py-2.5 rounded-lg border text-xs shadow-2xl animate-[fadeIn_160ms_ease-out] bg-logic-bg-elevated ${
-          toast.ok ? 'border-logic-lcd-green/40 text-logic-lcd-green' : 'border-logic-lcd-red/40 text-logic-lcd-red'
+        <div role="status" className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-50 max-w-[90%] px-4 py-2.5 rounded-lg border text-xs shadow-2xl animate-[fadeIn_160ms_ease-out] bg-logic-bg-elevated ${
+          toast.ok ? 'border-logic-lcd-green/40 text-logic-lcd-green'
+            : toast.warn ? 'border-logic-lcd-amber/40 text-logic-lcd-amber'
+              : 'border-logic-lcd-red/40 text-logic-lcd-red'
         }`}>
           {toast.text}
         </div>

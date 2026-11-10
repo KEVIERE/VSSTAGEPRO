@@ -129,6 +129,8 @@ export type RemoteCommand =
   | { action: 'next' }
   | { action: 'prev' }
   | { action: 'selectSong'; songId: string }
+  // Lista: tocar na música só seleciona (como o clique na playlist do Mac), sem tocar
+  | { action: 'select'; songId: string }
   // Modo Show
   | { action: 'pick'; songId: string }
   | { action: 'setNext'; songId: string | null }
@@ -194,7 +196,7 @@ export function parseRemoteCommand(raw: unknown): RemoteCommand | null {
     case 'play': case 'stop': case 'pause': case 'next': case 'prev':
     case 'towerBpm': case 'towerTuner': case 'clockStart': case 'clockReset': case 'dismissError':
       return { action: c.action };
-    case 'selectSong': case 'pick': case 'skipSection': case 'duplicate': case 'createBlock': {
+    case 'selectSong': case 'select': case 'pick': case 'skipSection': case 'duplicate': case 'createBlock': {
       const songId = id(c.songId);
       return songId ? { action: c.action, songId } : null;
     }
@@ -262,6 +264,48 @@ export function parseRemoteCommand(raw: unknown): RemoteCommand | null {
     default:
       return null;
   }
+}
+
+// ---------- medidores (barra de LEDs de cada fader) ----------
+// Vão separados do estado: chegam umas 12 vezes por segundo e são pequenos.
+
+/** Nível de pico (amplitude, 1 = 0 dBFS) de cada canal do Remote e do master. */
+export interface RemoteMeters {
+  v: number;
+  at: number;
+  ids: string[];
+  levels: number[];
+  master: number;
+}
+
+const MAX_METER_IDS = 64;
+
+function meterValue(v: unknown): number {
+  const n = typeof v === 'number' && Number.isFinite(v) ? v : 0;
+  // 4 casas bastam: o medidor começa em -48 dBFS (0,004)
+  return Math.round(Math.max(0, Math.min(4, n)) * 10000) / 10000;
+}
+
+/** Monta o pacote dos medidores com o nível de cada canal (`level`) e do master. */
+export function packMeters(ids: string[], level: (id: string) => number, at: number): RemoteMeters {
+  const list = ids.slice(0, MAX_METER_IDS);
+  return { v: REMOTE_VERSION, at, ids: list, levels: list.map((id) => meterValue(level(id))), master: meterValue(level('master')) };
+}
+
+/** Pacote de medidores que chegou e parece inteiro. */
+export function isRemoteMeters(raw: unknown): raw is RemoteMeters {
+  if (!raw || typeof raw !== 'object') return false;
+  const m = raw as Partial<RemoteMeters>;
+  return m.v === REMOTE_VERSION && typeof m.at === 'number' && Array.isArray(m.ids) && Array.isArray(m.levels)
+    && m.ids.length === m.levels.length && m.ids.length <= MAX_METER_IDS && typeof m.master === 'number';
+}
+
+/** Nível de cada canal pelo id (e 'master'), para os medidores do celular. */
+export function unpackMeters(m: RemoteMeters): Map<string, number> {
+  const out = new Map<string, number>();
+  m.ids.forEach((id, i) => { if (typeof id === 'string') out.set(id, meterValue(m.levels[i])); });
+  out.set('master', meterValue(m.master));
+  return out;
 }
 
 /** Estado que chegou e parece inteiro. */

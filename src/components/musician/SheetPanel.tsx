@@ -14,6 +14,7 @@ import { clampStep } from './notebook/StaffLine';
 import SharePane from './notebook/SharePane';
 import { splitKey } from '@/lib/medleySheets';
 import PasteChordsDialog from './notebook/PasteChordsDialog';
+import SaveButton from './notebook/SaveButton';
 
 const TOOLS_LS = 'vs_nb_tools';
 
@@ -58,7 +59,7 @@ export default function SheetPanel({
   const [pasting, setPasting] = useState(false);
   const [brush, setBrush] = useState<NoteBrush>({ dur: 'q', rest: false, dot: false, acc: null });
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null);
-  const [toast, setToast] = useState<{ ok: boolean; text: string } | null>(null);
+  const [toast, setToast] = useState<{ ok: boolean; text: string; warn?: boolean } | null>(null);
   const [importing, setImporting] = useState(false);
 
   useEffect(() => {
@@ -209,6 +210,14 @@ export default function SheetPanel({
         placeholder={songName}
         sharedFrom={nb.sharedFrom}
         status={nb.status}
+        saveButton={(
+          <SaveButton
+            saveNow={nb.saveNow}
+            status={nb.status}
+            backend={backend}
+            onResult={(o) => setToast({ ok: o.tone === 'ok', warn: o.tone === 'warn', text: o.text })}
+          />
+        )}
         canUndo={nb.canUndo}
         canRedo={nb.canRedo}
         onUndo={undo}
@@ -331,8 +340,10 @@ export default function SheetPanel({
       {pasting && <PasteChordsDialog onClose={() => setPasting(false)} onInsert={insertPasted} />}
 
       {toast && (
-        <div className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-50 max-w-[90%] px-4 py-2.5 rounded-lg border text-xs shadow-2xl animate-[fadeIn_160ms_ease-out] ${
-          toast.ok ? 'bg-logic-bg-elevated border-logic-lcd-green/40 text-logic-lcd-green' : 'bg-logic-bg-elevated border-logic-lcd-red/40 text-logic-lcd-red'
+        <div role="status" className={`absolute left-1/2 -translate-x-1/2 bottom-4 z-50 max-w-[90%] px-4 py-2.5 rounded-lg border text-xs shadow-2xl animate-[fadeIn_160ms_ease-out] ${
+          toast.ok ? 'bg-logic-bg-elevated border-logic-lcd-green/40 text-logic-lcd-green'
+            : toast.warn ? 'bg-logic-bg-elevated border-logic-lcd-amber/40 text-logic-lcd-amber'
+              : 'bg-logic-bg-elevated border-logic-lcd-red/40 text-logic-lcd-red'
         }`}>
           {toast.text}
         </div>

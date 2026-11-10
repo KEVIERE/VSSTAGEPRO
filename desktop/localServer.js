@@ -23,6 +23,9 @@ const PATH = { musician: 'musico', producer: 'produtor', screen: 'tela', remote:
 const LOGO_MAX = 5 * 1024 * 1024;
 const LOGO_TYPES = { 'image/png': 'png', 'image/svg+xml': 'svg', 'image/jpeg': 'jpg' };
 const LOGO_FILE = 'logo-local';
+// Resposta do "Salvar" do músico: gravado; gravado quando a música parar; projeto ainda sem
+// arquivo (o diretor salva a primeira vez); falhou; programa sem a função.
+const PROJECT_SAVE_STATUS = new Set(['saved', 'later', 'no_file', 'error', 'unavailable']);
 
 function newPin(other) {
   let pin;
@@ -47,11 +50,13 @@ function safeEqual(a, b) {
 }
 
 class LocalServer {
-  constructor({ webRoot, storePath, version, onTransportCommand, onAccountsChange }) {
+  constructor({ webRoot, storePath, version, onTransportCommand, onAccountsChange, onProjectSave }) {
     this.webRoot = webRoot;
     this.version = String(version || '');
     this.storePath = storePath;
     this.onTransportCommand = onTransportCommand;
+    // Botão "Salvar" do músico: o programa grava o projeto e responde como ficou.
+    this.onProjectSave = onProjectSave;
     this.server = null;
     this.port = DEFAULT_PORT;
     this.error = null;
@@ -67,6 +72,7 @@ class LocalServer {
     this.clearOverridesOnPublish = false;
     this.lyricsSave = { requestedAt: null, savedAt: null };
     this.pendingSaveRequest = null;
+    this.remoteMeters = null;
     this.qrCache = new Map();
     // Contas dos músicos (usuário e senha) e os cadernos delas. Moram no projeto do show; aqui
     // fica a cópia em uso e uma de segurança por projeto. Os cadernos antigos (por nome) vão
@@ -293,6 +299,13 @@ class LocalServer {
     }
   }
 
+  /** Medidores dos faders para o VS Stage Remote (o programa manda umas 12 vezes por segundo). */
+  publishMeters(meters) {
+    const ok = meters && typeof meters === 'object' && Array.isArray(meters.ids) && Array.isArray(meters.levels)
+      && meters.ids.length === meters.levels.length && meters.ids.length <= 64;
+    this.remoteMeters = ok ? meters : null;
+  }
+
   regeneratePin(role) {
     if (role !== 'musician' && role !== 'producer') return;
     const other = role === 'musician' ? this.pins.producer : this.pins.musician;
@@ -483,6 +496,12 @@ class LocalServer {
       return this.json(res, 200, { remote: this.published.remote, server_now: Date.now() });
     }
 
+    // Medidores dos faders (a aba Mixer do Remote busca várias vezes por segundo)
+    if (route === 'remote-meters' && req.method === 'GET') {
+      if (s.role !== 'remote') return this.json(res, 403, { error: 'forbidden' });
+      return this.json(res, 200, { meters: this.remoteMeters || null });
+    }
+
     if (route === 'state' && req.method === 'GET') {
       if (!this.published?.setlist) return this.json(res, 503, { error: 'not_ready' });
       const now = new Date().toISOString();
@@ -643,6 +662,16 @@ class LocalServer {
     if (route === 'sheet-share') {
       const count = this.accounts.share(key, String(body.sheetId ?? ''), body.targets);
       return count === null ? this.json(res, 400, { error: 'bad_request' }) : this.json(res, 200, { count });
+    }
+    // Botão "Salvar" da Área do Músico: o caderno já chegou (sheet-save); aqui a cópia de
+    // segurança vai para o disco na hora e o programa grava o arquivo do projeto.
+    if (route === 'project-save') {
+      this.accounts.flush();
+      let status = 'unavailable';
+      if (this.onProjectSave) {
+        try { status = await this.onProjectSave(); } catch { status = 'error'; }
+      }
+      return this.json(res, 200, { status: PROJECT_SAVE_STATUS.has(status) ? status : 'error' });
     }
     return this.json(res, 404, { error: 'not_found' });
   }

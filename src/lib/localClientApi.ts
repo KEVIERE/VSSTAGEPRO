@@ -1,5 +1,5 @@
 import type { LocalRole } from '@/lib/localNetwork';
-import type { ColleagueInfo, MusicianState, SheetBackend, SheetInfo } from '@/lib/musicianTypes';
+import { PROJECT_SAVE_STATUSES, type ColleagueInfo, type MusicianState, type SheetBackend, type SheetInfo } from '@/lib/musicianTypes';
 
 const TOKEN_SS = 'vs_local_token_';
 
@@ -62,6 +62,12 @@ export function localProducerPost(pin: string, path: 'prompter' | 'lyrics' | 'ly
 export async function localRemoteState(pin: string): Promise<{ remote: unknown; serverNow: number }> {
   const data = await withSession('remote', pin, 'VS Stage Remote', (t) => call('remote-state', {}, t));
   return { remote: data.remote, serverNow: typeof data.server_now === 'number' ? data.server_now : Date.now() };
+}
+
+/** VS Stage Remote: medidores dos faders (nível de cada canal agora). */
+export async function localRemoteMeters(pin: string): Promise<unknown> {
+  const data = await withSession('remote', pin, 'VS Stage Remote', (t) => call('remote-meters', {}, t));
+  return data.meters;
 }
 
 /** VS Stage Remote: manda um comando para o programa do Mac. */
@@ -185,6 +191,11 @@ export function localAccountBackend(username: string): SheetBackend {
       const data = await post('sheet-save', { sheetId, songId, title, content });
       if (typeof data.id !== 'string') throw new Error('offline');
       return data.id;
+    },
+    async saveProject() {
+      const data = await post('project-save', {});
+      const status = PROJECT_SAVE_STATUSES.find((s) => s === data.status);
+      return status ?? 'error';
     },
     async remove(sheetId) { await post('sheet-delete', { sheetId }); },
     async songLyrics(songId) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Bold, Check, CloudOff, Eraser, Highlighter, Loader2, Lock, Minus, MoreVertical, PenTool, Plus,
   Redo2, Share2, ClipboardPaste, Sparkles, Trash2, Type, Undo2, Unlock, Brush, ImagePlus,
@@ -32,12 +32,14 @@ function Swatch({ color, on, onClick, title }: { color: string; on: boolean; onC
 }
 
 export default function NotebookToolbar({
-  follow, onToggleFollow, title, onTitle, placeholder, sharedFrom, status,
+  follow, onToggleFollow, title, onTitle, placeholder, sharedFrom, status, saveButton,
   canUndo, canRedo, onUndo, onRedo, canShare, onShare, onImport, onPasteChords, importing, onImportImage, addingImage, onClearDrawings, onDelete, hasDrawings, hasSheet,
   tool, onTool, doc, onDoc, inkColor, onInkColor, markerColor, onMarkerColor, inkWidth, onInkWidth,
 }: {
   follow: boolean; onToggleFollow: () => void;
   title: string; onTitle: (t: string) => void; placeholder: string; sharedFrom: string | null; status: SaveStatus;
+  /** Tecla "Salvar" (SaveButton), ao lado do aviso de gravação automática. */
+  saveButton?: ReactNode;
   canUndo: boolean; canRedo: boolean; onUndo: () => void; onRedo: () => void;
   canShare: boolean; onShare: () => void; onImport: () => void; onPasteChords: () => void; importing: boolean;
   /** Abre a escolha de fotos (partitura escrita à mão, cifra impressa). */
@@ -89,6 +91,7 @@ export default function NotebookToolbar({
           {sharedFrom && <span className="text-2xs text-logic-text-muted">Recebido de {sharedFrom}</span>}
         </div>
         <StatusBadge status={status} />
+        {saveButton}
         <div className="flex items-center gap-0.5 flex-shrink-0">
           <button onClick={onUndo} disabled={!canUndo} title="Desfazer (Ctrl+Z)" className={iconBtn}><Undo2 size={15} /></button>
           <button onClick={onRedo} disabled={!canRedo} title="Refazer (Ctrl+Shift+Z)" className={iconBtn}><Redo2 size={15} /></button>
