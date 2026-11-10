@@ -56,7 +56,11 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
       if (!alive) return;
       setSession(data.session);
       setReady(true);
-      if (data.session && emailLinkType === 'signup') setJustConfirmed(true);
+      if (emailLinkType === 'signup') {
+        if (data.session) setJustConfirmed(true);
+        // o acesso que veio no link já foi lido: o endereço fica só o da página de downloads
+        window.history.replaceState(null, '', `${window.location.pathname}#baixar`);
+      }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);

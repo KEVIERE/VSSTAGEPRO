@@ -22,6 +22,7 @@ import type { Session } from '@supabase/supabase-js';
 import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
+import { emailLinkType } from '@/lib/supabaseClient';
 
 const TRUST_BADGES = [
   { icon: ShieldCheck, text: 'Download verificado com hash SHA-256' },
@@ -179,6 +180,11 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
       <main className="relative z-10 flex-1 max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 w-full">
         {/* Hero do Download - Estilo Apple */}
         <div className="text-center max-w-3xl mx-auto mb-16 sm:mb-20">
+          {emailLinkType === 'signup' && (
+            <div role="status" className="mx-auto mb-8 max-w-md px-4 py-3 rounded-xl border bg-emerald-500/15 border-emerald-500/40 text-emerald-400 text-sm flex items-center justify-center gap-2">
+              <CheckCircle2 size={16} className="shrink-0" /> Conta confirmada! Agora é só baixar o VS Stage para o seu Mac.
+            </div>
+          )}
           <div className="mx-auto w-16 h-16 mb-6 drop-shadow-[0_12px_24px_rgba(255,159,10,0.25)]">
             <VsLogo size={64} />
           </div>

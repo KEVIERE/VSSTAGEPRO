@@ -34,6 +34,7 @@ import SplashScreen from '@/components/SplashScreen';
 import ReopenLastBar from '@/components/ReopenLastBar';
 import UpdateBanner from '@/components/UpdateBanner';
 import EmailConfirmedPage from '@/components/EmailConfirmedPage';
+import { confirmLanding } from '@/lib/confirmLanding';
 import ResetPasswordPage from '@/components/ResetPasswordPage';
 import { emailLinkType, supabase } from '@/lib/supabaseClient';
 // Páginas só do site (vendas, planos, download, admin, retorno da assinatura): o programa do
@@ -198,12 +199,20 @@ function App() {
     );
   }
 
-  // Link de confirmação de e-mail: mostra só o card de "confirmado", nunca o editor
-  // ou a página de downloads por trás — independente de qual rota o link apontava.
-  if (emailLinkType === 'signup') {
+  // Link de confirmação de e-mail: nunca o editor por trás, qualquer que seja a rota do link.
+  // Conta do programa vai direto para a página de downloads; conta do músico, para o card dele.
+  const landing = confirmLanding(emailLinkType, window.location.search);
+  if (landing === 'musician') {
     return (
       <ErrorBoundary>
         <EmailConfirmedPage />
+      </ErrorBoundary>
+    );
+  }
+  if (landing === 'download') {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<SitePageFallback />}><MacDownloadPage /></Suspense>
       </ErrorBoundary>
     );
   }
