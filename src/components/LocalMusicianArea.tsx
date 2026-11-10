@@ -3,7 +3,7 @@ import { ArrowRight, AtSign, Guitar, Hourglass, KeyRound, Loader2, Lock, Music, 
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
 import { serverLagMs } from '@/lib/liveClock';
 import {
-  forgetMusician, localAccountBackend, localAccountSheets, localAccountState, localMusicianLogin,
+  LOCAL_NOTICE, forgetMusician, localAccountBackend, localAccountSheets, localAccountState, localMusicianLogin,
   localMusicianLogout, localMusicianResume, localMusicianSignup, musicianRemembered,
 } from '@/lib/localClientApi';
 import { localServerVersion, takePinFromLink } from '@/lib/localNetwork';
@@ -41,6 +41,8 @@ export default function LocalMusicianArea() {
   const [sheets, setSheets] = useState<SheetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  // o Mac respondeu, mas o projeto aberto não tem músicas (não é falta de conexão)
+  const [notReady, setNotReady] = useState(false);
   const [sync, setSync] = useState({ lagMs: 0, receivedAt: 0 });
   const [retry, setRetry] = useState(0);
 
@@ -94,11 +96,13 @@ export default function LocalMusicianArea() {
         setState(s);
         setSync({ lagMs: serverLagMs(s.server_now, s.show.live_at) + transitMs, receivedAt: Date.now() });
         setOffline(false);
+        setNotReady(false);
       } catch (e) {
         const msg = (e as Error).message;
         if (msg === 'pending') { setPhase('pending'); return; }
         if (msg === 'logged_out' || msg === 'blocked' || msg === 'disconnected') { toForm(errorText(msg)); return; }
-        setOffline(true);
+        if (msg === 'not_ready') { setOffline(false); setNotReady(true); }
+        else setOffline(true);
       }
       if (alive) timer = window.setTimeout(loop, POLL_MS);
     };
@@ -134,16 +138,16 @@ export default function LocalMusicianArea() {
   if (phase === 'checking') return <Centered>{offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}</Centered>;
   if (phase === 'form') return <LocalAuthForm onDone={entered} initialError={error} />;
   if (phase === 'pending') return <PendingCard name={pendingName} onLeave={() => { forgetMusician(); toForm(null); }} />;
-  if (!state) return <Centered>{offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}</Centered>;
+  if (!state) return <Centered>{notReady ? <NotReady /> : offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}</Centered>;
 
   return (
     <MusicianWorkspace
       state={state} sync={sync} sheets={sheets} backend={backend}
       onSheetsChanged={reloadSheets} onCreateAccount={null}
       status={
-        <span className={`flex items-center gap-1.5 text-2xs truncate ${offline ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}>
+        <span className={`flex items-center gap-1.5 text-2xs truncate ${offline || notReady ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}>
           {offline ? <WifiOff size={12} /> : <Wifi size={12} />}
-          {offline ? 'Reconectando...' : `Rede local · ${state.show.name}`}
+          {offline ? 'Reconectando...' : notReady ? 'Esperando o diretor abrir o repertório...' : `Rede local · ${state.show.name}`}
           {VERSION && <span className="text-logic-text-muted/70">· v{VERSION}</span>}
         </span>
       }
@@ -158,6 +162,10 @@ function Centered({ children }: { children: React.ReactNode }) {
 
 function Offline() {
   return <p className="flex items-center gap-2 text-sm text-logic-text-dim text-center"><WifiOff size={18} /> Procurando o Mac do diretor...</p>;
+}
+
+function NotReady() {
+  return <p className="flex items-center gap-2 text-sm text-logic-text-dim text-center"><Loader2 size={18} className="animate-spin shrink-0" /> {LOCAL_NOTICE.notReady}</p>;
 }
 
 function Card({ children, onSubmit }: { children: React.ReactNode; onSubmit?: (e: React.FormEvent) => void }) {

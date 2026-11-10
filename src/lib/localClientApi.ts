@@ -3,10 +3,25 @@ import { PROJECT_SAVE_STATUSES, type ColleagueInfo, type MusicianState, type She
 
 const TOKEN_SS = 'vs_local_token_';
 
+/** Avisos iguais em todas as áreas do celular na Rede Local. */
+export const LOCAL_NOTICE = {
+  disconnected: 'O diretor desconectou este aparelho. Digite o PIN para entrar de novo.',
+  notReady: 'Conectado ao Mac do diretor. Esperando ele abrir um projeto com músicas.',
+};
+
 function tokenKey(role: LocalRole, pin: string) {
   return `${TOKEN_SS}${role}_${pin}`;
 }
 
+/**
+ * Pedido ao Mac do diretor. Cada motivo vira um erro próprio, para a tela não confundir:
+ * - `invalid_code`: o PIN está errado (só isso mostra "PIN incorreto");
+ * - `disconnected`: o diretor apertou "Desconectar" neste aparelho;
+ * - `no_session`: a sessão caiu (programa reaberto); quem chama entra de novo sozinho;
+ * - `not_ready`: o Mac respondeu, mas o projeto aberto não tem músicas;
+ * - `offline`: o Mac não respondeu.
+ * Antes todo 401/403 virava "PIN incorreto" e o projeto vazio virava "Sem conexão".
+ */
 async function call(path: string, init: RequestInit = {}, token?: string): Promise<Record<string, unknown>> {
   let res: Response;
   try {
@@ -20,9 +35,13 @@ async function call(path: string, init: RequestInit = {}, token?: string): Promi
   } catch {
     throw new Error('offline');
   }
-  if (res.status === 401 || res.status === 403) throw new Error('invalid_code');
-  if (res.status === 429) throw new Error('too_many_attempts');
   const data = await res.json().catch(() => null);
+  const code = data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
+    ? (data as { error: string }).error
+    : null;
+  if (res.status === 401 || res.status === 403) throw new Error(code || 'invalid_code');
+  if (res.status === 429) throw new Error('too_many_attempts');
+  if (res.status === 503 && code === 'not_ready') throw new Error('not_ready');
   if (!res.ok || !data || typeof data !== 'object') throw new Error('offline');
   return data as Record<string, unknown>;
 }
@@ -39,8 +58,10 @@ async function withSession<T>(role: LocalRole, pin: string, name: string, run: (
   const saved = sessionStorage.getItem(tokenKey(role, pin));
   if (saved) {
     try { return await run(saved); } catch (e) {
-      if ((e as Error).message !== 'invalid_code') throw e;
-      sessionStorage.removeItem(tokenKey(role, pin));
+      const msg = (e as Error).message;
+      if (msg === 'no_session' || msg === 'disconnected') sessionStorage.removeItem(tokenKey(role, pin));
+      // Desconectado pelo diretor não entra de novo sozinho: a tela pede o PIN.
+      if (msg !== 'no_session') throw e;
     }
   }
   return run(await login(role, pin, name));
@@ -82,7 +103,8 @@ let musicianToken: string | null = null;
 
 export type MusicianAuthError =
   | 'invalid_code' | 'wrong_login' | 'blocked' | 'username_taken' | 'needs_password'
-  | 'bad_username' | 'weak_password' | 'pending' | 'logged_out' | 'disconnected' | 'offline';
+  | 'bad_username' | 'weak_password' | 'pending' | 'logged_out' | 'disconnected' | 'offline'
+  | 'not_ready';
 
 export type MusicianAuth = { pending: false; name: string } | { pending: true; name: string };
 
@@ -156,7 +178,10 @@ async function withMusician(path: string, init: RequestInit = {}): Promise<Recor
   try {
     return await call(path, init, musicianToken!);
   } catch (e) {
-    if ((e as Error).message !== 'invalid_code') throw e;
+    const msg = (e as Error).message;
+    // Desconectado pelo diretor: esquece o aparelho e pede usuário e senha de novo.
+    if (msg === 'disconnected') forgetMusician();
+    if (msg !== 'no_session') throw e;
     musicianToken = null;
     const r = await localMusicianResume();
     if (r.pending) throw new Error('pending');

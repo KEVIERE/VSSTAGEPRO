@@ -9,7 +9,11 @@ const POLL_MS = 1000;
 const LOCAL_POLL_MS = 250;
 const TICK_MS = 100;
 
-export type FeedError = 'invalid_code' | 'too_many_attempts' | 'offline' | null;
+/**
+ * `invalid_code`: PIN errado. `disconnected`: o diretor desconectou este aparelho (a busca para e a
+ * tela pede o PIN). `not_ready`: o Mac respondeu, mas o projeto aberto não tem músicas.
+ */
+export type FeedError = 'invalid_code' | 'too_many_attempts' | 'offline' | 'disconnected' | 'not_ready' | null;
 
 export interface PrompterFeed {
   snap: PrompterSnapshot | null;
@@ -28,6 +32,8 @@ export function usePrompterFeed(
   const [error, setError] = useState<FeedError>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
+  // Desconectado pelo diretor: para de buscar, senão o aparelho entrava de novo com o PIN guardado.
+  const stopped = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!code) return;
@@ -42,7 +48,9 @@ export function usePrompterFeed(
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
       if (msg === 'invalid_code') { setSnap(null); setError('invalid_code'); }
+      else if (msg === 'disconnected') { stopped.current = true; setSnap(null); setError('disconnected'); }
       else if (msg === 'too_many_attempts') setError('too_many_attempts');
+      else if (msg === 'not_ready') setError('not_ready');
       else setError('offline');
     }
   }, [code]);
@@ -50,12 +58,13 @@ export function usePrompterFeed(
   useEffect(() => {
     setSnap(null);
     setError(null);
+    stopped.current = false;
     if (!code) return;
     let alive = true;
     let timer = 0;
     const loop = async () => {
       await refresh();
-      if (alive) timer = window.setTimeout(loop, isLocalClient() ? LOCAL_POLL_MS : POLL_MS);
+      if (alive && !stopped.current) timer = window.setTimeout(loop, isLocalClient() ? LOCAL_POLL_MS : POLL_MS);
     };
     loop();
     return () => { alive = false; window.clearTimeout(timer); };

@@ -9,7 +9,7 @@ import { usePrompterFeed } from '@/lib/usePrompterFeed';
 import { usePrompterControl } from '@/lib/usePrompterControl';
 import { useShowLogo } from '@/lib/useShowLogo';
 import { isLocalClient } from '@/lib/localNetwork';
-import { localForget } from '@/lib/localClientApi';
+import { LOCAL_NOTICE, localForget } from '@/lib/localClientApi';
 
 // Só nesta aba: abrir de novo o link sempre pede o código.
 const PRODUCER_SS = 'vs_producer_code';
@@ -43,8 +43,12 @@ export default function ProducerArea() {
     if (feed.snap && code) sessionStorage.setItem(PRODUCER_SS, code);
   }, [feed.snap, code]);
 
+  // Desconectado pelo diretor: esquece o PIN e volta para a tela do PIN com o aviso.
+  const [kicked, setKicked] = useState(false);
+
   useEffect(() => {
     if (feed.error === 'invalid_code') sessionStorage.removeItem(PRODUCER_SS);
+    if (feed.error === 'disconnected') { sessionStorage.removeItem(PRODUCER_SS); setKicked(true); setCode(null); }
   }, [feed.error]);
 
   const leave = () => {
@@ -60,25 +64,27 @@ export default function ProducerArea() {
         icon={<Clapperboard size={22} />}
         title="Área do Produtor"
         subtitle="Escreva as letras do show, controle o que aparece na TV do palco e mande avisos para os artistas."
-        error={feedErrorText(feed.error)}
-        onSubmit={(c) => { window.location.hash = '#produtor'; setCode(c); }}
+        error={kicked ? feedErrorText('disconnected') : feedErrorText(feed.error)}
+        onSubmit={(c) => { window.location.hash = '#produtor'; setKicked(false); setCode(c); }}
       />
     );
   }
 
   if (!feed.snap || !ctl.state) {
     return (
-      <div className="min-h-screen bg-logic-bg-deep flex items-center justify-center">
-        {feed.error === 'offline'
-          ? <p className="flex items-center gap-2 text-logic-text-dim"><WifiOff size={18} /> {isLocalClient() ? 'Sem conexão com o Mac do diretor. Tentando de novo...' : 'Sem internet. Tentando de novo...'}</p>
-          : <Loader2 size={28} className="text-logic-accent animate-spin" />}
+      <div className="min-h-screen bg-logic-bg-deep flex items-center justify-center px-6 text-center">
+        {feed.error === 'not_ready'
+          ? <p className="flex items-center gap-2 text-logic-text-dim"><Loader2 size={18} className="animate-spin shrink-0" /> {LOCAL_NOTICE.notReady}</p>
+          : feed.error === 'offline'
+            ? <p className="flex items-center gap-2 text-logic-text-dim"><WifiOff size={18} /> {isLocalClient() ? 'Sem conexão com o Mac do diretor. Tentando de novo...' : 'Sem internet. Tentando de novo...'}</p>
+            : <Loader2 size={28} className="text-logic-accent animate-spin" />}
       </div>
     );
   }
 
   const snap = feed.snap;
   const state = ctl.state;
-  const problem = ctl.error ?? (feed.error === 'offline' ? 'Sem conexão' : null);
+  const problem = ctl.error ?? (feed.error === 'offline' ? 'Sem conexão' : feed.error === 'not_ready' ? 'Projeto sem músicas no Mac' : null);
   // Aviso já vencido (ou tirado) não é mais "no ar": a barra não pode dizer que está na TV.
   const n = state.notice;
   const live = n && (n.durationSec <= 0 || feed.now - n.sentAt < n.durationSec * 1000) ? n : null;

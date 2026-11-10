@@ -3,6 +3,7 @@ import { KeyRound, ArrowRight, ClipboardPaste } from 'lucide-react';
 import type { FeedError } from '@/lib/usePrompterFeed';
 import { cleanAccessCode } from '@/lib/prompterApi';
 import { isLocalClient } from '@/lib/localNetwork';
+import { LOCAL_NOTICE } from '@/lib/localClientApi';
 
 export default function PrompterAccess({ icon, title, subtitle, error, onSubmit }: {
   icon: React.ReactNode;
@@ -82,6 +83,7 @@ export default function PrompterAccess({ icon, title, subtitle, error, onSubmit 
 
 export function feedErrorText(err: FeedError): string | null {
   if (err === 'invalid_code') return isLocalClient() ? 'PIN incorreto. Confira com o diretor musical.' : 'Código não encontrado. Confira com o diretor musical.';
+  if (err === 'disconnected') return LOCAL_NOTICE.disconnected;
   if (err === 'too_many_attempts') return 'Muitas tentativas erradas. Espere alguns minutos e tente de novo.';
   return null;
 }

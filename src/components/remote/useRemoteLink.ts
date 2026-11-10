@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { isLocalClient, takePinFromLink } from '@/lib/localNetwork';
-import { localForget, localRemoteCommand, localRemoteMeters, localRemoteState } from '@/lib/localClientApi';
+import { LOCAL_NOTICE, localForget, localRemoteCommand, localRemoteMeters, localRemoteState } from '@/lib/localClientApi';
 import { remoteChannelName, remoteKeyFromLink } from '@/lib/onlineRemote';
 import { isRemoteMeters, isRemoteState, type RemoteCommand, type RemoteMeters, type RemoteState } from '@/lib/remoteProtocol';
 
@@ -109,10 +109,14 @@ export function useRemoteLink(): RemoteLink {
         accept(remote);
       } catch (e) {
         if (!alive) return;
-        if ((e as Error).message === 'invalid_code') {
+        const msg = (e as Error).message;
+        // "PIN errado" só com PIN errado. Desconectado pelo diretor volta para o PIN com o aviso.
+        if (msg === 'invalid_code' || msg === 'disconnected') {
           localForget('remote', pin);
           try { sessionStorage.removeItem(PIN_SS); } catch { /* sem sessão */ }
-          setPinError('PIN errado. Confira o PIN do VS Stage Remote na tela Rede Local do Mac.');
+          setPinError(msg === 'disconnected'
+            ? LOCAL_NOTICE.disconnected
+            : 'PIN errado. Confira o PIN do VS Stage Remote na tela Rede Local do Mac.');
           setPin(null);
           return;
         }

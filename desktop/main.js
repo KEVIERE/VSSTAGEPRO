@@ -358,7 +358,7 @@ handle('setMusicianBook', (book) => server.setMusicianBook(book));
 ipcMain.on('local:meters', (event, meters) => {
   if (fromDirector(event)) server.publishMeters(meters);
 });
-handle('networkCheck', async () => (await networkCheck(server)).checks);
+handle('networkCheck', async () => (await networkCheck(server, { appPath: process.execPath })).checks);
 // Última conferência da conta, para abrir sem internet (ver licenseCache.js).
 handle('licenseCacheLoad', () => licenseCache.load());
 handle('licenseCacheSave', (userId, license) => licenseCache.save(userId, license));

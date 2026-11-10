@@ -2,7 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const path = require('path');
 const QRCode = require('qrcode');
 const { resolveStatic } = require('./staticFiles');
@@ -33,14 +33,56 @@ function newPin(other) {
   return pin;
 }
 
-function lanAddresses() {
+// Wi-Fi e cabo do Mac se chamam en0, en1... VPN (utun), máquina virtual (vnic, bridge100) e
+// compartilhamento de internet têm outros nomes.
+const PHYSICAL = /^en\d+$/;
+const KIND_ORDER = { primary: 0, physical: 1, virtual: 2, nolink: 3 };
+const ROUTE_TTL_MS = 5000;
+
+/**
+ * Ordem dos endereços do Mac para o link e o QR code: primeiro o da rede que leva ao roteador
+ * (a rota padrão do macOS), depois outros de Wi-Fi ou cabo, depois VPN e máquina virtual, e por
+ * último o 169.254 (sem roteador).
+ *
+ * Antes valia o primeiro da lista do sistema. Num Mac com cabo e Wi-Fi ligados em redes
+ * diferentes, o QR podia apontar para a rede onde o celular não está, e nenhuma área abria.
+ */
+function rankInterfaces(entries, primary) {
+  const kind = ({ name, address }) => {
+    if (address.startsWith('169.254.')) return 'nolink';
+    if (!PHYSICAL.test(name)) return 'virtual';
+    return name === primary ? 'primary' : 'physical';
+  };
+  return entries
+    .map((e) => ({ ...e, kind: kind(e) }))
+    .sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+}
+
+function lanInterfaces(primary) {
   const out = [];
-  for (const list of Object.values(os.networkInterfaces())) {
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
     for (const a of list || []) {
-      if (a.family === 'IPv4' && !a.internal) out.push(a.address);
+      if (a.family === 'IPv4' && !a.internal) out.push({ name, address: a.address, netmask: a.netmask });
     }
   }
-  return out.sort((a, b) => Number(a.startsWith('169.254.')) - Number(b.startsWith('169.254.')));
+  return rankInterfaces(out, primary);
+}
+
+function lanAddresses(primary) {
+  return lanInterfaces(primary).map((e) => e.address);
+}
+
+/** Rota padrão do macOS: o roteador e a interface (Wi-Fi ou cabo) que leva até ele. */
+function defaultRoute() {
+  return new Promise((resolve) => {
+    execFile('/sbin/route', ['-n', 'get', 'default'], { timeout: 4000 }, (err, stdout) => {
+      const out = err ? '' : String(stdout);
+      resolve({
+        gateway: /gateway:\s*([\d.]+)/.exec(out)?.[1] || null,
+        iface: /interface:\s*(\S+)/.exec(out)?.[1] || null,
+      });
+    });
+  });
 }
 
 function safeEqual(a, b) {
@@ -62,9 +104,14 @@ class LocalServer {
     this.error = null;
     this.mdns = null;
     this.mdnsAddress = null;
+    // Interface da rota padrão (ver rankInterfaces), conferida de novo a cada 5 s no máximo.
+    this.primaryIface = null;
+    this.routeAt = 0;
+    this.routeTask = null;
     this.sessions = new Map();
     this.failures = new Map();
-    this.banned = new Set();
+    // Sessões derrubadas pelo "Desconectar" do diretor (ver kick).
+    this.kicked = new Set();
     this.published = null;
     this.publishedAt = new Date().toISOString();
     this.producerLyrics = {};
@@ -88,10 +135,6 @@ class LocalServer {
     const saved = this.load();
     this.pins = saved.pins;
     this.prompter = saved.prompter;
-    // Aparelhos que o diretor desconectou continuam desconectados depois de fechar o programa.
-    // Antes isso vivia só na memória e `start()` limpava a lista: os três aparelhos voltavam a
-    // aparecer conectados toda vez que o programa abria.
-    for (const k of saved.banned || []) this.banned.add(k);
   }
 
   load() {
@@ -103,11 +146,12 @@ class LocalServer {
           ...data.pins,
           remote: ok(data?.pins?.remote) ? data.pins.remote : data.pins.producer,
         };
-        const banned = Array.isArray(data.banned) ? data.banned.filter((k) => typeof k === 'string') : [];
+        // A lista `banned` (bloqueio por IP) das versões anteriores é ignorada e some no próximo
+        // salvamento: ela barrava com "PIN incorreto" quem recebia do roteador o IP de um
+        // aparelho desconectado antes, até em outro show.
         return {
           pins,
           prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null,
-          banned,
         };
       }
     } catch { /* primeira vez: cria PINs novos */ }
@@ -120,7 +164,7 @@ class LocalServer {
   }
 
   persist(data) {
-    const body = data || { pins: this.pins, prompter: this.prompter, banned: [...this.banned] };
+    const body = data || { pins: this.pins, prompter: this.prompter };
     try { fs.writeFileSync(this.storePath, JSON.stringify(body), { mode: 0o600 }); } catch { /* sem disco: segue em memória */ }
   }
 
@@ -172,8 +216,6 @@ class LocalServer {
 
   start() {
     if (this.server) return Promise.resolve();
-    // Só a contagem de erros de PIN é zerada aqui. A lista de aparelhos desconectados pelo
-    // diretor é mantida: quem ele tirou não pode voltar a conectar por reabrir o programa.
     this.failures.clear();
     return new Promise((resolve) => {
       const server = http.createServer((req, res) => this.handle(req, res).catch(() => this.json(res, 500, { error: 'server_error' })));
@@ -188,8 +230,7 @@ class LocalServer {
         this.server = server;
         this.port = port;
         this.error = null;
-        this.refreshMdns();
-        resolve();
+        this.refreshRoute().then(() => { this.refreshMdns(); resolve(); });
       });
       server.listen(port, '0.0.0.0');
     });
@@ -224,10 +265,23 @@ class LocalServer {
     return new Promise((resolve) => { s.close(() => resolve()); s.closeAllConnections?.(); });
   }
 
+  /** Endereços do Mac na ordem do link e do QR code. */
+  addresses() {
+    return lanAddresses(this.primaryIface);
+  }
+
+  /** Confere qual interface leva ao roteador. Troca de rede no meio do show entra em até 5 s. */
+  refreshRoute() {
+    if (this.routeTask && Date.now() - this.routeAt < ROUTE_TTL_MS) return this.routeTask;
+    this.routeAt = Date.now();
+    this.routeTask = defaultRoute().then(({ iface }) => { this.primaryIface = iface; });
+    return this.routeTask;
+  }
+
   // Registra vsstage.local com o próprio Bonjour do macOS, apontando para o IP atual.
   refreshMdns() {
     if (!this.running || process.platform !== 'darwin') return;
-    const ip = lanAddresses()[0] || null;
+    const ip = this.addresses()[0] || null;
     if (ip === this.mdnsAddress && this.mdns) return;
     this.stopMdns();
     if (!ip) return;
@@ -248,8 +302,9 @@ class LocalServer {
   get mdnsActive() { return !!this.mdns && !this.mdns.killed; }
 
   async info() {
+    await this.refreshRoute();
     this.refreshMdns();
-    const addresses = lanAddresses();
+    const addresses = this.addresses();
     const base = this.running && addresses[0] ? `http://${addresses[0]}:${this.port}` : null;
     const urls = {};
     const qr = {};
@@ -315,30 +370,26 @@ class LocalServer {
     const other = role === 'musician' ? this.pins.producer : this.pins.musician;
     this.pins = { ...this.pins, [role]: newPin(other) };
     for (const [token, s] of this.sessions) if (s.role === role) this.sessions.delete(token);
-    // PIN novo é o socorro de quem ficou trancado: sai o bloqueio daquele papel e a contagem
-    // de erros. Os aparelhos desconectados dos OUTROS papéis continuam fora.
-    for (const k of [...this.banned]) if (k.startsWith(`${role}|`)) this.banned.delete(k);
+    // PIN novo tira todo mundo daquele papel: quem não souber o PIN novo não entra mais.
     this.failures.clear();
     this.persist();
   }
 
   /**
-   * Desconecta e bloqueia o aparelho até gerar um PIN novo.
+   * "Desconectar" do diretor: derruba a sessão do aparelho, sem bloquear nada.
    *
-   * O bloqueio vai para o disco: antes morria com o programa, e os aparelhos desconectados
-   * voltavam a aparecer conectados na próxima abertura. `start()` também precisa respeitar a
-   * lista — ele a limpa ao religar a rede local para destravar PIN, mas não ao abrir o programa.
+   * O aparelho recebe `disconnected` na próxima consulta, esquece o PIN guardado e volta para a
+   * tela do PIN. Entra de novo quem digitar o PIN; para tirar alguém de vez, o diretor gera um
+   * PIN novo. Antes o IP ficava bloqueado no disco para sempre, e o roteador entregava esse IP a
+   * outro celular, que via "PIN incorreto" com o PIN certo.
    */
   kick(clientId) {
-    let changed = false;
     for (const [token, s] of this.sessions) {
       if (s.id === clientId) {
         this.sessions.delete(token);
-        this.banned.add(`${s.role}|${s.address}`);
-        changed = true;
+        this.kicked.add(token);
       }
     }
-    if (changed) this.persist();
   }
 
   ackLyricsSave() {
@@ -446,7 +497,7 @@ class LocalServer {
       const ver = this.version ? `;window.__VS_VERSION__=${JSON.stringify(this.version)}` : '';
       html = html.replace('</head>', `<script>window.__VS_LOCAL__=1${host}${ver}</script></head>`);
       // Pré-visualização de links (iMessage, WhatsApp) só aceita endereço completo da imagem.
-      const reqHost = /^[A-Za-z0-9.:-]{1,100}$/.test(req.headers.host || '') ? req.headers.host : `${lanAddresses()[0] || '127.0.0.1'}:${this.port}`;
+      const reqHost = /^[A-Za-z0-9.:-]{1,100}$/.test(req.headers.host || '') ? req.headers.host : `${this.addresses()[0] || '127.0.0.1'}:${this.port}`;
       html = html.split('content="/og-image.jpg"').join(`content="http://${reqHost}/og-image.jpg"`);
       res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
       return res.end(req.method === 'HEAD' ? undefined : html);
@@ -478,7 +529,6 @@ class LocalServer {
       const body = await this.readBody(req).catch(() => null);
       const role = body?.role;
       if (!ROLES.has(role)) return this.json(res, 400, { error: 'bad_request' });
-      if (this.banned.has(`${role}|${addr}`)) return this.json(res, 403, { error: 'invalid_code' });
       if (role === 'musician') return this.musicianLogin(res, body, addr);
       const pin = String(body.pin ?? '');
       const valid = role === 'screen' ? pin.toUpperCase() === SCREEN_CODE : safeEqual(pin, this.pins[role]);
@@ -490,8 +540,14 @@ class LocalServer {
       return this.json(res, 200, { token });
     }
 
+    // Sessão que não existe mais. Derrubada pelo diretor: `disconnected` (o celular volta para a
+    // tela do PIN). Programa reaberto ou PIN trocado: `no_session` (o celular entra de novo
+    // sozinho com o PIN que tem; se o PIN mudou, aí sim é "PIN incorreto").
     const s = this.session(req);
-    if (!s) return this.json(res, 401, { error: 'invalid_code' });
+    if (!s) {
+      const token = /^Bearer (.+)$/.exec(req.headers.authorization || '')?.[1];
+      return this.json(res, 401, { error: token && this.kicked.has(token) ? 'disconnected' : 'no_session' });
+    }
 
     // VS Stage Remote: o Modo Show inteiro, só para quem entrou com o PIN do Remote
     if (route === 'remote-state' && req.method === 'GET') {
@@ -523,7 +579,7 @@ class LocalServer {
       // QR de entrada dos músicos (sem o PIN) só quando o diretor liga a opção na tela do palco
       let joinQr = null;
       if (this.prompter?.toggles?.joinQr && this.pins?.musician) {
-        const base = lanAddresses()[0];
+        const base = this.addresses()[0];
         if (base) joinQr = await this.qr(`http://${base}:${this.port}/${PATH.musician}`);
       }
       return this.json(res, 200, {
@@ -681,4 +737,4 @@ class LocalServer {
   }
 }
 
-module.exports = { LocalServer, lanAddresses, HOST_NAME };
+module.exports = { LocalServer, lanAddresses, lanInterfaces, rankInterfaces, defaultRoute, HOST_NAME };

@@ -7,7 +7,7 @@ import { screenState } from '@/lib/prompterApi';
 import { useShowLogo } from '@/lib/useShowLogo';
 import { usePrompterFeed } from '@/lib/usePrompterFeed';
 import { isLocalClient } from '@/lib/localNetwork';
-import { localForget } from '@/lib/localClientApi';
+import { LOCAL_NOTICE, localForget } from '@/lib/localClientApi';
 import {
   canFullscreen, enterFullscreen, exitFullscreen, isInstalled, isIPhone, isTouchDevice,
   useFixedLocalAddress, useFullscreen, usePortrait,
@@ -116,12 +116,25 @@ export default function StageScreenPage() {
     );
   }
 
+  // Desconectada pelo diretor: a busca parou. Na Rede Local a tela entra sem PIN, então basta
+  // tocar para voltar.
+  if (feed.error === 'disconnected') {
+    return (
+      <div className="fixed inset-0 bg-black flex flex-col items-center justify-center gap-4 p-6 text-center">
+        <p className="text-white/70">O diretor desconectou esta tela.</p>
+        <button className="console-key px-4 h-10 text-sm" onClick={leave}>Entrar de novo</button>
+      </div>
+    );
+  }
+
   if (!feed.snap) {
     return (
       <div className="fixed inset-0 bg-black flex items-center justify-center p-6 text-center">
-        {feed.error === 'offline'
-          ? <p className="flex items-center gap-2 text-white/60">{local ? <Loader2 size={18} className="animate-spin" /> : <WifiOff size={18} />} {local ? 'Aguardando o Mac do diretor...' : 'Sem internet. Tentando de novo...'}</p>
-          : <Loader2 size={28} className="text-white/40 animate-spin" />}
+        {feed.error === 'not_ready'
+          ? <p className="flex items-center gap-2 text-white/60"><Loader2 size={18} className="animate-spin shrink-0" /> {LOCAL_NOTICE.notReady}</p>
+          : feed.error === 'offline'
+            ? <p className="flex items-center gap-2 text-white/60">{local ? <Loader2 size={18} className="animate-spin" /> : <WifiOff size={18} />} {local ? 'Aguardando o Mac do diretor...' : 'Sem internet. Tentando de novo...'}</p>
+            : <Loader2 size={28} className="text-white/40 animate-spin" />}
       </div>
     );
   }
