@@ -108,8 +108,9 @@ BEGIN
   RETURN json_build_object('ok', true);
 END $$;
 
-REVOKE ALL ON FUNCTION device_claim(text, text, boolean) FROM PUBLIC;
-REVOKE ALL ON FUNCTION device_release(text) FROM PUBLIC;
+-- o Supabase dá EXECUTE a anon em toda função nova do schema public: só quem está logado chama
+REVOKE ALL ON FUNCTION device_claim(text, text, boolean) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION device_release(text) FROM PUBLIC, anon;
 
 GRANT EXECUTE ON FUNCTION device_claim(text, text, boolean) TO authenticated;
 GRANT EXECUTE ON FUNCTION device_release(text) TO authenticated;
