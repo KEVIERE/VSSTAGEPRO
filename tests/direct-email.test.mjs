@@ -75,3 +75,20 @@ test('avulso: resumo e mensagens de erro em português', () => {
   assert.match(friendlyDirectError('optout'), /não receber/);
   assert.equal(friendlyDirectError('erro desconhecido'), 'erro desconhecido');
 });
+
+test('avulso: remetente fica no domínio verificado', async () => {
+  const { buildDirectFrom } = await import('../supabase/functions/_shared/directEmail.ts');
+  assert.equal(buildDirectFrom().from, 'VS Stage Pro <avisos@vsstagepro.com.br>');
+  assert.equal(buildDirectFrom('Equipe VS Stage', 'Contato').from, 'Equipe VS Stage <contato@vsstagepro.com.br>');
+  assert.equal(buildDirectFrom('', 'suporte@vsstagepro.com.br').address, 'suporte@vsstagepro.com.br');
+  // Gmail como remetente cairia no spam (DMARC): vai como "Responder para".
+  assert.equal(buildDirectFrom('X', 'vsstagepro@gmail.com').error, 'invalid_from_address');
+  assert.equal(buildDirectFrom('X', 'a b').error, 'invalid_from_address');
+  assert.equal(buildDirectFrom('X', '.avisos').error, 'invalid_from_address');
+  assert.equal(buildDirectFrom('Nome <falso@x.com>', 'avisos').error, 'invalid_from_name');
+  const r = validateDirectEmail({ to: 'a@exemplo.com', subject: 'Oi', body: 'x', fromName: 'VS', fromLocal: 'vsstagepro@gmail.com' });
+  assert.equal(r.error, 'invalid_from_address');
+  const ok = validateDirectEmail({ to: 'a@exemplo.com', subject: 'Oi', body: 'x', replyTo: 'vsstagepro@gmail.com' });
+  assert.equal(ok.from, 'VS Stage Pro <avisos@vsstagepro.com.br>');
+  assert.equal(ok.replyTo, 'vsstagepro@gmail.com');
+});

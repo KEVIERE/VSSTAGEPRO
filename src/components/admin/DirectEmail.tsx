@@ -5,7 +5,8 @@ import { adminApi, dateTime, num } from '@/components/admin/adminApi';
 import type { DirectEmailRecord, DirectRecipientRow, DirectSendResult } from '@/components/admin/adminApi';
 import { btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
 import {
-  DIRECT_BODY_MAX, DIRECT_EMAIL_LIMIT, DIRECT_SUBJECT_MAX, friendlyDirectError, parseRecipients,
+  DIRECT_BODY_MAX, DIRECT_EMAIL_LIMIT, DIRECT_FROM_DEFAULT_LOCAL, DIRECT_FROM_DEFAULT_NAME,
+  DIRECT_FROM_DOMAIN, DIRECT_FROM_NAME_MAX, DIRECT_SUBJECT_MAX, friendlyDirectError, parseRecipients,
   renderDirectEmailHtml, validateDirectEmail,
 } from '../../../supabase/functions/_shared/directEmail';
 
@@ -22,6 +23,8 @@ export default function DirectEmail() {
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [replyTo, setReplyTo] = useState('');
+  const [fromName, setFromName] = useState(DIRECT_FROM_DEFAULT_NAME);
+  const [fromLocal, setFromLocal] = useState(DIRECT_FROM_DEFAULT_LOCAL);
   const [step, setStep] = useState<Step>('write');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +35,7 @@ export default function DirectEmail() {
   const [open, setOpen] = useState<string | null>(null);
 
   const parsed = useMemo(() => parseRecipients(to), [to]);
-  const check = useMemo(() => validateDirectEmail({ to, subject, body, replyTo }), [to, subject, body, replyTo]);
+  const check = useMemo(() => validateDirectEmail({ to, subject, body, replyTo, fromName, fromLocal }), [to, subject, body, replyTo, fromName, fromLocal]);
   const previewHtml = useMemo(() => renderDirectEmailHtml(body || 'Escreva a mensagem para ver a prévia.'), [body]);
 
   const loadHistory = async () => {
@@ -56,7 +59,7 @@ export default function DirectEmail() {
     setError(null);
     try {
       const r = await adminApi.outreachDirectSend({
-        to: check.to, subject: check.subject, body: check.body, replyTo: check.replyTo,
+        to: check.to, subject: check.subject, body: check.body, replyTo: check.replyTo, fromName, fromLocal,
       });
       setResult(r);
       setStep('done');
@@ -73,7 +76,7 @@ export default function DirectEmail() {
     setResult(null);
     setError(null);
     setStep('write');
-    if (!keepText) { setTo(''); setSubject(''); setBody(''); setReplyTo(''); }
+    if (!keepText) { setTo(''); setSubject(''); setBody(''); }
   };
 
   /** Reaproveita só os que falharam, para tentar de novo. */
@@ -97,8 +100,35 @@ export default function DirectEmail() {
               dos e-mails do VS Stage. Até {DIRECT_EMAIL_LIMIT} endereços por envio; para mais, use a campanha.
             </p>
 
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-2xs font-semibold text-logic-text-muted mb-1">Nome do remetente</label>
+                <input className={input} value={fromName} maxLength={DIRECT_FROM_NAME_MAX}
+                  onChange={(e) => setFromName(e.target.value)} placeholder={DIRECT_FROM_DEFAULT_NAME} />
+              </div>
+              <div>
+                <label className="block text-2xs font-semibold text-logic-text-muted mb-1">Endereço do remetente</label>
+                <div className="flex items-stretch">
+                  <input className={`${input} rounded-r-none font-mono text-xs`} value={fromLocal}
+                    onChange={(e) => setFromLocal(e.target.value)} placeholder={DIRECT_FROM_DEFAULT_LOCAL} />
+                  <span className="inline-flex items-center px-2.5 rounded-r-md border border-l-0 border-logic-border-light bg-logic-bg-elevated text-xs font-mono text-logic-text-dim">
+                    @{DIRECT_FROM_DOMAIN}
+                  </span>
+                </div>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-2xs font-semibold text-logic-text-muted mb-1">Responder para (opcional)</label>
+                <input className={input} type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)}
+                  placeholder="vsstagepro@gmail.com" />
+                <p className="mt-1 text-2xs text-logic-text-muted">
+                  O e-mail sai sempre pelo VS Stage (@{DIRECT_FROM_DOMAIN}): é o que garante que ele chegue na caixa de entrada.
+                  Para receber as respostas em outro e-mail, como um Gmail, coloque ele aqui.
+                </p>
+              </div>
+            </div>
+
             <div>
-              <label className="block text-2xs font-semibold text-logic-text-muted mb-1">Para</label>
+              <label className="block text-2xs font-semibold text-logic-text-muted mb-1">Enviar para (quem vai receber)</label>
               <textarea
                 className={`${input} h-20 py-2 resize-y font-mono text-xs`}
                 value={to} onChange={(e) => setTo(e.target.value)}
@@ -135,12 +165,6 @@ export default function DirectEmail() {
               </p>
             </div>
 
-            <div>
-              <label className="block text-2xs font-semibold text-logic-text-muted mb-1">Responder para (opcional)</label>
-              <input className={input} type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)}
-                placeholder="contato@vsstagepro.com.br" />
-            </div>
-
             {error && <ErrorBox text={error} />}
 
             <div className="flex justify-end">
@@ -159,7 +183,7 @@ export default function DirectEmail() {
             <div className="rounded-lg border border-logic-border overflow-hidden bg-black">
               <div className="px-3 py-2 bg-logic-bg-elevated text-2xs text-logic-text-muted space-y-0.5">
                 <p><span className="text-logic-text-dim">Assunto:</span> <span className="text-logic-text font-semibold">{check.subject}</span></p>
-                <p><span className="text-logic-text-dim">De:</span> VS Stage Pro{check.replyTo ? <> · <span className="text-logic-text-dim">resposta vai para</span> {check.replyTo}</> : null}</p>
+                <p><span className="text-logic-text-dim">De:</span> <span className="font-mono">{check.from}</span>{check.replyTo ? <> · <span className="text-logic-text-dim">resposta vai para</span> {check.replyTo}</> : null}</p>
               </div>
               <iframe title="Prévia do e-mail avulso" srcDoc={previewHtml} className="w-full h-[28rem] bg-black" sandbox="" />
             </div>
@@ -220,7 +244,7 @@ export default function DirectEmail() {
                   <span className="flex-1 min-w-0">
                     <span className="block text-xs font-semibold text-logic-text truncate">{h.subject}</span>
                     <span className="block text-2xs text-logic-text-muted">
-                      {dateTime(h.created_at)}{h.sent_by_email ? ` · por ${h.sent_by_email}` : ''}
+                      {dateTime(h.created_at)}{h.from_address ? ` · de ${h.from_address}` : ''}{h.sent_by_email ? ` · por ${h.sent_by_email}` : ''}
                     </span>
                   </span>
                   <span className="text-2xs tabular-nums text-logic-lcd-green">{num(h.sent)} enviado(s)</span>

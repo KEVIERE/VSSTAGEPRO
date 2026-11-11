@@ -18,6 +18,33 @@ export const DIRECT_EMAIL_LIMIT = 50;
 export const DIRECT_SUBJECT_MAX = 200;
 export const DIRECT_BODY_MAX = 20_000;
 
+/**
+ * Remetente. O provedor (Resend) só envia em nome do domínio verificado, então o admin escolhe
+ * o nome que aparece e o endereço DENTRO de @vsstagepro.com.br. Um Gmail como remetente cairia
+ * no spam ou seria recusado (DMARC); para receber a resposta no Gmail, use "Responder para".
+ */
+export const DIRECT_FROM_DOMAIN = 'vsstagepro.com.br';
+export const DIRECT_FROM_DEFAULT_NAME = 'VS Stage Pro';
+export const DIRECT_FROM_DEFAULT_LOCAL = 'avisos';
+export const DIRECT_FROM_NAME_MAX = 60;
+
+/** Monta "Nome <local@vsstagepro.com.br>", ou devolve o erro. Vazio vira o padrão. */
+export function buildDirectFrom(name?: string | null, local?: string | null):
+  { ok: true; from: string; address: string; name: string } | { ok: false; error: 'invalid_from_name' | 'invalid_from_address' } {
+  const n = (name ?? '').replace(/[\r\n]+/g, ' ').trim() || DIRECT_FROM_DEFAULT_NAME;
+  if (n.length > DIRECT_FROM_NAME_MAX || /[<>"@\\]/.test(n)) return { ok: false, error: 'invalid_from_name' };
+  let l = (local ?? '').trim().toLowerCase() || DIRECT_FROM_DEFAULT_LOCAL;
+  // Aceita o endereço inteiro digitado, desde que seja do nosso domínio.
+  if (l.includes('@')) {
+    const [lp, domain] = l.split('@');
+    if (domain !== DIRECT_FROM_DOMAIN) return { ok: false, error: 'invalid_from_address' };
+    l = lp;
+  }
+  if (!/^[a-z0-9](?:[a-z0-9._-]{0,38}[a-z0-9])?$/.test(l) || l.includes('..')) return { ok: false, error: 'invalid_from_address' };
+  const address = `${l}@${DIRECT_FROM_DOMAIN}`;
+  return { ok: true, from: `${n} <${address}>`, address, name: n };
+}
+
 export type ParsedRecipients = {
   /** Endereços válidos, normalizados e sem repetição, na ordem em que foram digitados. */
   valid: string[];
@@ -66,7 +93,9 @@ export type DirectEmailError =
   | 'subject_too_long'
   | 'body_required'
   | 'body_too_long'
-  | 'invalid_reply_to';
+  | 'invalid_reply_to'
+  | 'invalid_from_name'
+  | 'invalid_from_address';
 
 /**
  * Confere o pedido inteiro. O servidor roda esta mesma conferência: a tela só antecipa o
@@ -77,7 +106,9 @@ export function validateDirectEmail(input: {
   subject: string;
   body: string;
   replyTo?: string | null;
-}): { ok: true; to: string[]; subject: string; body: string; replyTo: string | null } | { ok: false; error: DirectEmailError; invalid?: string[] } {
+  fromName?: string | null;
+  fromLocal?: string | null;
+}): { ok: true; to: string[]; subject: string; body: string; replyTo: string | null; from: string } | { ok: false; error: DirectEmailError; invalid?: string[] } {
   const parsed = parseRecipients(Array.isArray(input.to) ? input.to.join('\n') : input.to);
   if (parsed.invalid.length) return { ok: false, error: 'invalid_addresses', invalid: parsed.invalid };
   if (!parsed.valid.length) return { ok: false, error: 'no_recipients' };
@@ -93,7 +124,9 @@ export function validateDirectEmail(input: {
     replyTo = normalizeAddress('email', input.replyTo);
     if (!replyTo) return { ok: false, error: 'invalid_reply_to' };
   }
-  return { ok: true, to: parsed.valid, subject, body, replyTo };
+  const sender = buildDirectFrom(input.fromName, input.fromLocal);
+  if (!sender.ok) return { ok: false, error: sender.error };
+  return { ok: true, to: parsed.valid, subject, body, replyTo, from: sender.from };
 }
 
 /** Rodapé do avulso: não é lista, então não leva descadastro; diz como responder. */
@@ -136,6 +169,8 @@ export const DIRECT_EMAIL_ERRORS: Record<string, string> = {
   body_required: 'Escreva a mensagem antes de enviar.',
   body_too_long: 'A mensagem está longa demais para um e-mail.',
   invalid_reply_to: 'O endereço de resposta não é um e-mail válido.',
+  invalid_from_name: `O nome do remetente não pode ter < > " @ e vai até ${DIRECT_FROM_NAME_MAX} caracteres.`,
+  invalid_from_address: `O remetente precisa ser um endereço @${DIRECT_FROM_DOMAIN}, só com letras, números, ponto, hífen ou sublinhado. Para receber no Gmail, use "Responder para".`,
   optout: 'Pediu para não receber mensagens do VS Stage.',
   resend_rejected: 'O serviço de e-mail recusou este endereço.',
   resend_unconfirmed: 'O serviço de e-mail não confirmou. Pode ter saído; confira antes de reenviar.',

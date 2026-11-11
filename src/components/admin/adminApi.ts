@@ -219,6 +219,7 @@ export type DirectSendResult = {
 
 export type DirectEmailRecord = {
   id: string;
+  from_address: string | null;
   subject: string;
   body: string;
   reply_to: string | null;
@@ -543,7 +544,10 @@ export const adminApi = {
     callEdgeFn<{ ok: true; sid: string; status: string }>('outreach-send', { action: 'sender-register', ...p }),
   outreachSenderVerify: (p: { sid: string; code: string }) =>
     callEdgeFn<OutreachSenderInfo>('outreach-send', { action: 'sender-verify', ...p }),
-  outreachDirectSend: (p: { to: string[]; subject: string; body: string; replyTo?: string | null }) =>
+  outreachDirectSend: (p: {
+    to: string[]; subject: string; body: string; replyTo?: string | null;
+    fromName?: string | null; fromLocal?: string | null;
+  }) =>
     callEdgeFn<DirectSendResult>('outreach-send', { action: 'direct-send', ...p }),
   outreachDirectList: (limit = 30) => call<DirectEmailRecord[]>('admin_direct_email_list', { p_limit: limit }),
   outreachOptouts: (channel?: OutreachChannel) =>

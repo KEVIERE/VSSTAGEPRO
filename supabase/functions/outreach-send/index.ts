@@ -562,12 +562,15 @@ async function directSend(body: Record<string, unknown>, adminId: string) {
     subject: String(body.subject ?? ""),
     body: String(body.body ?? ""),
     replyTo: body.replyTo ? String(body.replyTo) : null,
+    fromName: body.fromName ? String(body.fromName) : null,
+    fromLocal: body.fromLocal ? String(body.fromLocal) : null,
   });
   if (!check.ok) return json({ error: check.error, invalid: check.invalid ?? [] }, 400);
 
   const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (!apiKey) return json({ error: "resend_not_configured" }, 502);
-  const from = Deno.env.get("OUTREACH_FROM_EMAIL") || DEFAULT_FROM;
+  // Remetente escolhido na tela, sempre dentro do domínio verificado (buildDirectFrom).
+  const from = check.from;
 
   const { data: optouts, error: optErr } = await admin
     .from("outreach_optouts").select("address").eq("channel", "email").in("address", check.to);
@@ -626,13 +629,13 @@ async function directSend(body: Record<string, unknown>, adminId: string) {
   const summary = summarizeDirect(ordered);
 
   const { data: saved, error: saveErr } = await admin.from("outreach_direct_emails").insert({
-    sent_by: adminId, subject: check.subject, body: check.body, reply_to: check.replyTo,
+    sent_by: adminId, from_address: from, subject: check.subject, body: check.body, reply_to: check.replyTo,
     total: summary.total, sent: summary.sent, failed: summary.failed, recipients: ordered,
   }).select("id").single();
   if (saveErr) console.error("direct-send history", saveErr);
   const { error: auditErr } = await admin.from("admin_audit").insert({
     admin_id: adminId, action: "outreach_direct_email", target_user: null,
-    details: { subject: check.subject, ...summary },
+    details: { subject: check.subject, from, ...summary },
   });
   if (auditErr) console.error("direct-send audit", auditErr);
 

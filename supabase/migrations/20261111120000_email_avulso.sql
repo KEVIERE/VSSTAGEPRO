@@ -5,12 +5,17 @@
 -- confere que quem chamou é admin, manda pelo Resend e grava aqui um registro por envio, com
 -- o resultado de cada destinatário.
 --
+-- O remetente é escolhido na tela, mas só dentro de @vsstagepro.com.br (domínio verificado no
+-- Resend). Para a resposta ir a outra caixa, como um Gmail, serve o "Responder para".
+--
 -- A tabela não tem política de RLS: ninguém lê nem grava direto. A leitura é pelo RPC
 -- admin_direct_email_list, que exige admin.
 
 CREATE TABLE IF NOT EXISTS outreach_direct_emails (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sent_by uuid REFERENCES auth.users (id) ON DELETE SET NULL,
+  -- "Nome <local@vsstagepro.com.br>": o remetente escolhido na tela.
+  from_address text,
   subject text NOT NULL,
   body text NOT NULL,
   reply_to text,
@@ -34,7 +39,7 @@ DECLARE r json;
 BEGIN
   PERFORM _require_admin();
   SELECT coalesce(json_agg(t ORDER BY t.created_at DESC), '[]'::json) INTO r FROM (
-    SELECT d.id, d.subject, d.body, d.reply_to, d.total, d.sent, d.failed, d.recipients,
+    SELECT d.id, d.from_address, d.subject, d.body, d.reply_to, d.total, d.sent, d.failed, d.recipients,
            d.created_at, u.email AS sent_by_email
     FROM outreach_direct_emails d
     LEFT JOIN auth.users u ON u.id = d.sent_by
