@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
   const hwId = String(body.hw || "").trim();
   const appVersion = String(body.appVersion || body.version || "").trim();
   const asarSha = String(body.asarSha || "").trim();
+  const arch = body.arch === "arm64" || body.arch === "x64" ? body.arch : null;
   const hasSession = Boolean(body.hasSession);
   let tampered = Boolean(body.tampered);
   let reason = body.tamperReason ? String(body.tamperReason).trim() : null;
@@ -134,6 +135,7 @@ Deno.serve(async (req) => {
     ip: clientIp,
     app_version: appVersion,
     asar_sha: asarSha || null,
+    arch,
     has_session: hasSession,
     tampered,
     reason,

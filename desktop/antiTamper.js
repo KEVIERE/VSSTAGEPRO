@@ -201,6 +201,8 @@ async function sendHeartbeat(isFirst = false) {
   const payload = JSON.stringify({
     hw,
     appVersion: app.getVersion(),
+    // arm64 = Apple Silicon, x64 = Intel (painel "Acessos" do admin)
+    arch: process.arch,
     asarSha: integrity.asarSha,
     hasSession: sessionActive,
     tampered,

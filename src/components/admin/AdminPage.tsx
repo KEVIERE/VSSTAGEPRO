@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, BarChart3, FlaskConical, HandCoins, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare } from 'lucide-react';
+import { Activity, BarChart3, TrendingUp, FlaskConical, HandCoins, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
@@ -15,11 +15,13 @@ import StagingTab from '@/components/admin/StagingTab';
 import MonitoringTab from '@/components/admin/MonitoringTab';
 import OutreachTab from '@/components/admin/OutreachTab';
 import AffiliatesTab from '@/components/admin/AffiliatesTab';
+import AccessTab from '@/components/admin/AccessTab';
 import type { OutreachPerson } from '@/components/admin/adminApi';
 import { input } from '@/components/admin/ui';
 
 const TABS = [
   { id: 'overview', label: 'Visão geral', icon: BarChart3 },
+  { id: 'access', label: 'Acessos', icon: TrendingUp },
   { id: 'monitoring', label: 'Monitoramento & Crack', icon: ShieldAlert },
   { id: 'users', label: 'Usuários', icon: Users },
   { id: 'outreach', label: 'Comunicação', icon: MessageSquare },
@@ -195,6 +197,7 @@ export default function AdminPage() {
       <main className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-6">
           {tab === 'overview' && <OverviewTab />}
+          {tab === 'access' && <AccessTab />}
           {tab === 'monitoring' && <MonitoringTab />}
           {tab === 'users' && <UsersTab onCompose={composeTo} />}
           {tab === 'outreach' && (

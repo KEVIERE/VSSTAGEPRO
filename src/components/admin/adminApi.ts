@@ -193,6 +193,44 @@ export type TimelineEvent = {
   created_at: string;
 };
 
+// ─── Aba Acessos ─────────────────────────────────────────────────────────────
+
+export type AccessStats = {
+  days: number;
+  program: {
+    online_now: number;
+    online_logged: number;
+    users_today: number;
+    users_7d: number;
+    users_30d: number;
+    users_period: number;
+    opens_today: number;
+    opens_7d: number;
+    opens_30d: number;
+    series: Array<{ day: string; users: number; opens: number }>;
+    hours: Array<{ hour: number; users: number }>;
+    weekdays: Array<{ dow: number; users: number }>;
+    versions: Array<{ version: string; macs: number }>;
+    archs: Array<{ arch: string; macs: number }>;
+    top_users: Array<{ email: string; days_active: number; opens: number; last_at: string }>;
+  };
+  site: {
+    since: string | null;
+    visitors_today: number;
+    visitors_7d: number;
+    visitors_30d: number;
+    visitors_period: number;
+    views_today: number;
+    views_7d: number;
+    views_30d: number;
+    signups_period: number;
+    series: Array<{ day: string; visitors: number; views: number }>;
+    pages: Array<{ page: string; visitors: number; views: number }>;
+    referrers: Array<{ referrer: string; visitors: number }>;
+    devices: Array<{ device: string; visitors: number }>;
+  };
+};
+
 async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.rpc(fn, args);
   if (error) throw new Error(error.message);
@@ -428,6 +466,7 @@ export const adminApi = {
   affiliateCommissionCancel: (id: string, reason: string) =>
     call<void>('admin_affiliate_commission_cancel', { p_id: id, p_motivo: reason }),
   overview: (days: number) => call<Overview>('admin_overview', { p_days: days }),
+  accessStats: (days: number) => call<AccessStats>('admin_access_stats', { p_days: days }),
   users: (search: string, state: string, limit: number, offset: number) =>
     call<{ total: number; rows: AdminUser[] }>('admin_users', { p_search: search, p_state: state, p_limit: limit, p_offset: offset }),
   extendTrial: (user: string, hours: number) => call<void>('admin_extend_trial', { p_user: user, p_hours: hours }),

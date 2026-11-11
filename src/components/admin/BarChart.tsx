@@ -2,12 +2,14 @@ import { useState } from 'react';
 
 // Gráfico de barras de uma série (por dia), com tooltip ao passar o mouse e visão em tabela.
 export default function BarChart({
-  title, data, color, format = (v) => String(v),
+  title, data, color, format = (v) => String(v), summary,
 }: {
   title: string;
   data: Array<{ label: string; value: number }>;
   color: string;
   format?: (v: number) => string;
+  /** Número de cima no lugar da soma das barras (ex.: pico, média). */
+  summary?: React.ReactNode;
 }) {
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
@@ -23,7 +25,7 @@ export default function BarChart({
       <div className="flex items-baseline justify-between mb-3">
         <div>
           <h3 className="text-xs font-semibold text-logic-text-dim">{title}</h3>
-          <p className="text-lg font-bold tabular-nums text-logic-text">{format(total)}</p>
+          <p className="text-lg font-bold tabular-nums text-logic-text">{summary ?? format(total)}</p>
         </div>
         <button
           type="button" onClick={() => setTable((t) => !t)}

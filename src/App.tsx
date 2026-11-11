@@ -5,6 +5,7 @@ import { useStore } from '@/store';
 import { isPixReturnSearch } from '@/lib/pixReturn';
 import { captureAffiliateRef } from '@/lib/affiliateRef';
 import { claimAffiliateRef } from '@/lib/affiliateApi';
+import { trackSiteVisit } from '@/lib/siteVisits';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
@@ -155,6 +156,11 @@ function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // Visitas do site para a aba "Acessos" do admin (o próprio admin não conta).
+  useEffect(() => {
+    if (route !== 'admin') trackSiteVisit(route);
+  }, [route]);
 
   // Trava scroll apenas quando o editor/DAW estiver aberto. Em páginas públicas
   // (vendas, downloads, planos, admin), o scroll vertical nativo corre livremente.
