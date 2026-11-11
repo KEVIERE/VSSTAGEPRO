@@ -17,6 +17,7 @@ import {
   MIN_PIX_CENTS, PIX_PLANS, type Plan, discountedCents, pixLinkExpiresAt, reusableLink, statusCheckPlan,
 } from '../_shared/pix.ts';
 import { applyPaymentByOrder, setInfinitePayIds } from '../_shared/pixDb.ts';
+import { couponRefusal } from '../_shared/affiliate.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -179,14 +180,24 @@ async function create(user: User, body: Record<string, unknown>) {
   // assinatura no cartão (Stripe) já ativa: não cobra de novo
   if (lic?.subscription === 'active') return json({ error: 'already_active' }, 409);
 
-  // Cupom: confere no nosso banco, nunca confia no desconto que a tela diz ter
+  // Cupom: confere no nosso banco, nunca confia no desconto que a tela diz ter.
+  // A conferência é feita para ESTA conta: cupom de afiliado vale só no primeiro
+  // pagamento e o afiliado não usa o próprio cupom.
   let couponCode: string | null = null;
   let percent = 0;
   if (body.couponCode) {
     couponCode = String(body.couponCode).trim().toUpperCase();
-    const { data: check, error: checkErr } = await admin.rpc('discount_check', { p_code: couponCode });
-    if (checkErr || !check?.valid || !check?.percent) return json({ error: 'invalid_coupon' }, 400);
+    const { data: check, error: checkErr } = await admin.rpc('discount_check_for_user', { p_code: couponCode, p_user: user.id });
+    if (checkErr) return json({ error: 'invalid_coupon' }, 400);
+    const refused = couponRefusal(check);
+    if (refused) return json({ error: refused }, 400);
     percent = Number(check.percent);
+    // Cupom de afiliado também liga o cliente a ele (quem se cadastrou no app do Mac
+    // não passou pelo link do site). Mesmas regras do link; falha aqui não trava o pagamento.
+    if (check.affiliate) {
+      const { error: attachErr } = await admin.rpc('affiliate_attach_by_coupon', { p_user: user.id, p_code: couponCode });
+      if (attachErr) console.error('pix-checkout affiliate_attach_by_coupon', attachErr.message);
+    }
   }
   const amount = discountedCents(PIX_PLANS[plan].cents, percent);
   if (amount < MIN_PIX_CENTS) return json({ error: 'amount_too_low' }, 400);

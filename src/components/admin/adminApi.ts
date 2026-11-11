@@ -61,6 +61,9 @@ export type PromoCode = {
   discount_percent?: number | null;
   stripe_coupon_id?: string | null;
   stripe_promotion_code_id?: string | null;
+  /** Cupom de afiliado (só no primeiro pagamento): é ajustado pela aba Afiliados. */
+  affiliate_id?: string | null;
+  first_payment_only?: boolean;
   max_uses: number | null;
   uses: number;
   expires_at: string | null;
@@ -325,8 +328,75 @@ export const CAMPAIGN_LABEL: Record<OutreachCampaign['status'], string> = {
   canceled: 'Cancelada',
 };
 
+// ─── Afiliados ───────────────────────────────────────────────────────────────
+
+export type AdminAffiliate = {
+  user_id: string;
+  code: string;
+  status: 'active' | 'paused' | 'ended';
+  commission_percent: number;
+  discount_percent: number;
+  note: string | null;
+  created_at: string;
+  pix_key_type: string | null;
+  pix_key: string | null;
+  payout_name: string | null;
+  email: string;
+  name: string | null;
+  signups: number;
+  paying: number;
+  revenue_cents: number;
+  to_pay_cents: number;
+  pending_cents: number;
+  paid_cents: number;
+};
+
+export type AdminPayoutRequest = {
+  id: string;
+  affiliate_id: string;
+  amount_cents: number;
+  requested_at: string;
+  pix_key_type: string;
+  pix_key: string;
+  payout_name: string;
+  code: string;
+  email: string;
+  name: string | null;
+};
+
+export type AdminAffiliateDetail = {
+  customers: Array<{ user_id: string; email: string; name: string | null; source: 'link' | 'coupon'; created_at: string; state: UserState }>;
+  commissions: Array<{
+    id: string; created_at: string; plan: string | null; base_cents: number; percent: number; commission_cents: number;
+    status: 'pending' | 'available' | 'reserved' | 'paid' | 'canceled'; available_at: string; payout_id: string | null;
+    cancel_reason: string | null; customer_email: string | null;
+  }>;
+  payouts: Array<{
+    id: string; amount_cents: number; status: 'requested' | 'paid' | 'rejected'; requested_at: string; paid_at: string | null;
+    reference: string | null; reject_reason: string | null; pix_key_type: string; pix_key: string; payout_name: string;
+  }>;
+};
+
 export const adminApi = {
   isAdmin: () => call<boolean>('is_admin'),
+  affiliates: () => call<AdminAffiliate[]>('admin_affiliates'),
+  affiliateCreate: (email: string, code: string, commission: number, discount: number, note: string) =>
+    call<{ user_id: string; code: string }>('admin_affiliate_create', {
+      p_email: email, p_code: code, p_commission: commission, p_discount: discount, p_note: note || null,
+    }),
+  affiliateUpdate: (user: string, p: { commission?: number; discount?: number; status?: AdminAffiliate['status']; note?: string }) =>
+    call<void>('admin_affiliate_update', {
+      p_user: user, p_commission: p.commission ?? null, p_discount: p.discount ?? null,
+      p_status: p.status ?? null, p_note: p.note ?? null,
+    }),
+  affiliateDetail: (user: string) => call<AdminAffiliateDetail>('admin_affiliate_detail', { p_user: user }),
+  affiliatePayoutsOpen: () => call<AdminPayoutRequest[]>('admin_affiliate_payouts_open'),
+  affiliatePayoutPaid: (id: string, reference: string, note?: string) =>
+    call<void>('admin_affiliate_payout_mark_paid', { p_id: id, p_reference: reference, p_note: note ?? null }),
+  affiliatePayoutReject: (id: string, reason: string) =>
+    call<void>('admin_affiliate_payout_reject', { p_id: id, p_reason: reason }),
+  affiliateCommissionCancel: (id: string, reason: string) =>
+    call<void>('admin_affiliate_commission_cancel', { p_id: id, p_motivo: reason }),
   overview: (days: number) => call<Overview>('admin_overview', { p_days: days }),
   users: (search: string, state: string, limit: number, offset: number) =>
     call<{ total: number; rows: AdminUser[] }>('admin_users', { p_search: search, p_state: state, p_limit: limit, p_offset: offset }),

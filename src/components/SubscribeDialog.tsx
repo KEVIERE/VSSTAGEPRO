@@ -5,6 +5,7 @@ import { AccessCard, AccessNotice, AccessTitle } from '@/components/access/Acces
 import PixCheckout from '@/components/PixCheckout';
 import { refreshLicense } from '@/lib/licenseEvents';
 import { formatBRL } from '@/lib/pixFormat';
+import { resolveAffiliateCoupon } from '@/lib/affiliateApi';
 
 export type Plan = 'monthly' | 'yearly';
 
@@ -29,10 +30,10 @@ const FEATURES = [
   'Sem limite de shows e músicas',
 ];
 
-async function checkDiscount(code: string): Promise<{ valid: boolean; percent?: number }> {
+async function checkDiscount(code: string): Promise<{ valid: boolean; percent?: number; error?: string }> {
   const { data, error } = await supabase.rpc('discount_check', { p_code: code });
   if (error) throw new Error(error.message);
-  return data as { valid: boolean; percent?: number };
+  return data as { valid: boolean; percent?: number; error?: string };
 }
 
 
@@ -68,7 +69,12 @@ export default function SubscribeDialog({
     setCouponError(null);
     try {
       const res = await checkDiscount(code);
-      if (!res.valid || !res.percent) { setCouponError('Código inválido ou expirado.'); setAppliedCoupon(null); return; }
+      if (!res.valid || !res.percent) {
+        setCouponError(res.error === 'coupon_first_payment_only' ? 'Esse cupom vale só no primeiro pagamento.'
+          : res.error === 'coupon_own' ? 'Você não pode usar o seu próprio cupom.' : 'Código inválido ou expirado.');
+        setAppliedCoupon(null);
+        return;
+      }
       setAppliedCoupon({ code, percent: res.percent });
     } catch {
       setCouponError('Não foi possível validar agora. Tente de novo.');
@@ -77,6 +83,17 @@ export default function SubscribeDialog({
       setCouponChecking(false);
     }
   };
+
+  // Quem veio pelo link de um afiliado (ou foi indicado por um) já vê o cupom aplicado.
+  // Só no primeiro pagamento: o banco não devolve cupom para quem já pagou.
+  useEffect(() => {
+    let alive = true;
+    supabase.auth.getSession()
+      .then(({ data }) => resolveAffiliateCoupon(!!data.session))
+      .then((c) => { if (alive && c) setAppliedCoupon((cur) => cur ?? c); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Enquanto o pagamento está aberto no navegador, confere a licença de tempos em tempos.
   useEffect(() => {

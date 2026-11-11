@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Activity, BarChart3, FlaskConical, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Activity, BarChart3, FlaskConical, HandCoins, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
@@ -14,6 +14,7 @@ import VersionsTab from '@/components/admin/VersionsTab';
 import StagingTab from '@/components/admin/StagingTab';
 import MonitoringTab from '@/components/admin/MonitoringTab';
 import OutreachTab from '@/components/admin/OutreachTab';
+import AffiliatesTab from '@/components/admin/AffiliatesTab';
 import type { OutreachPerson } from '@/components/admin/adminApi';
 import { input } from '@/components/admin/ui';
 
@@ -23,6 +24,7 @@ const TABS = [
   { id: 'users', label: 'Usuários', icon: Users },
   { id: 'outreach', label: 'Comunicação', icon: MessageSquare },
   { id: 'promo', label: 'Códigos promocionais', icon: Tag },
+  { id: 'affiliates', label: 'Afiliados', icon: HandCoins },
   { id: 'usage', label: 'Funções mais usadas', icon: Activity },
   { id: 'versions', label: 'Versões', icon: GitBranch },
   { id: 'staging', label: 'Teste interno', icon: FlaskConical },
@@ -59,6 +61,9 @@ export default function AdminPage() {
     return (TABS.find((x) => x.id === t)?.id ?? 'overview') as TabId;
   });
   const [composeTarget, setComposeTarget] = useState<OutreachPerson | null>(null);
+  // Saques de afiliado esperando pagamento: contador no botão da aba
+  const [openPayouts, setOpenPayouts] = useState(0);
+  const onOpenPayouts = useCallback((n: number) => setOpenPayouts(n), []);
 
   useEffect(() => {
     document.title = 'VS Stage Pro — Administração';
@@ -71,6 +76,11 @@ export default function AdminPage() {
     if (!session) { setAllowed(null); return; }
     adminApi.isAdmin().then(setAllowed, () => setAllowed(false));
   }, [session]);
+
+  useEffect(() => {
+    if (!allowed) return;
+    adminApi.affiliatePayoutsOpen().then((p) => setOpenPayouts(p.length), () => {});
+  }, [allowed]);
 
   // supabase.auth.signOut() só atualiza a tela quando o servidor responde ao pedido
   // de invalidar a sessão — se a rede falhar ou demorar, o botão de sair fica parado
@@ -166,6 +176,11 @@ export default function AdminPage() {
                 className={`w-full flex items-center gap-2.5 px-3 h-9 rounded-md text-xs font-medium transition ${tab === id ? 'bg-logic-bg-elevated text-logic-text' : 'text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated/50'}`}
               >
                 <Icon size={14} className={tab === id ? 'text-logic-lcd-green' : ''} /> {label}
+                {id === 'affiliates' && openPayouts > 0 && (
+                  <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-logic-lcd-amber text-black text-2xs font-bold inline-flex items-center justify-center" title="Saques pedidos">
+                    {openPayouts}
+                  </span>
+                )}
               </button>
             </li>
           ))}
@@ -185,7 +200,8 @@ export default function AdminPage() {
           {tab === 'outreach' && (
             <OutreachTab composeTo={composeTarget} onClearCompose={() => setComposeTarget(null)} />
           )}
-          {tab === 'promo' && <PromoTab />}
+          {tab === 'promo' && <PromoTab onOpenAffiliates={() => go('affiliates')} />}
+          {tab === 'affiliates' && <AffiliatesTab onOpenPayouts={onOpenPayouts} />}
           {tab === 'usage' && <UsageTab />}
           {tab === 'versions' && <VersionsTab />}
           {tab === 'staging' && <StagingTab />}

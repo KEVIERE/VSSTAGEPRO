@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { type PayoutAlert, payoutAlertText } from "../_shared/affiliate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -98,19 +99,47 @@ async function isAuthorized(req: Request): Promise<boolean> {
   return isAdmin === true;
 }
 
+async function affiliatePayoutAlert(req: Request): Promise<Response> {
+  const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
+  if (!token) return json({ error: "not_allowed" }, 403);
+  const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+    auth: { persistSession: false },
+  });
+  const { data: auth } = await admin.auth.getUser(token);
+  if (!auth?.user?.id) return json({ error: "not_allowed" }, 403);
+
+  const { data: payout, error } = await admin.rpc("affiliate_payout_alert_claim", { p_user: auth.user.id });
+  if (error) {
+    console.error("affiliate_payout_alert_claim", error.message);
+    return json({ error: "alert_failed" }, 500);
+  }
+  // nada em aberto ou já avisado: não manda de novo
+  if (!payout) return json({ ok: true, sent: false });
+
+  const res = await sendTelegram(payoutAlertText(payout as PayoutAlert));
+  if (!res.ok) return json({ error: res.error }, 500);
+  return json({ ok: true, sent: true });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-
-  if (!(await isAuthorized(req))) {
-    return json({ error: "not_allowed" }, 403);
-  }
 
   let body: Record<string, unknown> = {};
   try {
     body = await req.json();
   } catch {
     return json({ error: "invalid_body" }, 400);
+  }
+
+  // Afiliado que acabou de pedir saque: não manda texto livre. A mensagem é montada aqui,
+  // a partir do pedido em aberto da própria conta, e sai uma vez só por pedido.
+  if (body.event === "affiliate_payout_requested") {
+    return await affiliatePayoutAlert(req);
+  }
+
+  if (!(await isAuthorized(req))) {
+    return json({ error: "not_allowed" }, 403);
   }
 
   const message = String(body.message || body.text || "").trim();

@@ -46,6 +46,8 @@ export const PIX_ERRORS: Record<string, string> = {
   blocked: 'Esta conta está suspensa. Fale com o suporte.',
   invalid_cpf: 'CPF ou CNPJ inválido. Confira os números.',
   invalid_coupon: 'Esse cupom não é mais válido.',
+  coupon_first_payment_only: 'Esse cupom vale só no primeiro pagamento.',
+  coupon_own: 'Você não pode usar o seu próprio cupom.',
   amount_too_low: 'Com esse cupom o valor fica abaixo do mínimo permitido (R$ 5,00).',
   pix_not_configured: 'O PIX ainda não está disponível. Use o cartão ou tente mais tarde.',
   unauthorized: 'Sua sessão expirou. Entre de novo na sua conta.',

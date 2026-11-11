@@ -3,6 +3,8 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Radio } from 'lucide-react';
 import { useStore } from '@/store';
 import { isPixReturnSearch } from '@/lib/pixReturn';
+import { captureAffiliateRef } from '@/lib/affiliateRef';
+import { claimAffiliateRef } from '@/lib/affiliateApi';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
@@ -44,6 +46,7 @@ const SalesPage = lazy(() => import('@/components/sales/SalesPage'));
 const PricingPage = lazy(() => import('@/components/sales/PricingPage'));
 const SubscriptionReturn = lazy(() => import('@/components/SubscriptionReturn'));
 const AdminPage = lazy(() => import('@/components/admin/AdminPage'));
+const AffiliatePage = lazy(() => import('@/components/affiliate/AffiliatePage'));
 import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
 import MobileShowRemote from '@/components/MobileShowRemote';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
@@ -73,13 +76,14 @@ function SitePageFallback() {
   return <div className="min-h-screen bg-black" />;
 }
 
-function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' {
+function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' | 'affiliate' {
   const { pathname, hash, search } = window.location;
   // No build de staging (servido em /staging/, mesmo domínio), o próprio prefixo
   // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
   const seg = pathname.replace(/^\/+|\/+$/g, '').toLowerCase().replace(/^staging\/?/, '');
   if (seg === 'show' || seg === 'controle' || seg === 'remoto' || hash.startsWith('#show') || hash.startsWith('#controle') || hash.startsWith('#remoto')) return 'remote';
   if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
+  if (seg === 'afiliado' || hash.startsWith('#afiliado')) return 'affiliate';
   if (
     seg === 'recuperar' ||
     seg === 'recuperar-senha' ||
@@ -116,6 +120,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
     if (hash.startsWith('#tela') || seg === 'tela') return 'screen';
     if (hash.startsWith('#produtor') || seg === 'produtor') return 'producer';
     if (seg === 'admin' || hash.startsWith('#admin')) return 'admin';
+    if (seg === 'afiliado' || hash.startsWith('#afiliado')) return 'affiliate';
     if (seg === 'recuperar' || hash.startsWith('#recuperar')) return 'recovery';
     return 'sales';
   }
@@ -180,7 +185,14 @@ function App() {
   const [isRecovery, setIsRecovery] = useState(() => emailLinkType === 'recovery');
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    // Link de afiliado (?ref=CODIGO): guarda o código por 60 dias. Quando a pessoa entra na
+    // conta (qualquer tela de cadastro ou login do site), liga a conta ao afiliado uma vez.
+    if (!window.vsDesktop) captureAffiliateRef();
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
+        // fora do fluxo do Supabase Auth: chamar o banco dentro do aviso pode travar a sessão
+        window.setTimeout(() => { claimAffiliateRef().catch(() => {}); }, 0);
+      }
       if (event === "PASSWORD_RECOVERY") {
         try { sessionStorage.setItem("vs_password_recovery", "1"); } catch {}
         setIsRecovery(true);
@@ -256,6 +268,13 @@ function App() {
     return (
       <ErrorBoundary>
         <Suspense fallback={<SitePageFallback />}><AdminPage /></Suspense>
+      </ErrorBoundary>
+    );
+  }
+  if (route === 'affiliate') {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<SitePageFallback />}><AffiliatePage /></Suspense>
       </ErrorBoundary>
     );
   }

@@ -22,6 +22,7 @@ import {
   Radio,
   ShieldCheck,
   Sparkles,
+  Tag,
   Timer,
   User,
   Wifi,
@@ -35,6 +36,7 @@ import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 import PixCheckout from '@/components/PixCheckout';
 import { AccessCard } from '@/components/access/AccessChrome';
+import { resolveAffiliateCoupon } from '@/lib/affiliateApi';
 
 export type Plan = 'monthly' | 'yearly';
 
@@ -119,6 +121,8 @@ export default function PricingPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   // Plano do PIX aberto (mostra o QR Code)
   const [pixPlan, setPixPlan] = useState<Plan | null>(null);
+  // Veio pelo link de um afiliado: cupom já aplicado no primeiro pagamento
+  const [affiliateCoupon, setAffiliateCoupon] = useState<{ code: string; percent: number } | null>(null);
 
   const handleStartPix = async (plan: Plan) => {
     setSelectedPlan(plan);
@@ -152,6 +156,12 @@ export default function PricingPage() {
     return () => sub?.subscription?.unsubscribe();
   }, []);
 
+
+  useEffect(() => {
+    let alive = true;
+    resolveAffiliateCoupon(!!currentUserEmail).then((c) => { if (alive) setAffiliateCoupon(c); });
+    return () => { alive = false; };
+  }, [currentUserEmail]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -341,6 +351,14 @@ export default function PricingPage() {
 
         {/* Cards de Preço: Mensal vs Anual */}
         <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-12">
+          {affiliateCoupon && (
+            <div className="mb-8 mx-auto max-w-xl flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#ff9f0a]/10 border border-[#ff9f0a]/35 text-sm text-[#ffd08a]">
+              <Tag size={16} className="text-[#ff9f0a] shrink-0" />
+              <span>
+                Cupom <strong className="text-white">{affiliateCoupon.code}</strong> aplicado: {affiliateCoupon.percent}% de desconto no primeiro pagamento, mensal ou anual.
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
             
             {/* CARD 1: PLANO MENSAL */}
@@ -697,8 +715,9 @@ export default function PricingPage() {
             <div className="px-6 pt-6 pb-6">
               <h2 className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">Pague com PIX, cartão ou Apple Pay</h2>
               <PixCheckout
-                key={pixPlan}
+                key={`${pixPlan}-${affiliateCoupon?.code ?? ''}`}
                 plan={pixPlan}
+                couponCode={affiliateCoupon?.code}
                 onBack={() => setPixPlan(null)}
                 paidNote={(
                   <span>

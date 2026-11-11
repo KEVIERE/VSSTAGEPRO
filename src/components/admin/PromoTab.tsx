@@ -12,7 +12,7 @@ function randomCode() {
   return s;
 }
 
-export default function PromoTab() {
+export default function PromoTab({ onOpenAffiliates }: { onOpenAffiliates?: () => void } = {}) {
   const [list, setList] = useState<PromoCode[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +180,11 @@ export default function PromoTab() {
                       {!p.active ? 'DESATIVADO' : expired ? 'EXPIRADO' : usedUp ? 'ESGOTADO' : 'ATIVO'}
                     </span>
                     {p.kind === 'discount' && <Tag size={12} className="text-logic-lcd-amber" aria-label="Cupom de desconto" />}
+                    {p.affiliate_id && (
+                      <span className="px-1.5 h-5 rounded text-2xs font-bold inline-flex items-center bg-logic-lcd-amber/15 text-logic-lcd-amber" title="Cupom de afiliado: só no primeiro pagamento">
+                        AFILIADO
+                      </span>
+                    )}
                     <span className="text-logic-text">{promoValueText(p.kind, p.value)}</span>
                     <span className="text-logic-text-dim tabular-nums">{num(p.uses)}{p.max_uses ? ` / ${num(p.max_uses)}` : ''} usos</span>
                     {p.expires_at && <span className="text-logic-text-dim">até {dateTime(p.expires_at)}</span>}
@@ -190,6 +195,12 @@ export default function PromoTab() {
                           Quem usou <ChevronDown size={12} className={open === p.code ? 'rotate-180 transition' : 'transition'} />
                         </button>
                       )}
+                      {p.affiliate_id ? (
+                        // O cupom do afiliado acompanha o afiliado: muda e desliga pela aba Afiliados.
+                        <button type="button" onClick={onOpenAffiliates} className={btnGhost} disabled={!onOpenAffiliates}>
+                          Ajustar em Afiliados
+                        </button>
+                      ) : (<>
                       <button
                         type="button" className={btnGhost}
                         onClick={() => act(async () => {
@@ -210,6 +221,7 @@ export default function PromoTab() {
                       >
                         <Trash2 size={13} />
                       </button>
+                      </>)}
                     </span>
                   </div>
                   {open === p.code && (
