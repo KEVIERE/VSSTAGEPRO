@@ -7,6 +7,10 @@ import {
   batchIdempotencyKey, DEFAULT_FROM, errorMessage, readBatchResponse, RESEND_ENDPOINT,
   shouldSplit, toResendItem, type ResendItem, type ResendResult,
 } from "../_shared/resendBatch.ts";
+import {
+  renderDirectEmailHtml, renderDirectEmailText, summarizeDirect, validateDirectEmail,
+  type DirectRecipientResult,
+} from "../_shared/directEmail.ts";
 
 // Comunicação com os usuários: envia um lote de e-mail (Resend) ou de WhatsApp (Twilio), e
 // cuida do remetente e dos modelos de WhatsApp na Twilio.
@@ -17,7 +21,7 @@ import {
 // fila no banco entrega cada destinatário a uma execução só (admin_outreach_claim).
 //
 // Ordens que a tela manda: run, pause, cancel, sender-status, sender-register, sender-verify,
-// template-create, template-approve, template-status.
+// template-create, template-approve, template-status, direct-send.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -47,18 +51,19 @@ function publicFunctionUrl(name: string): string {
   return `${base.replace(/\/+$/, "")}/functions/v1/${name}`;
 }
 
-async function callerIsAdmin(req: Request): Promise<boolean> {
+/** Id de quem chamou, se for admin; null em qualquer outro caso. Conferido no servidor. */
+async function callerAdminId(req: Request): Promise<string | null> {
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return false;
+  if (!authHeader) return null;
   const asUser = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: { Authorization: authHeader } },
     auth: { persistSession: false },
   });
   const { data: userData } = await asUser.auth.getUser();
-  if (!userData?.user?.id) return false;
+  if (!userData?.user?.id) return null;
   const { data: isAdminData, error } = await asUser.rpc("is_admin");
-  if (error) return false;
-  return isAdminData === true;
+  if (error || isAdminData !== true) return null;
+  return userData.user.id;
 }
 
 function twilioAuth(): { sid: string; token: string } | null {
@@ -544,13 +549,104 @@ async function templateStatus(body: Record<string, unknown>) {
   return json({ ok: true, status: mapped, raw });
 }
 
+// ─── E-mail avulso ───────────────────────────────────────────────────────────
+//
+// Endereços quaisquer, digitados pelo admin. Cada destinatário recebe um e-mail só dele (um
+// não vê o endereço do outro). Vai numa chamada só ao Resend, porque o teto do avulso
+// (DIRECT_EMAIL_LIMIT) cabe num lote. Quem pediu descadastro fica de fora e aparece como
+// falha, com o motivo.
+
+async function directSend(body: Record<string, unknown>, adminId: string) {
+  const check = validateDirectEmail({
+    to: Array.isArray(body.to) ? (body.to as unknown[]).map(String) : String(body.to ?? ""),
+    subject: String(body.subject ?? ""),
+    body: String(body.body ?? ""),
+    replyTo: body.replyTo ? String(body.replyTo) : null,
+  });
+  if (!check.ok) return json({ error: check.error, invalid: check.invalid ?? [] }, 400);
+
+  const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
+  if (!apiKey) return json({ error: "resend_not_configured" }, 502);
+  const from = Deno.env.get("OUTREACH_FROM_EMAIL") || DEFAULT_FROM;
+
+  const { data: optouts, error: optErr } = await admin
+    .from("outreach_optouts").select("address").eq("channel", "email").in("address", check.to);
+  if (optErr) throw optErr;
+  const blocked = new Set((optouts ?? []).map((o: { address: string }) => o.address));
+
+  const results = new Map<string, DirectRecipientResult>();
+  const toSend: string[] = [];
+  for (const address of check.to) {
+    if (blocked.has(address)) results.set(address, { address, status: "failed", error: "optout" });
+    else toSend.push(address);
+  }
+
+  const html = renderDirectEmailHtml(check.body);
+  const text = renderDirectEmailText(check.body);
+  const items = (addresses: string[]): ResendItem[] => addresses.map((to) => toResendItem({
+    from, to, subject: check.subject, html, text, replyTo: check.replyTo,
+  }));
+
+  // Lote rejeitado inteiro esconde o endereço ruim: divide em dois até achar.
+  const send = async (addresses: string[], depth = 0): Promise<void> => {
+    if (!addresses.length) return;
+    let status = 0;
+    let payload: unknown = null;
+    try {
+      const res = await fetch(RESEND_ENDPOINT, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify(items(addresses)),
+      });
+      status = res.status;
+      payload = await res.json().catch(() => null);
+    } catch (e) {
+      console.error("direct-send fetch", e);
+    }
+    const read = status
+      ? readBatchResponse(status, payload, addresses.length)
+      : addresses.map((_, i) => ({ kind: "retry" as const, index: i, error: "resend_unconfirmed" }));
+    if (shouldSplit(read, addresses.length) && depth < 8) {
+      const mid = Math.ceil(addresses.length / 2);
+      await send(addresses.slice(0, mid), depth + 1);
+      await send(addresses.slice(mid), depth + 1);
+      return;
+    }
+    for (const r of read) {
+      const address = addresses[r.index];
+      if (r.kind === "sent") results.set(address, { address, status: "sent", providerId: r.providerId });
+      else if (r.kind === "rejected") results.set(address, { address, status: "failed", error: r.error || "resend_rejected" });
+      else results.set(address, { address, status: "failed", error: "resend_unconfirmed" });
+    }
+  };
+  await send(toSend);
+
+  // Mesma ordem em que o admin digitou.
+  const ordered = check.to.map((a) => results.get(a) ?? { address: a, status: "failed" as const, error: "resend_unconfirmed" });
+  const summary = summarizeDirect(ordered);
+
+  const { data: saved, error: saveErr } = await admin.from("outreach_direct_emails").insert({
+    sent_by: adminId, subject: check.subject, body: check.body, reply_to: check.replyTo,
+    total: summary.total, sent: summary.sent, failed: summary.failed, recipients: ordered,
+  }).select("id").single();
+  if (saveErr) console.error("direct-send history", saveErr);
+  const { error: auditErr } = await admin.from("admin_audit").insert({
+    admin_id: adminId, action: "outreach_direct_email", target_user: null,
+    details: { subject: check.subject, ...summary },
+  });
+  if (auditErr) console.error("direct-send audit", auditErr);
+
+  return json({ ok: true, id: saved?.id ?? null, ...summary, results: ordered });
+}
+
 // ─── Entrada ────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
-  if (!(await callerIsAdmin(req))) return json({ error: "not_allowed" }, 403);
+  const adminId = await callerAdminId(req);
+  if (!adminId) return json({ error: "not_allowed" }, 403);
 
   let body: Record<string, unknown>;
   try {
@@ -578,6 +674,7 @@ Deno.serve(async (req) => {
       case "template-create": return await templateCreate(body);
       case "template-approve": return await templateApprove(body);
       case "template-status": return await templateStatus(body);
+      case "direct-send": return await directSend(body, adminId);
       default: return json({ error: "invalid_action" }, 400);
     }
   } catch (e) {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Eye, Loader2, Mail, MessageCircle,
-  Pause, Play, RefreshCw, Send, Users, X,
+  AtSign, Pause, Play, RefreshCw, Send, Users, X,
 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { personWhatsAppUrl } from '@/lib/support';
@@ -17,6 +17,7 @@ import type {
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
 import OutreachTemplates from '@/components/admin/OutreachTemplates';
 import WhatsAppSender from '@/components/admin/WhatsAppSender';
+import DirectEmail from '@/components/admin/DirectEmail';
 import { runCampaign, whatsappEtaText } from '@/components/admin/outreachRunner';
 import type { RunHandle } from '@/components/admin/outreachRunner';
 
@@ -43,6 +44,8 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
   onClearCompose?: () => void;
 }) {
   const [channel, setChannel] = useState<OutreachChannel>('email');
+  /** Campanha para a base, ou e-mail avulso para endereços digitados à mão. */
+  const [view, setView] = useState<'campaign' | 'direct'>('campaign');
   const [state, setState] = useState('');
   const [audience, setAudience] = useState<OutreachAudience | null>(null);
   const [people, setPeople] = useState<OutreachPerson[] | null>(null);
@@ -76,6 +79,7 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
   useEffect(() => {
     if (composeTo) {
       setIndividual(composeTo);
+      setView('campaign');
       setChannel(composeTo.address.includes('@') ? 'email' : 'whatsapp');
       setMsg(null);
     }
@@ -359,11 +363,16 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
         </div>
         <div className="flex p-0.5 rounded-md bg-logic-bg-deep border border-logic-border-dark">
           {([['email', 'E-mail', Mail], ['whatsapp', 'WhatsApp', MessageCircle]] as const).map(([id, label, Icon]) => (
-            <button key={id} type="button" onClick={() => { setChannel(id); setTemplateId(''); }}
-              className={`flex items-center gap-1.5 px-3 h-8 rounded text-xs font-semibold transition ${channel === id ? 'bg-logic-bg-elevated text-logic-text' : 'text-logic-text-muted hover:text-logic-text'}`}>
+            <button key={id} type="button" onClick={() => { setView('campaign'); setChannel(id); setTemplateId(''); }}
+              className={`flex items-center gap-1.5 px-3 h-8 rounded text-xs font-semibold transition ${view === 'campaign' && channel === id ? 'bg-logic-bg-elevated text-logic-text' : 'text-logic-text-muted hover:text-logic-text'}`}>
               <Icon size={13} /> {label}
             </button>
           ))}
+          <button type="button" onClick={() => setView('direct')} disabled={sending}
+            title={sending ? 'Espere a campanha terminar de enviar' : 'Escrever para endereços quaisquer'}
+            className={`flex items-center gap-1.5 px-3 h-8 rounded text-xs font-semibold transition disabled:opacity-50 ${view === 'direct' ? 'bg-logic-bg-elevated text-logic-text' : 'text-logic-text-muted hover:text-logic-text'}`}>
+            <AtSign size={13} /> E-mail avulso
+          </button>
         </div>
       </div>
 
@@ -373,6 +382,7 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
         </div>
       )}
 
+      {view === 'direct' ? <DirectEmail /> : (<>
       {channel === 'whatsapp' && <WhatsAppSender />}
 
       {individual && (
@@ -734,6 +744,7 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
           </ul>
         )}
       </Panel>
+      </>)}
     </div>
   );
 }

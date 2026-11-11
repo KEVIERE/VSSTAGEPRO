@@ -201,6 +201,35 @@ async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
 
 // ─── Tipos da Comunicação ────────────────────────────────────────────────────
 
+export type DirectRecipientRow = {
+  address: string;
+  status: 'sent' | 'failed';
+  error?: string | null;
+  providerId?: string | null;
+};
+
+export type DirectSendResult = {
+  ok: true;
+  id: string | null;
+  total: number;
+  sent: number;
+  failed: number;
+  results: DirectRecipientRow[];
+};
+
+export type DirectEmailRecord = {
+  id: string;
+  subject: string;
+  body: string;
+  reply_to: string | null;
+  total: number;
+  sent: number;
+  failed: number;
+  recipients: DirectRecipientRow[];
+  created_at: string;
+  sent_by_email: string | null;
+};
+
 export type OutreachChannel = 'email' | 'whatsapp';
 
 export type OutreachPerson = { user_id: string; address: string; name: string | null; state: UserState };
@@ -514,6 +543,9 @@ export const adminApi = {
     callEdgeFn<{ ok: true; sid: string; status: string }>('outreach-send', { action: 'sender-register', ...p }),
   outreachSenderVerify: (p: { sid: string; code: string }) =>
     callEdgeFn<OutreachSenderInfo>('outreach-send', { action: 'sender-verify', ...p }),
+  outreachDirectSend: (p: { to: string[]; subject: string; body: string; replyTo?: string | null }) =>
+    callEdgeFn<DirectSendResult>('outreach-send', { action: 'direct-send', ...p }),
+  outreachDirectList: (limit = 30) => call<DirectEmailRecord[]>('admin_direct_email_list', { p_limit: limit }),
   outreachOptouts: (channel?: OutreachChannel) =>
     call<Array<{ channel: OutreachChannel; address: string; reason: string | null; created_at: string }>>('admin_outreach_optout_list', { p_channel: channel ?? null }),
   outreachOptoutRemove: (channel: OutreachChannel, address: string) =>

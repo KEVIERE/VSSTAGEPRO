@@ -17,6 +17,7 @@ function describe(a: AuditEntry) {
     case 'promo_enable': return `Ativou o código ${d.code}`;
     case 'promo_disable': return `Desativou o código ${d.code}`;
     case 'promo_delete': return `Apagou o código ${d.code}`;
+    case 'outreach_direct_email': return `Enviou e-mail avulso "${d.subject}" (${d.sent} de ${d.total} entregues ao serviço)`;
     default: return a.action;
   }
 }
