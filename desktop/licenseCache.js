@@ -1,11 +1,14 @@
 // Última conferência da conta guardada no Mac, para o programa abrir sem internet.
 //
-// O arquivo é criptografado pelo Keychain do Mac (safeStorage): não dá para abrir e editar a mão.
+// O arquivo é lacrado com uma chave do app e da placa do Mac (sealedFile.js): não dá para abrir
+// nem editar à mão. Não usa mais o Chaves do macOS, que pedia a senha a cada versão nova.
 // Junto vai a maior hora já vista neste Mac, para voltar o relógio não esticar o teste nem a
 // assinatura. A regra do que vale sem internet fica em src/lib/offlineLicense.ts.
-const { app, safeStorage, net } = require('electron');
+const { app, net } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { sealKey, seal, unseal } = require('./sealedFile');
+const { getHardwareId } = require('./antiTamper');
 
 // Qualquer resposta do servidor traz a hora certa no cabeçalho Date.
 const CLOCK_URL = 'https://eknjqqiamuztomdygalv.supabase.co/auth/v1/health';
@@ -13,12 +16,29 @@ const CLOCK_URL = 'https://eknjqqiamuztomdygalv.supabase.co/auth/v1/health';
 const CLOCK_SKEW_MS = 10 * 60 * 1000;
 const LICENSE_FIELDS = ['status', 'reason', 'ends_at', 'hours_left', 'plan', 'subscription', 'current_period_end', 'partner'];
 
-const file = () => path.join(app.getPath('userData'), 'conferencia-da-conta.bin');
+const file = () => path.join(app.getPath('userData'), 'conferencia-da-conta-v2.bin');
+// Arquivo da 1.2.37 a 1.2.39, lacrado pelo Chaves. Apagado sem ler: ler faria a janela da senha
+// aparecer. A próxima abertura com internet grava o novo.
+const oldFile = () => path.join(app.getPath('userData'), 'conferencia-da-conta.bin');
+
+let key = null;
+function fileKey() {
+  if (!key) key = sealKey(getHardwareId());
+  return key;
+}
+
+let oldRemoved = false;
+function removeOld() {
+  if (oldRemoved) return;
+  oldRemoved = true;
+  try { fs.rmSync(oldFile(), { force: true }); } catch { /* nada guardado */ }
+}
 
 function readRaw() {
+  removeOld();
   try {
-    if (!safeStorage.isEncryptionAvailable()) return null;
-    const data = JSON.parse(safeStorage.decryptString(fs.readFileSync(file())));
+    const text = unseal(fs.readFileSync(file()), fileKey());
+    const data = text ? JSON.parse(text) : null;
     return data && data.v === 1 ? data : null;
   } catch {
     return null;
@@ -27,9 +47,8 @@ function readRaw() {
 
 function writeRaw(data) {
   try {
-    if (!safeStorage.isEncryptionAvailable()) return false;
     const tmp = `${file()}.tmp`;
-    fs.writeFileSync(tmp, safeStorage.encryptString(JSON.stringify({ ...data, v: 1 })));
+    fs.writeFileSync(tmp, seal(JSON.stringify({ ...data, v: 1 }), fileKey()), { mode: 0o600 });
     fs.renameSync(tmp, file());
     return true;
   } catch {
@@ -100,6 +119,7 @@ async function save(userId, license) {
 
 function clear() {
   try { fs.rmSync(file(), { force: true }); } catch { /* nada guardado */ }
+  removeOld();
 }
 
 /** Com o programa aberto por dias, a maior hora vista também anda. */
