@@ -51,8 +51,8 @@ export function voiceLabel(voice: string | undefined): string {
     return ready.intensity === 'normal' || !level ? ready.label : `${ready.label} ${level.label.toLowerCase()}`;
   }
   // vozes que saíram do seletor: marcações antigas continuam mostrando o nome que tinham
-  if (voice === 'cubas' || voice === 'qwen:cubas') return 'Cubas';
-  if (voice === 'keven' || voice === 'qwen:keven') return 'Keven';
+  // Cubas e Keven foram apagadas: marcação antiga nelas fala com a Masculina
+  if (/^(qwen:)?(cubas|keven)$/.test(voice)) return 'Masculina';
   if (voice === 'qwen:henrique') return 'Henrique';
   if (voice === 'qwen:feminina') return 'Feminina';
   if (voice === 'qwen:masculina') return 'Masculina';

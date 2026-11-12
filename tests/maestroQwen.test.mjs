@@ -38,10 +38,9 @@ test('feminina, masculina e henrique viram as vozes de IA; voz do Mac não é de
   assert.equal(qwen.qwenVoiceFor('Luciana'), null);
 });
 
-test('cubas e keven saíram do seletor, mas marcações antigas ainda acham a voz delas', () => {
-  assert.equal(qwen.qwenVoiceFor('cubas').ref, 'cubas');
-  assert.equal(qwen.qwenVoiceFor('qwen:cubas').retired, true);
-  assert.equal(qwen.qwenVoiceFor('keven').ref, 'keven');
+test('cubas e keven foram apagadas: marcações antigas nelas falam com a Masculina', () => {
+  for (const v of ['cubas', 'qwen:cubas', 'keven', 'qwen:keven']) assert.equal(qwen.qwenVoiceFor(v).ref, 'masculina', v);
+  assert.ok(!qwen.QWEN_VOICES.some((v) => /cubas|keven/.test(v.ref)), 'nenhuma voz aponta para os arquivos apagados');
   const offered = qwen.OFFERED_VOICES.map((v) => v.id);
   assert.deepEqual(offered, ['qwen:feminina', 'qwen:masculina', 'qwen:henrique']);
 });

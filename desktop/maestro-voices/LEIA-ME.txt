@@ -3,9 +3,9 @@ Vozes de IA do Maestro IA (VS Stage)
 Cada arquivo .wav é um trecho de referência; o .txt ao lado tem o texto falado nele. No app, o
 modelo Qwen3-TTS 0.6B Base copia a voz a partir desse trecho.
 
-O seletor mostra hoje três vozes: Feminina, Masculina e Henrique. Cubas e Keven saíram do seletor
-em 05/11/2026, mas continuam aqui (e no motor, marcadas como aposentadas) para que um projeto salvo
-com marcações nelas ainda fale com o mesmo timbre.
+O seletor mostra hoje três vozes: Feminina, Masculina e Henrique. Cubas e Keven (gravações do
+dono do projeto) foram apagadas a pedido dele em 12/11/2026; marcação antiga nelas fala com a
+Masculina.
 
 Como foram criadas (01/11/2026): modelo Qwen3-TTS VoiceDesign 1.7B (Alibaba, licença Apache-2.0,
 mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit), em português, a partir destas descrições:
@@ -19,19 +19,12 @@ masculina.wav (semente 103):
 Texto falado nos dois trechos:
   Boa noite, pessoal! Eu sou o maestro do VS Stage e vou guiar a banda no show de hoje: atenção nas entradas, no refrão e no final.
 
-cubas.wav (voz gravada pelo dono do projeto, em 02/11/2026; fora do seletor desde 05/11/2026):
-  Trecho contínuo de ~10 s tirado de uma gravação dele falando chamadas de maestro. O motor copia o
-  timbre e o sotaque dessa gravação. Texto falado: "Entra a banda. Um, dois, três, quatro. Refrão.
-  Um, dois, três, quatro."
-  Problema conhecido: quase metade do trecho é silêncio cortado (pausas de até 2,5 s), e a voz sai
-  travada (pausas longas no meio da fala, palavras repetidas). Vai ser regravada.
-
 henrique.wav (voz do Henrique, gravação de 05/11/2026):
   Arquivo de origem: ~/Desktop/VOZ PADRÃO.wav (42,1 s, 48 kHz estéreo, gravação no Logic).
   Trecho: 10,3401 s a 19,84 s (9,50 s de fala corrida, sem silêncio no meio). Começa exatamente na
   primeira amostra da frase, não antes. Tratamento: mono, corte de graves em 80 Hz, -3,2 dB (a
   gravação veio em -14,1 LUFS) e 24 kHz. Sem compressor. Fica em -20,8 LUFS com pico em -5,1 dBFS,
-  o mesmo nível de keven.wav. Texto conferido com o transcritor whisper (large-v3-turbo): "Eu sei
+  Texto conferido com o transcritor whisper (large-v3-turbo): "Eu sei
   que é difícil de acreditar, mas faça uma coisa. É só clicar no link aqui embaixo. Escreva qualquer
   ideia, mesmo que seja um rascunho, em inglês simples. E deixe a mágica comigo!"
 
@@ -42,10 +35,3 @@ henrique.wav (voz do Henrique, gravação de 05/11/2026):
 
   Testado: um trecho de 11,3 s faz o modelo inventar palavras ("Boi boi boi"); 9,5 s é o tamanho
   que funciona.
-
-keven.wav (voz do Keven, gravada em 03/11/2026; fora do seletor desde 05/11/2026):
-  Trecho de ~9 s tirado da 2ª leitura de KEVEN.wav (115,2-119,6 s e 120,6-125,4 s, com a pausa entre
-  as frases encurtada para ~0,45 s). Tratamento: só canal esquerdo (L e R eram iguais), corte de
-  graves em 80 Hz, -7 dB (a gravação veio masterizada em -11 LUFS) e 24 kHz mono. Sem compressor
-  extra. Texto conferido com o transcritor whisper: "Boa noite, pessoal! Eu sou o maestro e vou guiar
-  a banda no show de hoje. Atenção nas entradas, no refrão e no final."

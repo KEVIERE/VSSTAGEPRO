@@ -116,7 +116,8 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
 
   const demoOf = (id: string) => (demo?.id === id ? demo.state : null);
   const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
-  const selected = (id: string) => voice === id || voice === `qwen:${id}`;
+  // Cubas e Keven foram apagadas: marcação antiga nelas fala com a Masculina (e aparece nela)
+  const selected = (id: string) => voice === id || voice === `qwen:${id}` || (id === 'masculina' && /^(qwen:)?(cubas|keven)$/.test(voice));
   // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
   const ready = readyVoice(voice);
   const intensity = ready?.intensity ?? 'normal';

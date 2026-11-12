@@ -29,12 +29,11 @@ const QWEN_VOICES = [
   // voz do Henrique (gravação de 05/11/2026, trecho corrido de ~9 s): o motor copia o timbre e o
   // sotaque dela.
   { id: 'qwen:henrique', name: 'Henrique (IA)', gender: 'masculina', ref: 'henrique' },
-  // Cubas e Keven saíram do seletor (05/11/2026), mas continuam aqui: um projeto salvo com
-  // marcações nessas vozes ainda tem de falar com o mesmo timbre. Quando não houver mais projeto
-  // antigo em uso, estas duas entradas e os .wav delas saem de maestro-voices.
-  { id: 'qwen:cubas', name: 'Cubas (IA)', gender: 'masculina', ref: 'cubas', retired: true },
-  { id: 'qwen:keven', name: 'Keven (IA)', gender: 'masculina', ref: 'keven', retired: true },
 ];
+
+// Cubas e Keven (gravações do dono) foram apagadas a pedido dele em 12/11/2026: marcação antiga
+// nessas vozes fala com a Masculina.
+const REMOVED_VOICES = { cubas: 'qwen:masculina', keven: 'qwen:masculina', 'qwen:cubas': 'qwen:masculina', 'qwen:keven': 'qwen:masculina' };
 
 /** Fala comum: se não couber na marcação, acelera até aqui. Nunca desacelera (sobra silêncio). */
 const MAX_FIT_TEMPO = 1.35;
@@ -61,7 +60,7 @@ const CACHE_VERSION = 6;
 
 /** A voz pedida: 'feminina'/'masculina'/'henrique' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
-  const short = { feminina: 'qwen:feminina', masculina: 'qwen:masculina', henrique: 'qwen:henrique', cubas: 'qwen:cubas', keven: 'qwen:keven' };
+  const short = { feminina: 'qwen:feminina', masculina: 'qwen:masculina', henrique: 'qwen:henrique', ...REMOVED_VOICES };
   const id = short[wanted] ?? wanted;
   return QWEN_VOICES.find((v) => v.id === id) ?? null;
 }
