@@ -59,10 +59,10 @@ export default function LyricsProjectBar({ snap, onSave }: {
       : 'Enviado. Aguardando o programa do diretor estar aberto para guardar no projeto.';
     tone = 'text-logic-lcd-amber';
   } else if (savedAt && changed) {
-    statusText = `Salvo no projeto às ${hhmm(savedAt)}. Há mudanças depois disso.`;
+    statusText = `Entregue ao programa do diretor às ${hhmm(savedAt)}. Há mudanças depois disso.`;
     tone = 'text-logic-lcd-amber';
   } else if (savedAt) {
-    statusText = `Salvo no projeto às ${hhmm(savedAt)}.`;
+    statusText = `Entregue ao programa do diretor às ${hhmm(savedAt)}. Ele grava no arquivo do projeto.`;
     tone = 'text-logic-lcd-green';
     Icon = CheckCircle2;
   } else if (justSaved) {
