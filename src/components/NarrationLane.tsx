@@ -45,6 +45,11 @@ interface NarrationLaneProps {
   move?: { ids: Set<string>; delta: number } | null;
   /** Clique numa fala com voz: entra na seleção dos clipes da timeline (Cmd soma, Shift vai até ela). */
   onSelectClip?: (clipId: string, mods: { additive: boolean; shift: boolean }) => void;
+  /**
+   * Arrastar uma fala que faz parte de uma seleção de vários itens: a timeline move a seleção
+   * inteira (falas e clipes), como no arraste de um clipe. Clique sem arrastar deixa só esta.
+   */
+  onGroupDrag?: (e: React.PointerEvent<HTMLDivElement>, clipId: string) => void;
 }
 
 /**
@@ -57,7 +62,7 @@ interface NarrationLaneProps {
  *   menor = mais rápido, maior = mais devagar. A voz é gerada de novo sozinha.
  * - Clique duplo abre o editor; botão direito tem "Sincar no beat do cursor". Alt desliga o ímã.
  */
-export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move, onSelectClip }: NarrationLaneProps) {
+export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move, onSelectClip, onGroupDrag }: NarrationLaneProps) {
   const updateNarration = useStore((s) => s.updateNarration);
   const snapStep = useStore((s) => s.snapStep);
   const clips = useStore((s) => s.clips);
@@ -123,6 +128,15 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
     e.stopPropagation();
     const el = e.currentTarget;
     const additive = e.metaKey || e.ctrlKey;
+    // fala que faz parte de uma seleção de vários itens, pega pelo meio: arrasta o grupo todo
+    const box = el.getBoundingClientRect();
+    const atEdge = box.width > EDGE_PX * 3 && (e.clientX - box.left <= EDGE_PX || e.clientX - box.left >= box.width - EDGE_PX);
+    const sel = useStore.getState().selectedClipIds;
+    if (n.clipId && onGroupDrag && !additive && !e.shiftKey && !atEdge && sel.includes(n.clipId) && sel.length > 1) {
+      setSelectedId(null);
+      onGroupDrag(e, n.clipId);
+      return;
+    }
     if (n.clipId && onSelectClip) {
       // fala com voz: mesma seleção dos clipes (Delete, Cmd+clique, Shift+clique, retângulo)
       setSelectedId(null);

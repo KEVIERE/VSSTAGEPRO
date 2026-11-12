@@ -2696,6 +2696,10 @@ export default function TimelinePanel() {
                         onEditCount={(group) => setCountTarget({ kind: 'edit', group })}
                         move={moveDrag}
                         onSelectClip={handleNarrationSelect}
+                        onGroupDrag={(ev, clipId) => {
+                          const c = songClips.find((x) => x.id === clipId);
+                          if (c) handleMoveStart(ev, c);
+                        }}
                       />
                     )}
                     </div>

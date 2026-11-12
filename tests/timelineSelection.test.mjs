@@ -84,3 +84,13 @@ test('a timeline liga tudo: retângulo, Shift, clique nas falas e o apagar', () 
   assert.match(lane, /onSelectClip\(n\.clipId, \{ additive, shift: e\.shiftKey \}\);/, 'clicar na fala entra na seleção dos clipes');
   assert.match(lane, /if \(additive \|\| e\.shiftKey\) return;/, 'Cmd e Shift só selecionam');
 });
+
+test('arrastar uma fala que está numa seleção move o grupo todo (falas e clipes juntos)', () => {
+  const lane = read('components', 'NarrationLane.tsx');
+  assert.match(lane, /if \(n\.clipId && onGroupDrag && !additive && !e\.shiftKey && !atEdge && sel\.includes\(n\.clipId\) && sel\.length > 1\) \{/, 'pegar pelo meio uma fala selecionada com outras');
+  assert.match(lane, /onGroupDrag\(e, n\.clipId\);\s*return;/);
+  const panel = read('components', 'TimelinePanel.tsx');
+  assert.match(panel, /onGroupDrag=\{\(ev, clipId\) => \{\s*const c = songClips\.find\(\(x\) => x\.id === clipId\);\s*if \(c\) handleMoveStart\(ev, c\);/, 'usa o mesmo arraste dos clipes');
+  // a store leva a marcação da fala junto com o áudio dela
+  assert.match(read('store.ts'), /return d === undefined \? n : \{ \.\.\.n, start: Math\.max\(0, n\.start \+ d\), end: Math\.max\(0, n\.end \+ d\) \};/);
+});
