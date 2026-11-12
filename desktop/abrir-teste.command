@@ -21,6 +21,23 @@ if pgrep -x "VS Stage" >/dev/null; then
   fi
 fi
 
+# O programa de teste anterior (desta pasta) também precisa fechar: só abre um de cada vez, e o
+# novo fechava sozinho, deixando o antigo aberto sem as mudanças. Fecha do jeito normal (ele
+# pergunta se há projeto sem salvar).
+TESTE="$(pwd)/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+if pgrep -f "$TESTE" >/dev/null; then
+  echo "Fechando o VS Stage de teste que estava aberto..."
+  osascript -e 'quit app id "com.github.Electron"'
+  for _ in {1..120}; do
+    pgrep -f "$TESTE" >/dev/null || break
+    sleep 1
+  done
+  if pgrep -f "$TESTE" >/dev/null; then
+    echo "O VS Stage de teste continua aberto. Feche ele (Cmd+Q no Electron) e rode de novo."
+    exit 1
+  fi
+fi
+
 # Leitor de letra no programa de teste: o motor embutido só existe no instalador. Se este Mac
 # tiver o motor de teste (Python do VS Stage instalado + faster-whisper), usa ele.
 MOTOR_LETRA="$HOME/Library/Application Support/VS Stage/motor-letra-teste/bin/python3"
