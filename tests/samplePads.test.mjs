@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  BANK_COUNT, BANK_LABELS, MASTER_OUTPUT, PAD_COUNT, bankCounts, clampPitch, delaySeconds, dropTargets, formatPadTime,
+  BANK_COUNT, BANK_LABELS, MASTER_OUTPUT, PAD_COUNT, bankCounts, chokedBy, clampPitch, delaySeconds, dropTargets, formatPadTime,
   getPadsState, lastPlaying, makeReverbImpulse, newPadInfo, normalizePadInfo, padAssetId, padAssetPath, padFileProblem,
   padForKey, padNameFromFile, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchRate, pitchedDuration, savedPadsOf,
   setPadsState, slotBank, slotPad, togglePadsPanel, usablePadOutput, withItem, withPlaying,
@@ -97,12 +97,25 @@ test('banco com som acende; o visor mostra o último pad que começou', () => {
   assert.deepEqual([...withItem(new Set([1]), 1, false)], []);
 });
 
+test('um por vez: tocar um pad para os outros; desligado, todos tocam juntos', () => {
+  assert.deepEqual(chokedBy(4, [1, 4, 7], true), [1, 7], 'para os outros, não o próprio (que recomeça)');
+  assert.deepEqual(chokedBy(4, [1, 7], false), [], 'desligado: nada para');
+  assert.deepEqual(chokedBy(2, [], true), []);
+  const player = read('lib', 'padPlayer.ts');
+  assert.match(player, /for \(const other of chokedBy\(slot, voices\.keys\(\), getPadsState\(\)\.choke\)\) release\(other, 0\.03\);/, 'para com descida curta, sem estalo');
+  assert.match(player, /choke: saved\.choke \?\? getPadsState\(\)\.choke/, 'vem do projeto aberto');
+  const panel = read('components', 'SamplePadPanel.tsx');
+  assert.match(panel, /onClick=\{\(\) => setPadsChoke\(!st\.choke\)\}/);
+  assert.match(panel, /1 POR VEZ/);
+});
+
 test('banco, volume geral e saída ficam guardados; P abre e fecha', () => {
   const saved = globalThis.localStorage;
   const mem = new Map();
   globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
   try {
-    setPadsState({ bank: 3, master: 1.1, output: { channel: 3, stereo: true } });
+    setPadsState({ bank: 3, master: 1.1, output: { channel: 3, stereo: true }, choke: true });
+    assert.equal(mem.get('vsstage.pads.choke'), '1', 'o um por vez fica guardado');
     assert.equal(mem.get('vsstage.pads.bank'), '3');
     assert.equal(mem.get('vsstage.pads.master'), '1.1');
     assert.equal(mem.get('vsstage.pads.output'), '{"channel":3,"stereo":true}');
@@ -117,8 +130,9 @@ test('banco, volume geral e saída ficam guardados; P abre e fecha', () => {
 
 test('no projeto: ajustes no manifesto e cada som como áudio do pacote', () => {
   const infos = new Map([[13, { ...newPadInfo(13, 'Aplausos fortes.mp3', 3), type: 'audio/mpeg', pitch: 2, reverb: true }]]);
-  const s = savedPadsOf({ bank: 1, master: 0.9, output: { channel: 3, stereo: true }, infos });
+  const s = savedPadsOf({ bank: 1, master: 0.9, output: { channel: 3, stereo: true }, choke: true, infos });
   assert.equal(s.bank, 1);
+  assert.equal(s.choke, true, 'o um por vez vai no projeto');
   assert.deepEqual(s.output, { channel: 3, stereo: true });
   assert.equal(s.pads[0].pitch, 2);
   assert.equal(s.pads[0].reverb, true);

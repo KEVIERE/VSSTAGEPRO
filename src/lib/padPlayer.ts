@@ -16,7 +16,7 @@ import { meterBallistics, peakOf } from '@/lib/maestroInput';
 import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
-  FADE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, delaySeconds, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
+  FADE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delaySeconds, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadInfo, type PadOutput, type SavedPads,
 } from '@/lib/samplePads';
@@ -312,6 +312,8 @@ export function triggerPad(slot: number): void {
     release(slot);
     if (info.loop) return; // loop: apertar de novo para
   }
+  // um por vez: o pad novo para os outros (com uma descida curta, sem estalo)
+  for (const other of chokedBy(slot, voices.keys(), getPadsState().choke)) release(other, 0.03);
   const o = padOut();
   if (o.ctx.state !== 'running') void o.ctx.resume();
   const src = o.ctx.createBufferSource();
@@ -347,6 +349,11 @@ export function fadeAllPads(): void {
 export function setPadsMaster(volume: number): void {
   setPadsState({ master: volume });
   if (out) out.bus.gain.setTargetAtTime(busGain(), out.ctx.currentTime, 0.01);
+}
+
+/** Liga ou desliga o "um por vez" (tocar um pad para os outros). */
+export function setPadsChoke(choke: boolean): void {
+  setPadsState({ choke });
 }
 
 export function setPadsOutput(output: PadOutput): void {
@@ -447,7 +454,7 @@ async function applyProjectPads(saved: SavedPads, files: Map<string, Blob>): Pro
   const bank = Number.isInteger(saved.bank) ? Math.max(0, Math.min(9, saved.bank)) : 0;
   setPadsState({
     infos, bank, selected: padSlot(bank, 0), master: saved.master ?? 0.8,
-    output: saved.output ?? getPadsState().output, playing: new Map(),
+    output: saved.output ?? getPadsState().output, choke: saved.choke ?? getPadsState().choke, playing: new Map(),
   });
   if (out) route(out);
   await prepareBank(bank);

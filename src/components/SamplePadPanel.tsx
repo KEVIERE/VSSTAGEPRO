@@ -6,8 +6,8 @@ import MixerPanel, { Fader } from '@/components/MixerPanel';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, selectBank, selectPad, setPadsMaster,
-  setPadsOutput, stopAllPads, triggerPad, updatePad,
+  clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, selectBank, selectPad, setPadsChoke,
+  setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
   BANK_COUNT, BANK_LABELS, PAD_COLORS, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
@@ -137,6 +137,16 @@ function SamplePadPanel() {
           </div>
           <div className="flex items-center gap-1.5 mt-auto">
             <OutputButton output={st.output} />
+            <button
+              type="button"
+              className={`console-key h-7 px-2 text-[11px] flex items-center gap-1.5 shrink-0 ${st.choke ? 'is-lit-amber' : ''}`}
+              onClick={() => setPadsChoke(!st.choke)}
+              aria-pressed={st.choke}
+              title={st.choke ? 'Um por vez ligado: tocar um pad para os outros' : 'Ligar um por vez: tocar um pad para os outros'}
+            >
+              <span className={`console-led ${st.choke ? 'is-on-amber' : ''}`} />
+              1 POR VEZ
+            </button>
             <button type="button" className="console-key h-7 px-2.5 text-[11px]" onClick={fadeAllPads} title="Abaixa os pads tocando até sumir, em 2 segundos">FADE</button>
             <button
               type="button"
@@ -501,7 +511,7 @@ function OutputButton({ output }: { output: PadOutput }) {
           ? `A placa atual não tem a ${padOutputLabel(output)}: os pads saem no Master até você escolher outra.`
           : 'Saída dos pads na placa de áudio (Master segue o fader master do programa)'}
       >
-        OUT {padOutputLabel(current)}{missing ? ' ?' : ''}
+        {padOutputLabel(current)}{missing ? ' ?' : ''}
       </button>
       {open && pos && createPortal(
         <div

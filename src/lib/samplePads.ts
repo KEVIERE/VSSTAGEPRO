@@ -211,6 +211,8 @@ export interface PadsState {
   /** Volume geral dos pads (padrão dos faders). */
   master: number;
   output: PadOutput;
+  /** Um por vez: tocar um pad para os outros. */
+  choke: boolean;
   message: { ok: boolean; text: string } | null;
   /** Atraso medido da saída dos pads, em milissegundos (null antes de abrir a saída). */
   latencyMs: number | null;
@@ -219,6 +221,7 @@ export interface PadsState {
 const BANK_KEY = 'vsstage.pads.bank';
 const MASTER_KEY = 'vsstage.pads.master';
 const OUTPUT_KEY = 'vsstage.pads.output';
+const CHOKE_KEY = 'vsstage.pads.choke';
 
 function stored(key: string, fallback: number, ok: (v: number) => boolean): number {
   try {
@@ -248,6 +251,7 @@ let state: PadsState = {
   loading: new Set(),
   master: stored(MASTER_KEY, 0.8, (v) => v >= 0 && v <= 1.5),
   output: storedOutput(),
+  choke: stored(CHOKE_KEY, 0, (v) => v === 0 || v === 1) === 1,
   message: null,
   latencyMs: null,
 };
@@ -268,6 +272,7 @@ export function setPadsState(patch: Partial<PadsState>): void {
     if (patch.bank !== undefined) globalThis.localStorage?.setItem(BANK_KEY, String(patch.bank));
     if (patch.master !== undefined) globalThis.localStorage?.setItem(MASTER_KEY, String(patch.master));
     if (patch.output !== undefined) globalThis.localStorage?.setItem(OUTPUT_KEY, JSON.stringify(patch.output));
+    if (patch.choke !== undefined) globalThis.localStorage?.setItem(CHOKE_KEY, patch.choke ? '1' : '0');
   } catch { /* só não lembra */ }
   listeners.forEach((l) => l());
 }
@@ -315,6 +320,8 @@ export interface SavedPads {
   bank: number;
   master: number;
   output: PadOutput;
+  /** Um por vez (projetos salvos antes não têm: ficam com a escolha atual). */
+  choke?: boolean;
   pads: Array<PadInfo & { path: string }>;
 }
 
@@ -335,8 +342,13 @@ export function padAssetPath(info: Pick<PadInfo, 'slot' | 'name' | 'type'>): str
   return `Pads/Banco ${BANK_LABELS[slotBank(info.slot)]}/${slotPad(info.slot) + 1} - ${name}.${ext}`;
 }
 
-export function savedPadsOf(s: Pick<PadsState, 'bank' | 'master' | 'output' | 'infos'>): SavedPads | undefined {
+export function savedPadsOf(s: Pick<PadsState, 'bank' | 'master' | 'output' | 'infos'> & { choke?: boolean }): SavedPads | undefined {
   if (s.infos.size === 0) return undefined;
   const pads = [...s.infos.values()].sort((a, b) => a.slot - b.slot).map((i) => ({ ...i, path: padAssetPath(i) }));
-  return { version: 1, bank: s.bank, master: s.master, output: s.output, pads };
+  return { version: 1, bank: s.bank, master: s.master, output: s.output, choke: !!s.choke, pads };
+}
+
+/** Com "um por vez" ligado, os pads que param quando `slot` toca (todos os outros que estão tocando). */
+export function chokedBy(slot: number, playing: Iterable<number>, choke: boolean): number[] {
+  return choke ? [...playing].filter((s) => s !== slot) : [];
 }
