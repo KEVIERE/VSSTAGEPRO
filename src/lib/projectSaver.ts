@@ -190,40 +190,45 @@ async function forEachAsset(
     const extra = extraById.get(a.clip.id);
     if (extra) {
       onProgress(`Salvando os sons dos pads: ${done} de ${total} arquivos`);
-      const data = await extra.blob().catch(() => null);
-      checkCancelled(signal);
-      await write(a, data);
-      continue;
+    } else {
+      const song = songNames.get(a.clip.songId) ?? 'Música';
+      const track = trackNames.get(a.clip.trackId) ?? 'Faixa';
+      onProgress(`Salvando os áudios: ${done} de ${total} arquivos · música ${songOrder.get(a.clip.songId) ?? 1} de ${Math.max(1, songsWithAudio)} · ${song}, ${track}`);
     }
-    const song = songNames.get(a.clip.songId) ?? 'Música';
-    const track = trackNames.get(a.clip.trackId) ?? 'Faixa';
-    onProgress(`Salvando os áudios: ${done} de ${total} arquivos · música ${songOrder.get(a.clip.songId) ?? 1} de ${Math.max(1, songsWithAudio)} · ${song}, ${track}`);
-    let data: Blob | null = getClipSource(a.clip.id);
-    // Testa se o source original é acessível; se o arquivo foi movido ou o descritor expirou,
-    // reconstrói a partir do buffer de áudio em memória com fallback automático.
-    if (data) {
-      try {
-        await data.slice(0, 16).arrayBuffer();
-      } catch {
-        data = null;
-      }
-    }
-    if (!data) {
-      let audio = getClipAudio(a.clip.id);
-      if (!audio) {
-        await ensureSongLoaded(a.clip.songId).catch(() => {});
-        audio = getClipAudio(a.clip.id);
-      }
-      if (audio) {
-        try {
-          data = encodeWavCached(a.clip.id, audio);
-        } catch { /* ignore: salva sem este áudio e avisa no resumo */ }
-      }
-    }
+    const data = await assetData(a, extra);
     checkCancelled(signal);
     await write(a, data);
   }
   return all;
+}
+
+/**
+ * O arquivo de um áudio para gravar. Testa se o original ainda abre; se o arquivo foi movido ou o
+ * descritor expirou, refaz a partir do áudio em memória.
+ */
+async function assetData(a: AssetPlan, extra?: ProjectExtraAsset): Promise<Blob | null> {
+  if (extra) return extra.blob().catch(() => null);
+  let data: Blob | null = getClipSource(a.clip.id);
+  if (data) {
+    try {
+      await data.slice(0, 16).arrayBuffer();
+    } catch {
+      data = null;
+    }
+  }
+  if (!data) {
+    let audio = getClipAudio(a.clip.id);
+    if (!audio) {
+      await ensureSongLoaded(a.clip.songId).catch(() => {});
+      audio = getClipAudio(a.clip.id);
+    }
+    if (audio) {
+      try {
+        data = encodeWavCached(a.clip.id, audio);
+      } catch { /* ignore: salva sem este áudio e avisa no resumo */ }
+    }
+  }
+  return data;
 }
 
 /** Áudios de fora das músicas (os sons dos pads), no formato dos áudios das faixas. */
@@ -573,6 +578,27 @@ function keptAssets(state: ProjectState, fromThisFile: (file: File) => boolean):
   return { assets, kept };
 }
 
+/**
+ * Para salvar só o que mudou: os áudios que já estão neste arquivo (ficam no lugar) e os novos
+ * (vão para o fim). `plans` é a lista inteira, na ordem de sempre.
+ */
+function splitAssets(state: ProjectState, fromThisFile: (file: File) => boolean): {
+  plans: AssetPlan[]; kept: KeptAsset[]; fresh: Array<{ plan: AssetPlan; extra?: ProjectExtraAsset }>;
+} {
+  const plans: AssetPlan[] = [];
+  const kept: KeptAsset[] = [];
+  const fresh: Array<{ plan: AssetPlan; extra?: ProjectExtraAsset }> = [];
+  const place = (plan: AssetPlan, src: Blob | null | undefined, extra?: ProjectExtraAsset) => {
+    plans.push(plan);
+    const from = src ? packageSlices.get(src) : undefined;
+    if (from && fromThisFile(from.file)) kept.push({ clipId: plan.clip.id, path: plan.relPath, begin: from.begin, size: from.size });
+    else fresh.push({ plan, extra });
+  };
+  for (const a of planAssets(state).flatMap((p) => p.assets)) place(a, getClipSource(a.clip.id));
+  for (const { plan, extra } of extraAssets()) place(plan, extra.current(), extra);
+  return { plans, kept, fresh };
+}
+
 function tailManifestJson(state: ProjectState, projectName: string, assets: AssetPlan[], index: PackageAsset[]): string {
   const manifest = buildManifestBase(state);
   manifest.projectName = projectName;
@@ -653,6 +679,93 @@ async function writeTailToPath(state: ProjectState, target: { path: string; name
 
 const IPC_PIECE = 8 * 1024 * 1024;
 
+/**
+ * App do Mac: salvar só o que mudou. Os áudios que já estão no .vss ficam no lugar; os novos
+ * (música importada, voz gravada, som de pad...) entram no fim do arquivo, seguidos do manifest.
+ * Devolve false quando não há áudio novo (o salvar só do fim cuida), quando o app é antigo, quando
+ * o arquivo mudou no disco ou quando sobra muito áudio apagado (aí regrava inteiro e enxuga).
+ */
+async function writeAppendToPath(
+  state: ProjectState, target: { path: string; name: string }, onProgress: ProgressFn, signal?: AbortSignal,
+): Promise<{ missingCount: number } | false> {
+  const api = desktopProjects();
+  if (!api?.projectAppendOpen || !api.projectAppendData || !api.projectAppendClose || !api.projectAppendAbort) return false;
+  const info = await api.projectInfo(target.path);
+  if (info.manifestStart == null || info.manifestLen == null) return false;
+  const tail: PackageTail = { manifestStart: info.manifestStart, manifestLen: info.manifestLen };
+  const split = splitAssets(state, (f) => desktopFilePath(f) === target.path && sameFileVersion(f, info));
+  if (split.fresh.length === 0) return false;
+  const keptIndex = keptAssetIndex(split.kept, tail);
+  if (!keptIndex) return false;
+
+  checkCancelled(signal);
+  const open = await api.projectAppendOpen(target.path, { expectedSize: info.size, expectedManifestStart: info.manifestStart });
+  if (!open.ok) return false;
+  const index: PackageAsset[] = [...keptIndex];
+  let pos = open.start;
+  let missingCount = 0;
+  const written = new Map<Blob, { offset: number; size: number }>();
+  const sameVersion = new Map<string, boolean>();
+  try {
+    let done = 0;
+    for (const { plan, extra } of split.fresh) {
+      checkCancelled(signal);
+      done++;
+      onProgress(`Salvando só o que mudou: ${done} de ${split.fresh.length} ${split.fresh.length === 1 ? 'áudio novo' : 'áudios novos'}`);
+      const data = await assetData(plan, extra);
+      checkCancelled(signal);
+      if (!data || data.size === 0) {
+        missingCount++;
+        index.push({ clipId: plan.clip.id, path: plan.relPath, offset: pos - VSC_MAGIC.length, size: 0 });
+        continue;
+      }
+      // clipe copiado de um áudio novo: grava o áudio uma vez só
+      const again = written.get(data);
+      if (again) {
+        index.push({ clipId: plan.clip.id, path: plan.relPath, ...again });
+        continue;
+      }
+      // áudio que está em outro .vss do disco: o app copia de lá direto
+      const from = packageSlices.get(data);
+      const src = from ? desktopFilePath(from.file) : null;
+      let copied = false;
+      if (from && src && src !== target.path && api.projectAppendCopy) {
+        const key = `${src}|${from.file.size}|${from.file.lastModified}`;
+        let ok = sameVersion.get(key);
+        if (ok === undefined) {
+          const srcInfo = await api.projectInfo(src).catch(() => null);
+          ok = !!srcInfo && sameFileVersion(from.file, srcInfo);
+          sameVersion.set(key, ok);
+        }
+        if (ok) {
+          await api.projectAppendCopy(open.id, src, from.begin, from.size);
+          copied = true;
+        }
+      }
+      if (!copied) {
+        for (let at = 0; at < data.size; at += IPC_PIECE) {
+          checkCancelled(signal);
+          await api.projectAppendData(open.id, await data.slice(at, at + IPC_PIECE).arrayBuffer());
+        }
+      }
+      const entry = { offset: pos - VSC_MAGIC.length, size: data.size };
+      written.set(data, entry);
+      index.push({ clipId: plan.clip.id, path: plan.relPath, ...entry });
+      pos += data.size;
+    }
+    checkCancelled(signal);
+    onProgress('Gravando o projeto...');
+    const json = tailManifestJson(state, stripProjectExt(target.name), split.plans, index);
+    const bytes = new TextEncoder().encode(json);
+    const res = await api.projectAppendClose(open.id, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    lastSaved = { version: pathVersion(target.path, res), json };
+    return { missingCount };
+  } catch (err) {
+    await api.projectAppendAbort(open.id).catch(() => undefined);
+    throw err;
+  }
+}
+
 /** App do Mac: grava o .vss inteiro num arquivo escondido ao lado e troca no fim. */
 async function writePackageToPath(state: ProjectState, filePath: string, projectName: string, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
   const api = desktopProjects();
@@ -727,6 +840,12 @@ export async function quickSave(state: ProjectState, target: SaveTarget, onProgr
     if (tail === 'written') {
       await rebindDesktopSources(state, target.path);
       return { missingCount: 0 };
+    }
+    // entrou áudio novo: grava só ele no fim do arquivo, sem copiar o resto
+    const appended = await writeAppendToPath(state, target, onProgress, signal);
+    if (appended) {
+      await rebindDesktopSources(state, target.path);
+      return appended;
     }
     const { missingCount } = await writePackageToPath(state, target.path, stripProjectExt(target.name), onProgress, signal);
     await rebindDesktopSources(state, target.path);

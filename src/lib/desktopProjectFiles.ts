@@ -20,6 +20,13 @@ interface DesktopProjectApi {
   projectWriteClose: (id: string) => Promise<{ size: number; mtimeMs: number }>;
   projectWriteAbort: (id: string) => Promise<void>;
   projectGiveFile: (filePath: string, selector: string) => Promise<boolean>;
+  /** Salvar só o que mudou (apps a partir desta versão; os antigos não têm). */
+  projectAppendOpen?: (filePath: string, opts: { expectedSize: number; expectedManifestStart: number }) =>
+    Promise<{ ok: true; id: string; start: number } | { ok: false; reason: string }>;
+  projectAppendData?: (id: string, data: ArrayBuffer) => Promise<number>;
+  projectAppendCopy?: (id: string, srcPath: string, begin: number, size: number) => Promise<number>;
+  projectAppendClose?: (id: string, manifest: ArrayBuffer) => Promise<{ size: number; mtimeMs: number; manifestStart: number }>;
+  projectAppendAbort?: (id: string) => Promise<void>;
 }
 
 export function desktopProjects(): DesktopProjectApi | null {

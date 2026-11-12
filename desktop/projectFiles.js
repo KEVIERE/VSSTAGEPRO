@@ -82,6 +82,7 @@ function checkProjectPath(filePath) {
 /** Tamanho, data e onde está o manifest de um .vss no disco. */
 async function info(filePath) {
   checkProjectPath(filePath);
+  await recover(filePath);
   const fh = await fsp.open(filePath, 'r');
   try {
     const st = await fh.stat();
@@ -109,6 +110,7 @@ function maxAssetEnd(manifest) {
  */
 async function writeTail(filePath, { expectedSize, expectedManifestStart, manifest }) {
   checkProjectPath(filePath);
+  if (appending(filePath)) return { ok: false, reason: 'busy' };
   const bytes = Buffer.from(manifest);
   let parsed;
   try { parsed = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Projeto inválido.'); }
@@ -149,6 +151,7 @@ const writers = new Map();
 
 async function writeOpen(filePath) {
   checkProjectPath(filePath);
+  await recover(filePath);
   const dir = path.dirname(filePath);
   await fsp.access(dir, fs.constants.W_OK);
   const temp = path.join(dir, `.${path.basename(filePath)}.${crypto.randomBytes(4).toString('hex')}.salvando`);
@@ -202,6 +205,8 @@ async function writeClose(id) {
     await w.fh.sync();
     await w.fh.close();
     await fsp.rename(w.temp, w.filePath);
+    // marca de um salvar pela metade não vale para o arquivo novo
+    await fsp.unlink(markerPath(w.filePath)).catch(() => {});
   } catch (err) {
     await fsp.unlink(w.temp).catch(() => {});
     throw err;
@@ -218,10 +223,152 @@ async function writeAbort(id) {
   await fsp.unlink(w.temp).catch(() => {});
 }
 
+// Salvar só o que mudou (entrou áudio novo, mas a maior parte já está no arquivo): os áudios que já
+// estão lá ficam no lugar; os novos entram no fim do arquivo, seguidos do manifest novo e do rodapé.
+// Num projeto de 20 GB, entrar uma música nova grava só ela, sem copiar os 20 GB.
+// Segurança: antes de começar, um arquivo escondido ao lado guarda o tamanho antigo. Se o programa
+// cair no meio, ao abrir de novo o arquivo volta a esse tamanho (recover) e abre como estava.
+const appenders = new Map();
+
+function markerPath(filePath) {
+  return path.join(path.dirname(filePath), `.${path.basename(filePath)}.anexando`);
+}
+
+function appending(filePath) {
+  for (const a of appenders.values()) if (a.filePath === filePath) return true;
+  return false;
+}
+
+/** Salvar anterior que ficou pela metade (programa caiu): volta o arquivo para como estava. */
+async function recover(filePath) {
+  if (appending(filePath)) return false;
+  const marker = markerPath(filePath);
+  let oldEnd;
+  try {
+    oldEnd = JSON.parse(await fsp.readFile(marker, 'utf8')).oldEnd;
+  } catch {
+    return false;
+  }
+  if (Number.isFinite(oldEnd) && oldEnd > DATA_START) {
+    const st = await fsp.stat(filePath).catch(() => null);
+    if (st && st.size > oldEnd) {
+      const fh = await fsp.open(filePath, 'r+');
+      try {
+        await fh.truncate(oldEnd);
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+    }
+  }
+  await fsp.unlink(marker).catch(() => {});
+  return true;
+}
+
+async function appendOpen(filePath, { expectedSize, expectedManifestStart }) {
+  checkProjectPath(filePath);
+  if (appending(filePath)) return { ok: false, reason: 'busy' };
+  await recover(filePath);
+  const fh = await fsp.open(filePath, 'r+');
+  try {
+    const st = await fh.stat();
+    const tail = await readTail(fh, st.size);
+    // o arquivo precisa ser o mesmo que o programa leu: senão, quem chamou grava tudo de novo
+    if (!tail || st.size !== expectedSize || tail.manifestStart !== expectedManifestStart) {
+      await fh.close();
+      return { ok: false, reason: 'changed' };
+    }
+    const marker = await fsp.open(markerPath(filePath), 'w');
+    try {
+      await marker.writeFile(JSON.stringify({ oldEnd: st.size }));
+      await marker.sync();
+    } finally {
+      await marker.close();
+    }
+    const id = crypto.randomUUID();
+    appenders.set(id, { fh, filePath, pos: st.size, oldEnd: st.size });
+    return { ok: true, id, start: st.size };
+  } catch (err) {
+    await fh.close().catch(() => {});
+    throw err;
+  }
+}
+
+function appender(id) {
+  const a = appenders.get(id);
+  if (!a) throw new Error('Gravação encerrada.');
+  return a;
+}
+
+async function appendData(id, data) {
+  const a = appender(id);
+  const buf = Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+  await writeAll(a.fh, buf, a.pos);
+  a.pos += buf.length;
+  return a.pos;
+}
+
+/** Copia um áudio de outro .vss direto no disco para o fim do projeto. */
+async function appendCopy(id, srcPath, begin, size) {
+  const a = appender(id);
+  checkProjectPath(srcPath);
+  const src = await fsp.open(srcPath, 'r');
+  try {
+    const CHUNK = 8 * 1024 * 1024;
+    const buf = Buffer.alloc(Math.min(CHUNK, Math.max(1, size)));
+    let done = 0;
+    while (done < size) {
+      const want = Math.min(buf.length, size - done);
+      const { bytesRead } = await src.read(buf, 0, want, begin + done);
+      if (!bytesRead) throw new Error('O áudio de origem terminou antes do esperado.');
+      await writeAll(a.fh, buf.subarray(0, bytesRead), a.pos);
+      a.pos += bytesRead;
+      done += bytesRead;
+    }
+  } finally {
+    await src.close();
+  }
+  return a.pos;
+}
+
+/** Fecha o salvar: manifest novo e rodapé depois dos áudios novos. */
+async function appendClose(id, manifest) {
+  const a = appender(id);
+  const bytes = Buffer.from(manifest);
+  let parsed;
+  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Projeto inválido.'); }
+  // o manifest só pode apontar para áudio que está no arquivo
+  if (maxAssetEnd(parsed) > a.pos) throw new Error('O projeto aponta para áudio que não foi gravado.');
+  await writeAll(a.fh, Buffer.concat([bytes, trailer(a.pos, bytes.length)]), a.pos);
+  const size = a.pos + bytes.length + TRAILER_SIZE;
+  await a.fh.truncate(size);
+  await a.fh.sync();
+  appenders.delete(id);
+  await a.fh.close();
+  await fsp.unlink(markerPath(a.filePath)).catch(() => {});
+  const st = await fsp.stat(a.filePath);
+  return { size: st.size, mtimeMs: st.mtimeMs, manifestStart: a.pos };
+}
+
+/** Cancelou ou deu erro: o arquivo volta ao tamanho de antes (abre como estava). */
+async function appendAbort(id) {
+  const a = appenders.get(id);
+  if (!a) return;
+  appenders.delete(id);
+  try {
+    await a.fh.truncate(a.oldEnd);
+    await a.fh.sync();
+  } finally {
+    await a.fh.close().catch(() => {});
+    await fsp.unlink(markerPath(a.filePath)).catch(() => {});
+  }
+}
+
 // A tela recebe o arquivo do disco como se a pessoa tivesse escolhido num campo de arquivo (o mesmo
 // que os testes automáticos do Chrome fazem). Assim ela lê os áudios em pedaços, direto do disco.
 async function giveFile(webContents, filePath, selector) {
   checkProjectPath(filePath);
+  await recover(filePath);
   await fsp.access(filePath, fs.constants.R_OK);
   if (typeof selector !== 'string' || !/^#vs-project-file-[a-z0-9]+$/.test(selector)) throw new Error('Campo inválido.');
   const dbg = webContents.debugger;
@@ -263,5 +410,7 @@ async function pickSave(win, suggestedName) {
 
 module.exports = {
   MAGIC, TRAILER_SIZE, trailer, readTail, info, writeTail,
-  writeOpen, writeData, writeCopy, writeClose, writeAbort, giveFile, pickOpen, pickSave,
+  writeOpen, writeData, writeCopy, writeClose, writeAbort,
+  appendOpen, appendData, appendCopy, appendClose, appendAbort, recover,
+  giveFile, pickOpen, pickSave,
 };

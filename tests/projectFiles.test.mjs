@@ -142,3 +142,128 @@ test('só aceita arquivo de projeto (.vss ou .vsc) com caminho completo', async 
   await assert.rejects(pf.info('/etc/passwd'));
   await assert.rejects(pf.writeOpen('/tmp/x.txt'));
 });
+
+// ---------- Salvar só o que mudou (entrou áudio novo) ----------
+
+/** Manifest com os áudios antigos no lugar e os novos depois de `start` (fim do arquivo antigo). */
+function appendManifest(p, start, fresh, extra = {}) {
+  let pos = start;
+  const added = fresh.map(([clipId, bytes]) => {
+    const a = { clipId, path: `Músicas/${clipId}.wav`, offset: pos - MAGIC.length, size: bytes.length };
+    pos += bytes.length;
+    return a;
+  });
+  return { assets: [...p.assets, ...added], added, buf: Buffer.from(JSON.stringify({ projectName: 'Show', ...extra, assets: [...p.assets, ...added] })) };
+}
+
+test('entrou áudio novo: só ele vai para o fim; os antigos ficam no lugar e o arquivo abre', async () => {
+  const p = makeProject([['c1', audio(400_000, 1)], ['c2', audio(300_000, 2)]]);
+  const before = await pf.info(p.file);
+  const novo = audio(50_000, 9);
+  const open = await pf.appendOpen(p.file, { expectedSize: before.size, expectedManifestStart: before.manifestStart });
+  assert.equal(open.ok, true);
+  assert.equal(open.start, before.size, 'o novo entra no fim do arquivo');
+  assert.ok(fs.existsSync(path.join(p.dir, '.Show.vss.anexando')), 'marca de segurança enquanto grava');
+  await pf.appendData(open.id, novo);
+  const m = appendManifest(p, open.start, [['c3', novo]], { versao: 2 });
+  const res = await pf.appendClose(open.id, m.buf);
+  assert.equal(res.size, before.size + novo.length + m.buf.length + 20, 'cresce só o tamanho do áudio novo e do manifest');
+  const { manifest } = await readManifest(p.file);
+  assert.equal(manifest.versao, 2);
+  audioIntact(p.file, m.assets, [...p.audios, ['c3', novo]]);
+  assert.equal(fs.existsSync(path.join(p.dir, '.Show.vss.anexando')), false, 'a marca some no fim');
+  // e salvar de novo só a letra continua funcionando depois
+  const again = await pf.info(p.file);
+  const tailRes = await pf.writeTail(p.file, { expectedSize: again.size, expectedManifestStart: again.manifestStart, manifest: Buffer.from(JSON.stringify({ projectName: 'Show', letra: 'nova', assets: m.assets })) });
+  assert.equal(tailRes.ok, true);
+  audioIntact(p.file, m.assets, [...p.audios, ['c3', novo]]);
+});
+
+test('cancelar o salvar do que mudou: o arquivo volta a ser o de antes', async () => {
+  const p = makeProject([['c1', audio(100_000, 3)]]);
+  const original = fs.readFileSync(p.file);
+  const before = await pf.info(p.file);
+  const open = await pf.appendOpen(p.file, { expectedSize: before.size, expectedManifestStart: before.manifestStart });
+  await pf.appendData(open.id, audio(80_000, 4));
+  await pf.appendAbort(open.id);
+  assert.deepEqual(fs.readFileSync(p.file), original);
+  assert.equal(fs.existsSync(path.join(p.dir, '.Show.vss.anexando')), false);
+});
+
+test('programa caiu no meio do salvar do que mudou: ao abrir, o arquivo volta a ser o de antes', async () => {
+  const p = makeProject([['c1', audio(200_000, 5)]]);
+  const original = fs.readFileSync(p.file);
+  // o que fica no disco quando cai: marca com o tamanho antigo e áudio pela metade no fim (maior que a busca de 64 MB não importa)
+  fs.writeFileSync(path.join(p.dir, '.Show.vss.anexando'), JSON.stringify({ oldEnd: original.length }));
+  fs.appendFileSync(p.file, audio(150_000, 6));
+  const info = await pf.info(p.file);
+  assert.equal(info.size, original.length, 'voltou ao tamanho de antes');
+  assert.deepEqual(fs.readFileSync(p.file), original);
+  assert.equal(fs.existsSync(path.join(p.dir, '.Show.vss.anexando')), false);
+});
+
+test('salvar do que mudou: arquivo mexido por fora não é tocado; índice para áudio não gravado é recusado', async () => {
+  const p = makeProject([['c1', audio(50_000, 7)]]);
+  const before = await pf.info(p.file);
+  assert.equal((await pf.appendOpen(p.file, { expectedSize: before.size + 1, expectedManifestStart: before.manifestStart })).ok, false);
+  const open = await pf.appendOpen(p.file, { expectedSize: before.size, expectedManifestStart: before.manifestStart });
+  await pf.appendData(open.id, audio(10_000, 8));
+  const longe = Buffer.from(JSON.stringify({ assets: [{ clipId: 'x', path: 'x', offset: before.size + 999_999, size: 10 }] }));
+  await assert.rejects(pf.appendClose(open.id, longe), /não foi gravado/);
+  await pf.appendAbort(open.id);
+  assert.equal((await pf.info(p.file)).size, before.size);
+});
+
+test('enquanto anexa, o salvar só do fim não mexe no arquivo', async () => {
+  const p = makeProject([['c1', audio(30_000, 9)]]);
+  const before = await pf.info(p.file);
+  const open = await pf.appendOpen(p.file, { expectedSize: before.size, expectedManifestStart: before.manifestStart });
+  const res = await pf.writeTail(p.file, { expectedSize: before.size, expectedManifestStart: before.manifestStart, manifest: Buffer.from(JSON.stringify({ assets: p.assets })) });
+  assert.deepEqual(res, { ok: false, reason: 'busy' });
+  await pf.appendAbort(open.id);
+});
+
+test('áudio novo que veio de outro projeto: copiado direto do disco para o fim', async () => {
+  const other = makeProject([['o1', audio(70_000, 10)]]);
+  const p = makeProject([['c1', audio(40_000, 11)]]);
+  const before = await pf.info(p.file);
+  const open = await pf.appendOpen(p.file, { expectedSize: before.size, expectedManifestStart: before.manifestStart });
+  await pf.appendCopy(open.id, other.file, MAGIC.length + other.assets[0].offset, other.assets[0].size);
+  const m = appendManifest(p, open.start, [['o1', other.audios[0][1]]]);
+  await pf.appendClose(open.id, m.buf);
+  audioIntact(p.file, m.assets, [...p.audios, ['o1', other.audios[0][1]]]);
+});
+
+test('gravar inteiro depois de um salvar interrompido: a marca antiga não corta o arquivo novo', async () => {
+  const p = makeProject([['c1', audio(30_000, 12)]]);
+  fs.writeFileSync(path.join(p.dir, '.Show.vss.anexando'), JSON.stringify({ oldEnd: 100 }));
+  const id = await pf.writeOpen(p.file);
+  const a = audio(30_000, 12);
+  await pf.writeData(id, Buffer.from(MAGIC));
+  await pf.writeData(id, a);
+  const m = Buffer.from(JSON.stringify({ assets: p.assets }));
+  await pf.writeData(id, m);
+  await pf.writeData(id, pf.trailer(MAGIC.length + a.length, m.length));
+  await pf.writeClose(id);
+  const size = fs.statSync(p.file).size;
+  assert.equal((await pf.info(p.file)).size, size, 'continua inteiro');
+  assert.equal(fs.existsSync(path.join(p.dir, '.Show.vss.anexando')), false);
+});
+
+test('o salvar do programa tenta: só o fim → só o que mudou → inteiro', () => {
+  const saver = fs.readFileSync(new URL('../src/lib/projectSaver.ts', import.meta.url), 'utf8');
+  const quick = saver.slice(saver.indexOf('export async function quickSave'));
+  const tailAt = quick.indexOf('writeTailToPath(');
+  const appendAt = quick.indexOf('writeAppendToPath(');
+  const fullAt = quick.indexOf('writePackageToPath(');
+  assert.ok(tailAt > 0 && appendAt > tailAt && fullAt > appendAt);
+  assert.match(saver, /if \(split\.fresh\.length === 0\) return false;/, 'sem áudio novo: só o fim');
+  assert.match(saver, /const keptIndex = keptAssetIndex\(split\.kept, tail\);\s*if \(!keptIndex\) return false;/, 'muito áudio apagado sobrando: regrava inteiro');
+  assert.match(saver, /await api\.projectAppendAbort\(open\.id\)/, 'erro ou cancelar volta o arquivo');
+  const preload = fs.readFileSync(new URL('../desktop/preload.js', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../desktop/main.js', import.meta.url), 'utf8');
+  for (const n of ['projectAppendOpen', 'projectAppendData', 'projectAppendCopy', 'projectAppendClose', 'projectAppendAbort']) {
+    assert.match(preload, new RegExp(`${n}: call\\('${n}'\\)`));
+    assert.match(main, new RegExp(`handle\\('${n}'`));
+  }
+});
