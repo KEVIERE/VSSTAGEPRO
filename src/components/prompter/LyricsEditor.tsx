@@ -3,6 +3,7 @@ import { Check, Music2, Play, RefreshCw } from 'lucide-react';
 import SongLyricsEditor, { type SaveStatus } from '@/components/prompter/SongLyricsEditor';
 import LyricsProjectBar from '@/components/prompter/LyricsProjectBar';
 import LyricsStyleControls from '@/components/prompter/LyricsStyleControls';
+import LyricLeadControl from '@/components/prompter/LyricLeadControl';
 import RepertoireRequest from '@/components/prompter/RepertoireRequest';
 import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
@@ -181,8 +182,15 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   // Tela larga: a aba ocupa a altura da janela, como um editor de vídeo. Cada área rola sozinha.
   return (
     <div className="flex flex-col gap-3 lg:h-full lg:min-h-0">
-      <div className="grid gap-3 lg:grid-cols-2 shrink-0">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] shrink-0">
         <RepertoireRequest code={code} semLetra={songs.length - comLetra} total={songs.length} />
+        {/* Ajustes gerais (todas as músicas): ficam aqui em cima, fora das músicas e das páginas. */}
+        <LyricLeadControl
+          lead={state.lyricLead ?? 0}
+          onLead={(v) => update((st) => ({ ...st, lyricLead: v }))}
+          scale={state.fontScale}
+          onScale={(v) => update((st) => ({ ...st, fontScale: v }))}
+        />
         <LyricsProjectBar snap={snap} onSave={saveToProject} />
       </div>
     <div className="grid gap-3 md:grid-cols-[230px_minmax(0,1fr)] items-start lg:items-stretch lg:flex-1 lg:min-h-0">
@@ -266,7 +274,6 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           sync={sync}
           now={now}
           styleControls={<LyricsStyleControls state={state} update={update} />}
-          onLeadChange={(v) => update((st) => ({ ...st, lyricLead: v }))}
         />
       ) : (
         <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-10 text-center text-logic-text-dim">

@@ -16,8 +16,6 @@ export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 export interface LyricsHistory { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }
 
 const MAX_PAGES = 400;
-/** Antecipação máxima da letra na TV (s). */
-const LEAD_MAX = 1.5;
 const MAX_PAGE_TEXT = 600;
 
 function parseTime(v: string): number | null {
@@ -40,7 +38,7 @@ function splitLyrics(raw: string): LyricPage[] {
     .map((text) => ({ id: newId(), time: null, text: text.slice(0, MAX_PAGE_TEXT), kind: 'verso' as PageKind }));
 }
 
-export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords, styleControls, onLeadChange }: {
+export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords, styleControls }: {
   /** Letra lida pelo Mac do diretor (palavras com tempo), quando já chegou. */
   wordsUrl: string | null;
   song: SetlistSong;
@@ -58,8 +56,6 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   onWords: (words: TimedWord[]) => void;
   /** Controles de estilo da letra na TV (cor, tamanho, fonte...), mostrados ao lado do monitor. */
   styleControls?: React.ReactNode;
-  /** Muda quantos segundos a letra sai antes na TV (vale para o show todo). */
-  onLeadChange?: (seconds: number) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -485,7 +481,6 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
           >
             <Plus size={13} /> Nova marcação
           </button>
-          {onLeadChange && <LeadControl value={snap.prompter.lyricLead ?? 0} onChange={onLeadChange} />}
         </div>
         {followLive && !liveOnSong && <p className="text-xs text-logic-lcd-amber mt-2">Aguardando o diretor tocar esta música.</p>}
         {audioError && <p className="text-xs text-logic-lcd-red mt-2 flex items-center gap-1.5"><AlertTriangle size={13} /> {audioError}</p>}
@@ -705,25 +700,6 @@ function PageRow({ rowRef, selected, defaultColor, page, index, total, active, a
         <PageStyle page={page} defaultColor={defaultColor} onChange={onChange} />
       </div>
     </li>
-  );
-}
-
-/**
- * Quanto a letra sai antes na TV (vale para o show todo). Cada trecho aparece esse tempo antes da
- * hora marcada: tira o atraso da tela e dá tempo de o cantor ler. O monitor ao lado já mostra.
- */
-function LeadControl({ value, onChange }: { value: number; onChange: (v: number) => void }) {
-  const set = (v: number) => onChange(Math.round(Math.min(LEAD_MAX, Math.max(0, v)) * 10) / 10);
-  return (
-    <span
-      className="flex items-center h-8 rounded-md border-2 border-black bg-black/40 overflow-hidden"
-      title="Cada trecho aparece na TV esse tempo antes da hora marcada. Tira o atraso da tela e dá tempo de o cantor ler antes de cantar. Vale para o show todo."
-    >
-      <span className="console-legend !text-[10px] px-2 whitespace-nowrap">Letra sai antes</span>
-      <button onClick={() => set(value - 0.1)} disabled={value <= 0} className="w-7 h-full text-logic-text-dim hover:text-logic-text hover:bg-white/5 disabled:opacity-30" aria-label="Letra sai menos antes">−</button>
-      <span className="font-stage text-xs tabular-nums text-logic-lcd-amber min-w-[44px] text-center">{value.toFixed(1).replace('.', ',')} s</span>
-      <button onClick={() => set(value + 0.1)} disabled={value >= LEAD_MAX} className="w-7 h-full text-logic-text-dim hover:text-logic-text hover:bg-white/5 disabled:opacity-30" aria-label="Letra sai mais antes">+</button>
-    </span>
   );
 }
 

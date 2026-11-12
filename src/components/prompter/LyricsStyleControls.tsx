@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlignCenter, AlignLeft, AlignRight, Check, Minus, Plus, Type } from 'lucide-react';
+import { AlignCenter, AlignLeft, AlignRight, Check, Type } from 'lucide-react';
 import FontPickerDialog from '@/components/prompter/FontPickerDialog';
 import { LYRIC_COLORS, LYRIC_FONTS, type LyricAlign, type PrompterState } from '@/lib/prompterTypes';
 
@@ -9,20 +9,12 @@ const ALIGNS: { id: LyricAlign; label: string; icon: typeof AlignLeft }[] = [
   { id: 'right', label: 'Direita', icon: AlignRight },
 ];
 
-const MIN_SCALE = 0.6;
-const MAX_SCALE = 1.6;
-const STEP = 0.1;
-
 export default function LyricsStyleControls({ state, update }: {
   state: PrompterState;
   update: (fn: (s: PrompterState) => PrompterState) => void;
 }) {
   const [fontOpen, setFontOpen] = useState(false);
   const font = LYRIC_FONTS.find((f) => f.id === state.lyricFont) ?? LYRIC_FONTS[0];
-  const setScale = (v: number) => {
-    const next = Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, v)) * 100) / 100;
-    update((s) => ({ ...s, fontScale: next }));
-  };
 
   return (
     <div className="space-y-4">
@@ -44,25 +36,6 @@ export default function LyricsStyleControls({ state, update }: {
               </button>
             );
           })}
-        </div>
-      </div>
-
-      <div>
-        <div className="flex justify-between text-xs text-logic-text-dim mb-2">
-          <span>Tamanho da letra</span><span className="tabular-nums">{Math.round(state.fontScale * 100)}%</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => setScale(state.fontScale - STEP)} disabled={state.fontScale <= MIN_SCALE} className="w-10 h-10 flex items-center justify-center rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light disabled:opacity-40 transition-colors" title="Diminuir">
-            <Minus size={16} />
-          </button>
-          <input
-            type="range" min={MIN_SCALE} max={MAX_SCALE} step={0.05} value={state.fontScale}
-            onChange={(e) => setScale(Number(e.target.value))}
-            className="flex-1 accent-logic-accent"
-          />
-          <button onClick={() => setScale(state.fontScale + STEP)} disabled={state.fontScale >= MAX_SCALE} className="w-10 h-10 flex items-center justify-center rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light disabled:opacity-40 transition-colors" title="Aumentar">
-            <Plus size={16} />
-          </button>
         </div>
       </div>
 
