@@ -43,6 +43,9 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\blead\s*vocal\b/i, target: 'track-guia', childName: 'Guia', weight: 11 },
   { pattern: /\bvoz\b/i, target: 'track-guia', childName: 'Guia', weight: 10 },
   { pattern: /\bguia\b/i, target: 'track-guia', childName: 'Guia', weight: 8 },
+  { pattern: /\bguias\b/i, target: 'track-guia', childName: 'Guia', weight: 8 },
+  { pattern: /\bguide\b/i, target: 'track-guia', childName: 'Guia', weight: 9 },
+  { pattern: /\b(vocal|voice)\s*guide\b|\bguide\s*(vocal|voice)\b/i, target: 'track-guia', childName: 'Guia', weight: 12 },
 
   { pattern: /\bback(?:ing)?\s*vocal/i, target: 'track-outros', childName: 'Backvocal', weight: 11 },
   { pattern: /\bbackvocal/i, target: 'track-outros', childName: 'Backvocal', weight: 11 },

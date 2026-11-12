@@ -30,7 +30,7 @@ test('nova trilha em cima de Guia ou Maestro vai para a pasta Outros; no Timecod
 });
 
 test('nome repetido na mesma pasta ganha número; vazio vira "Nova trilha"', () => {
-  assert.equal(uniqueTrackName(tracks, 'track-violoes', 'Violão 1'), 'Violão 1 2');
+  assert.equal(uniqueTrackName(tracks, 'track-violoes', 'Violão 1'), 'Violão 3', 'Violão 1 e 2 ocupados: segue a sequência');
   assert.equal(uniqueTrackName(tracks, 'track-violoes', 'violão 3'), 'violão 3');
   assert.equal(uniqueTrackName(tracks, 'track-outros', '   '), 'Nova trilha');
   const com = [...tracks, t('n1', { name: 'Nova trilha', parentId: 'track-outros' })];
@@ -123,4 +123,8 @@ test('guia: a regra de nome manda as guias para a faixa Guia (o grupo é montado
   ];
   const clips = [{ id: 'a', trackId: 'g1', songId: 's1', fileName: 'Guia.wav', name: 'Guia' }];
   assert.deepEqual(instrumentTrackIn(comGuias, clips, 'track-guia', { id: 'n', songId: 's1', fileName: 'Guia 2.wav', name: 'Guia 2' }), { create: { name: 'Guia 2' } });
+});
+
+test('"Guide", "Guias" e "Vocal Guide" são guia', () => {
+  for (const nome of ['Guide.wav', 'GUIDE 2.wav', 'Guias.wav', 'Vocal Guide.wav']) assert.equal(routeByName(nome)?.target, 'track-guia', nome);
 });

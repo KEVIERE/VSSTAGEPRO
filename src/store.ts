@@ -486,6 +486,27 @@ function placeOffFolders(tracks: Track[], existing: AudioClip[], incoming: Audio
   return { tracks: nextTracks, clips: placed };
 }
 
+// Música com duas ou mais guias: a Guia vira pasta ("Guia 1", "Guia 2"...) na hora, sem esperar a
+// próxima importação (abrir projeto, separar com IA, Enviar Para). Uma vez pasta, continua pasta.
+function groupGuides(tracks: Track[], clips: AudioClip[]) {
+  const guia = tracks.find((t) => t.id === 'track-guia');
+  if (!guia) return { tracks, clips };
+  const onGuia = clips.filter((c) => c.trackId === 'track-guia');
+  if (onGuia.length === 0) return { tracks, clips };
+  if (!guia.isSubgroup) {
+    const perSong = new Map<string, number>();
+    for (const c of onGuia) perSong.set(c.songId, (perSong.get(c.songId) ?? 0) + 1);
+    if (![...perSong.values()].some((n) => n > 1)) return { tracks, clips };
+  }
+  const asFolder = tracks.map((t) => (t.id === 'track-guia' && !t.isSubgroup
+    ? { ...t, isSubgroup: true, type: 'subgroup' as const, children: t.children.filter((id) => tracks.some((x) => x.id === id && x.parentId === 'track-guia')) }
+    : t));
+  const others = clips.filter((c) => c.trackId !== 'track-guia');
+  const fixed = placeOffFolders(asFolder, others, onGuia);
+  const moved = new Map(fixed.clips.map((c) => [c.id, c]));
+  return { tracks: fixed.tracks, clips: clips.map((c) => moved.get(c.id) ?? c) };
+}
+
 // Tira clipes e recalcula a duração das músicas que perderam algum.
 function withoutClips(s: Store, toRemove: Set<string>) {
   const nextClips = s.clips.filter((c) => !toRemove.has(c.id));
@@ -1020,7 +1041,8 @@ export const useStore = create<Store>()(
       loadProject: (data) => {
         clearAudioLibrary();
         // projeto antigo com áudio direto numa pasta: vai para a trilha do instrumento dentro dela
-        const opened = placeOffFolders(data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t })), [], data.clips ?? []);
+        const placedOpen = placeOffFolders(data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t })), [], data.clips ?? []);
+        const opened = groupGuides(placedOpen.tracks, placedOpen.clips);
         const tracks = opened.tracks;
         const loadedSongs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
         // projetos antigos podiam ter uma música no meio de um bloco apontando para o bloco de cima
@@ -1174,17 +1196,16 @@ export const useStore = create<Store>()(
 
       addClip: (clip) => set((s) => {
         const target = s.tracks.find((t) => t.id === clip.trackId);
-        if (!target || !target.isSubgroup) {
-          return { clips: [...s.clips, clip] };
-        }
-        const placed = intoFolder(s.tracks, s.clips, target.id, clip);
-        return { tracks: placed.tracks, clips: [...s.clips, { ...clip, trackId: placed.trackId }] };
+        const placed = target?.isSubgroup ? intoFolder(s.tracks, s.clips, target.id, clip) : { tracks: s.tracks, trackId: clip.trackId };
+        const grouped = groupGuides(placed.tracks, [...s.clips, { ...clip, trackId: placed.trackId }]);
+        return { ...(grouped.tracks !== s.tracks ? { tracks: grouped.tracks } : {}), clips: grouped.clips };
       }),
       addClips: (newClips) => set((s) => {
         if (newClips.length === 0) return s;
-        const fixed = placeOffFolders(s.tracks, s.clips, newClips);
-        newClips = fixed.clips;
-        const allClips = [...s.clips, ...newClips];
+        const placedNew = placeOffFolders(s.tracks, s.clips, newClips);
+        const fixed = groupGuides(placedNew.tracks, [...s.clips, ...placedNew.clips]);
+        const allClips = fixed.clips;
+        newClips = allClips.slice(s.clips.length);
         const touchedSongs = new Set(newClips.map((c) => c.songId));
         const newDurations = new Map<string, number>();
         for (const songId of touchedSongs) {
@@ -1222,9 +1243,12 @@ export const useStore = create<Store>()(
             safe = { ...updates, trackId: placed.trackId };
           }
         }
+        const grouped = safe.trackId === 'track-guia'
+          ? groupGuides(tracks, s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c))
+          : { tracks, clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c) };
         return {
-          ...(tracks !== s.tracks ? { tracks } : {}),
-          clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c),
+          ...(grouped.tracks !== s.tracks ? { tracks: grouped.tracks } : {}),
+          clips: grouped.clips,
         };
       }),
       splitClipAt: (clipId, atSeconds) => {
@@ -1362,12 +1386,10 @@ export const useStore = create<Store>()(
           actualTrackId = placed.trackId;
         }
 
-        return {
-          tracks,
-          clips: s.clips.map((c) => c.id === clipId
-            ? { ...c, trackId: actualTrackId, routingMethod: 'manual' as const, routingConfidence: 1 }
-            : c),
-        };
+        const grouped = groupGuides(tracks, s.clips.map((c) => c.id === clipId
+          ? { ...c, trackId: actualTrackId, routingMethod: 'manual' as const, routingConfidence: 1 }
+          : c));
+        return { tracks: grouped.tracks, clips: grouped.clips };
       }),
       setClipMarkers: (clipId, markers) => set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, markers } : c) })),
       resetClipRouting: (clipId) => {
@@ -1932,8 +1954,11 @@ export const useStore = create<Store>()(
         const destByClip = new Map<string, Dest>();
         for (const clip of s.clips) {
           if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID || customIds.has(clip.trackId)) continue;
-          if (clip.routingMethod === 'manual' && protectedIds.has(clip.trackId)) {
-            destByClip.set(clip.id, clip.trackId === 'track-guia' ? 'guia' : clip.trackId === 'track-click' ? 'click' : 'maestro');
+          // mandado à mão para Guia, Click ou Maestro (ou para uma "Guia N" do grupo de Guias) fica lá
+          const onTrack = s.tracks.find((t) => t.id === clip.trackId);
+          const fixedRoot = protectedIds.has(clip.trackId) ? clip.trackId : onTrack?.parentId && protectedIds.has(onTrack.parentId) ? onTrack.parentId : null;
+          if (clip.routingMethod === 'manual' && fixedRoot) {
+            destByClip.set(clip.id, fixedRoot === 'track-guia' ? 'guia' : fixedRoot === 'track-click' ? 'click' : 'maestro');
             continue;
           }
           const route = routeByName(clip.fileName) ?? routeByName(clip.name);
@@ -1974,6 +1999,12 @@ export const useStore = create<Store>()(
           const arr = clipsBySong.get(c.songId) ?? [];
           arr.push(c); clipsBySong.set(c.songId, arr);
         }
+        // Trilha criada pela pessoa com nome da sequência ("Violão 2") faz parte dela: recebe o 2º
+        // violão da música quando está livre nela, e a numeração segue em "Violão 3", "Violão 4"...
+        // Ocupada nessa música (a pessoa pôs um áudio nela), o número é pulado.
+        const customBySlot = new Map<string, Track>();
+        for (const t of customTracks) customBySlot.set(`${t.parentId}|${normalize(t.name)}`, t);
+        const busyCustom = new Set(s.clips.filter((c) => customIds.has(c.trackId)).map((c) => `${c.songId}|${c.trackId}`));
         const maxNByKey = new Map<string, number>();
         const displayByKey = new Map<string, string>();
         const assignmentByClip = new Map<string, { key: string; n: number }>();
@@ -1984,10 +2015,17 @@ export const useStore = create<Store>()(
             if (!dest || dest === 'guia' || dest === 'click' || dest === 'maestro') continue;
             const base = normalize(dest.display);
             const key = `${dest.target}|${base}`;
-            const n = (counts.get(key) ?? 0) + 1;
+            if (!displayByKey.has(key)) displayByKey.set(key, dest.display);
+            const display = displayByKey.get(key)!;
+            let n = counts.get(key) ?? 0;
+            let slot: Track | undefined;
+            do {
+              n++;
+              slot = customBySlot.get(`${dest.target}|${normalize(`${display} ${n}`)}`);
+            } while (slot && busyCustom.has(`${c.songId}|${slot.id}`));
+            if (slot) busyCustom.add(`${c.songId}|${slot.id}`);
             counts.set(key, n);
             if (n > (maxNByKey.get(key) ?? 0)) maxNByKey.set(key, n);
-            if (!displayByKey.has(key)) displayByKey.set(key, dest.display);
             assignmentByClip.set(c.id, { key, n });
           }
         }
@@ -2005,6 +2043,11 @@ export const useStore = create<Store>()(
             seq++;
             const fullName = `${display} ${n}`;
             const normName = normalize(fullName);
+            const slot = customBySlot.get(`${target}|${normName}`);
+            if (slot) {
+              trackIdByKeyN.set(`${key}|${n}`, slot.id);
+              continue;
+            }
             const prev = prevChildByFullName.get(`${target}|${normName}`);
             const id = prev?.id ?? `${target}-child-${now}-${seq}`;
             newChildTracks.push({

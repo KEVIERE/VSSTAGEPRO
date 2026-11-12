@@ -26,11 +26,19 @@ export function newTrackPlace(tracks: Track[], anchorId: string): { parentId: st
 
 const key = (name: string) => name.trim().toLocaleLowerCase('pt-BR');
 
-/** Nome que ainda não existe na pasta: "Nova trilha", "Nova trilha 2"... */
+/** Nome que ainda não existe na pasta: "Nova trilha", "Nova trilha 2"...; "Violão 2" ocupado vira "Violão 3". */
 export function uniqueTrackName(tracks: Track[], parentId: string, wanted: string): string {
   const base = wanted.trim() || 'Nova trilha';
   const taken = new Set(tracks.filter((t) => t.parentId === parentId).map((t) => key(t.name)));
   if (!taken.has(key(base))) return base;
+  // nome da sequência já usado ("Violão 2"): o próximo número livre dela ("Violão 3")
+  const seq = base.match(/^(.*?)\s*(\d+)$/);
+  if (seq && seq[1].trim()) {
+    for (let n = Number(seq[2]) + 1; ; n++) {
+      const name = `${seq[1].trim()} ${n}`;
+      if (!taken.has(key(name))) return name;
+    }
+  }
   for (let n = 2; ; n++) {
     const name = `${base} ${n}`;
     if (!taken.has(key(name))) return name;
