@@ -7,6 +7,7 @@ import type {
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
   MaestroNarration, MusicianAccount, MusicianBook,
 } from '@/types';
+import { projectExtras } from '@/lib/projectHooks';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
 import { TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
@@ -1029,6 +1030,8 @@ export const useStore = create<Store>()(
           const src = sources.get(c.id);
           if (src) registerClipSource(c.id, c.songId, src);
         }
+        // pads do Modo Show e outras partes de fora do estado principal
+        projectExtras().forEach((x) => x.loaded(manifest as unknown as Record<string, unknown>, sources));
       },
 
       newProject: () => {

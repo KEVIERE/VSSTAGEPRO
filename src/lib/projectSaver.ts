@@ -6,6 +6,7 @@ import { projectPlaylist, syncedShows } from '@/lib/shows';
 import { withoutLoops } from '@/lib/regions';
 import { keptAssetIndex, packageTrailer, readPackageTail, VSC_MAGIC, writePackageTail, type KeptAsset, type PackageAsset, type PackageTail } from '@/lib/vssPackage';
 import { desktopFile, desktopFilePath, desktopProjects, sameFileVersion } from '@/lib/desktopProjectFiles';
+import { extraManifestFields, projectExtras, type ProjectExtraAsset } from '@/lib/projectHooks';
 
 type ProgressFn = (msg: string) => void;
 
@@ -49,6 +50,8 @@ export type SavedManifest = {
   lyricMaps?: ProjectState['lyricMaps'];
   lyricStyle?: ProjectState['lyricStyle'];
   musicianBook?: ProjectState['musicianBook'];
+  /** Pads do Modo Show (os sons vão como áudios do pacote, "pad:N"). */
+  samplePads?: import('@/lib/samplePads').SavedPads;
   assets?: Array<{ clipId: string; path: string; offset: number; size: number }>;
 };
 
@@ -128,6 +131,8 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     lyricMaps: state.lyricMaps,
     lyricStyle: state.lyricStyle ?? null,
     musicianBook: state.musicianBook ?? null,
+    // pads do Modo Show e outras partes que vivem fora do estado principal
+    ...extraManifestFields(),
   };
 }
 
@@ -167,7 +172,9 @@ async function forEachAsset(
   signal?: AbortSignal,
 ): Promise<AssetPlan[]> {
   const plan = planAssets(state);
-  const all = plan.flatMap((p) => p.assets);
+  const extras = extraAssets();
+  const extraById = new Map(extras.map((x) => [x.plan.clip.id, x.extra]));
+  const all = [...plan.flatMap((p) => p.assets), ...extras.map((x) => x.plan)];
   const total = Math.max(1, all.length);
   // Conta arquivos (cada faixa de cada música), não músicas: antes a tela dizia "1 de 225" com
   // 14 músicas no projeto, e parecia que o programa via músicas que não existem.
@@ -180,6 +187,14 @@ async function forEachAsset(
   for (const a of all) {
     checkCancelled(signal);
     done++;
+    const extra = extraById.get(a.clip.id);
+    if (extra) {
+      onProgress(`Salvando os sons dos pads: ${done} de ${total} arquivos`);
+      const data = await extra.blob().catch(() => null);
+      checkCancelled(signal);
+      await write(a, data);
+      continue;
+    }
     const song = songNames.get(a.clip.songId) ?? 'Música';
     const track = trackNames.get(a.clip.trackId) ?? 'Faixa';
     onProgress(`Salvando os áudios: ${done} de ${total} arquivos · música ${songOrder.get(a.clip.songId) ?? 1} de ${Math.max(1, songsWithAudio)} · ${song}, ${track}`);
@@ -209,6 +224,14 @@ async function forEachAsset(
     await write(a, data);
   }
   return all;
+}
+
+/** Áudios de fora das músicas (os sons dos pads), no formato dos áudios das faixas. */
+function extraAssets(): Array<{ plan: AssetPlan; extra: ProjectExtraAsset }> {
+  return projectExtras().flatMap((x) => x.assets()).map((extra) => ({
+    plan: { clip: { id: extra.id, songId: '', trackId: '' } as AudioClip, relPath: extra.relPath },
+    extra,
+  }));
 }
 
 function withAssetPaths(manifest: SavedManifest, assets: AssetPlan[]) {
@@ -457,6 +480,7 @@ async function rebindPackageSources(state: ProjectState, handle: FileSystemFileH
       const src = sources.get(c.id);
       if (src) registerClipSource(c.id, c.songId, src);
     }
+    projectExtras().forEach((x) => x.rebind(sources));
   } catch (err) {
     // Não-crítico: se o handle ainda estiver temporariamente bloqueado pelo OS após o close(),
     // o arquivo já foi gravado no disco com sucesso absoluto.
@@ -538,6 +562,13 @@ function keptAssets(state: ProjectState, fromThisFile: (file: File) => boolean):
     // o pedaço precisa ser deste mesmo arquivo, do jeito que ele está no disco agora
     if (!from || !fromThisFile(from.file)) return null;
     kept.push({ clipId: a.clip.id, path: a.relPath, begin: from.begin, size: from.size });
+  }
+  for (const { plan, extra } of extraAssets()) {
+    const src = extra.current();
+    const from = src ? packageSlices.get(src) : undefined;
+    if (!from || !fromThisFile(from.file)) return null;
+    kept.push({ clipId: extra.id, path: plan.relPath, begin: from.begin, size: from.size });
+    assets.push(plan);
   }
   return { assets, kept };
 }
@@ -683,6 +714,7 @@ async function rebindDesktopSources(state: ProjectState, filePath: string) {
       const src = sources.get(c.id);
       if (src) registerClipSource(c.id, c.songId, src);
     }
+    projectExtras().forEach((x) => x.rebind(sources));
   } catch (err) {
     console.warn('[projectSaver] rebind pós-salvamento ignorado:', err);
   }
@@ -861,6 +893,14 @@ async function readProjectDir(root: DirHandle, onProgress: ProgressFn): Promise<
       console.warn('[projectSaver] falha ao localizar', c.filePath, err);
     }
   }
+  for (const x of projectExtras().flatMap((e) => e.folderAssets(manifest as unknown as Record<string, unknown>))) {
+    try {
+      const parts = x.path.split('/');
+      let d: FileSystemDirectoryHandle = found.dir;
+      for (let j = 0; j < parts.length - 1; j++) d = await d.getDirectoryHandle(parts[j]);
+      sources.set(x.id, await (await d.getFileHandle(parts[parts.length - 1])).getFile());
+    } catch { /* som do pad que não está na pasta: o pad fica vazio */ }
+  }
   onProgress(`Projeto carregado (${sources.size}/${clips.length} áudios).`);
   return { manifest, sources, target: { kind: 'folder', dir: found.dir, name: found.file.name.replace(/\.vsproj$/i, '') } };
 }
@@ -881,6 +921,10 @@ async function readProjectFileList(files: File[], onProgress: ProgressFn): Promi
     if (!c.filePath) continue;
     const f = byPath.get(base + nfc(String(c.filePath)));
     if (f) sources.set(c.id, f);
+  }
+  for (const x of projectExtras().flatMap((e) => e.folderAssets(manifest as unknown as Record<string, unknown>))) {
+    const f = byPath.get(base + nfc(x.path));
+    if (f) sources.set(x.id, f);
   }
   onProgress(`Projeto carregado (${sources.size}/${manifest.clips.length} áudios).`);
   return { manifest, sources };

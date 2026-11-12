@@ -65,3 +65,11 @@ export async function deletePad(slot: number): Promise<void> {
     t.objectStore('audio').delete(slot);
   });
 }
+
+/** Apaga todos os pads guardados (ao abrir um projeto que tem os pads dele). */
+export async function clearPads(): Promise<void> {
+  await tx(['info', 'audio'], 'readwrite', (t) => {
+    t.objectStore('info').clear();
+    t.objectStore('audio').clear();
+  });
+}
