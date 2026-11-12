@@ -494,7 +494,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       )}
 
       {/* Nome na fita crepe, como no mixer */}
-      <div className={`console-tape flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`}>
+      <div className={`console-tape flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': track.color } as React.CSSProperties}>
         <span className="truncate uppercase">{track.name}</span>
         {isFolder && (
           <span className="ml-auto shrink-0 opacity-50 tabular-nums text-[9.5px]" title={`${childClipCount} áudio(s) nas faixas de dentro`}>

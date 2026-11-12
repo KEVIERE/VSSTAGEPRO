@@ -8,6 +8,31 @@
 @tailwind utilities;
 
 @layer base {
+  /* Cores do programa (tailwind.config.js usa estas variáveis). Estes são os valores da skin
+     Analógica, a padrão; as outras skins (src/skins/) trocam só os valores. */
+  :root {
+    --lg-bg: 27 30 34;
+    --lg-bg-deep: 17 19 22;
+    --lg-bg-panel: 36 40 45;
+    --lg-bg-panel-light: 45 50 56;
+    --lg-bg-elevated: 56 61 68;
+    --lg-border: 59 65 72;
+    --lg-border-light: 75 82 90;
+    --lg-border-dark: 11 13 15;
+    --lg-text: 231 226 214;
+    --lg-text-dim: 167 162 151;
+    --lg-text-muted: 111 108 102;
+    --lg-accent: 10 132 255;
+    --lg-accent-hover: 61 155 255;
+    --lg-accent-dim: 0 102 204;
+    --lg-lcd-bg: 12 14 13;
+    --lg-lcd-text: 216 211 198;
+    --lg-lcd-amber: 255 171 31;
+    --lg-lcd-green: 62 226 110;
+    --lg-lcd-red: 255 65 54;
+    --lg-lcd-yellow: 255 216 61;
+  }
+
   html, body {
     margin: 0;
     padding: 0;
@@ -20,8 +45,8 @@
 
   body {
     font-family: 'Inter', -apple-system, system-ui, sans-serif;
-    background-color: #111316;
-    color: #e7e2d6;
+    background-color: rgb(var(--lg-bg-deep));
+    color: rgb(var(--lg-text));
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
@@ -1055,4 +1080,451 @@
   letter-spacing: -0.01em;
   text-transform: none;
   text-indent: 0;
+}
+
+/* ================= Skin Grafite (Visualizar > Skins) =================
+   Mesa digital de palco atual: chassi de alumínio anodizado escuro, painel preto onde ficam os
+   canais, telas de vidro preto com a faixa na cor de cada canal, encoder com anel de LED, teclas
+   escuras que acendem por dentro (SOLO amarelo, MUTE vermelho, CLIP azul), fader de capa preta
+   fosca com a linha acesa e o medidor de LEDs fino ao lado.
+   Só vale com <html data-skin="grafite">; sem isso o programa fica na Analógica, exatamente como
+   sempre foi. As regras das peças antigas (console-*) usam :where() para pesar o mesmo que as da
+   Analógica: vencem as dela (vêm depois) e continuam perdendo para as classes do Tailwind.
+   As peças gf-* só existem na Grafite (src/components/GrafitePieces.tsx). */
+
+@layer base {
+  :root[data-skin='grafite'] {
+    --lg-bg: 21 23 26;
+    --lg-bg-deep: 12 13 15;
+    --lg-bg-panel: 28 31 35;
+    --lg-bg-panel-light: 38 42 47;
+    --lg-bg-elevated: 50 55 61;
+    --lg-border: 48 52 58;
+    --lg-border-light: 70 75 82;
+    --lg-border-dark: 3 4 5;
+    --lg-text: 236 239 243;
+    --lg-text-dim: 170 178 188;
+    --lg-text-muted: 112 120 131;
+    --lg-accent: 52 156 255;
+    --lg-accent-hover: 98 182 255;
+    --lg-accent-dim: 28 118 214;
+    --lg-lcd-bg: 7 8 10;
+    --lg-lcd-text: 232 238 246;
+  }
+}
+
+@layer components {
+  /* ---------- Chassi de alumínio e painel preto ---------- */
+
+  /* Alumínio anodizado escuro, com escovado bem fino e luz suave de cima */
+  :where([data-skin='grafite']) .console-face {
+    background-color: #1d2024;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='200'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.003 0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.045 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0) 40%, rgba(0, 0, 0, 0.18));
+  }
+  /* Painéis grandes: quina de alumínio clara em cima (o chanfro da peça) */
+  :where([data-skin='grafite']) .console-screws {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 2px 0 rgba(255, 255, 255, 0.03);
+  }
+  :where([data-skin='grafite']) .console-rail {
+    background-color: #24272c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.16));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.9);
+  }
+  /* Painel preto embutido onde ficam os canais */
+  :where([data-skin='grafite']) .console-bed {
+    margin: 0 6px 6px;
+    border-radius: 6px;
+    background-color: #0b0c0e;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.3));
+    box-shadow: inset 0 0 0 1px #000, inset 0 8px 16px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+  :where([data-skin='grafite']) .console-strip {
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.035);
+  }
+  :where([data-skin='grafite']) .console-strip:hover {
+    background-color: rgba(255, 255, 255, 0.02);
+  }
+  /* Canal selecionado: o fundo clareia e acende uma linha embaixo na cor do canal */
+  :where([data-skin='grafite']) .console-strip.is-selected {
+    background-color: rgba(255, 255, 255, 0.045);
+    box-shadow: inset 0 -2px 0 var(--ch, rgb(52 156 255)), inset -1px 0 0 rgba(255, 255, 255, 0.035);
+  }
+  .gf-strip.is-master {
+    background-color: rgba(255, 255, 255, 0.025);
+    box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.06);
+  }
+  .gf-strip.is-tc {
+    box-shadow: inset -1px 0 0 rgba(255, 181, 61, 0.25);
+  }
+
+  /* ---------- Tela do canal (vidro preto) ---------- */
+  .gf-screen {
+    width: 100%;
+    height: 44px;
+    display: flex;
+    flex-direction: column;
+    border-radius: 4px;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 45%),
+      #07080a;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 0 0 1px #000, 0 1px 0 rgba(255, 255, 255, 0.05);
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #f2f5f8;
+  }
+  .gf-screen-head {
+    height: 11px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 3px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ch) 100%, white 18%), var(--ch));
+    color: #fff;
+    font-size: 7.5px;
+    font-weight: 700;
+    line-height: 1;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.5);
+    font-variant-numeric: tabular-nums;
+  }
+  .gf-screen-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 4px;
+  }
+  .gf-screen-name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 10.5px;
+    font-weight: 600;
+    line-height: 13px;
+    letter-spacing: -0.01em;
+    color: #ffffff;
+  }
+  .gf-screen-value {
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 11px;
+    color: #9aa6b4;
+    font-variant-numeric: tabular-nums;
+  }
+  .gf-screen-value small {
+    font-size: 7px;
+    margin-left: 1px;
+  }
+  .gf-screen-pan {
+    position: relative;
+    height: 2px;
+    margin: 0 4px 4px;
+    flex-shrink: 0;
+    border-radius: 1px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+  .gf-screen-pan > i {
+    position: absolute;
+    top: -1px;
+    width: 6px;
+    height: 4px;
+    margin-left: -3px;
+    border-radius: 2px;
+    background: var(--ch);
+    box-shadow: 0 0 4px var(--ch);
+  }
+  .gf-tag {
+    display: inline-block;
+    min-width: 8px;
+    padding: 0 1px;
+    border-radius: 2px;
+    font-size: 6.5px;
+    line-height: 8px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.35);
+    background: rgba(0, 0, 0, 0.3);
+    text-shadow: none;
+  }
+  .gf-tag.is-solo.is-on { color: #2a1d00; background: #ffd23d; }
+  .gf-tag.is-mute.is-on { color: #fff; background: #ff3b30; }
+  .gf-tag.is-clip.is-on { color: #fff; background: #2f8cff; }
+
+  /* ---------- Visores do topo, do Modo Show e dos pads: vidro preto ---------- */
+  :where([data-skin='grafite']) .logic-lcd,
+  :where([data-skin='grafite']) .console-display {
+    border-color: #000;
+    border-radius: 6px;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0) 38%);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+  :where([data-skin='grafite']) .console-readout {
+    background-color: #07080a;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  }
+  /* Moldura do visor grande: aro de alumínio fino */
+  :where([data-skin='grafite']) .console-bezel {
+    padding: 3px;
+    border-radius: 9px;
+    background: linear-gradient(180deg, #5d636b, #2b2e33 40%, #17191c);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 3px 10px rgba(0, 0, 0, 0.55);
+  }
+  /* Números dos visores: fonte de tela, lisa, com um brilho leve */
+  .segment-display.is-tft {
+    filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 35%, transparent));
+  }
+  /* Nome da faixa na timeline: tela preta com a faixa na cor do canal */
+  :where([data-skin='grafite']) .console-tape {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.01em;
+    color: #f2f5f8;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0) 50%), #07080a;
+    clip-path: none;
+    border-radius: 3px;
+    box-shadow: inset 3px 0 0 var(--ch, rgb(52 156 255)), inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 0 0 1px #000;
+  }
+
+  /* ---------- Letras ---------- */
+  :where([data-skin='grafite']) .console-legend {
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: 0.08em;
+    color: #8e98a5;
+  }
+
+  /* ---------- Fader ---------- */
+  .gf-slot {
+    width: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #000, #0d0e10 50%, #000);
+    box-shadow: inset 0 1px 2px #000, 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+  .gf-cap {
+    filter: drop-shadow(0 4px 4px rgba(0, 0, 0, 0.8)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.9));
+  }
+  .gf-cap-locked {
+    outline: 1px solid rgb(255 181 61);
+    outline-offset: 1px;
+    border-radius: 3px;
+  }
+  .gf-scale {
+    position: absolute;
+    right: 0;
+    transform: translateY(50%);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 500;
+    font-size: 6.5px;
+    line-height: 1;
+    color: #6f7a87;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .gf-scale.is-unity {
+    color: #e9eef4;
+    font-weight: 700;
+  }
+  .gf-scale-tick {
+    width: 3px;
+    height: 1px;
+    background: currentColor;
+  }
+  /* Medidor fino ao lado do fader */
+  .gf-fmeter {
+    width: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 1px;
+    border-radius: 2px;
+    background: #030304;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+    cursor: default;
+  }
+  .gf-fmeter > i {
+    flex: 1;
+    min-height: 1px;
+    border-radius: 0.5px;
+    background: rgba(255, 255, 255, 0.05);
+  }
+  .gf-fmeter > i.is-green.is-on { background: #3ce47a; box-shadow: 0 0 3px rgba(60, 228, 122, 0.6); }
+  .gf-fmeter > i.is-yellow.is-on { background: #ffd23d; box-shadow: 0 0 3px rgba(255, 210, 61, 0.6); }
+  .gf-fmeter > i.is-red.is-on { background: #ff3b30; box-shadow: 0 0 4px rgba(255, 59, 48, 0.8); }
+  .gf-fmeter > .gf-fmeter-clip {
+    flex: 0 0 3px;
+    margin-bottom: 1px;
+    background: rgba(255, 59, 48, 0.15);
+  }
+  .gf-fmeter > .gf-fmeter-clip.is-on {
+    background: #ff3b30;
+    box-shadow: 0 0 6px #ff3b30;
+    cursor: pointer;
+  }
+
+  /* Fader deitado da timeline e o de pitch dos pads: capa preta com a linha acesa */
+  :where([data-skin='grafite']) .console-slot {
+    background: #000;
+    box-shadow: inset 0 1px 2px #000, 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+  :where([data-skin='grafite']) .console-cap {
+    border-radius: 2px;
+    background:
+      linear-gradient(to bottom, transparent calc(50% - 0.75px), var(--cap-line) calc(50% - 0.75px), var(--cap-line) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+      linear-gradient(to right, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 25%, rgba(0, 0, 0, 0) 75%, rgba(0, 0, 0, 0.4)),
+      linear-gradient(to bottom, #44484f, #1c1e22 22%, #141518 78%, #0a0b0c);
+    box-shadow: 0 3px 4px rgba(0, 0, 0, 0.8), 0 0 0 1px #050506, inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  :where([data-skin='grafite']) .console-cap.is-horizontal {
+    background:
+      linear-gradient(to right, transparent calc(50% - 0.75px), var(--cap-line) calc(50% - 0.75px), var(--cap-line) calc(50% + 0.75px), transparent calc(50% + 0.75px)),
+      linear-gradient(to bottom, #44484f, #1c1e22 30%, #141518 75%, #0a0b0c);
+  }
+  :where([data-skin='grafite']) .console-cap--band { --cap-line: #f4f6f9; }
+  :where([data-skin='grafite']) .console-cap--cue { --cap-line: #56c8ff; }
+  :where([data-skin='grafite']) .console-cap--master { --cap-line: #ff4d42; }
+  :where([data-skin='grafite']) .console-cap--tc { --cap-line: #ffb53d; }
+  :where([data-skin='grafite']) .console-well {
+    background-color: #030304;
+    border-radius: 2px;
+  }
+
+  /* ---------- Knob ---------- */
+  .gf-knob {
+    overflow: visible;
+  }
+
+  /* ---------- Teclas escuras que acendem por dentro ---------- */
+  :where([data-skin='grafite']) .console-key,
+  :where([data-skin='grafite']) .logic-btn,
+  :where([data-skin='grafite']) .logic-btn-transport {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    color: #b9c2cd;
+    background-color: #24272c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0) 50%, rgba(0, 0, 0, 0.22));
+    border: 1px solid #050607;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 1px 0 rgba(255, 255, 255, 0.04), 0 2px 4px rgba(0, 0, 0, 0.55);
+  }
+  :where([data-skin='grafite']) .console-key:hover,
+  :where([data-skin='grafite']) .logic-btn:hover,
+  :where([data-skin='grafite']) .logic-btn-transport:hover {
+    color: #ffffff;
+    background-color: #2d3137;
+  }
+  :where([data-skin='grafite']) .console-key:active,
+  :where([data-skin='grafite']) .logic-btn-transport:active {
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7);
+  }
+  /* Acesa: a luz vem de dentro da tecla (centro mais claro) e vaza um pouco em volta */
+  :where([data-skin='grafite']) .console-key.is-lit-amber,
+  :where([data-skin='grafite']) .console-key.\!bg-\[\#3a3326\] {
+    color: #2a1a00 !important;
+    background-color: #ffbe3d !important;
+    background-image: radial-gradient(120% 110% at 50% 35%, #ffeab0 0%, #ffc54d 45%, #e8930a 100%);
+    border-color: #6b4200;
+    box-shadow: 0 0 10px rgba(255, 180, 50, 0.55), 0 0 2px rgba(255, 210, 120, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -2px 3px rgba(120, 60, 0, 0.35);
+  }
+  :where([data-skin='grafite']) .console-key.is-lit-green {
+    color: #02280f;
+    background-color: #39e07a;
+    background-image: radial-gradient(120% 110% at 50% 35%, #c6ffd9 0%, #4ff08b 45%, #17a94d 100%);
+    border-color: #0b5a28;
+    box-shadow: 0 0 11px rgba(60, 228, 122, 0.55), 0 0 2px rgba(160, 255, 200, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -2px 3px rgba(0, 80, 30, 0.35);
+  }
+  :where([data-skin='grafite']) .console-key.is-lit-red {
+    color: #ffffff;
+    background-color: #ff3b30;
+    background-image: radial-gradient(120% 110% at 50% 35%, #ffb0a8 0%, #ff4a3e 45%, #c4170d 100%);
+    border-color: #5c0904;
+    box-shadow: 0 0 11px rgba(255, 59, 48, 0.6), 0 0 2px rgba(255, 160, 150, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 3px rgba(90, 0, 0, 0.35);
+    text-shadow: 0 1px 1px rgba(80, 0, 0, 0.5);
+  }
+  :where([data-skin='grafite']) .console-key.is-lit-blue {
+    color: #ffffff;
+    background-color: #2f8cff;
+    background-image: radial-gradient(120% 110% at 50% 35%, #b5dbff 0%, #4aa2ff 45%, #1462cc 100%);
+    border-color: #0a3570;
+    box-shadow: 0 0 11px rgba(47, 140, 255, 0.6), 0 0 2px rgba(170, 215, 255, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.45), inset 0 -2px 3px rgba(0, 30, 80, 0.35);
+    text-shadow: 0 1px 1px rgba(0, 30, 80, 0.5);
+  }
+  :where([data-skin='grafite']) .console-key.is-big {
+    border-radius: 6px;
+  }
+  :where([data-skin='grafite']) .console-key.is-big.is-lit-green {
+    box-shadow: 0 0 20px rgba(60, 228, 122, 0.5), 0 0 2px rgba(160, 255, 200, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.55), inset 0 -2px 3px rgba(0, 80, 30, 0.35);
+  }
+  /* Teclas pequenas do canal (SOLO, MUTE, CLIP) */
+  .gf-key {
+    height: 16px;
+    padding: 0;
+    font-size: 6.5px !important;
+    letter-spacing: 0.03em;
+    line-height: 1;
+  }
+
+  /* Tecla lisa das faixas da timeline: mesma família, mais baixa */
+  :where([data-skin='grafite']) .console-flatkey {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    color: #9aa4b0;
+    background-color: #202327;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.15));
+    border: 1px solid #050607;
+    border-radius: 3px;
+  }
+  :where([data-skin='grafite']) .console-flatkey:hover {
+    color: #ffffff;
+    background-color: #2a2e33;
+  }
+  :where([data-skin='grafite']) .console-flatkey.is-lit-amber {
+    color: #2a1a00;
+    background-color: #ffbe3d;
+    border-color: #6b4200;
+    box-shadow: 0 0 8px rgba(255, 180, 50, 0.5);
+  }
+
+  /* ---------- Faixas da timeline ---------- */
+  :where([data-skin='grafite']) .console-row {
+    background-color: #1b1e22;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(0, 0, 0, 0.12));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 rgba(0, 0, 0, 0.85);
+  }
+  :where([data-skin='grafite']) .console-row:hover {
+    background-color: #212429;
+  }
+  :where([data-skin='grafite']) .console-row.is-selected {
+    background-color: #1a2635;
+    box-shadow: inset 0 0 0 1px rgba(52, 156, 255, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  :where([data-skin='grafite']) .console-row-child {
+    background-color: #111316;
+  }
+  :where([data-skin='grafite']) .console-row-child:hover {
+    background-color: #171a1d;
+  }
+  :where([data-skin='grafite']) .console-row-child.is-selected {
+    background-color: rgba(52, 156, 255, 0.13);
+  }
+
+  /* Pads de seção: vidro escuro que acende na cor da parte */
+  :where([data-skin='grafite']) .console-pad {
+    border-radius: 6px;
+    border-color: #050607;
+    background-color: #1c1f23;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.2));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 4px rgba(0, 0, 0, 0.6);
+  }
+  :where([data-skin='grafite']) .console-pad:hover {
+    background-color: #24272c;
+  }
+  :where([data-skin='grafite']) .console-pad.is-active {
+    background-color: color-mix(in srgb, var(--pad-color) 24%, #1c1f23);
+  }
 }

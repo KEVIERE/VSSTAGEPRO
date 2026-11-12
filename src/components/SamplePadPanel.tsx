@@ -4,6 +4,8 @@ import { LayoutGrid, Loader2, Plus, Repeat, X } from 'lucide-react';
 import { LedMeter } from '@/components/MeterMask';
 import MixerPanel, { Fader } from '@/components/MixerPanel';
 import SegmentDisplay from '@/components/SegmentDisplay';
+import { GfKnob } from '@/components/GrafitePieces';
+import { useSkin } from '@/lib/useSkin';
 import { faderToGain } from '@/lib/faderScale';
 import {
   clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
@@ -120,7 +122,7 @@ function SamplePadPanel() {
   const set = (patch: Partial<Omit<PadInfo, 'slot'>>) => { if (selected) void updatePad(selected.slot, patch); };
 
   return (
-    <div className="console-face flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '336px', maxHeight: '62%' }}>
+    <div className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '336px', maxHeight: '62%' }}>
       <div className="console-rail flex items-center gap-2 px-3 h-8 shrink-0">
         <LayoutGrid size={13} className="text-logic-text-dim" />
         <span className="font-stage text-[13px] font-semibold tracking-wide text-logic-text-dim">Pads</span>
@@ -424,6 +426,7 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
   value: number; color: string; disabled: boolean; onChange: (v: number) => void; onReset: () => void;
 }) {
   const pct = Math.max(0, Math.min(1, value / 1.5));
+  const grafite = useSkin() === 'grafite';
   const SEG = 21;
   const angle = -135 + pct * 270;
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -462,6 +465,7 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
       aria-valuenow={value}
       title="Volume do pad escolhido: arraste para cima ou para baixo (Shift: fino). Duplo clique: 0 dB."
     >
+      {!grafite && (
       <svg viewBox="0 0 78 78" className="absolute inset-0">
         {Array.from({ length: SEG }, (_, i) => {
           const a = ((-135 + (i / (SEG - 1)) * 270) * Math.PI) / 180;
@@ -479,6 +483,13 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
           );
         })}
       </svg>
+      )}
+      {grafite ? (
+        // Grafite: o mesmo encoder com anel de LED dos canais do mixer (anel na cor do pad)
+        <div className="absolute" style={{ inset: 6 }}>
+          <GfKnob value={pct * 2 - 1} bipolar={false} color={color} className="w-full h-full" />
+        </div>
+      ) : (
       <div
         className="absolute rounded-full border border-black"
         style={{
@@ -495,6 +506,7 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
           <div className="w-full h-[9px] rounded-full bg-[#f2eee4]" />
         </div>
       </div>
+      )}
     </div>
   );
 }

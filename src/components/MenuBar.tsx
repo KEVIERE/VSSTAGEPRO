@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { useStore } from '@/store';
 import { useHoverDismiss } from '@/lib/useHoverDismiss';
 import ImportVSDialog from '@/components/ImportVSDialog';
@@ -16,6 +16,7 @@ import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { audioEngine } from '@/lib/audioEngine';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { glueSelectedClips } from '@/lib/clipGlue';
+import { SKINS, chooseSkin, currentSkin, subscribeSkin } from '@/lib/skins';
 
 // O programa é Mac-only: atalhos sempre no padrão do teclado Mac (⌘), nunca Ctrl.
 const SAVE_SHORTCUT = '⌘S';
@@ -65,6 +66,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const activeShowName = useStore((s) => s.shows.find((sh) => sh.id === s.activeShowId)?.name ?? DEFAULT_SHOW_NAME);
   const timelineLocked = useStore((s) => s.timelineLocked);
   const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
+  const skin = useSyncExternalStore(subscribeSkin, currentSkin);
 
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [recentOpen, setRecentOpen] = useState(false);
@@ -238,6 +240,12 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
           checked: timelineLocked,
           action: () => { toggleTimelineLocked(); setOpenMenu(null); },
         },
+        { separator: true },
+        ...SKINS.map((s): MenuItem => ({
+          label: `Skin: ${s.label}`,
+          checked: skin === s.id,
+          action: () => { chooseSkin(s.id); setOpenMenu(null); },
+        })),
       ],
     },
   ];

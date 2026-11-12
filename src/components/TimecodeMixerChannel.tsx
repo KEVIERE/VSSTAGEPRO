@@ -4,12 +4,16 @@ import { volumeToDb } from '@/lib/audioEngine';
 import { NO_OUTPUT, TIMECODE_DEFAULT_VOLUME, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import { LedMeter } from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
+import { useSkin } from '@/lib/useSkin';
+import { GfCap, GfFaderMeter, GfKey, GfScreen } from '@/components/GrafitePieces';
+import { GF_CAP_H, GF_FADER_H } from '@/components/MixerPanel';
 
 export default function TimecodeMixerChannel() {
   const track = useStore((s) => s.tracks.find((t) => t.id === TIMECODE_TRACK_ID));
   const setVolume = useStore((s) => s.setVolume);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleFaderLock = useStore((s) => s.toggleFaderLock);
+  const grafite = useSkin() === 'grafite';
   if (!track) return null;
 
   const locked = !!track.faderLocked;
@@ -18,6 +22,73 @@ export default function TimecodeMixerChannel() {
   const db = volumeToDb(track.volume);
   const dbLabel = db === -Infinity ? '-inf' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
   const noOutput = track.outputChannel === NO_OUTPUT;
+
+  if (grafite) {
+    // Grafite: tela dourada, LTC no lugar do encoder, teclas TRAVA e MUTE e o fader de linha âmbar
+    return (
+      <div className="console-strip gf-strip is-tc flex flex-col items-center w-[80px] min-w-[80px] py-1.5 px-[3px] gap-[3px] relative">
+        <OutputMenu track={track} />
+        <GfScreen number="TC" name="Timecode" value={dbLabel === '-inf' ? '-∞' : dbLabel} color="#ffb53d" />
+        <div className="flex items-center justify-center gap-1 h-[28px] text-logic-lcd-amber" title="Sinal de controle para telões e luzes">
+          <Clock size={14} />
+          <span className="text-[11px] font-bold tracking-wider">LTC</span>
+        </div>
+        <div className="flex gap-[2px] w-full">
+          <GfKey
+            label={locked ? 'TRAVADO' : 'LIVRE'}
+            tone="clip"
+            lit={locked}
+            className="flex-1"
+            onClick={() => toggleFaderLock(track.id)}
+            title={locked ? 'Destravar o fader' : 'Travar o fader'}
+          >
+            {locked ? <Lock size={8} /> : <LockOpen size={8} />}{locked ? 'TRAVADO' : 'LIVRE'}
+          </GfKey>
+          <GfKey
+            label={track.mute ? 'MUDO' : 'MUTE'}
+            tone="mute"
+            lit={track.mute}
+            pulse={track.mute}
+            className="flex-1"
+            onClick={() => toggleMute(track.id)}
+            title={track.mute ? 'Timecode mudo: clique para voltar a enviar o sinal' : 'Silenciar o timecode'}
+          />
+        </div>
+        <div className="flex items-start gap-[3px] mt-auto">
+          {/* o lugar da escala dos outros canais: o fader cai na mesma coluna */}
+          <div className="w-[15px]" aria-hidden="true" />
+          <div
+            className="gf-fader relative w-[24px]"
+            style={{ height: GF_FADER_H }}
+            onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
+            title={locked ? 'Fader travado. Clique no cadeado para destravar.' : 'Duplo clique = -6 dB'}
+          >
+            <div className="gf-slot absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: GF_CAP_H / 2 - 3, bottom: GF_CAP_H / 2 - 3 }} />
+            <GfCap
+              tone="tc"
+              className={`absolute left-0 pointer-events-none ${locked ? 'gf-cap-locked' : ''}`}
+              style={{ width: '100%', height: GF_CAP_H, bottom: `calc(${capPct} * (100% - ${GF_CAP_H}px))` }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.01}
+              value={track.volume}
+              disabled={locked}
+              onChange={(e) => setVolume(track.id, parseFloat(e.target.value))}
+              className={`absolute inset-0 w-full h-full opacity-0 ${locked ? 'cursor-not-allowed' : 'cursor-ns-resize'}`}
+              style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
+              aria-label="Volume do timecode"
+            />
+          </div>
+          <div style={{ marginTop: GF_CAP_H / 2 }}>
+            <GfFaderMeter id={track.id} height={GF_FADER_H - GF_CAP_H} off={track.mute || noOutput} />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Módulo do timecode: mesmo painel dos outros canais com um tom âmbar por cima,
   // capa do fader âmbar e uma borda âmbar separando da banda.
@@ -38,7 +109,7 @@ export default function TimecodeMixerChannel() {
         {/* a escala de dB dos canais ocupa SCALE_W=14 à esquerda: sem ela o fader subiria 14 px */}
         <div className="w-[14px] h-[120px] shrink-0" aria-hidden="true" />
         <div
-          className="relative w-6 h-[120px]"
+          className="console-faderbed relative w-6 h-[120px]"
           onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
           title={locked ? 'Fader travado. Clique no cadeado para destravar.' : 'Duplo clique = -6 dB'}
         >

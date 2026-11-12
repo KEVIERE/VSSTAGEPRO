@@ -6,33 +6,35 @@ export default {
       colors: {
         // Paleta do programa. Visual de mesa analógica: painel de aço pintado em grafite
         // levemente azulado, e textos em creme, como a serigrafia impressa numa mesa de som.
+        // As cores vêm de variáveis (src/index.css) para as skins poderem trocar (Visualizar >
+        // Skins). Os valores padrão são os mesmos de sempre: a skin Analógica fica idêntica.
         logic: {
           // Fundos: aço pintado (do rebaixo mais fundo ao botão mais saltado)
-          bg: '#1b1e22',
-          'bg-deep': '#111316',
-          'bg-panel': '#24282d',
-          'bg-panel-light': '#2d3238',
-          'bg-elevated': '#383d44',
+          bg: 'rgb(var(--lg-bg) / <alpha-value>)',
+          'bg-deep': 'rgb(var(--lg-bg-deep) / <alpha-value>)',
+          'bg-panel': 'rgb(var(--lg-bg-panel) / <alpha-value>)',
+          'bg-panel-light': 'rgb(var(--lg-bg-panel-light) / <alpha-value>)',
+          'bg-elevated': 'rgb(var(--lg-bg-elevated) / <alpha-value>)',
           // Bordas
-          border: '#3b4148',
-          'border-light': '#4b525a',
-          'border-dark': '#0b0d0f',
+          border: 'rgb(var(--lg-border) / <alpha-value>)',
+          'border-light': 'rgb(var(--lg-border-light) / <alpha-value>)',
+          'border-dark': 'rgb(var(--lg-border-dark) / <alpha-value>)',
           // Texto: serigrafia creme
-          text: '#e7e2d6',
-          'text-dim': '#a7a297',
-          'text-muted': '#6f6c66',
+          text: 'rgb(var(--lg-text) / <alpha-value>)',
+          'text-dim': 'rgb(var(--lg-text-dim) / <alpha-value>)',
+          'text-muted': 'rgb(var(--lg-text-muted) / <alpha-value>)',
           // Accent — Logic's blue
-          accent: '#0a84ff',
-          'accent-hover': '#3d9bff',
-          'accent-dim': '#0066cc',
+          accent: 'rgb(var(--lg-accent) / <alpha-value>)',
+          'accent-hover': 'rgb(var(--lg-accent-hover) / <alpha-value>)',
+          'accent-dim': 'rgb(var(--lg-accent-dim) / <alpha-value>)',
           // Displays e LEDs
           lcd: {
-            bg: '#0c0e0d',
-            text: '#d8d3c6',
-            amber: '#ffab1f',
-            green: '#3ee26e',
-            red: '#ff4136',
-            yellow: '#ffd83d',
+            bg: 'rgb(var(--lg-lcd-bg) / <alpha-value>)',
+            text: 'rgb(var(--lg-lcd-text) / <alpha-value>)',
+            amber: 'rgb(var(--lg-lcd-amber) / <alpha-value>)',
+            green: 'rgb(var(--lg-lcd-green) / <alpha-value>)',
+            red: 'rgb(var(--lg-lcd-red) / <alpha-value>)',
+            yellow: 'rgb(var(--lg-lcd-yellow) / <alpha-value>)',
           },
           // Track colors
           track: {

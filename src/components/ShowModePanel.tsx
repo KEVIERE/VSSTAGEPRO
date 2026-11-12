@@ -382,7 +382,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   const ledKey = (on: boolean) => `${bigKey} h-11 text-[13px] ${on ? '!text-logic-text' : ''}`;
 
   return (
-    <aside className="console-face relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full border-l-2 border-black overflow-hidden animate-[fadeIn_200ms_ease-out]">
+    <aside className="console-face console-screws relative flex flex-col w-[380px] xl:w-[440px] shrink-0 h-full border-l-2 border-black overflow-hidden animate-[fadeIn_200ms_ease-out]">
       <DiskLagNotice className="absolute right-3 top-[54px] z-30" />
       <div className="console-rail flex items-center gap-2 px-4 h-12 shrink-0">
         <span className={`console-lamp shrink-0 ${isPlaying ? 'is-on' : ''}`} title={isPlaying ? 'No ar: o show está tocando' : 'Parado'} />

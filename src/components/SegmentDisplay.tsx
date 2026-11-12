@@ -1,6 +1,9 @@
 // Display de 7 segmentos, desenhado em SVG (não depende de fonte nem de internet).
 // Os segmentos apagados aparecem bem fracos atrás dos acesos, como num display de LED de verdade.
 // A cor vem do texto (currentColor) e o tamanho, da altura: <SegmentDisplay text="-3:21" className="h-12 text-logic-lcd-green" />
+// Na skin Grafite o mesmo lugar vira um visor de tela (TFT): números lisos, sem segmentos, no
+// mesmo tamanho (a caixa é a mesma, então nada sai do lugar ao trocar de skin).
+import { useSkin } from '@/lib/useSkin';
 
 const SEGMENTS: Record<string, string> = {
   '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd',
@@ -71,6 +74,32 @@ export default function SegmentDisplay({
   ghost?: boolean;
 }) {
   const { cells, width } = layout(text);
+  const skin = useSkin();
+  if (skin === 'grafite') {
+    return (
+      <svg
+        viewBox={`${-SKEW_PAD - 0.5} -0.5 ${width + SKEW_PAD + 1} 21`}
+        className={`segment-display is-tft ${className}`}
+        style={{ width: 'auto' }}
+        role="img"
+        aria-label={label ?? text}
+      >
+        <text
+          x={width / 2}
+          y={17.4}
+          textAnchor="middle"
+          fontSize={19}
+          fontWeight={600}
+          letterSpacing={-0.4}
+          fontFamily="'Inter', system-ui, sans-serif"
+          style={{ fontVariantNumeric: 'tabular-nums' }}
+          fill="currentColor"
+        >
+          {text}
+        </text>
+      </svg>
+    );
+  }
   return (
     <svg
       viewBox={`${-SKEW_PAD - 0.5} -0.5 ${width + SKEW_PAD + 1} 21`}

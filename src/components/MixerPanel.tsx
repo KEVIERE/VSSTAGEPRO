@@ -10,6 +10,8 @@ import OutputMenu from '@/components/OutputMenu';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import { useMeterLevel } from '@/lib/meterBus';
 import { gainToFader } from '@/lib/faderScale';
+import { useSkin } from '@/lib/useSkin';
+import { GfCap, GfFaderMeter, GfKey, GfKnob, GfScreen, GfTag } from '@/components/GrafitePieces';
 
 // Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
 // nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
@@ -121,6 +123,17 @@ const FADER_MARKS: { db: number; label: string }[] = [
 ];
 const SCALE_W = 14;
 
+// Grafite: escala fina à esquerda do fader, como nas mesas digitais
+const GF_SCALE_W = 15;
+export const GF_CAP_H = 34;
+export const GF_FADER_H = 128;
+
+/** Valor do fader em dB, como aparece nos visores. */
+export function faderDbText(volume: number): string {
+  const db = volumeToDb(volume);
+  return db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
+}
+
 type CapTone = 'cue' | 'band' | 'master';
 // nomes escritos por inteiro para o Tailwind não descartar as classes no build
 const CAP_CLASS: Record<CapTone, string> = {
@@ -146,7 +159,8 @@ export function Fader({
   height?: number;
   tone?: CapTone;
 }) {
-  const capHeight = 22;
+  const grafite = useSkin() === 'grafite';
+  const capHeight = grafite ? GF_CAP_H : 22;
   const travel = height - capHeight;
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const bottomPx = pct * travel;
@@ -185,9 +199,34 @@ export function Fader({
   const db = volumeToDb(value);
   const dbLabel = db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
 
+  if (grafite) {
+    // Grafite: escala fina à esquerda, fenda escura e a capa preta fosca com a linha acesa
+    return (
+      <div
+        className="gf-fader relative flex cursor-ns-resize select-none"
+        style={{ width: `${width + GF_SCALE_W}px`, height: `${height}px`, touchAction: 'none' }}
+        onPointerDown={handleDown}
+        onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
+        title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
+      >
+        <div className="relative h-full pointer-events-none" style={{ width: `${GF_SCALE_W}px` }}>
+          {FADER_MARKS.map((m) => (
+            <span key={m.label} className={`gf-scale ${m.db === 0 ? 'is-unity' : ''}`} style={{ bottom: `${markY(m.db)}px` }}>
+              {m.label}<i className="gf-scale-tick" />
+            </span>
+          ))}
+        </div>
+        <div className="relative h-full pointer-events-none" style={{ width: `${width}px` }}>
+          <div className="gf-slot absolute left-1/2 -translate-x-1/2" style={{ top: `${capHeight / 2 - 3}px`, bottom: `${capHeight / 2 - 3}px` }} />
+          <GfCap tone={tone} className="absolute left-0" style={{ width: '100%', height: `${capHeight}px`, bottom: `${bottomPx}px` }} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
-      className="relative flex cursor-ns-resize select-none"
+      className="console-faderbed relative flex cursor-ns-resize select-none"
       style={{ width: `${SCALE_W + width}px`, height: `${height}px`, touchAction: 'none' }}
       onPointerDown={handleDown}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
@@ -220,7 +259,26 @@ export function Fader({
   );
 }
 
-function MixerChannel({ trackId }: { trackId: string }) {
+// Arrastar o knob de pan para os lados; duplo clique volta ao centro.
+function panKnobProps(trackId: string, pan: number, setPan: (id: string, v: number) => void) {
+  return {
+    onDoubleClick: (e: React.MouseEvent) => { e.stopPropagation(); setPan(trackId, 0); },
+    onMouseDown: (e: React.MouseEvent) => {
+      e.stopPropagation();
+      const startX = e.clientX;
+      const onMove = (ev: MouseEvent) => {
+        const delta = (ev.clientX - startX) / 50;
+        setPan(trackId, Math.max(-1, Math.min(1, pan + delta)));
+      };
+      const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    title: `Pan: ${pan > 0 ? 'R' : pan < 0 ? 'L' : 'C'} ${Math.abs(Math.round(pan * 100))} (duplo clique = centro)`,
+  };
+}
+
+function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === trackId));
   const setVolume = useStore((s) => s.setVolume);
   const setPan = useStore((s) => s.setPan);
@@ -230,11 +288,85 @@ function MixerChannel({ trackId }: { trackId: string }) {
   const toggleAntiClip = useStore((s) => s.toggleAntiClip);
   const clearClipIndicator = useStore((s) => s.clearClipIndicator);
   const selectedTrackId = useStore((s) => s.selectedTrackId);
+  const grafite = useSkin() === 'grafite';
 
   if (!track) return null;
 
   const isSelected = selectedTrackId === track.id;
   const isClipping = track.clipIndicator;
+
+  if (grafite) {
+    // Grafite (mesa digital): tela do canal, encoder com anel de LED, teclas SOLO / MUTE / CLIP que
+    // acendem por dentro e, embaixo, o fader com o medidor fino ao lado.
+    return (
+      <div
+        className={`console-strip gf-strip flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[3px] gap-[3px] cursor-pointer relative ${isSelected ? 'is-selected' : ''}`}
+        style={{ '--ch': track.color } as React.CSSProperties}
+        onClick={() => selectTrack(track.id)}
+      >
+        <OutputMenu track={track} />
+        <GfScreen
+          number={index + 1}
+          name={track.name}
+          value={faderDbText(track.volume)}
+          color={track.color}
+          pan={track.pan}
+          tags={<><GfTag on={track.solo} tone="solo">S</GfTag><GfTag on={track.mute} tone="mute">M</GfTag></>}
+        />
+        <div className="w-[30px] h-[30px] relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
+          <GfKnob value={track.pan} color={track.color} className="absolute inset-0 w-full h-full pointer-events-none" />
+        </div>
+        <div className="flex gap-[2px] w-full">
+          <GfKey
+            label="SOLO"
+            tone="solo"
+            lit={track.solo}
+            className="flex-1"
+            onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+            title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
+          />
+          <GfKey
+            label="MUTE"
+            tone="mute"
+            lit={track.mute}
+            className="flex-1"
+            onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+            title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
+          />
+          <GfKey
+            label="CLIP"
+            tone={!track.antiClip && isClipping ? 'mute' : 'clip'}
+            lit={track.antiClip || isClipping}
+            pulse={!track.antiClip && isClipping}
+            className="w-[17px]"
+            onClick={(e) => { e.stopPropagation(); toggleAntiClip(track.id); }}
+            title={track.antiClip
+              ? 'Anti-Clip ligado: a saída deste canal não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+              : 'Anti-Clip desligado: clique para limitar a saída deste canal em -0,1 dBFS, sem mudar o volume do resto.'}
+          />
+        </div>
+        <div className="flex items-start gap-[3px] mt-auto">
+          <Fader
+            value={track.volume}
+            onChange={(v) => setVolume(track.id, v)}
+            onDoubleClick={() => setVolume(track.id, 0.8)}
+            width={24}
+            height={GF_FADER_H}
+            tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
+          />
+          <div style={{ marginTop: GF_CAP_H / 2 }}>
+            <GfFaderMeter
+              id={track.id}
+              height={GF_FADER_H - GF_CAP_H}
+              off={track.mute}
+              clipping={isClipping}
+              onClick={(e) => { e.stopPropagation(); if (isClipping) clearClipIndicator(track.id); }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -245,23 +377,7 @@ function MixerChannel({ trackId }: { trackId: string }) {
       <OutputMenu track={track} />
 
       {/* Knob de pan */}
-      <div
-        className="w-7 h-7 relative cursor-ew-resize select-none"
-        onDoubleClick={(e) => { e.stopPropagation(); setPan(track.id, 0); }}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          const startX = e.clientX;
-          const startPan = track.pan;
-          const onMove = (ev: MouseEvent) => {
-            const delta = (ev.clientX - startX) / 50;
-            setPan(track.id, Math.max(-1, Math.min(1, startPan + delta)));
-          };
-          const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-          window.addEventListener('mousemove', onMove);
-          window.addEventListener('mouseup', onUp);
-        }}
-        title={`Pan: ${track.pan > 0 ? 'R' : track.pan < 0 ? 'L' : 'C'} ${Math.abs(Math.round(track.pan * 100))} (duplo clique = centro)`}
-      >
+      <div className="w-7 h-7 relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
         <PanKnob pan={track.pan} />
       </div>
 
@@ -370,6 +486,7 @@ export default function MixerPanel() {
   const masterAntiClip = useStore((s) => !!s.masterAntiClip);
   const toggleMasterAntiClip = useStore((s) => s.toggleMasterAntiClip);
   const masterIsClipping = masterClipPeak >= 1;
+  const grafite = useSkin() === 'grafite';
 
   const allChannels = useMemo(() => {
     const result: string[] = [];
@@ -399,7 +516,7 @@ export default function MixerPanel() {
   }
 
   return (
-    <div className="console-face flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '300px', maxHeight: '60%' }}>
+    <div className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '300px', maxHeight: '60%' }}>
       {/* Trilho de cima */}
       <div
         className="console-rail flex items-center justify-between px-3 h-7 cursor-pointer"
@@ -415,16 +532,70 @@ export default function MixerPanel() {
       </div>
 
       {/* Canais */}
-      <div className="flex-1 flex overflow-x-auto overflow-y-hidden logic-scroll min-h-0">
+      <div className="console-bed flex-1 flex overflow-x-auto overflow-y-hidden logic-scroll min-h-0">
         <div className="flex mx-auto min-w-fit border-l border-r border-logic-border-dark">
           <TimecodeMixerChannel />
-          {allChannels.map((trackId) => (
-            <MixerChannel key={trackId} trackId={trackId} />
+          {allChannels.map((trackId, i) => (
+            <MixerChannel key={trackId} trackId={trackId} index={i} />
           ))}
 
-          {/* Master: módulo separado, mais escuro, com capa de fader vermelha.
-              O topo repete as duas linhas dos canais (saída + knob de pan, aqui o LR mágico) para
-              a fita, o fader, a tecla ANTI-CLIP e o M/S caírem nas mesmas alturas dos outros. */}
+          {grafite ? (
+            // Master da Grafite: tela vermelha, roteamento mágico, IGUALAR, CLIP e o fader
+            <div className="console-strip gf-strip is-master flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[3px] gap-[3px]">
+              <div className="min-h-[20px] flex items-center justify-center">
+                <LevelMatchButton />
+              </div>
+              <GfScreen
+                number="LR"
+                name="MASTER"
+                value={faderDbText(masterVolume)}
+                color="#ff4d42"
+                tags={<GfTag on={masterAntiClip} tone="clip">L</GfTag>}
+              />
+              <button
+                className={`console-key flex items-center justify-center w-[28px] h-[28px] !rounded-full ${magicRoutingActive ? 'is-lit-amber animate-pulse' : ''}`}
+                onClick={() => toggleMagicRouting()}
+                aria-pressed={magicRoutingActive}
+                title="Roteamento mágico: Guia/Click/Maestro → L e Banda → R. O timecode não é alterado. Clique novamente para restaurar."
+              >
+                <Wand2 size={13} />
+              </button>
+              <div className="flex gap-[2px] w-full">
+                <GfKey
+                  label="ANTI-CLIP"
+                  tone={!masterAntiClip && masterIsClipping ? 'mute' : 'clip'}
+                  lit={masterAntiClip || masterIsClipping}
+                  pulse={!masterAntiClip && masterIsClipping}
+                  className="flex-1"
+                  onClick={toggleMasterAntiClip}
+                  title={masterAntiClip
+                    ? 'Anti-Clip ligado: a saída do master não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+                    : 'Anti-Clip desligado: clique para limitar a saída do master em -0,1 dBFS, sem mexer no fader.'}
+                />
+              </div>
+              <div className="flex items-start gap-[3px] mt-auto">
+                <Fader
+                  value={masterVolume}
+                  onChange={(v) => { setMasterVolume(v); audioEngine.setMasterVolume(v); }}
+                  onDoubleClick={() => { setMasterVolume(0.8); audioEngine.setMasterVolume(0.8); }}
+                  width={24}
+                  height={GF_FADER_H}
+                  tone="master"
+                />
+                <div style={{ marginTop: GF_CAP_H / 2 }}>
+                  <GfFaderMeter
+                    id="master"
+                    height={GF_FADER_H - GF_CAP_H}
+                    clipping={masterIsClipping}
+                    onClick={() => { if (masterIsClipping) clearMasterClipIndicator(); }}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
+          // Master: módulo separado, mais escuro, com capa de fader vermelha.
+          // O topo repete as duas linhas dos canais (saída + knob de pan, aqui o LR mágico) para
+          // a fita, o fader, a tecla ANTI-CLIP e o M/S caírem nas mesmas alturas dos outros.
           <div className="console-strip flex flex-col items-center w-[72px] min-w-[72px] bg-black/25 border-l-2 border-black py-1.5 px-1 gap-[3px]">
           {/* mesma altura do seletor de saída dos canais (2xs: 14px de linha + py-0.5 + borda) */}
           <div className="h-[20px] flex items-center justify-center text-[9px] font-bold tracking-wider text-logic-text-dim" title="Saída: a do Dispositivo de Áudio escolhido">
@@ -494,6 +665,7 @@ export default function MixerPanel() {
           </div>
 
           </div>
+          )}
         </div>
       </div>
     </div>

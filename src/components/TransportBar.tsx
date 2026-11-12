@@ -197,7 +197,7 @@ export default function TransportBar() {
     }`;
 
   return (
-    <div className="console-face relative flex items-center gap-2 px-3 h-[68px] py-2 border-b border-black">
+    <div className="console-face console-screws relative flex items-center gap-2 px-3 h-[68px] py-2 border-b border-black">
       {playbackError && (
         <div
           role="alert"
