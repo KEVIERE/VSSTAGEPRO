@@ -255,6 +255,8 @@ jobs:
       # na primeira vez que o diretor envia o repertório. Aqui ele é copiado para lá uma vez só,
       # com o SHA-256 de cada arquivo conferido (lista em desktop/lyrics-model.json).
       - name: Espelhar o modelo do leitor de letra na VPS
+        # Se falhar, o instalador sai mesmo assim: o programa baixa do Hugging Face (mesmo SHA-256).
+        continue-on-error: true
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}

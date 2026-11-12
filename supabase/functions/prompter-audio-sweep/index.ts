@@ -2,7 +2,7 @@ import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
 // Apaga o áudio do produtor (e a letra lida pelo Mac) 10 minutos depois de o produtor salvar.
 //
-// Quem chama é o agendamento do banco (pg_cron, migração 20261111120000), a cada 5 minutos, com
+// Quem chama é o agendamento do banco (pg_cron, migração 20261111160000), a cada 5 minutos, com
 // a senha do Vault no cabeçalho x-cron-secret. A lista de shows vencidos vem do banco
 // (prompter_audio_expired_shows); a remoção é pela API do Storage, que é a única permitida.
 
