@@ -470,6 +470,22 @@ function intoFolder(tracks: Track[], clips: AudioClip[], folderId: string, clip:
   };
 }
 
+// Clipes chegando de uma vez (colar, duplicar, click recriado, projeto antigo aberto): nenhum
+// fica numa pasta. Cada um vai para a trilha do instrumento dentro dela, sem ficar por cima.
+function placeOffFolders(tracks: Track[], existing: AudioClip[], incoming: AudioClip[]) {
+  const folders = new Set(tracks.filter((t) => t.isSubgroup).map((t) => t.id));
+  if (!incoming.some((c) => folders.has(c.trackId))) return { tracks, clips: incoming };
+  let nextTracks = tracks;
+  const placed: AudioClip[] = [];
+  for (const c of incoming) {
+    if (!folders.has(c.trackId)) { placed.push(c); continue; }
+    const r = intoFolder(nextTracks, [...existing, ...placed, ...incoming], c.trackId, c);
+    nextTracks = r.tracks;
+    placed.push({ ...c, trackId: r.trackId });
+  }
+  return { tracks: nextTracks, clips: placed };
+}
+
 // Tira clipes e recalcula a duração das músicas que perderam algum.
 function withoutClips(s: Store, toRemove: Set<string>) {
   const nextClips = s.clips.filter((c) => !toRemove.has(c.id));
@@ -1003,7 +1019,9 @@ export const useStore = create<Store>()(
 
       loadProject: (data) => {
         clearAudioLibrary();
-        const tracks = data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t }));
+        // projeto antigo com áudio direto numa pasta: vai para a trilha do instrumento dentro dela
+        const opened = placeOffFolders(data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t })), [], data.clips ?? []);
+        const tracks = opened.tracks;
         const loadedSongs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
         // projetos antigos podiam ter uma música no meio de um bloco apontando para o bloco de cima
         const { playlist: loadedPlaylist, playlistOrder: loadedOrder, songs, blocks } = withBlocks(
@@ -1018,6 +1036,7 @@ export const useStore = create<Store>()(
           blocks,
           songs,
           tracks,
+          clips: opened.clips,
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
           lyricStyle: normalizeLyricStyle(data.lyricStyle),
           musicianBook: normalizeMusicianBook(data.musicianBook),
@@ -1163,6 +1182,8 @@ export const useStore = create<Store>()(
       }),
       addClips: (newClips) => set((s) => {
         if (newClips.length === 0) return s;
+        const fixed = placeOffFolders(s.tracks, s.clips, newClips);
+        newClips = fixed.clips;
         const allClips = [...s.clips, ...newClips];
         const touchedSongs = new Set(newClips.map((c) => c.songId));
         const newDurations = new Map<string, number>();
@@ -1176,6 +1197,7 @@ export const useStore = create<Store>()(
           );
         }
         return {
+          ...(fixed.tracks !== s.tracks ? { tracks: fixed.tracks } : {}),
           clips: allClips,
           selectedClipIds: newClips.map((c) => c.id),
           songs: s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg)),
@@ -1290,11 +1312,14 @@ export const useStore = create<Store>()(
         if (!song) return s;
         const moved = shiftSong(song, s.clips, shift);
         const gone = new Set(removeClipIds);
-        const clips = [...moved.clips.filter((c) => !gone.has(c.id)), ...addClips];
+        const kept = moved.clips.filter((c) => !gone.has(c.id));
+        const fixed = placeOffFolders(s.tracks, kept, addClips);
+        const clips = [...kept, ...fixed.clips];
         const songClips = clips.filter((c) => c.songId === songId);
         const duration = songClips.length > 0 ? Math.max(0.1, ...songClips.map((c) => c.startTime + clipPlayLength(c))) : 0;
         const nextSong: Song = { ...moved.song, ...songPatch, duration };
         return {
+          ...(fixed.tracks !== s.tracks ? { tracks: fixed.tracks } : {}),
           clips,
           selectedClipIds: s.selectedClipIds.filter((id) => !gone.has(id)),
           songs: s.songs.map((sg) => (sg.id === songId ? nextSong : sg)),
