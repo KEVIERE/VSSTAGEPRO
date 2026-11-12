@@ -757,8 +757,8 @@ function DirectorApp({ license }: { license: License }) {
           <div className="flex flex-wrap items-center gap-3 px-3 py-2 bg-logic-lcd-red/10 border-b border-logic-lcd-red/40 text-xs text-logic-text animate-[fadeIn_200ms_ease-out]">
             <AlertTriangle size={14} className="shrink-0 text-logic-lcd-red" />
             <span className="flex-1 min-w-[220px] leading-relaxed">
-              O produtor salvou as letras, mas o programa não conseguiu gravar no arquivo do projeto (o Mac pede a sua permissão).
-              As letras estão no programa agora: salve para não perder quando fechar.
+              O produtor salvou as letras, mas elas ainda não foram gravadas no arquivo do projeto.
+              Estão no programa agora: salve para não perder quando fechar.
             </span>
             <button
               onClick={() => { void saveCurrentProject().then((ok) => { if (ok) setLyricsNotSaved(false); }); }}

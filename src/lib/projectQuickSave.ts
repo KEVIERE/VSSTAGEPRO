@@ -8,7 +8,16 @@ import { friendlyError } from '@/lib/friendlyError';
 let clearTimer: number | null = null;
 let saveController: AbortController | null = null;
 
-export function cancelCurrentSave() { saveController?.abort(); }
+export const SAVE_CANCELLING = 'Cancelando...';
+
+/** Botão Cancelar do salvar (menu Salvar e ⌘S): para no próximo áudio e descarta o que gravou. */
+export function cancelCurrentSave() {
+  if (!saveController || saveController.signal.aborted) return;
+  saveController.abort();
+  const st = useStore.getState();
+  st.setSaveStatus({ kind: 'saving', message: SAVE_CANCELLING });
+  st.setExportProgress({ active: true, message: 'Cancelando o salvamento...' });
+}
 
 export function loadOpenedProject(loaded: LoadedProject): string {
   stopPlayback();
@@ -87,6 +96,18 @@ export async function saveCurrentProject(): Promise<boolean> {
     return true;
   } catch (err) {
     useStore.getState().setExportProgress(null);
+    if ((err as DOMException)?.name === 'AbortError' && signal.aborted) {
+      useStore.getState().setSaveStatus(null);
+      // o .vss é gravado num arquivo à parte e só troca no fim: cancelado, o do disco fica intacto
+      const done = target.kind === 'package'
+        ? 'Salvamento cancelado. O arquivo do projeto continua como estava.'
+        : 'Salvamento cancelado.';
+      useStore.getState().setExportProgress({ active: false, message: done });
+      window.setTimeout(() => {
+        if (useStore.getState().exportProgress?.message === done) useStore.getState().setExportProgress(null);
+      }, 5000);
+      return false;
+    }
     if ((err as DOMException)?.name === 'AbortError' || (err as DOMException)?.name === 'NotAllowedError') {
       useStore.getState().setSaveStatus(null);
       return false;
