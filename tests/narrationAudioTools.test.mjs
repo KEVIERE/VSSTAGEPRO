@@ -21,6 +21,13 @@ test('o menu da fala tem as ferramentas de áudio', () => {
   assert.match(lane, /toggleClipMute\(clip\.id\)/, 'silencia');
 });
 
+test('a onda da fala segue o áudio de verdade e o volume', () => {
+  // mesmo desenho dos outros áudios (lê o áudio masterizado e aplica o ganho), sem esticar até o alto
+  assert.match(lane, /import \{ ClipWaveform \} from '@\/components\/ClipWaveform';/);
+  assert.match(lane, /<ClipWaveform\s+clip=\{clip\}/);
+  assert.doesNotMatch(lane, /function MiniWave/, 'o desenho antigo, que ignorava volume e master, saiu');
+});
+
 test('a fala guarda a masterização escolhida', () => {
   assert.match(types, /master\?: 'manter' \| 'equilibrado' \| 'show' \| 'streaming';/);
   assert.match(lane, /updateNarration\(song\.id, narration\.id, \{ master: choice \}\)/);

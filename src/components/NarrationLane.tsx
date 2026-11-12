@@ -16,6 +16,7 @@ import { seekToPosition } from '@/lib/transportControl';
 import { audioEngine } from '@/lib/audioEngine';
 import { masterAudioClip } from '@/lib/clipMastering';
 import { MASTER_PROFILES } from '@/lib/mastering';
+import { ClipWaveform } from '@/components/ClipWaveform';
 
 /** Altura da régua do Maestro por IA (a coluna de nomes das faixas usa a mesma). */
 export const NARRATION_LANE_HEIGHT = 30;
@@ -297,12 +298,22 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             title={tip}
           >
             {clip && !isDragging && clip.waveformPeaks?.length > 0 && (
-              // no lugar real do áudio: ele começa um pouco antes da marcação (o ataque cai na grade)
-              <MiniWave
-                peaks={clip.waveformPeaks}
-                widthPx={Math.max(1, clip.duration * zoomH)}
-                offsetPx={(clip.startTime + shift - (clip.trimStart ?? 0) - start) * zoomH}
-              />
+              // No lugar real do áudio (ele começa um pouco antes da marcação: o ataque cai na grade).
+              // Mesmo desenho dos outros áudios: lê o áudio de verdade, masterizado quando foi, e
+              // aplica o volume da fala. Antes a onda era esticada até o alto e nunca mudava.
+              <div
+                className="absolute top-0 bottom-0 pointer-events-none opacity-60"
+                style={{ left: `${(clip.startTime + shift - (clip.trimStart ?? 0) - start) * zoomH}px`, width: `${Math.max(1, clip.duration * zoomH)}px` }}
+              >
+                <ClipWaveform
+                  clip={clip}
+                  left={(clip.startTime + shift - (clip.trimStart ?? 0)) * zoomH}
+                  width={Math.max(1, clip.duration * zoomH)}
+                  height={Math.max(4, height - 8)}
+                  visible={visible}
+                  color={clip.mute ? '#8a8f98' : '#bae6fd'}
+                />
+              </div>
             )}
             <div className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize group-hover:bg-white/25" />
             <div className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize group-hover:bg-white/25" />
@@ -346,32 +357,6 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
         ) : null;
       })()}
     </div>
-  );
-}
-
-/** Forma de onda da voz gerada, no tamanho real do áudio (mostra se coube na marcação). */
-function MiniWave({ peaks, widthPx, offsetPx = 0 }: { peaks: number[]; widthPx: number; offsetPx?: number }) {
-  const max = Math.max(1e-6, ...peaks);
-  const step = Math.max(1, Math.floor(peaks.length / 200));
-  const points: string[] = [];
-  for (let i = 0; i < peaks.length; i += step) {
-    const x = (i / peaks.length) * 100;
-    const h = (peaks[i] / max) * 46;
-    points.push(`${x.toFixed(2)},${(50 - h).toFixed(1)}`);
-  }
-  const bottom = [...points].reverse().map((p) => {
-    const [x, y] = p.split(',');
-    return `${x},${(100 - Number(y)).toFixed(1)}`;
-  });
-  return (
-    <svg
-      className="absolute top-0 h-full pointer-events-none opacity-40"
-      style={{ width: `${widthPx}px`, left: `${offsetPx}px` }}
-      viewBox="0 0 100 100"
-      preserveAspectRatio="none"
-    >
-      <polygon points={[...points, ...bottom].join(' ')} className="fill-sky-200" />
-    </svg>
   );
 }
 
