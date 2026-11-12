@@ -22,6 +22,8 @@ import type { ProjectState, Song } from '@/types';
  */
 
 const IDLE_MS = 6000;
+// A leitura da letra começa logo depois que o áudio da música subiu, junto com o envio das outras.
+const READ_DELAY_MS = 1500;
 // De quanto em quanto tempo o programa confere o pedido do produtor e a situação do envio.
 const POLL_MS = 20000;
 const READER_POLL_MS = 4000;
@@ -234,7 +236,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
 
   // 1. Áudio de cada música (MP3 leve).
   useEffect(() => {
-    if (!backend || !sent || !active || isPlaying || running.current || readingNow.current) return;
+    if (!backend || !sent || !active || isPlaying || running.current) return;
     const timer = window.setTimeout(async () => {
       const st = useStore.getState();
       const pending = orderedSongs(st).filter((s) => {
@@ -275,7 +277,8 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   const readerReady = !!reader?.supported && reader.model.state === 'ready';
   useEffect(() => {
     const desk = window.vsDesktop;
-    if (!backend || !sent || !active || isPlaying || running.current || readingNow.current || working) return;
+    // Não espera o envio das outras músicas: lê cada uma assim que o áudio dela subiu.
+    if (!backend || !sent || !active || isPlaying || readingNow.current) return;
     if (!desk?.lyricsTranscribe || !readerReady) return;
     const timer = window.setTimeout(async () => {
       const st = useStore.getState();
@@ -313,9 +316,9 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
         readingNow.current = false;
         setReading(null);
       }
-    }, IDLE_MS);
+    }, READ_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, readerReady, working, lyricMaps, songs, clips, tracks]);
+  }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, readerReady, lyricMaps, songs, clips, tracks]);
 
   const [starting, setStarting] = useState(false);
   const send = useCallback(() => {

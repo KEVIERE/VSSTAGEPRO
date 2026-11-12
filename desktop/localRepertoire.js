@@ -3,6 +3,7 @@
 //
 // Mesmas regras do modo online:
 // - só existe depois que o diretor aperta "Enviar repertório";
+// - sobrevive a fechar e abrir o programa (a letra lida pelo Mac leva minutos por música);
 // - o produtor salvou as letras: 10 minutos depois a pasta é apagada;
 // - para o produtor ouvir de novo, o diretor envia de novo.
 //
@@ -16,6 +17,7 @@ const GRACE_MS = 10 * 60 * 1000;
 const ID_RE = /^[A-Za-z0-9_-]{1,80}$/;
 const KINDS = { audio: '.mp3', words: '.words.json' };
 const MAX_BYTES = { audio: 40 * 1024 * 1024, words: 4 * 1024 * 1024 };
+const STATE_FILE = '.estado.json';
 
 class LocalRepertoire {
   constructor({ dir, graceMs = GRACE_MS, now = () => Date.now() }) {
@@ -25,13 +27,34 @@ class LocalRepertoire {
     this.releasedAt = null;
     this.requestedAt = null;
     this.key = crypto.randomBytes(16).toString('hex');
+    this.load();
   }
 
-  /** Apaga tudo. Usado ao abrir o programa: um envio só vale enquanto o programa está aberto. */
+  get stateFile() { return path.join(this.dir, STATE_FILE); }
+
+  /** Relógio dos 10 minutos, pedido do produtor e chave dos endereços, de quando o programa fechou. */
+  load() {
+    try {
+      const st = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'));
+      if (Number.isFinite(st.releasedAt)) this.releasedAt = st.releasedAt;
+      if (Number.isFinite(st.requestedAt)) this.requestedAt = st.requestedAt;
+      if (typeof st.key === 'string' && /^[0-9a-f]{32}$/.test(st.key)) this.key = st.key;
+    } catch { /* primeira vez */ }
+  }
+
+  save() {
+    try {
+      fs.mkdirSync(this.dir, { recursive: true });
+      fs.writeFileSync(this.stateFile, JSON.stringify({ releasedAt: this.releasedAt, requestedAt: this.requestedAt, key: this.key }), { mode: 0o600 });
+    } catch { /* sem disco: vale até fechar */ }
+  }
+
+  /** Apaga o áudio e a letra (a marca do "Salvar" fica, para o programa mostrar "envie de novo"). */
   wipe() {
     let removed = 0;
     try {
       for (const f of fs.readdirSync(this.dir)) {
+        if (f === STATE_FILE) continue;
         try { fs.unlinkSync(path.join(this.dir, f)); removed++; } catch { /* já saiu */ }
       }
     } catch { /* pasta ainda não existe */ }
@@ -75,6 +98,7 @@ class LocalRepertoire {
     this.requestedAt = null;
     // Endereços novos: um link antigo guardado no navegador não abre o envio novo.
     this.key = crypto.randomBytes(16).toString('hex');
+    this.save();
   }
 
   put(songId, kind, data) {
@@ -93,13 +117,16 @@ class LocalRepertoire {
     this.requestedAt = this.now();
     // Igual à nuvem: se o áudio ainda não saiu, ele fica até o produtor salvar de novo.
     this.releasedAt = null;
+    this.save();
   }
 
   /** O programa do diretor pega o pedido (uma vez só). */
   takeRequest() {
     const at = this.requestedAt;
+    if (at === null) return null;
     this.requestedAt = null;
-    return at === null ? null : new Date(at).toISOString();
+    this.save();
+    return new Date(at).toISOString();
   }
 
   /** O produtor salvou as letras: o relógio dos 10 minutos começa. */
@@ -107,6 +134,7 @@ class LocalRepertoire {
     const { audio, words } = this.files();
     if (audio.size === 0 && words.size === 0) return;
     this.releasedAt = this.now();
+    this.save();
   }
 
   /** Passados os 10 minutos do "Salvar", apaga a pasta. Devolve quantos arquivos saíram. */

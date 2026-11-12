@@ -37,6 +37,25 @@ test('o diretor envia: áudio e letra aparecem na situação e na lista do produ
   assert.equal(list.find((f) => f.songId === 's2').wordsUrl, null);
 });
 
+test('fechar e abrir o programa não perde o repertório nem o relógio dos 10 minutos', () => {
+  const { rep, dir, tick } = repertoire();
+  rep.start();
+  rep.put('s1', 'audio', Buffer.from('mp3'));
+  rep.put('s1', 'words', '{"segments":[]}');
+  const key = new URL(rep.list('/p')[0].url, 'http://x').searchParams.get('k');
+  rep.release();
+  // programa reaberto: outro objeto, mesma pasta
+  let now = rep.now();
+  const again = new LocalRepertoire({ dir: path.join(dir, 'rep'), now: () => now });
+  assert.equal(again.status().files.length, 1, 'o áudio continua');
+  assert.equal(again.status().words.length, 1, 'a letra lida continua');
+  assert.ok(again.filePath('s1.mp3', key), 'o endereço que o produtor tem continua valendo');
+  assert.ok(again.status().released_at, 'o relógio do salvar continua');
+  now += GRACE_MS + 1;
+  assert.equal(again.status().files.length, 0, 'e o áudio sai na hora certa');
+  void tick;
+});
+
 test('nome de música estranho ou arquivo vazio é recusado', () => {
   const { rep } = repertoire();
   assert.throws(() => rep.put('../fora', 'audio', Buffer.from('x')));
@@ -123,7 +142,7 @@ async function server() {
 test('rede local: o produtor lista, ouve e lê a letra; "Salvar" liga o relógio dos 10 minutos', async () => {
   const ctx = await server();
   try {
-    assert.deepEqual((await ctx.srv.repertoire.status()).files, [], 'abre vazio: nada sobe sozinho');
+    assert.deepEqual((await ctx.srv.repertoire.status()).files, [], 'pasta nova: nada sobe sozinho');
     ctx.srv.repertoire.start();
     ctx.srv.repertoire.put('s1', 'audio', Buffer.from('ID3-mp3'));
     ctx.srv.repertoire.put('s1', 'words', JSON.stringify({ segments: [{ start: 1, end: 2, text: 'oi', words: [] }] }));

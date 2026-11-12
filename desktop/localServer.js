@@ -122,10 +122,11 @@ class LocalServer {
     this.pendingSaveRequest = null;
     this.remoteMeters = null;
     this.qrCache = new Map();
-    // Repertório do produtor (áudio + letra lida pelo Mac). Começa vazio a cada abertura do
-    // programa: só existe depois que o diretor aperta "Enviar repertório" (ver localRepertoire.js).
+    // Repertório do produtor (áudio + letra lida pelo Mac). Só existe depois que o diretor aperta
+    // "Enviar repertório" e continua depois de fechar e abrir o programa, até sair pelos 10 minutos
+    // depois do "Salvar" do produtor (ver localRepertoire.js).
     this.repertoire = new LocalRepertoire({ dir: path.join(path.dirname(storePath), 'rede-local-repertorio') });
-    this.repertoire.wipe();
+    this.repertoire.sweep();
     this.repertoireTimer = setInterval(() => this.repertoire.sweep(), 30_000);
     this.repertoireTimer.unref?.();
     // Contas dos músicos (usuário e senha) e os cadernos delas. Moram no projeto do show; aqui
