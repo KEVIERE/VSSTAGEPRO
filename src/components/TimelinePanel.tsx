@@ -25,6 +25,7 @@ import MiniFader from '@/components/MiniFader';
 import { LedMeterH } from '@/components/MeterMask';
 import { dropSlot, laneMoves, laneOffset, reorderChildren } from '@/lib/trackOrder';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
+import { mergeFolderPeaks, type FolderPreview } from '@/lib/folderPreview';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
 import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
@@ -1227,6 +1228,50 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
   );
 }
 
+// Prévia da pasta recolhida: um bloco na cor da pasta com a onda de todos os áudios de dentro.
+// Só para ver; para mexer nos áudios, abre a pasta.
+function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, visible }: {
+  folder: Track;
+  songId: string;
+  preview: FolderPreview;
+  count: number;
+  height: number;
+  zoomH: number;
+  visible: VisibleRange;
+}) {
+  const left = preview.start * zoomH;
+  const width = Math.max(8, preview.duration * zoomH);
+  if (left > visible.end || left + width < visible.start) return null;
+  // um "clipe" de mentira só para o desenho da onda (sem áudio na memória, usa os picos)
+  const summary = {
+    id: `folder-preview-${folder.id}`, songId, waveformPeaks: preview.peaks, duration: preview.duration, gain: 1,
+  } as unknown as AudioClip;
+  return (
+    <div
+      className="absolute rounded-sm border overflow-hidden pointer-events-none"
+      style={{
+        left: `${left}px`,
+        top: '2px',
+        width: `${width}px`,
+        height: `${height}px`,
+        borderColor: `${folder.color}aa`,
+        backgroundColor: 'rgba(0, 0, 0, 0.3)',
+        backgroundImage: `linear-gradient(180deg, ${folder.color}1f, ${folder.color}0a)`,
+      }}
+    >
+      <ClipWaveform clip={summary} left={left} width={width} height={height} visible={visible} color={folder.color} />
+      {height >= 20 && (
+        <span
+          className="absolute top-0.5 px-1 rounded-sm bg-black/70 text-[10px] font-semibold leading-tight whitespace-nowrap"
+          style={{ left: `${Math.max(0, visible.start - left) + 3}px`, color: folder.color }}
+        >
+          {folder.name} · {count} {count === 1 ? 'áudio' : 'áudios'}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function FooterProgress({ importProgress, exportProgress }: {
   importProgress: ImportProgress | null;
   exportProgress: { active: boolean; message: string } | null;
@@ -1554,6 +1599,19 @@ export default function TimelinePanel() {
     song ? clips.filter((c) => c.songId === song.id) : [],
     [clips, song]
   );
+  // Pasta recolhida: uma forma de onda só, com todos os áudios das trilhas de dentro
+  const folderPreviews = useMemo(() => {
+    const out = new Map<string, { preview: FolderPreview; count: number }>();
+    for (const folderId of collapsedFolders) {
+      const folder = tracks.find((t) => t.id === folderId);
+      if (!folder?.isSubgroup || folder.children.length === 0) continue;
+      const inside = new Set(folder.children);
+      const own = songClips.filter((c) => inside.has(c.trackId));
+      const preview = mergeFolderPeaks(own);
+      if (preview) out.set(folderId, { preview, count: own.length });
+    }
+    return out;
+  }, [collapsedFolders, tracks, songClips]);
   const clickClip = useMemo(() => {
     return songClips.find(
       (c) => c.trackId === 'track-click' || /cli[cqk]|klick|metr[oô]|\bclk/i.test(c.fileName) || /cli[cqk]|klick|metr[oô]|\bclk/i.test(c.name)
@@ -1887,12 +1945,15 @@ export default function TimelinePanel() {
       const raw = origStart + (ev.clientX - startX) / zoomH;
       const snapped = snapTime(raw, grid, ev.altKey ? "off" : snapStep);
       delta = Math.max(-minStart, snapped - origStart);
-      const newStart = origStart + delta;
       // em cima de pasta ou do timecode, fica na última trilha válida
       const over = laneUnder(ev.clientY);
       const overIndex = over ? lanes.indexOf(over) : -1;
       if (overIndex >= 0) offset = laneOffset(anchorLane, overIndex, sourceLanes, lanes.length);
       laneMovesNow = laneMoves(lanes, targets, offset);
+      // Indo para outra trilha, o áudio só sobe ou desce: o tempo fica onde estava, para não
+      // sair do compasso. Para os lados, só arrastando dentro da mesma trilha.
+      if (laneMovesNow.length > 0) delta = 0;
+      const newStart = origStart + delta;
       const anchorTo = laneMovesNow.find((m) => m.clipId === clip.id)?.trackId;
       const toNames = new Set(laneMovesNow.map((m) => m.trackId));
       const laneLabel = laneMovesNow.length === 0
@@ -2565,6 +2626,17 @@ export default function TimelinePanel() {
                           </div>
                         );
                       })}
+                      {isFolder && folderPreviews.has(track.id) && (
+                        <FolderPreviewBlock
+                          folder={track}
+                          songId={song.id}
+                          preview={folderPreviews.get(track.id)!.preview}
+                          count={folderPreviews.get(track.id)!.count}
+                          height={rowHeight - 4}
+                          zoomH={zoomH}
+                          visible={visible}
+                        />
+                      )}
                       {trackClips.map((clip) => (
                         <ClipBlock
                           key={clip.id}
