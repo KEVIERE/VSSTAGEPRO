@@ -267,3 +267,20 @@ test('o salvar do programa tenta: só o fim → só o que mudou → inteiro', ()
     assert.match(main, new RegExp(`handle\\('${n}'`));
   }
 });
+
+test('projeto aberto pela janela do navegador no app do Mac: o salvar descobre o caminho e grava só o que mudou', () => {
+  const saver = fs.readFileSync(new URL('../src/lib/projectSaver.ts', import.meta.url), 'utf8');
+  const preload = fs.readFileSync(new URL('../desktop/preload.js', import.meta.url), 'utf8');
+  const files = fs.readFileSync(new URL('../src/lib/desktopProjectFiles.ts', import.meta.url), 'utf8');
+  const quick = fs.readFileSync(new URL('../src/lib/projectQuickSave.ts', import.meta.url), 'utf8');
+  assert.match(preload, /pathForFile: \(file\) => \{\s*try \{ return webUtils\.getPathForFile\(file\) \|\| ''; \}/, 'o app diz onde o arquivo está');
+  assert.match(files, /vsDesktop\?\.pathForFile\?\.\(file\)/, 'áudios desse arquivo contam como já salvos');
+  // salvar: o caminho do navegador (que copia os 20 GB num .crswap) vira o caminho do disco
+  const pkg = saver.slice(saver.indexOf("if (target.kind === 'package') {\n    // App do Mac"));
+  assert.match(pkg, /const asPath = desktopProjects\(\) \? desktopFilePath\(await target\.handle\.getFile\(\)\) : null;/);
+  assert.match(pkg, /return \{ \.\.\.\(await quickSave\(state, pathTarget, onProgress, signal\)\), target: pathTarget \};/);
+  assert.match(quick, /if \(res\.target\) useStore\.getState\(\)\.setSaveTarget\(res\.target\);/, 'daqui em diante salva pelo caminho do disco');
+  assert.match(quick, /abra este projeto por Arquivo > Abrir Projeto/, 'sem o caminho: avisa como deixar rápido');
+  // reabrir pelos recentes um projeto antigo: já abre pelo caminho do disco
+  assert.match(saver, /if \(asPath\) return \{ \.\.\.\(await readDesktopPackage\(asPath, onProgress\)\), target: \{ kind: 'path', path: asPath, name: target\.handle\.name \} \};/);
+});

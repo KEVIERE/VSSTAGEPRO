@@ -83,12 +83,17 @@ export async function saveCurrentProject(): Promise<boolean> {
     // Backup leve (só estrutura, sem áudio) antes de sobrescrever: guarda os últimos 10 salvamentos
     // deste projeto com horário, para poder voltar a uma versão anterior quando precisar.
     void saveProjectBackup(st);
-    const { missingCount, unchanged } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
+    const res = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
+    const { missingCount, unchanged } = res;
     useStore.getState().setExportProgress(null);
     // salvo do jeito que estava ao começar: o que mudou durante o salvamento continua pendente
     useStore.getState().markProjectSaved(st);
-    void rememberProject(useStore.getState().projectName, target);
-    if (unchanged) {
+    // projeto antigo aberto pela janela do navegador: daqui em diante salva pelo caminho do disco
+    if (res.target) useStore.getState().setSaveTarget(res.target);
+    void rememberProject(useStore.getState().projectName, res.target ?? target);
+    if (res.slowHint) {
+      flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}". Para os próximos salvamentos gravarem só o que mudou, abra este projeto por Arquivo > Abrir Projeto.` }, 9000);
+    } else if (unchanged) {
       flash({ kind: 'saved', message: `Nada mudou desde o último salvamento de "${saveTargetLabel(target)}"` }, 3500);
     } else if (missingCount > 0) {
       flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}" (Aviso: ${missingCount} áudio(s) ausente(s))` }, 6000);

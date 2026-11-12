@@ -38,7 +38,15 @@ export function desktopProjects(): DesktopProjectApi | null {
 const filePaths = new WeakMap<File, string>();
 
 export function desktopFilePath(file: File): string | null {
-  return filePaths.get(file) ?? null;
+  const known = filePaths.get(file);
+  if (known) return known;
+  // aberto pela janela do navegador: o app ainda sabe onde ele está no disco
+  const p = (window as unknown as { vsDesktop?: { pathForFile?: (f: File) => string } }).vsDesktop?.pathForFile?.(file);
+  if (p && /\.(vss|vsc)$/i.test(p)) {
+    filePaths.set(file, p);
+    return p;
+  }
+  return null;
 }
 
 /** O arquivo do disco, lido em pedaços direto de lá (nada é copiado para a memória). */

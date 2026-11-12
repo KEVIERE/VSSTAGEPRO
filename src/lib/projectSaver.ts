@@ -833,7 +833,11 @@ async function rebindDesktopSources(state: ProjectState, filePath: string) {
   }
 }
 
-export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number; unchanged?: boolean }> {
+/**
+ * Salva por cima do projeto. `target` na resposta: o projeto passou a ser salvo por outro caminho
+ * (aberto pela janela do navegador no app do Mac → caminho do disco); quem chamou guarda o novo.
+ */
+export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number; unchanged?: boolean; target?: SaveTarget; slowHint?: boolean }> {
   if (target.kind === 'path') {
     const tail = await writeTailToPath(state, target, onProgress, signal);
     if (tail === 'unchanged') return { missingCount: 0, unchanged: true };
@@ -852,17 +856,26 @@ export async function quickSave(state: ProjectState, target: SaveTarget, onProgr
     return { missingCount };
   }
   if (target.kind === 'package') {
+    // App do Mac com o projeto aberto pela janela do navegador: o navegador copia o arquivo
+    // inteiro a cada gravação (o .crswap de 20 GB). Pelo caminho do disco, grava só o que mudou.
+    const asPath = desktopProjects() ? desktopFilePath(await target.handle.getFile()) : null;
+    if (asPath) {
+      const pathTarget = { kind: 'path' as const, path: asPath, name: target.handle.name };
+      return { ...(await quickSave(state, pathTarget, onProgress, signal)), target: pathTarget };
+    }
+    // no app do Mac sem achar o caminho: avisa como deixar os próximos salvamentos rápidos
+    const slowHint = !!desktopProjects();
     await ensureWritable(target.handle);
     const tail = await writeTailToHandle(state, target.handle, onProgress, signal);
     if (tail === 'unchanged') return { missingCount: 0, unchanged: true };
     if (tail === 'written') {
       await rebindPackageSources(state, target.handle);
-      return { missingCount: 0 };
+      return { missingCount: 0, slowHint };
     }
     const { missingCount, json } = await writePackageToHandle(state, target.handle, onProgress, signal);
     lastSaved = { version: handleVersion(await target.handle.getFile()), json };
     await rebindPackageSources(state, target.handle);
-    return { missingCount };
+    return { missingCount, slowHint };
   }
   await ensureWritable(target.dir);
   await writeProjectFolder(target.dir, target.name, state, onProgress, signal);
@@ -937,7 +950,11 @@ export async function reopenProject(target: SaveTarget, onProgress: ProgressFn):
   }
   try {
     if (target.kind === 'package') {
-      const loaded = await readPackage(await target.handle.getFile(), onProgress);
+      const file = await target.handle.getFile();
+      // no app do Mac, o projeto passa a ser salvo pelo caminho do disco (rápido, só o que mudou)
+      const asPath = desktopProjects() ? desktopFilePath(file) : null;
+      if (asPath) return { ...(await readDesktopPackage(asPath, onProgress)), target: { kind: 'path', path: asPath, name: target.handle.name } };
+      const loaded = await readPackage(file, onProgress);
       return { ...loaded, target };
     }
     return await readProjectDir(target.dir as DirHandle, onProgress);

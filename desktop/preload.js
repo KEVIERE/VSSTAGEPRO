@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const call = (name) => (...args) => ipcRenderer.invoke(`local:${name}`, ...args);
 
@@ -39,6 +39,11 @@ contextBridge.exposeInMainWorld('vsLocal', {
 
 contextBridge.exposeInMainWorld('vsDesktop', {
   appReady: () => ipcRenderer.send('app:ready'),
+  // Caminho no disco de um arquivo aberto pela janela do navegador (projeto antigo nos recentes):
+  // com ele o salvar usa o caminho rápido do app (só o que mudou) em vez de copiar o arquivo inteiro.
+  pathForFile: (file) => {
+    try { return webUtils.getPathForFile(file) || ''; } catch { return ''; }
+  },
   exportPickFolder: call('exportPickFolder'),
   exportPickFile: call('exportPickFile'),
   exportWrite: call('exportWrite'),
