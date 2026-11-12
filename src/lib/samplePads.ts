@@ -16,7 +16,7 @@ export const PITCH_RANGE = 12;
 /** Fade do botão Fade, em segundos. */
 export const FADE_SECONDS = 2;
 /** Modo segurar: apertou e soltou rápido, o som toca este tanto e para. */
-export const HOLD_MIN_SECONDS = 0.5;
+export const HOLD_MIN_SECONDS = 0.2;
 /** Descida ao soltar no modo segurar (sem estalo). */
 export const HOLD_RELEASE_SECONDS = 0.08;
 
@@ -40,8 +40,6 @@ export interface PadInfo {
   delay: boolean;
   /** Toca de trás para frente. */
   reverse: boolean;
-  /** Segurar: toca enquanto o pad está apertado; apertou e soltou rápido, toca só meio segundo. */
-  hold: boolean;
   /** Tipo do arquivo (audio/wav, audio/mpeg...), para guardar e salvar no projeto. */
   type?: string;
 }
@@ -91,7 +89,7 @@ export function padNameFromFile(fileName: string): string {
 export function newPadInfo(slot: number, fileName: string, duration: number): PadInfo {
   return {
     slot, name: padNameFromFile(fileName), color: PAD_COLORS[slotPad(slot)], volume: 0.8, loop: false, duration,
-    pitch: 0, reverb: false, delay: false, reverse: false, hold: false,
+    pitch: 0, reverb: false, delay: false, reverse: false,
   };
 }
 
@@ -99,7 +97,7 @@ export function newPadInfo(slot: number, fileName: string, duration: number): Pa
 export function normalizePadInfo(v: Partial<PadInfo> & { slot: number }): PadInfo {
   return {
     name: 'Som', color: PAD_COLORS[slotPad(v.slot)], volume: 0.8, loop: false, duration: 0,
-    pitch: 0, reverb: false, delay: false, reverse: false, hold: false,
+    pitch: 0, reverb: false, delay: false, reverse: false,
     ...v,
   };
 }
@@ -131,8 +129,8 @@ export function pitchedDuration(info: Pick<PadInfo, 'duration' | 'pitch'>): numb
 }
 
 /**
- * Modo segurar: quando o som para depois de soltar o pad. Soltou antes de meio segundo, ele toca
- * até completar meio segundo; soltou depois, para na hora.
+ * Modo segurar: quando o som para depois de soltar o pad. Soltou antes de 0,2 s, ele toca até
+ * completar 0,2 s; soltou depois, para na hora.
  */
 export function holdStopTime(startedAt: number, releasedAt: number, min = HOLD_MIN_SECONDS): number {
   return Math.max(releasedAt, startedAt + min);
@@ -227,6 +225,8 @@ export interface PadsState {
   output: PadOutput;
   /** Um por vez: tocar um pad para os outros. */
   choke: boolean;
+  /** Segurar: os pads tocam enquanto estão apertados; apertou e soltou, toca só 0,2 s. */
+  hold: boolean;
   message: { ok: boolean; text: string } | null;
   /** Atraso medido da saída dos pads, em milissegundos (null antes de abrir a saída). */
   latencyMs: number | null;
@@ -236,6 +236,7 @@ const BANK_KEY = 'vsstage.pads.bank';
 const MASTER_KEY = 'vsstage.pads.master';
 const OUTPUT_KEY = 'vsstage.pads.output';
 const CHOKE_KEY = 'vsstage.pads.choke';
+const HOLD_KEY = 'vsstage.pads.hold';
 
 function stored(key: string, fallback: number, ok: (v: number) => boolean): number {
   try {
@@ -266,6 +267,7 @@ let state: PadsState = {
   master: stored(MASTER_KEY, 0.8, (v) => v >= 0 && v <= 1.5),
   output: storedOutput(),
   choke: stored(CHOKE_KEY, 0, (v) => v === 0 || v === 1) === 1,
+  hold: stored(HOLD_KEY, 0, (v) => v === 0 || v === 1) === 1,
   message: null,
   latencyMs: null,
 };
@@ -287,6 +289,7 @@ export function setPadsState(patch: Partial<PadsState>): void {
     if (patch.master !== undefined) globalThis.localStorage?.setItem(MASTER_KEY, String(patch.master));
     if (patch.output !== undefined) globalThis.localStorage?.setItem(OUTPUT_KEY, JSON.stringify(patch.output));
     if (patch.choke !== undefined) globalThis.localStorage?.setItem(CHOKE_KEY, patch.choke ? '1' : '0');
+    if (patch.hold !== undefined) globalThis.localStorage?.setItem(HOLD_KEY, patch.hold ? '1' : '0');
   } catch { /* só não lembra */ }
   listeners.forEach((l) => l());
 }
@@ -336,6 +339,8 @@ export interface SavedPads {
   output: PadOutput;
   /** Um por vez (projetos salvos antes não têm: ficam com a escolha atual). */
   choke?: boolean;
+  /** Segurar (idem). */
+  hold?: boolean;
   pads: Array<PadInfo & { path: string }>;
 }
 
@@ -356,10 +361,10 @@ export function padAssetPath(info: Pick<PadInfo, 'slot' | 'name' | 'type'>): str
   return `Pads/Banco ${BANK_LABELS[slotBank(info.slot)]}/${slotPad(info.slot) + 1} - ${name}.${ext}`;
 }
 
-export function savedPadsOf(s: Pick<PadsState, 'bank' | 'master' | 'output' | 'infos'> & { choke?: boolean }): SavedPads | undefined {
+export function savedPadsOf(s: Pick<PadsState, 'bank' | 'master' | 'output' | 'infos'> & { choke?: boolean; hold?: boolean }): SavedPads | undefined {
   if (s.infos.size === 0) return undefined;
   const pads = [...s.infos.values()].sort((a, b) => a.slot - b.slot).map((i) => ({ ...i, path: padAssetPath(i) }));
-  return { version: 1, bank: s.bank, master: s.master, output: s.output, choke: !!s.choke, pads };
+  return { version: 1, bank: s.bank, master: s.master, output: s.output, choke: !!s.choke, hold: !!s.hold, pads };
 }
 
 /** Com "um por vez" ligado, os pads que param quando `slot` toca (todos os outros que estão tocando). */

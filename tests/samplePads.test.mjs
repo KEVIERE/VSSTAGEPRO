@@ -109,22 +109,24 @@ test('um por vez: tocar um pad para os outros; desligado, todos tocam juntos', (
   assert.match(panel, /1 POR VEZ/);
 });
 
-test('segurar: apertou e soltou rápido toca meio segundo; segurando toca até soltar (ou o som acabar)', () => {
-  assert.equal(holdStopTime(10, 10.2), 10.5, 'soltou com 0,2 s: completa meio segundo');
-  assert.equal(HOLD_MIN_SECONDS, 0.5);
+test('segurar: vale para todos os pads; apertou e soltou toca 0,2 s; segurando toca até soltar', () => {
+  assert.equal(HOLD_MIN_SECONDS, 0.2);
+  assert.equal(holdStopTime(10, 10.05), 10.2, 'soltou com 0,05 s: completa 0,2 s');
   assert.equal(holdStopTime(10, 12.5), 12.5, 'segurou 2,5 s: para ao soltar');
-  assert.equal(newPadInfo(0, 'a.wav', 1).hold, false);
-  assert.equal(normalizePadInfo({ slot: 1 }).hold, false, 'pad antigo começa sem segurar');
+  assert.equal('hold' in newPadInfo(0, 'a.wav', 1), false, 'não é ajuste de cada pad');
   const player = read('lib', 'padPlayer.ts');
-  assert.match(player, /export function releasePad\(slot: number\): void \{/);
-  assert.match(player, /if \(!info\?\.hold \|\| !v\) return;/, 'só vale no modo segurar');
+  assert.match(player, /if \(!hold \|\| !info \|\| !v\) return;/, 'só no modo segurar (geral)');
   assert.match(player, /const at = holdStopTime\(v\.startedAt, ctx\.currentTime\);/);
-  assert.match(player, /if \(info\.loop && !info\.hold\) return;/, 'no modo segurar, apertar de novo recomeça');
+  assert.match(player, /if \(info\.loop && !getPadsState\(\)\.hold\) return;/, 'no modo segurar, apertar de novo recomeça');
+  assert.match(player, /hold: saved\.hold \?\? getPadsState\(\)\.hold/, 'vem do projeto aberto');
   const panel = read('components', 'SamplePadPanel.tsx');
-  assert.match(panel, /label="SEGURAR"/);
-  assert.match(panel, /onPointerUp=\{onRelease\}/, 'soltar o mouse');
-  assert.match(panel, /e\.currentTarget\.setPointerCapture\(e\.pointerId\);/, 'soltar fora do pad também conta');
-  assert.match(panel, /window\.addEventListener\('keyup', onKeyUp\);/, 'soltar a tecla 1 a 9');
+  const row = panel.slice(panel.indexOf('1 POR VEZ'), panel.indexOf('>FADE<'));
+  assert.match(row, /onClick=\{\(\) => setPadsHold\(!st\.hold\)\}/, 'ao lado do 1 POR VEZ');
+  assert.match(row, /SEGURAR/);
+  assert.doesNotMatch(panel, /label="SEGURAR"/, 'saiu da fileira de efeitos do pad');
+  assert.match(panel, /<OutputButton output=\{st\.output\} \/>/, 'a saída foi para a barra de cima');
+  assert.match(panel, /onPointerUp=\{onRelease\}/);
+  assert.match(panel, /window\.addEventListener\('keyup', onKeyUp\);/);
 });
 
 test('banco, volume geral e saída ficam guardados; P abre e fecha', () => {
@@ -132,8 +134,9 @@ test('banco, volume geral e saída ficam guardados; P abre e fecha', () => {
   const mem = new Map();
   globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
   try {
-    setPadsState({ bank: 3, master: 1.1, output: { channel: 3, stereo: true }, choke: true });
+    setPadsState({ bank: 3, master: 1.1, output: { channel: 3, stereo: true }, choke: true, hold: true });
     assert.equal(mem.get('vsstage.pads.choke'), '1', 'o um por vez fica guardado');
+    assert.equal(mem.get('vsstage.pads.hold'), '1', 'o segurar fica guardado');
     assert.equal(mem.get('vsstage.pads.bank'), '3');
     assert.equal(mem.get('vsstage.pads.master'), '1.1');
     assert.equal(mem.get('vsstage.pads.output'), '{"channel":3,"stereo":true}');
@@ -148,7 +151,8 @@ test('banco, volume geral e saída ficam guardados; P abre e fecha', () => {
 
 test('no projeto: ajustes no manifesto e cada som como áudio do pacote', () => {
   const infos = new Map([[13, { ...newPadInfo(13, 'Aplausos fortes.mp3', 3), type: 'audio/mpeg', pitch: 2, reverb: true }]]);
-  const s = savedPadsOf({ bank: 1, master: 0.9, output: { channel: 3, stereo: true }, choke: true, infos });
+  const s = savedPadsOf({ bank: 1, master: 0.9, output: { channel: 3, stereo: true }, choke: true, hold: true, infos });
+  assert.equal(s.hold, true, 'o segurar vai no projeto');
   assert.equal(s.bank, 1);
   assert.equal(s.choke, true, 'o um por vez vai no projeto');
   assert.deepEqual(s.output, { channel: 3, stereo: true });
@@ -195,7 +199,6 @@ test('tela: knob do pad, fader geral, visores, pitch, efeitos, saída e pads ace
   assert.match(panel, /<DetailsDisplay/);
   assert.match(panel, /<PitchFader/);
   for (const fx of ['REVERB', 'DELAY', 'REVERSO', 'LOOP']) assert.match(panel, new RegExp(`label="${fx}"`));
-  assert.match(panel, /<OutputButton output=\{st\.output\} \/>/);
   assert.match(panel, /onClick=\{fadeAllPads\}/);
   assert.match(panel, /return visible \? <SamplePadPanel \/> : <MixerPanel \/>;/);
   assert.match(panel, /if \(e\.key === 'p' \|\| e\.key === 'P'\) \{/);

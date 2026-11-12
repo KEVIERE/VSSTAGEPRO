@@ -311,7 +311,7 @@ export function triggerPad(slot: number): void {
   if (voices.has(slot)) {
     release(slot);
     // loop: apertar de novo para (no modo segurar, apertar de novo sempre recomeça)
-    if (info.loop && !info.hold) return;
+    if (info.loop && !getPadsState().hold) return;
   }
   // um por vez: o pad novo para os outros (com uma descida curta, sem estalo)
   for (const other of chokedBy(slot, voices.keys(), getPadsState().choke)) release(other, 0.03);
@@ -340,12 +340,13 @@ export function triggerPad(slot: number): void {
 
 /**
  * Soltou o pad (mouse ou tecla). Só vale no modo segurar: o som para ao soltar, mas toca pelo
- * menos meio segundo (apertou e soltou rápido = meio segundo). Continua aceso até parar de verdade.
+ * menos 0,2 s (apertou e soltou rápido = 0,2 s). Continua aceso até parar de verdade.
  */
 export function releasePad(slot: number): void {
-  const info = getPadsState().infos.get(slot);
+  const { infos, hold } = getPadsState();
+  const info = infos.get(slot);
   const v = voices.get(slot);
-  if (!info?.hold || !v) return;
+  if (!hold || !info || !v) return;
   const ctx = v.gain.context;
   const at = holdStopTime(v.startedAt, ctx.currentTime);
   const g = v.gain.gain;
@@ -372,6 +373,11 @@ export function setPadsMaster(volume: number): void {
 /** Liga ou desliga o "um por vez" (tocar um pad para os outros). */
 export function setPadsChoke(choke: boolean): void {
   setPadsState({ choke });
+}
+
+/** Liga ou desliga o "segurar" (os pads tocam enquanto estão apertados). */
+export function setPadsHold(hold: boolean): void {
+  setPadsState({ hold });
 }
 
 export function setPadsOutput(output: PadOutput): void {
@@ -419,7 +425,7 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
     }
     const old = getPadsState().infos.get(slot);
     const keep = old
-      ? { color: old.color, volume: old.volume, loop: old.loop, pitch: old.pitch, reverb: old.reverb, delay: old.delay, reverse: old.reverse, hold: old.hold }
+      ? { color: old.color, volume: old.volume, loop: old.loop, pitch: old.pitch, reverb: old.reverb, delay: old.delay, reverse: old.reverse }
       : {};
     const info: PadInfo = { ...newPadInfo(slot, file.name, buffer.duration), ...keep, type };
     release(slot);
@@ -472,7 +478,8 @@ async function applyProjectPads(saved: SavedPads, files: Map<string, Blob>): Pro
   const bank = Number.isInteger(saved.bank) ? Math.max(0, Math.min(9, saved.bank)) : 0;
   setPadsState({
     infos, bank, selected: padSlot(bank, 0), master: saved.master ?? 0.8,
-    output: saved.output ?? getPadsState().output, choke: saved.choke ?? getPadsState().choke, playing: new Map(),
+    output: saved.output ?? getPadsState().output, choke: saved.choke ?? getPadsState().choke,
+    hold: saved.hold ?? getPadsState().hold, playing: new Map(),
   });
   if (out) route(out);
   await prepareBank(bank);

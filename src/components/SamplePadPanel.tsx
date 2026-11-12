@@ -7,7 +7,7 @@ import SegmentDisplay from '@/components/SegmentDisplay';
 import { faderToGain } from '@/lib/faderScale';
 import {
   clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
-  setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
+  setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
   BANK_COUNT, BANK_LABELS, PAD_COLORS, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
@@ -58,7 +58,7 @@ export function PadsOrMixer() {
       held.set(e.key, slot);
       triggerPad(slot);
     };
-    // soltou a tecla: no modo segurar o som para (depois de pelo menos meio segundo)
+    // soltou a tecla: no modo segurar o som para (depois de pelo menos 0,2 s)
     const onKeyUp = (e: KeyboardEvent) => {
       const slot = held.get(e.key);
       if (slot === undefined) return;
@@ -134,6 +134,8 @@ function SamplePadPanel() {
           <span className={`text-[11px] truncate min-w-0 ${st.message.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-amber'}`}>{st.message.text}</span>
         )}
         <span className="flex-1" />
+        <span className="console-legend shrink-0">SAÍDA</span>
+        <span className="w-[112px] shrink-0 flex"><OutputButton output={st.output} /></span>
         <button className="p-1 rounded text-logic-text-muted hover:text-logic-text" onClick={togglePadsPanel} title="Fechar os pads e voltar ao mixer (P)" aria-label="Fechar os pads">
           <X size={13} />
         </button>
@@ -145,15 +147,13 @@ function SamplePadPanel() {
           <PlayingDisplay />
           <DetailsDisplay info={selected} number={slotPad(st.selected) + 1} bank={st.bank} output={st.output} />
           <PitchFader value={selected?.pitch ?? 0} disabled={!selected} onChange={(v) => set({ pitch: v })} />
-          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Efeitos do pad escolhido">
+          <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Efeitos do pad escolhido">
             <FxKey label="REVERB" on={!!selected?.reverb} lit="is-lit-blue" disabled={!selected} onClick={() => set({ reverb: !selected?.reverb })} title="Reverb: sala com cauda de 2 segundos" />
             <FxKey label="DELAY" on={!!selected?.delay} lit="is-lit-blue" disabled={!selected} onClick={() => set({ delay: !selected?.delay })} title="Delay: repete no tempo da música (uma semínima)" />
             <FxKey label="REVERSO" on={!!selected?.reverse} lit="is-lit-amber" disabled={!selected} onClick={() => set({ reverse: !selected?.reverse })} title="Toca o som de trás para frente (vale no próximo toque)" />
             <FxKey label="LOOP" on={!!selected?.loop} lit="is-lit-green" disabled={!selected} onClick={() => set({ loop: !selected?.loop })} title="Repete até apertar o pad de novo" />
-            <FxKey label="SEGURAR" on={!!selected?.hold} lit="is-lit-amber" disabled={!selected} onClick={() => set({ hold: !selected?.hold })} title="Toca enquanto o pad está apertado: segurando toca o som inteiro; apertou e soltou, toca só meio segundo" />
           </div>
           <div className="flex items-center gap-1.5 mt-auto">
-            <OutputButton output={st.output} />
             <button
               type="button"
               className={`console-key h-7 px-2 text-[11px] flex items-center gap-1.5 shrink-0 ${st.choke ? 'is-lit-amber' : ''}`}
@@ -164,6 +164,19 @@ function SamplePadPanel() {
               <span className={`console-led ${st.choke ? 'is-on-amber' : ''}`} />
               1 POR VEZ
             </button>
+            <button
+              type="button"
+              className={`console-key h-7 px-2 text-[11px] flex items-center gap-1.5 shrink-0 ${st.hold ? 'is-lit-amber' : ''}`}
+              onClick={() => setPadsHold(!st.hold)}
+              aria-pressed={st.hold}
+              title={st.hold
+                ? 'Segurar ligado: os pads tocam enquanto estão apertados; apertou e soltou, toca só 0,2 s'
+                : 'Ligar segurar: os pads tocam enquanto estão apertados; apertou e soltou, toca só 0,2 s'}
+            >
+              <span className={`console-led ${st.hold ? 'is-on-amber' : ''}`} />
+              SEGURAR
+            </button>
+            <span className="flex-1" />
             <button type="button" className="console-key h-7 px-2.5 text-[11px]" onClick={fadeAllPads} title="Abaixa os pads tocando até sumir, em 2 segundos">FADE</button>
             <button
               type="button"
@@ -313,7 +326,7 @@ function PlayingDisplay() {
 /** Visor do pad escolhido: nome, tamanho, volume, pitch, efeitos e saída. */
 function DetailsDisplay({ info, number, bank, output }: { info?: PadInfo; number: number; bank: number; output: PadOutput }) {
   const count = useStore((s) => s.outputChannelCount);
-  const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP', info.hold && 'SEGURAR'].filter(Boolean).join(' · ') : '';
+  const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP'].filter(Boolean).join(' · ') : '';
   return (
     <div className="console-display shrink-0 px-2.5 py-1.5 text-[11px] leading-tight flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5 min-w-0">
@@ -668,7 +681,6 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRel
           {info.reverb && <span>REV</span>}
           {info.delay && <span>DLY</span>}
           {info.reverse && <span>REV←</span>}
-          {info.hold && <span>SEG</span>}
           {info.pitch !== 0 && <span>{pitchLabel(info.pitch)}</span>}
         </span>
       </span>
