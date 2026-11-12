@@ -203,7 +203,7 @@ export default function PrompterDialog({ broadcast, lyricSongs, referenceSync, o
                 </div>
               )}
 
-              {codes && <PrompterAudioUpload sync={referenceSync} lyricsDone={Object.keys(useStore.getState().lyricMaps)} />}
+              {codes && <PrompterAudioUpload sync={referenceSync} />}
 
               {codes && (
                 confirmReset ? (

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Play, Pause, Flag, Plus, Trash2, ChevronUp, ChevronDown, ClipboardPaste, Check, Loader2,
-  AlertTriangle, Radio, Eye, X, RotateCcw, Undo2, Redo2, Sparkles, Square,
+  AlertTriangle, Radio, Eye, X, RotateCcw, Undo2, Redo2, Sparkles,
 } from 'lucide-react';
 import LyricsWaveform, { decodePeaks } from '@/components/prompter/LyricsWaveform';
 import StageScreen from '@/components/prompter/StageScreen';
@@ -10,16 +10,7 @@ import { PAGE_KINDS, kindInfo } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { computeLiveView } from '@/lib/liveClock';
 import { autoPageIndex, formatClock, newId } from '@/lib/prompterView';
-import { addMarker, buildPages, clampMarker, moveMarker, removeMarker, type TimedWord } from '@/lib/lyricsAutoSync';
-import { transcribeErrorText, transcribeSong, type TranscribeStep } from '@/lib/lyricsTranscribe';
-import { isLocalClient } from '@/lib/localNetwork';
-
-const GEN_STEPS: { id: TranscribeStep; label: string }[] = [
-  { id: 'prepare', label: 'Preparando o áudio' },
-  { id: 'upload', label: 'Enviando para a IA' },
-  { id: 'separate', label: 'Separando a voz da banda' },
-  { id: 'transcribe', label: 'Ouvindo a letra palavra por palavra' },
-];
+import { addMarker, buildPages, clampMarker, moveMarker, normalizeWords, removeMarker, type RawSegment, type TimedWord } from '@/lib/lyricsAutoSync';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 export interface LyricsHistory { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }
@@ -47,8 +38,9 @@ function splitLyrics(raw: string): LyricPage[] {
     .map((text) => ({ id: newId(), time: null, text: text.slice(0, MAX_PAGE_TEXT), kind: 'verso' as PageKind }));
 }
 
-export default function SongLyricsEditor({ code, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
-  code: string;
+export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
+  /** Letra lida pelo Mac do diretor (palavras com tempo), quando já chegou. */
+  wordsUrl: string | null;
   song: SetlistSong;
   cloudUrl: string | null;
   autoPlay: boolean;
@@ -64,12 +56,10 @@ export default function SongLyricsEditor({ code, song, cloudUrl, autoPlay, pages
   onWords: (words: TimedWord[]) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const fileRef = useRef<File | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [gen, setGen] = useState<TranscribeStep | null>(null);
+  const [gen, setGen] = useState(false);
   const [genMsg, setGenMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmGen, setConfirmGen] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioName, setAudioName] = useState('');
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
@@ -113,7 +103,6 @@ export default function SongLyricsEditor({ code, song, cloudUrl, autoPlay, pages
     audioRef.current?.pause();
     setAudioUrl(URL.createObjectURL(file));
     setAudioName(file.name);
-    fileRef.current = file;
     setLocalT(0);
     setFollowLive(false);
     try {
@@ -212,35 +201,33 @@ export default function SongLyricsEditor({ code, song, cloudUrl, autoPlay, pages
     return () => window.removeEventListener('keydown', onKey);
   }, [togglePlay, selected, deleteMarker, moveTo]);
 
-  // Trocar de música no meio da letra automática cancela o trabalho na nuvem.
-  useEffect(() => () => abortRef.current?.abort(), []);
-
-  const local = isLocalClient();
-  const canGenerate = !!audioUrl && !decoding && gen === null && !local;
+  // A letra é lida no Mac do diretor (sem internet e sem custo) e chega junto com o áudio.
+  const canGenerate = !!wordsUrl && !gen;
 
   const generate = async () => {
-    const file = fileRef.current;
-    if (!file) return;
+    if (!wordsUrl) return;
     setConfirmGen(false);
     setGenMsg(null);
-    const ac = new AbortController();
-    abortRef.current = ac;
-    setGen('prepare');
+    setGen(true);
     try {
-      const heard = await transcribeSong(code, file, { signal: ac.signal, onStep: setGen });
+      const res = await fetch(wordsUrl);
+      if (!res.ok) throw new Error('fetch');
+      const body = await res.json() as { segments?: RawSegment[] };
+      const heard = normalizeWords(body.segments ?? []);
       const built = buildPages(heard);
-      if (built.length === 0) throw new Error('no_lyrics');
+      if (built.length === 0) {
+        setGenMsg({ ok: false, text: 'O leitor de letra não encontrou voz cantada nesta música.' });
+        return;
+      }
       setPages(() => built);
       onWords(heard);
       setSelectedId(null);
       setMarkIdx(0);
       setGenMsg({ ok: true, text: `Letra gerada: ${built.length} trechos já marcados na onda. Confira o texto, porque a IA pode errar alguma palavra. Para voltar ao que era antes, use Desfazer.` });
-    } catch (e) {
-      const err = e as Error;
-      if (err.message !== 'aborted') setGenMsg({ ok: false, text: transcribeErrorText(err.name === 'EncodingError' ? 'decode' : err.message) });
+    } catch {
+      setGenMsg({ ok: false, text: 'Não foi possível buscar a letra agora. Atualize a lista de músicas e tente de novo.' });
     } finally {
-      if (abortRef.current === ac) abortRef.current = null;
-      setGen(null);
+      setGen(false);
     }
   };
 
@@ -325,48 +312,28 @@ export default function SongLyricsEditor({ code, song, cloudUrl, autoPlay, pages
               onClick={() => (pages.length ? setConfirmGen(true) : void generate())}
               disabled={!canGenerate}
               className="console-key flex items-center gap-1.5 px-3.5 h-9 text-[12px] disabled:opacity-40"
-              title={local ? 'Disponível quando o produtor entra pelo link da internet' : 'A IA ouve a música, escreve a letra e marca o começo de cada trecho'}
+              title="Escreve a letra que o Mac do diretor ouviu e marca o começo de cada trecho"
             >
-              <Sparkles size={14} className="text-logic-lcd-amber" /> Letra automática
+              {gen ? <Loader2 size={14} className="animate-spin text-logic-lcd-amber" /> : <Sparkles size={14} className="text-logic-lcd-amber" />} Letra automática
             </button>
             <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
-              {local
-                ? 'Na rede local a letra automática não funciona: ela roda na nuvem. Entre pelo link da internet para usar.'
-                : !audioUrl
-                  ? 'Carregue o áudio da música para a IA ouvir a letra.'
-                  : 'A IA separa a voz da banda, escreve a letra e marca o início de cada trecho. Leva de 1 a 3 minutos.'}
+              {wordsUrl
+                ? 'O Mac do diretor já ouviu esta música: separou a voz da banda, leu a letra e marcou o início de cada trecho.'
+                : 'A letra desta música ainda não chegou. Ela é lida no Mac do diretor depois que ele envia o repertório, alguns minutos por música, com o programa parado.'}
             </p>
           </div>
 
           {confirmGen && (
             <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
               <span className="flex-1 min-w-[200px] text-logic-text">
-                Isso troca as {pages.length} páginas desta música pela letra que a IA ouvir. Dá para voltar com Desfazer.
+                Isso troca as {pages.length} páginas desta música pela letra que o Mac do diretor ouviu. Dá para voltar com Desfazer.
               </span>
               <button onClick={() => setConfirmGen(false)} className="px-2.5 h-7 text-logic-text-dim hover:text-logic-text">Cancelar</button>
               <button onClick={() => void generate()} className="console-key is-lit-amber px-3 h-7 text-[11px]">Trocar pela letra da IA</button>
             </div>
           )}
 
-          {gen !== null && (
-            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs" aria-live="polite">
-              {GEN_STEPS.map((st, i) => {
-                const cur = GEN_STEPS.findIndex((x) => x.id === gen);
-                const state = i < cur ? 'done' : i === cur ? 'now' : 'todo';
-                return (
-                  <span key={st.id} className={`flex items-center gap-1.5 ${state === 'todo' ? 'text-logic-text-muted' : 'text-logic-text'}`}>
-                    <span className={`console-led ${state === 'done' ? 'is-on-green' : state === 'now' ? 'is-on-amber animate-pulse' : ''}`} />
-                    {st.label}
-                  </span>
-                );
-              })}
-              <button onClick={() => abortRef.current?.abort()} className="ml-auto flex items-center gap-1 text-logic-text-dim hover:text-logic-lcd-red transition-colors">
-                <Square size={11} /> Parar
-              </button>
-            </div>
-          )}
-
-          {genMsg && gen === null && (
+          {genMsg && !gen && (
             <p className={`mt-2 text-xs flex items-start gap-1.5 leading-relaxed ${genMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>
               {genMsg.ok ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
               <span className="flex-1">{genMsg.text}</span>

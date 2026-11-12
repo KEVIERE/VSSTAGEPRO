@@ -7,6 +7,7 @@ const path = require('path');
 const QRCode = require('qrcode');
 const { resolveStatic } = require('./staticFiles');
 const { LocalAccounts } = require('./musicianAccounts');
+const { LocalRepertoire } = require('./localRepertoire');
 
 const DEFAULT_PORT = 8080;
 const HOST_NAME = 'vsstage.local';
@@ -121,6 +122,12 @@ class LocalServer {
     this.pendingSaveRequest = null;
     this.remoteMeters = null;
     this.qrCache = new Map();
+    // Repertório do produtor (áudio + letra lida pelo Mac). Começa vazio a cada abertura do
+    // programa: só existe depois que o diretor aperta "Enviar repertório" (ver localRepertoire.js).
+    this.repertoire = new LocalRepertoire({ dir: path.join(path.dirname(storePath), 'rede-local-repertorio') });
+    this.repertoire.wipe();
+    this.repertoireTimer = setInterval(() => this.repertoire.sweep(), 30_000);
+    this.repertoireTimer.unref?.();
     // Contas dos músicos (usuário e senha) e os cadernos delas. Moram no projeto do show; aqui
     // fica a cópia em uso e uma de segurança por projeto. Os cadernos antigos (por nome) vão
     // para a conta de quem criar uma com o mesmo nome.
@@ -475,6 +482,10 @@ class LocalServer {
     if (req.method !== 'GET' && req.method !== 'HEAD') return this.json(res, 405, { error: 'method' });
     // A logo trocada pelo produtor na rede local. Fica fora de /api para o <img> apontar direto.
     if (url.pathname === `/${PATH.producer}/logo/atual`) return this.serveLogo(req, res);
+    // Áudio e letra do repertório: endereço com chave (o <audio> não manda o login).
+    if (url.pathname.startsWith(`/${PATH.producer}/repertorio/`)) {
+      return this.serveRepertoire(req, res, decodeURIComponent(url.pathname.slice(`/${PATH.producer}/repertorio/`.length)), url.searchParams.get('k'));
+    }
     return this.serveStatic(req, res, url.pathname);
   }
 
@@ -486,6 +497,15 @@ class LocalServer {
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
     if (req.method === 'HEAD') return res.end();
     return fs.createReadStream(file).on('error', () => res.end()).pipe(res);
+  }
+
+  serveRepertoire(req, res, name, key) {
+    const file = this.repertoire.filePath(name, key);
+    if (!file) return this.json(res, 404, { error: 'not_found' });
+    const type = file.endsWith('.mp3') ? 'audio/mpeg' : 'application/json; charset=utf-8';
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+    if (req.method === 'HEAD') return res.end();
+    fs.createReadStream(file).on('error', () => res.end()).pipe(res);
   }
 
   serveStatic(req, res, pathname) {
@@ -645,10 +665,23 @@ class LocalServer {
       return this.json(res, 200, { ok: true });
     }
 
+    // Lista do repertório para a aba Letras (áudio e letra lida pelo Mac do diretor).
+    if (route === 'references') {
+      return this.json(res, 200, { files: this.repertoire.list(`/${PATH.producer}/repertorio`) });
+    }
+
+    // O produtor pede o repertório: vira um aviso no programa do diretor, que envia de novo.
+    if (route === 'repertoire-request') {
+      this.repertoire.request();
+      return this.json(res, 200, { ok: true });
+    }
+
     if (route === 'lyrics-save') {
       const at = new Date().toISOString();
       this.lyricsSave = { ...this.lyricsSave, requestedAt: at };
       this.pendingSaveRequest = at;
+      // Letras salvas: o áudio do repertório sai do Mac 10 minutos depois.
+      this.repertoire.release();
       return this.json(res, 200, { ok: true });
     }
 

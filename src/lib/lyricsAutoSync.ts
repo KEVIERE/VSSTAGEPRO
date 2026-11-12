@@ -9,15 +9,30 @@ import type { LyricPage, PageKind } from '@/lib/prompterTypes';
  */
 
 /** Uma palavra cantada: texto, início e fim em segundos. */
-export interface TimedWord { w: string; s: number; e: number }
+export interface TimedWord {
+  w: string;
+  s: number;
+  e: number;
+  /** Primeira palavra de uma frase do Whisper (ele separa a letra por frase cantada). */
+  br?: boolean;
+}
 
-/** Trecho no formato que o WhisperX devolve (com `align_output`). Campos podem faltar. */
+/** Trecho no formato que o leitor de letra devolve (segmentos do Whisper com palavras). Campos podem faltar. */
 export interface RawSegment {
   start?: number | null;
   end?: number | null;
   text?: string | null;
   words?: { word?: string | null; start?: number | null; end?: number | null }[] | null;
+  /** Confiança média do Whisper no trecho (log). Perto de 0 = certeza; bem negativo = chute. */
+  avg_logprob?: number | null;
 }
+
+/**
+ * Frase curta com confiança baixa: é o Whisper inventando em trecho sem voz ("Tchau, tchau.",
+ * "Obrigado."). Medido numa música real: frases cantadas ficam perto de -0,2; a inventada, -0,6.
+ */
+const SHORT_GUESS_WORDS = 3;
+const SHORT_GUESS_LOGPROB = -0.55;
 
 export interface PageLayout {
   /** Caracteres por linha antes de quebrar. A TV do palco mostra letra grande. */
@@ -77,6 +92,8 @@ export function normalizeWords(segments: RawSegment[]): TimedWord[] {
     const rawWords = Array.isArray(seg.words) ? seg.words : [];
     const wordsText = rawWords.map((w) => (typeof w?.word === 'string' ? w.word : '')).join(' ');
     if (isHallucination(segText) || isHallucination(wordsText)) continue;
+    const count = (rawWords.length ? wordsText : segText).split(/\s+/).filter(Boolean).length;
+    if (finite(seg.avg_logprob) && seg.avg_logprob < SHORT_GUESS_LOGPROB && count <= SHORT_GUESS_WORDS) continue;
 
     const segStart = finite(seg.start) ? seg.start : null;
     const segEnd = finite(seg.end) ? seg.end : null;
@@ -114,12 +131,12 @@ export function normalizeWords(segments: RawSegment[]): TimedWord[] {
       i = j;
     }
 
-    for (const it of items) {
+    items.forEach((it, k) => {
       const prevS = out.length ? out[out.length - 1].s : 0;
       const s = Math.max(0, it.s as number, prevS);
       const e = Math.max(s, it.e ?? s);
-      out.push({ w: it.w, s, e });
-    }
+      out.push(k === 0 ? { w: it.w, s, e, br: true } : { w: it.w, s, e });
+    });
   }
   return out;
 }
@@ -149,60 +166,103 @@ export function similarity(a: string, b: string): number {
   return common / (sa.size + sb.size - common);
 }
 
-/** Trecho que se repete na música vira Refrão; o resto fica Verso. */
+/**
+ * Refrão: o trecho que se repete na música. Quando a música inteira se repete (verso cantado duas
+ * vezes, refrão três ou mais), só o que aparece três vezes ou mais vira Refrão.
+ */
 export function markChorus(pages: LyricPage[]): LyricPage[] {
+  const enough = pages.map((p) => normalizeForCompare(p.text).length >= 3);
+  const count = pages.map((p, i) => (enough[i] ? 1 + pages.filter((q, j) => j !== i && enough[j] && similarity(p.text, q.text) >= 0.6).length : 1));
+  const top = Math.max(1, ...count);
   return pages.map((p, i) => {
-    const enough = normalizeForCompare(p.text).length >= 3;
-    const repeats = enough && pages.some((q, j) => j !== i && normalizeForCompare(q.text).length >= 3 && similarity(p.text, q.text) >= 0.6);
-    const kind: PageKind = repeats ? 'refrao' : 'verso';
+    const kind: PageKind = top >= 2 && count[i] >= Math.min(3, top) ? 'refrao' : 'verso';
     return p.kind === kind ? p : { ...p, kind };
   });
+}
+
+type Line = { words: string[]; s: number; e: number };
+
+/** Frase grande demais para uma linha: divide em linhas de tamanho parecido. */
+function splitLong(words: TimedWord[], maxChars: number): Line[] {
+  const line = (ws: TimedWord[]): Line => ({ words: ws.map((w) => w.w), s: ws[0].s, e: ws[ws.length - 1].e });
+  const len = words.map((w) => w.w).join(' ').length;
+  if (len <= maxChars || words.length < 2) return [line(words)];
+  const parts = Math.ceil(len / maxChars);
+  const target = len / parts;
+  const lines: Line[] = [];
+  let cur: TimedWord[] = [];
+  let curLen = 0;
+  words.forEach((w, i) => {
+    const add = (cur.length ? 1 : 0) + w.w.length;
+    const left = words.length - i;
+    const linesLeft = parts - lines.length;
+    // Fecha a linha quando ela já chegou perto do tamanho-alvo (ou passaria do máximo).
+    if (cur.length && linesLeft > 1 && left >= linesLeft - 1 && (curLen + add > maxChars || curLen + add / 2 > target)) {
+      lines.push(line(cur));
+      cur = [];
+      curLen = 0;
+    }
+    cur.push(w);
+    curLen += (cur.length > 1 ? 1 : 0) + w.w.length;
+  });
+  if (cur.length) lines.push(line(cur));
+  return lines;
 }
 
 /**
  * Monta as páginas da letra a partir das palavras.
  *
- * Quebra a linha num respiro curto, no fim de frase ou quando a linha fica comprida; fecha a
- * página num respiro longo ou quando ela enche. Cada página começa no tempo da primeira palavra.
+ * 1. Frases: o Whisper já separa a letra por frase cantada (`br`). Dentro dela, uma vírgula ou
+ *    um ponto também abre frase nova, desde que a de antes tenha pelo menos 3 palavras, e um
+ *    respiro também.
+ * 2. Linhas: cada frase é uma linha; frase comprida vira linhas de tamanho parecido.
+ * 3. Páginas: fecham num respiro longo (com pelo menos duas linhas), quando enchem, ou sempre num
+ *    silêncio grande (solo, instrumental). Cada página começa no tempo da primeira palavra.
  */
 export function buildPages(words: TimedWord[], layout: Partial<PageLayout> = {}, makeId: () => string = defaultId): LyricPage[] {
   const o = { ...DEFAULT_LAYOUT, ...layout };
-  const groups: { start: number; lines: string[][] }[] = [];
-  let page: { start: number; lines: string[][] } | null = null;
-  let line: string[] = [];
-  let lineLen = 0;
+
+  // 1. frases
+  const phrases: TimedWord[][] = [];
+  let cur: TimedWord[] | null = null;
   let prev: TimedWord | null = null;
-
-  const closeLine = () => {
-    if (page && line.length) page.lines.push(line);
-    line = [];
-    lineLen = 0;
-  };
-  const closePage = () => {
-    closeLine();
-    if (page && page.lines.length) groups.push(page);
-    page = null;
-  };
-
   for (const word of words) {
     const w = word.w.trim();
     if (!w) continue;
-    if (page && prev) {
-      const gap = word.s - prev.e;
-      const linesNow = page.lines.length + (line.length ? 1 : 0);
-      const tooLong = lineLen + 1 + w.length > o.maxLineChars;
-      const sentenceEnd = /[.!?;]$/.test(prev.w);
-      const wantsLine = line.length > 0 && (tooLong || gap >= o.pageGap || (line.length >= 2 && (gap >= o.lineGap || sentenceEnd)));
-      const wantsPage = gap >= o.hardGap || (gap >= o.pageGap && linesNow >= 2) || (wantsLine && linesNow >= o.maxLines);
-      if (wantsPage) closePage();
-      else if (wantsLine) closeLine();
+    const gap = prev ? word.s - prev.e : 0;
+    const punct = !!prev && /[,.!?;:]$/.test(prev.w) && (cur?.length ?? 0) >= 3;
+    if (!cur || word.br || punct || gap >= o.lineGap * 2) {
+      if (cur) phrases.push(cur);
+      cur = [];
     }
-    if (!page) page = { start: word.s, lines: [] };
-    line.push(w);
-    lineLen += (line.length > 1 ? 1 : 0) + w.length;
-    prev = word;
+    const item: TimedWord = { ...word, w };
+    cur.push(item);
+    prev = item;
   }
-  closePage();
+  if (cur) phrases.push(cur);
+
+  // 2 e 3. linhas e páginas
+  const groups: { start: number; end: number; lines: string[][] }[] = [];
+  let page: { start: number; end: number; lines: string[][] } | null = null;
+  for (const ph of phrases) {
+    const lines = splitLong(ph, o.maxLineChars);
+    lines.forEach((ln, k) => {
+      if (page) {
+        const gap = ln.s - page.end;
+        // A frase inteira cabe na página? Senão ela começa numa página nova (sem cortar no meio).
+        const room = o.maxLines - page.lines.length;
+        const fits = k > 0 ? room >= 1 : room >= Math.min(lines.length, o.maxLines);
+        if (gap >= o.hardGap || (k === 0 && gap >= o.pageGap && page.lines.length >= 2) || !fits) {
+          groups.push(page);
+          page = null;
+        }
+      }
+      if (!page) page = { start: ln.s, end: ln.e, lines: [] };
+      page.lines.push(ln.words);
+      page.end = ln.e;
+    });
+  }
+  if (page) groups.push(page);
 
   const pages: LyricPage[] = [];
   let lastTime = -Infinity;

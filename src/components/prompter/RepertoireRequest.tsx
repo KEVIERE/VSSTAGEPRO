@@ -4,11 +4,12 @@ import { producerRequestRepertoire } from '@/lib/prompterAudio';
 import { useNetworkMode } from '@/lib/localNetwork';
 
 /**
- * Pedido do repertório de volta.
+ * Pedido do repertório.
  *
- * O áudio de referência sai do Supabase quando o produtor salva as letras. Se depois precisar
- * escrever outra letra, ele pede daqui: o programa do diretor recebe o pedido sozinho e envia
- * só as músicas que ainda não têm letra.
+ * O áudio chega quando o diretor aperta "Enviar repertório" e sai (do Supabase ou do Mac do
+ * diretor) 10 minutos depois de o produtor salvar as letras. Para ouvir de novo, o produtor pede
+ * daqui: o pedido aparece como aviso no programa do diretor, que envia de novo. Funciona online
+ * e na rede local.
  */
 /** Traduz o código que a nuvem devolveu para uma frase que diz o que fazer. */
 function explainRequestError(err: unknown): string {
@@ -39,25 +40,13 @@ export default function RepertoireRequest({ code, semLetra, total }: {
   const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [message, setMessage] = useState<string | null>(null);
 
-  // Na rede local o áudio de referência não passa pela nuvem: o envio não existe nesse modo.
-  if (mode === 'local') {
-    return (
-      <div className="rounded-xl border border-logic-border bg-logic-bg-panel p-4">
-        <p className="flex items-center gap-2 text-sm font-semibold text-logic-text"><Inbox size={15} className="text-logic-accent" /> Repertório para ouvir</p>
-        <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
-          Na Rede Local o áudio vem do Mac do diretor, sem passar pela nuvem — não há nada para pedir nem para apagar.
-        </p>
-      </div>
-    );
-  }
-
   const ask = async () => {
     setState('sending');
     setMessage(null);
     try {
       await producerRequestRepertoire(code);
       setState('sent');
-      setMessage('Pedido enviado. O programa do diretor manda as músicas que faltam letra assim que estiver aberto. Esta lista se atualiza sozinha.');
+      setMessage('Pedido enviado. Aparece um aviso no programa do diretor; quando ele enviar, as músicas chegam aqui sozinhas.');
     } catch (err) {
       setState('error');
       // Cada falha tem a sua explicação: antes tudo virava "confira a internet", o que mandava a
@@ -75,9 +64,8 @@ export default function RepertoireRequest({ code, semLetra, total }: {
       </div>
 
       <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
-        {semLetra === 0
-          ? 'Todas as músicas já têm letra. As músicas para ouvir saem do servidor depois que você salva, para não ocupar espaço. Se precisar refazer alguma letra, extraia o repertório de novo.'
-          : `As músicas descem sozinhas depois que você salva as letras. Faltam ${semLetra} ${semLetra === 1 ? 'música' : 'músicas'} sem letra: extraia o repertório para ouvi-las.`}
+        {`O áudio chega quando o diretor envia o repertório. Depois que você salva as letras ele fica mais 10 minutos e sai ${mode === 'local' ? 'do Mac do diretor' : 'do servidor'}. Para ouvir de novo, peça ao diretor.`}
+        {semLetra > 0 && ` Faltam ${semLetra} ${semLetra === 1 ? 'música' : 'músicas'} sem letra.`}
       </p>
 
       <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -87,7 +75,7 @@ export default function RepertoireRequest({ code, semLetra, total }: {
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-semibold disabled:opacity-50 transition-all active:scale-[0.98]"
         >
           {state === 'sending' ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          {state === 'sending' ? 'Extraindo...' : 'Extrair repertório'}
+          {state === 'sending' ? 'Pedindo...' : 'Pedir o repertório ao diretor'}
         </button>
         {state === 'sent' && (
           <span className="flex items-center gap-1.5 text-xs text-logic-lcd-green"><Check size={13} /> Pedido enviado</span>

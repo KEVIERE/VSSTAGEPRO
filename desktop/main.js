@@ -12,6 +12,7 @@ const drumPieces = require('./drumPieces');
 const maestroVoice = require('./maestroVoice');
 const maestroQwen = require('./maestroQwen');
 const maestroVoiceDownload = require('./maestroVoiceDownload');
+const lyricsReader = require('./lyricsReader');
 const { initAntiTamper } = require('./antiTamper');
 const licenseCache = require('./licenseCache');
 const { deviceInfo } = require('./deviceInfo');
@@ -353,6 +354,11 @@ handle('publish', (payload) => server.publish(payload));
 handle('regeneratePin', (role) => { server.regeneratePin(role); return server.info(); });
 handle('kick', (id) => server.kick(String(id)));
 handle('ackLyricsSave', () => server.ackLyricsSave());
+// Repertório do produtor na rede local (ver localRepertoire.js)
+handle('refStatus', () => server.repertoire.status());
+handle('refStart', () => { server.repertoire.start(); return server.repertoire.status(); });
+handle('refPut', (songId, kind, data) => { server.repertoire.put(String(songId), String(kind), typeof data === 'string' ? data : Buffer.from(data)); });
+handle('refTakeRequest', () => server.repertoire.takeRequest());
 handle('setMusicianBook', (book) => server.setMusicianBook(book));
 // medidores dos faders para o VS Stage Remote: muitas vezes por segundo, sem resposta
 ipcMain.on('local:meters', (event, meters) => {
@@ -388,7 +394,12 @@ handle('maestroVoices', () => maestroVoice.listVoices());
 handle('maestroSpeak', (payload) => maestroVoice.renderNarration(payload));
 handle('maestroVoiceStatus', () => maestroVoice.voiceStatus());
 // música tocando: o download da voz pausa (não disputa a rede e o disco durante o show)
-handle('maestroVoicePlaying', (playing) => { maestroVoiceDownload.setPaused(!!playing); });
+handle('maestroVoicePlaying', (playing) => { maestroVoiceDownload.setPaused(!!playing); lyricsReader.setPlaying(!!playing); });
+// Leitor de letra (repertório do produtor): roda no Mac, sem internet e sem custo.
+handle('lyricsReaderStatus', () => lyricsReader.status());
+handle('lyricsReaderPrepare', () => lyricsReader.prepare());
+handle('lyricsTranscribe', (wav) => lyricsReader.transcribe(wav));
+handle('lyricsTranscribeCancel', () => lyricsReader.cancel());
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 handle('cancelStemSeparation', () => cancelStemSeparation());
 // Separação da BATERIA em peças (bumbo, caixa, pratos, tons): roda depois do Demucs.
@@ -568,5 +579,6 @@ app.on('before-quit', (event) => {
   }
   server?.stop();
   maestroVoiceDownload.stop();
+  lyricsReader.stop();
   maestroQwen.stopHelper();
 });

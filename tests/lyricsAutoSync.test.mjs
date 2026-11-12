@@ -58,18 +58,31 @@ test('frase inventada pelo Whisper em trecho sem voz é descartada', () => {
   assert.deepEqual(words.map((w) => w.w), ['Te', 'louvarei']);
 });
 
+test('frase curta com confiança baixa (inventada em trecho sem voz) é descartada', () => {
+  const words = normalizeWords([
+    { start: 0, end: 1.5, text: 'Tchau, tchau.', avg_logprob: -0.613, words: [{ word: 'Tchau,', start: 0, end: 0.6 }, { word: 'tchau.', start: 0.7, end: 1.4 }] },
+    { start: 4, end: 6, text: 'Por que demorou?', avg_logprob: -0.227, words: [{ word: 'Por', start: 4, end: 4.3 }, { word: 'que', start: 4.4, end: 4.6 }, { word: 'demorou?', start: 4.7, end: 5.6 }] },
+    { start: 8, end: 9, text: 'Aleluia', avg_logprob: -0.3, words: [{ word: 'Aleluia', start: 8, end: 9 }] },
+    { start: 10, end: 14, text: 'frase comprida com pouca certeza mas cantada', avg_logprob: -0.7, words: [] },
+  ]);
+  assert.deepEqual(words.map((w) => w.w), ['Por', 'que', 'demorou?', 'Aleluia', 'frase', 'comprida', 'com', 'pouca', 'certeza', 'mas', 'cantada']);
+});
+
 test('entrada quebrada não derruba a leitura', () => {
   assert.deepEqual(normalizeWords(null), []);
   assert.deepEqual(normalizeWords([null, {}, { words: [{ word: '  ' }] }]), []);
 });
 
-test('buildPages: respiro longo fecha a página, respiro curto quebra a linha', () => {
-  const words = W([
-    ['Quão', 1.0, 1.3], ['grande', 1.35, 1.8], ['és', 1.85, 2.4], ['tu', 2.45, 3.0],
-    ['meu', 3.6, 3.9], ['Senhor', 3.95, 4.8],
+/** Frases do Whisper: cada uma é uma lista de [texto, início, fim]; a primeira palavra abre a frase. */
+const F = (...phrases) => phrases.flatMap((ph) => ph.map(([w, s, e], i) => (i === 0 ? { w, s, e, br: true } : { w, s, e })));
+
+test('buildPages: cada frase do Whisper vira uma linha, silêncio grande fecha a página', () => {
+  const words = F(
+    [['Quão', 1.0, 1.3], ['grande', 1.35, 1.8], ['és', 1.85, 2.4], ['tu', 2.45, 3.0]],
+    [['meu', 3.2, 3.5], ['Senhor', 3.55, 4.8]],
     // instrumental de 5 s
-    ['Eu', 10.0, 10.2], ['te', 10.25, 10.4], ['adoro', 10.45, 11.2],
-  ]);
+    [['Eu', 10.0, 10.2], ['te', 10.25, 10.4], ['adoro', 10.45, 11.2]],
+  );
   const pages = buildPages(words, {}, ids);
   assert.equal(pages.length, 2);
   assert.equal(pages[0].time, 1);
@@ -78,11 +91,27 @@ test('buildPages: respiro longo fecha a página, respiro curto quebra a linha', 
   assert.equal(pages[1].text, 'Eu te adoro');
 });
 
-test('buildPages: linha comprida quebra e página cheia vira outra', () => {
-  // 40 palavras coladas, sem respiro: só o tamanho decide.
+test('buildPages: vírgula depois de 3 palavras abre linha nova; antes disso não', () => {
+  const words = F([['você,', 0, 0.3], ['nosso', 0.35, 0.6], ['amor,', 0.65, 1], ['nós', 1.05, 1.3], ['três', 1.35, 1.8]]);
+  assert.equal(buildPages(words, {}, ids)[0].text, 'Você, nosso amor\nNós três');
+});
+
+test('buildPages: respiro longo fecha a página só se ela já tem duas linhas', () => {
+  const words = F(
+    [['um', 0, 0.5], ['dois', 0.6, 1]],
+    [['três', 2.6, 3], ['quatro', 3.1, 3.5]], // respiro de 1,6 s com uma linha só: continua
+    [['cinco', 5.1, 5.5], ['seis', 5.6, 6]], // respiro de 1,6 s com duas linhas: página nova
+  );
+  const pages = buildPages(words, {}, ids);
+  assert.deepEqual(pages.map((p) => [p.time, p.text]), [[0, 'Um dois\nTrês quatro'], [5.1, 'Cinco seis']]);
+});
+
+test('buildPages: frase comprida vira linhas parecidas e a página nunca passa do limite', () => {
+  // 40 palavras numa frase só, sem respiro: só o tamanho decide.
   const words = [];
-  for (let i = 0; i < 40; i++) words.push({ w: 'aleluia', s: i * 0.5, e: i * 0.5 + 0.45 });
+  for (let i = 0; i < 40; i++) words.push({ w: 'aleluia', s: i * 0.5, e: i * 0.5 + 0.45, br: i === 0 });
   const pages = buildPages(words, { maxLineChars: 32, maxLines: 4 }, ids);
+  assert.ok(pages.length >= 3, 'mais de uma página');
   for (const p of pages) {
     const lines = p.text.split('\n');
     assert.ok(lines.length <= 4, 'no máximo 4 linhas por página');
@@ -93,9 +122,25 @@ test('buildPages: linha comprida quebra e página cheia vira outra', () => {
   for (let i = 1; i < pages.length; i++) assert.ok(pages[i].time > pages[i - 1].time, 'tempos em ordem');
 });
 
+test('buildPages: frase que não cabe no resto da página começa na seguinte', () => {
+  const long = 'esta frase tem muitas palavras e ocupa duas linhas da tela'.split(' ').map((w, i) => [w, 3 + i * 0.3, 3.25 + i * 0.3]);
+  const pages = buildPages(F([['a', 0, 0.2], ['b', 0.3, 0.5]], [['c', 0.8, 1], ['d', 1.1, 1.3]], [['e', 1.6, 1.8], ['f', 1.9, 2.1]], long), { maxLines: 4 }, ids);
+  assert.equal(pages.length, 2);
+  assert.equal(pages[0].text, 'A b\nC d\nE f');
+  assert.equal(pages[1].time, 3);
+});
+
 test('buildPages: tira vírgula e ponto do fim da linha e põe maiúscula', () => {
-  const pages = buildPages(W([['santo', 0, 0.4], ['santo,', 0.45, 0.9], ['santo', 1.6, 2.0], ['é.', 2.05, 2.4]]), {}, ids);
+  const pages = buildPages(F([['santo', 0, 0.4], ['santo,', 0.45, 0.9]], [['santo', 1.0, 1.4], ['é.', 1.45, 1.8]]), {}, ids);
   assert.equal(pages[0].text, 'Santo santo\nSanto é');
+});
+
+test('normalizeWords marca a primeira palavra de cada frase', () => {
+  const words = normalizeWords([
+    { start: 0, end: 1, text: 'a b', words: [{ word: 'a', start: 0, end: 0.4 }, { word: 'b', start: 0.5, end: 1 }] },
+    { start: 2, end: 3, text: 'c', words: [{ word: 'c', start: 2, end: 3 }] },
+  ]);
+  assert.deepEqual(words.map((w) => !!w.br), [true, false, true]);
 });
 
 test('trecho que se repete vira Refrão', () => {
@@ -106,6 +151,13 @@ test('trecho que se repete vira Refrão', () => {
     page('d', 30, 'Santo, santo é o Senhor\nDigno de todo louvor'),
   ]);
   assert.deepEqual(pages.map((p) => p.kind), ['verso', 'refrao', 'verso', 'refrao']);
+});
+
+test('música que se repete inteira: só o que aparece 3 vezes ou mais vira Refrão', () => {
+  const verso = 'Por que demorou tanto pra chegar aqui';
+  const refrao = 'O que eu não vivi em dez anos vivi num mês';
+  const pages = markChorus([verso, refrao, refrao, verso, refrao, refrao].map((t, i) => page(`p${i}`, i * 10, t)));
+  assert.deepEqual(pages.map((p) => p.kind), ['verso', 'refrao', 'refrao', 'verso', 'refrao', 'refrao']);
 });
 
 test('arrastar marcação: anda livre entre as vizinhas', () => {

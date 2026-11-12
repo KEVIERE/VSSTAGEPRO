@@ -69,6 +69,26 @@ export interface LocalBridge {
   publishMeters?: (meters: import('@/lib/remoteProtocol').RemoteMeters) => void;
   /** Um músico apertou "Salvar": a tela grava o projeto e responde como ficou. */
   onProjectSaveRequest?: (cb: () => Promise<import('@/lib/musicianTypes').ProjectSaveStatus>) => () => void;
+  /** Repertório do produtor na rede local (versões antigas do app não têm). */
+  refStatus?: () => Promise<RepertoireStatusRaw>;
+  refStart?: () => Promise<RepertoireStatusRaw>;
+  refPut?: (songId: string, kind: 'audio' | 'words', data: ArrayBuffer | string) => Promise<void>;
+  refTakeRequest?: () => Promise<string | null>;
+}
+
+/** Situação do repertório do produtor, no formato da nuvem e da rede local. */
+export interface RepertoireStatusRaw {
+  files?: { songId: string; updatedAt: string | null }[];
+  words?: { songId: string; updatedAt: string | null }[];
+  released_at?: string | null;
+  requested_at?: string | null;
+}
+
+/** Leitor de letra no Mac (lyricsReader.js). */
+export interface LyricsReaderStatus {
+  supported: boolean;
+  model: { state: 'missing' | 'downloading' | 'paused' | 'verifying' | 'ready' | 'error'; progress: number; error: string | null };
+  busy: boolean;
 }
 
 /** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */
@@ -134,6 +154,11 @@ declare global {
       maestroVoiceStatus?: () => Promise<MaestroVoiceStatus>;
       /** Avisa se uma música está tocando: o download da voz pausa durante o show. */
       maestroVoicePlaying?: (playing: boolean) => Promise<void>;
+      /** Leitor de letra no Mac: situação, download do modelo e leitura de uma música (WAV). */
+      lyricsReaderStatus?: () => Promise<LyricsReaderStatus>;
+      lyricsReaderPrepare?: () => Promise<LyricsReaderStatus>;
+      lyricsTranscribe?: (wav: ArrayBuffer) => Promise<{ segments: unknown[]; seconds: number | null } | { why: string }>;
+      lyricsTranscribeCancel?: () => Promise<boolean>;
       separateStemsLocal?: (
         filename: string,
         audioData: ArrayBuffer

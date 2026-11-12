@@ -63,7 +63,9 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
         const next = new Map<string, ProducerReference>();
         fresh.forEach((ref, id) => {
           const old = prev.get(id);
-          next.set(id, old && old.updatedAt === ref.updatedAt ? old : ref);
+          // Mesmo áudio: mantém o link antigo (não reinicia o player); a letra lida pelo Mac vem sempre
+          // do link novo (o assinado vence em 3 h e ela pode chegar depois do áudio).
+          next.set(id, old && old.updatedAt === ref.updatedAt ? { ...old, wordsUrl: ref.wordsUrl } : ref);
         });
         return next;
       });
@@ -191,7 +193,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
         {audioState === 'error' && <p className="px-2 pb-2 text-[11px] text-logic-lcd-red">Não foi possível buscar os áudios. Toque em atualizar.</p>}
         {audioState === 'ready' && songs.length > 0 && audioRefs.size < songs.length && (
           <p className="px-2 pb-2 text-[11px] text-logic-lcd-amber leading-relaxed">
-            {audioRefs.size === 0 ? 'Nenhuma música com áudio ainda.' : `${audioRefs.size} de ${songs.length} músicas com áudio.`} O programa do diretor envia sozinho quando está aberto e parado. Esta lista se atualiza a cada 30 segundos.
+            {audioRefs.size === 0 ? 'Nenhuma música com áudio ainda.' : `${audioRefs.size} de ${songs.length} músicas com áudio.`} O áudio chega quando o diretor envia o repertório pelo programa. Esta lista se atualiza a cada 30 segundos.
           </p>
         )}
         {songs.length === 0 && <p className="px-2 pb-2 text-sm text-logic-text-dim">O diretor ainda não publicou a playlist do show.</p>}
@@ -242,7 +244,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
       {song ? (
         <SongLyricsEditor
           key={song.id}
-          code={code}
+          wordsUrl={audioRefs.get(song.id)?.wordsUrl ?? null}
           song={song}
           words={songWords}
           onWords={(list) => saveWords(song.id, list)}

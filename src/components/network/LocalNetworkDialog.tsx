@@ -6,6 +6,8 @@ import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { ROLE_LABEL, type LocalRole, type PinRole } from '@/lib/localNetwork';
 import NetworkAssistant from '@/components/network/NetworkAssistant';
 import MusicianAccountsPanel from '@/components/network/MusicianAccountsPanel';
+import PrompterAudioUpload from '@/components/prompter/PrompterAudioUpload';
+import type { ReferenceSync } from '@/lib/useReferenceAutoSync';
 
 const ROLE_ICON: Record<LocalRole, typeof Music> = { musician: Music, producer: Clapperboard, screen: MonitorPlay, remote: Smartphone };
 const ROLE_TONE: Record<LocalRole, string> = {
@@ -15,7 +17,7 @@ const ROLE_TONE: Record<LocalRole, string> = {
   remote: 'text-[#00ff87] bg-[#00ff87]/15',
 };
 
-export default function LocalNetworkDialog({ local, onClose }: { local: LocalBroadcast; onClose: () => void }) {
+export default function LocalNetworkDialog({ local, referenceSync, onClose }: { local: LocalBroadcast; referenceSync?: ReferenceSync; onClose: () => void }) {
   const [view, setView] = useState<'main' | 'assistant'>('main');
 
   return (
@@ -40,7 +42,7 @@ export default function LocalNetworkDialog({ local, onClose }: { local: LocalBro
         </header>
 
         <div className="flex-1 min-h-0 overflow-y-auto logic-scroll">
-          {!local.available ? <MacOnly /> : view === 'assistant' ? <NetworkAssistant /> : <MainView local={local} onAssistant={() => setView('assistant')} />}
+          {!local.available ? <MacOnly /> : view === 'assistant' ? <NetworkAssistant /> : <MainView local={local} referenceSync={referenceSync} onAssistant={() => setView('assistant')} />}
         </div>
       </div>
     </div>
@@ -81,7 +83,7 @@ function MacOnly() {
   );
 }
 
-function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: () => void }) {
+function MainView({ local, referenceSync, onAssistant }: { local: LocalBroadcast; referenceSync?: ReferenceSync; onAssistant: () => void }) {
   const info = local.info;
 
   if (local.mode !== 'local') {
@@ -137,6 +139,9 @@ function MainView({ local, onAssistant }: { local: LocalBroadcast; onAssistant: 
           <AccessCard key={role} role={role} url={info.urls[role]} qr={info.qr[role]} pin={role === 'screen' ? null : info.pins[role]} onRegenerate={role === 'screen' ? null : () => local.regeneratePin(role as PinRole)} />
         ))}
       </div>
+
+      {/* Repertório para o produtor: o áudio fica só neste Mac, servido pela rede local. */}
+      {referenceSync?.mode === 'local' && <PrompterAudioUpload sync={referenceSync} />}
 
       <MusicianAccountsPanel online={online} />
 

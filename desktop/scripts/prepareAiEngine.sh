@@ -14,6 +14,13 @@ DEMUCS_VERSION="4.0.1"
 # Leitura/gravação de áudio embutida (libsndfile incluso: WAV, MP3, FLAC...). Sem ela o
 # torchaudio não tem como gravar as faixas separadas e o Mac do usuário não tem ffmpeg.
 SOUNDFILE_VERSION="0.12.1"
+# Leitor de letra (faster-whisper). Entra SEM as dependências opcionais: o PyAV (abrir arquivo de
+# áudio) e o onnxruntime (detector de voz) não têm pacote para Mac Intel nem para macOS 11/12, e o
+# programa não usa nenhum dos dois (ver desktop/lyricsTranscriber.py).
+FASTER_WHISPER_VERSION="1.2.1"
+CTRANSLATE2_VERSION="4.9.0"
+TOKENIZERS_VERSION="0.21.1"
+HF_HUB_VERSION="0.26.5"
 
 echo "======================================================"
 echo "Preparando Motor de IA Embutido para Arquitetura: $ARCH"
@@ -59,6 +66,10 @@ fi
 echo "3. Instalando PyTorch $TORCH_VERSION, NumPy $NUMPY_VERSION, Demucs $DEMUCS_VERSION e soundfile $SOUNDFILE_VERSION..."
 ${RUN[@]+"${RUN[@]}"} "$PY_BIN" -m pip install --no-cache-dir --quiet \
   "numpy==$NUMPY_VERSION" "torch==$TORCH_VERSION" "torchaudio==$TORCHAUDIO_VERSION" "demucs==$DEMUCS_VERSION" "soundfile==$SOUNDFILE_VERSION"
+echo "3b. Instalando o leitor de letra: faster-whisper $FASTER_WHISPER_VERSION, CTranslate2 $CTRANSLATE2_VERSION..."
+${RUN[@]+"${RUN[@]}"} "$PY_BIN" -m pip install --no-cache-dir --quiet --no-deps "faster-whisper==$FASTER_WHISPER_VERSION"
+${RUN[@]+"${RUN[@]}"} "$PY_BIN" -m pip install --no-cache-dir --quiet \
+  "ctranslate2==$CTRANSLATE2_VERSION" "tokenizers==$TOKENIZERS_VERSION" "huggingface_hub==$HF_HUB_VERSION" "numpy==$NUMPY_VERSION"
 # nenhuma dependência do Demucs pode ter trocado a versão do NumPy por baixo
 ${RUN[@]+"${RUN[@]}"} "$PY_BIN" -m pip install --no-cache-dir --quiet --no-deps "numpy==$NUMPY_VERSION"
 
@@ -93,6 +104,18 @@ torch.from_numpy(numpy.zeros(4, dtype="float32"))  # o ponto exato que quebrou n
 assert "soundfile" in torchaudio.list_audio_backends(), torchaudio.list_audio_backends()
 assert "MP3" in soundfile.available_formats(), "libsndfile sem MP3"
 print("python", platform.machine(), "| torch", torch.__version__, "| numpy", numpy.__version__, "| libsndfile", soundfile.__libsndfile_version__)
+PY
+# O leitor de letra abre do mesmo jeito que o programa abre (sem PyAV e sem onnxruntime).
+"${CLEAN_ENV[@]}" ${RUN[@]+"${RUN[@]}"} "$PY_BIN" -I - <<'PY'
+import sys, types
+try:
+    import av  # noqa: F401
+except Exception:
+    sys.modules["av"] = types.ModuleType("av")
+import ctranslate2, numpy
+from faster_whisper import WhisperModel  # noqa: F401
+assert numpy.__version__.startswith("1."), f"NumPy {numpy.__version__} não é 1.x"
+print("leitor de letra ok | ctranslate2", ctranslate2.__version__)
 PY
 TEST_DIR=$(mktemp -d)
 "${CLEAN_ENV[@]}" ${RUN[@]+"${RUN[@]}"} "$PY_BIN" - "$TEST_DIR" <<'PY'

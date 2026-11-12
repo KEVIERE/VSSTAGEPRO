@@ -793,7 +793,7 @@ function DirectorApp({ license }: { license: License }) {
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
         {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}
         <AudioDeviceDialog open={audioDeviceDialogOpen} onClose={() => useStore.getState().setAudioDeviceDialogOpen(false)} />
-        {localOpen && <LocalNetworkDialog local={local} onClose={() => setLocalOpen(false)} />}
+        {localOpen && <LocalNetworkDialog local={local} referenceSync={referenceSync} onClose={() => setLocalOpen(false)} />}
         {prompterOpen && (
           <PrompterDialog
             broadcast={broadcast}

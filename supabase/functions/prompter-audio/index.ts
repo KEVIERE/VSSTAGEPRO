@@ -87,11 +87,15 @@ async function logoInfo(showId: string) {
   return { url: signed.signedUrl, updatedAt: file.updated_at ?? file.created_at ?? null };
 }
 
+/** Letra lida pelo Mac do diretor: `<show>/<musica>.words.json`, ao lado do áudio. */
+const WORDS_RE = /^(.+)\.words\.json$/;
+
 async function listFiles(showId: string) {
   const { data, error } = await admin.storage.from(BUCKET).list(showId, { limit: 1000 });
   if (error) throw error;
   const bySong = new Map<string, { songId: string; path: string; updatedAt: string | null; size: number | null }>();
   for (const f of data ?? []) {
+    if (WORDS_RE.test(f.name)) continue;
     const m = f.name.match(/^(.+)\.(mp3|wav)$/);
     if (!m) continue;
     const file = {
@@ -104,6 +108,17 @@ async function listFiles(showId: string) {
     if (!prev || (file.updatedAt ?? "") > (prev.updatedAt ?? "")) bySong.set(file.songId, file);
   }
   return [...bySong.values()];
+}
+
+async function listWords(showId: string) {
+  const { data, error } = await admin.storage.from(BUCKET).list(showId, { limit: 1000 });
+  if (error) throw error;
+  const out = new Map<string, { path: string; updatedAt: string | null }>();
+  for (const f of data ?? []) {
+    const m = f.name.match(WORDS_RE);
+    if (m) out.set(m[1], { path: `${showId}/${f.name}`, updatedAt: f.updated_at ?? f.created_at ?? null });
+  }
+  return out;
 }
 
 // Todos os arquivos de uma pasta, sem juntar por música: a limpeza precisa ver o que sobrou de
@@ -153,15 +168,17 @@ Deno.serve(async (req: Request) => {
         // (e de reenviar) o áudio que já cumpriu o papel.
         await releaseExpiredAudio(showId).catch(() => null);
         const files = await listFiles(showId);
+        const words = await listWords(showId);
         const st = await repertoireState(showId);
         return json({
           files: files.map(({ songId, updatedAt, size }) => ({ songId, updatedAt, size })),
+          words: [...words.entries()].map(([songId, w]) => ({ songId, updatedAt: w.updatedAt })),
           released_at: st.releasedAt,
           requested_at: st.requestedAt,
         });
       }
       if (typeof body.song !== "string" || !ID_RE.test(body.song)) return json({ error: "bad_request" }, 400);
-      const ext = body.format === "mp3" ? "mp3" : "wav";
+      const ext = body.format === "mp3" ? "mp3" : body.format === "words" ? "words.json" : "wav";
       const path = `${showId}/${body.song}.${ext}`;
       const { data, error } = await admin.storage.from(BUCKET).createSignedUploadUrl(path, { upsert: true });
       if (error || !data) return json({ error: "upload_unavailable" }, 500);
@@ -208,6 +225,18 @@ Deno.serve(async (req: Request) => {
       return json(await logoInfo(showId));
     }
 
+    // O diretor aperta "Enviar repertório": começa um envio novo. Tira a marca de liberação (senão
+    // o áudio novo seria apagado na próxima limpeza) e o pedido do produtor, que foi atendido.
+    if (body.action === "send_start") {
+      if (!(await directorOk(body.show, body.key))) return json({ error: "forbidden" }, 403);
+      const { error } = await admin
+        .from("shows")
+        .update({ produced_audio_released_at: null, repertoire_requested_at: null })
+        .eq("id", body.show as string);
+      if (error) return json({ error: "request_failed" }, 500);
+      return json({ ok: true });
+    }
+
     // O diretor confirma que as letras estão prontas: o áudio de referência já cumpriu o papel
     // e sai do storage. As letras ficam; a pasta do show é que fica vazia.
     if (body.action === "clear") {
@@ -242,6 +271,9 @@ Deno.serve(async (req: Request) => {
     if (body.action === "take_request") {
       if (!(await directorOk(body.show, body.key))) return json({ error: "forbidden" }, 403);
       const showId = body.show as string;
+      // O programa do diretor pergunta a cada 20 s: é o que apaga na hora certa enquanto ele
+      // está aberto (o agendamento do banco cobre quando ninguém está com nada aberto).
+      await releaseExpiredAudio(showId).catch(() => null);
       const st = await repertoireState(showId);
       if (!st.requestedAt) return json({ requested_at: null });
       const { error } = await admin.from("shows").update({ repertoire_requested_at: null }).eq("id", showId);
@@ -257,12 +289,17 @@ Deno.serve(async (req: Request) => {
       await releaseExpiredAudio(showId).catch(() => null);
       const files = await listFiles(showId);
       if (files.length === 0) return json({ files: [] });
-      const { data, error } = await admin.storage.from(BUCKET).createSignedUrls(files.map((f) => f.path), PLAY_TTL_S);
+      const words = await listWords(showId);
+      const wordPaths = files.map((f) => words.get(f.songId)?.path).filter((p): p is string => !!p);
+      const { data, error } = await admin.storage.from(BUCKET).createSignedUrls([...files.map((f) => f.path), ...wordPaths], PLAY_TTL_S);
       if (error || !data) return json({ error: "list_unavailable" }, 500);
       const urlByPath = new Map(data.map((d) => [d.path, d.signedUrl]));
       return json({
         files: files
-          .map((f) => ({ songId: f.songId, updatedAt: f.updatedAt, url: urlByPath.get(f.path) ?? null }))
+          .map((f) => {
+            const w = words.get(f.songId);
+            return { songId: f.songId, updatedAt: f.updatedAt, url: urlByPath.get(f.path) ?? null, wordsUrl: w ? urlByPath.get(w.path) ?? null : null };
+          })
           .filter((f) => f.url),
       });
     }

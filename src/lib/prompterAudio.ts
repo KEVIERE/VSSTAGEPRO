@@ -2,7 +2,8 @@ import { supabase } from '@/lib/supabaseClient';
 import { renderLrMasterForSong } from '@/lib/bounceEngine';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
-import { isLocalClient } from '@/lib/localNetwork';
+import { isLocalClient, type RepertoireStatusRaw } from '@/lib/localNetwork';
+import { localProducerPost } from '@/lib/localClientApi';
 
 const BUCKET = 'prompter-audio';
 const FN = 'prompter-audio';
@@ -56,8 +57,8 @@ export async function encodeMonoMp3(samples: Float32Array, sampleRate: number): 
 }
 
 // Versão leve (MP3 mono, 22 kHz, 48 kbps) da mixagem LR, com o BPM e o tom do show, só para referência do produtor.
-async function renderReference(song: Song): Promise<Blob> {
-  const full = await renderLrMasterForSong(song, useStore.getState());
+export async function renderReference(song: Song, rendered?: AudioBuffer): Promise<Blob> {
+  const full = rendered ?? await renderLrMasterForSong(song, useStore.getState());
   const length = Math.max(1, Math.ceil(full.duration * REF_RATE));
   const ctx = new OfflineAudioContext(1, length, REF_RATE);
   const src = ctx.createBufferSource();
@@ -68,11 +69,50 @@ async function renderReference(song: Song): Promise<Blob> {
   return encodeMonoMp3(mono.getChannelData(0), REF_RATE);
 }
 
-export async function uploadSongReference(showId: string, directorKey: string, song: Song): Promise<void> {
-  const blob = await renderReference(song);
-  const { path, token } = await callPrompterFn<{ path: string; token: string }>({ action: 'upload', show: showId, key: directorKey, song: song.id, format: 'mp3' });
+/** WAV 16 bits da mixagem inteira: é o que o leitor de letra do Mac recebe (qualidade cheia para separar a voz). */
+export function encodeWav16(buf: AudioBuffer): ArrayBuffer {
+  const ch = Math.min(2, buf.numberOfChannels);
+  const n = buf.length;
+  const out = new ArrayBuffer(44 + n * ch * 2);
+  const v = new DataView(out);
+  const str = (o: number, t: string) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true); v.setUint32(24, buf.sampleRate, true);
+  v.setUint32(28, buf.sampleRate * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * ch * 2, true);
+  const data = Array.from({ length: ch }, (_, c) => buf.getChannelData(c));
+  let o = 44;
+  for (let i = 0; i < n; i++) {
+    for (let c = 0; c < ch; c++) {
+      const x = Math.max(-1, Math.min(1, data[c][i]));
+      v.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+      o += 2;
+    }
+  }
+  return out;
+}
+
+export async function uploadReferenceBlob(showId: string, directorKey: string, songId: string, blob: Blob): Promise<void> {
+  const { path, token } = await callPrompterFn<{ path: string; token: string }>({ action: 'upload', show: showId, key: directorKey, song: songId, format: 'mp3' });
   const { error } = await supabase.storage.from(BUCKET).uploadToSignedUrl(path, token, blob, { contentType: 'audio/mpeg', upsert: true });
   if (error) throw new Error('upload_failed');
+}
+
+export async function uploadSongReference(showId: string, directorKey: string, song: Song): Promise<void> {
+  await uploadReferenceBlob(showId, directorKey, song.id, await renderReference(song));
+}
+
+/** A letra lida pelo Mac do diretor vai ao lado do áudio (e some junto com ele). */
+export async function uploadSongWords(showId: string, directorKey: string, songId: string, json: string): Promise<void> {
+  const { path, token } = await callPrompterFn<{ path: string; token: string }>({ action: 'upload', show: showId, key: directorKey, song: songId, format: 'words' });
+  const blob = new Blob([json], { type: 'application/json' });
+  const { error } = await supabase.storage.from(BUCKET).uploadToSignedUrl(path, token, blob, { contentType: 'application/json', upsert: true });
+  if (error) throw new Error('upload_failed');
+}
+
+/** O diretor apertou "Enviar repertório": começa um envio novo (tira a liberação anterior). */
+export async function directorStartSend(showId: string, directorKey: string): Promise<void> {
+  await callPrompterFn({ action: 'send_start', show: showId, key: directorKey });
 }
 
 export interface ClearedAudio { removed: number; bytes: number }
@@ -91,27 +131,36 @@ export async function deleteShowReferences(showId: string, directorKey: string):
 export interface ReferenceStatus {
   /** songId -> updatedAt do arquivo no storage. */
   files: Map<string, string | null>;
+  /** songId -> updatedAt da letra lida pelo Mac. */
+  words: Map<string, string | null>;
   /** O produtor salvou as letras: o áudio já cumpriu o papel e vai sair (ou já saiu). */
   releasedAt: string | null;
   /** O produtor pediu o repertório de novo. */
   requestedAt: string | null;
 }
 
-export async function directorReferenceStatus(showId: string, directorKey: string): Promise<ReferenceStatus> {
-  const res = await callPrompterFn<{
-    files: { songId: string; updatedAt: string | null }[];
-    released_at?: string | null;
-    requested_at?: string | null;
-  }>({ action: 'status', show: showId, key: directorKey });
+/** Lê a resposta de situação, da nuvem ou da rede local (mesmo formato). */
+export function parseReferenceStatus(res: RepertoireStatusRaw | null | undefined): ReferenceStatus {
+  const map = (list: unknown) => new Map(
+    (Array.isArray(list) ? list : [])
+      .filter((f): f is { songId: string; updatedAt: string | null } => !!f && typeof f.songId === 'string')
+      .map((f) => [f.songId, f.updatedAt ?? null] as const),
+  );
   return {
-    files: new Map((Array.isArray(res.files) ? res.files : []).map((f) => [f.songId, f.updatedAt])),
-    releasedAt: typeof res.released_at === 'string' ? res.released_at : null,
-    requestedAt: typeof res.requested_at === 'string' ? res.requested_at : null,
+    files: map(res?.files),
+    words: map(res?.words),
+    releasedAt: typeof res?.released_at === 'string' ? res.released_at : null,
+    requestedAt: typeof res?.requested_at === 'string' ? res.requested_at : null,
   };
 }
 
-/** O produtor pede o repertório de novo (o áudio volta e sai da liberação). */
+export async function directorReferenceStatus(showId: string, directorKey: string): Promise<ReferenceStatus> {
+  return parseReferenceStatus(await callPrompterFn<RepertoireStatusRaw>({ action: 'status', show: showId, key: directorKey }));
+}
+
+/** O produtor pede o repertório: vira um aviso no programa do diretor, que envia. */
 export async function producerRequestRepertoire(code: string): Promise<void> {
+  if (isLocalClient()) { await localProducerPost(code, 'repertoire-request', {}); return; }
   await callPrompterFn({ action: 'request', code });
 }
 
@@ -121,15 +170,23 @@ export async function directorTakeRepertoireRequest(showId: string, directorKey:
   return typeof res.requested_at === 'string' ? res.requested_at : null;
 }
 
-export interface ProducerReference { url: string; updatedAt: string | null }
+export interface ProducerReference {
+  url: string;
+  updatedAt: string | null;
+  /** Letra lida pelo Mac do diretor (palavras com tempo), quando já está pronta. */
+  wordsUrl: string | null;
+}
+
+type RawReference = { songId: string; url: string | null; updatedAt: string | null; wordsUrl?: string | null };
 
 export async function producerReferenceList(code: string): Promise<Map<string, ProducerReference>> {
-  // Áudio de referência fica na nuvem; na rede local o editor de letras funciona sem ele.
-  if (isLocalClient()) return new Map();
-  const res = await callPrompterFn<{ files: { songId: string; url: string | null; updatedAt: string | null }[] }>({ action: 'list', code });
+  // Na rede local o áudio vem do próprio Mac do diretor; online, do storage.
+  const res = isLocalClient()
+    ? await localProducerPost(code, 'references', {}) as { files?: RawReference[] }
+    : await callPrompterFn<{ files: RawReference[] }>({ action: 'list', code });
   return new Map(
     (Array.isArray(res.files) ? res.files : [])
       .filter((f) => typeof f.url === 'string')
-      .map((f) => [f.songId, { url: f.url as string, updatedAt: f.updatedAt ?? null }]),
+      .map((f) => [f.songId, { url: f.url as string, updatedAt: f.updatedAt ?? null, wordsUrl: typeof f.wordsUrl === 'string' ? f.wordsUrl : null }]),
   );
 }

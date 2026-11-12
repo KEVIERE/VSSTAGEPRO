@@ -222,6 +222,7 @@ jobs:
             ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^numpy-1\.26\.4\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem o NumPy 1.26.4"; hdiutil detach "$MNT" -quiet; exit 1; }
             ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^torch-2\.2\.2\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem o PyTorch 2.2.2"; hdiutil detach "$MNT" -quiet; exit 1; }
             ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^soundfile-0\.12\.1\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem a soundfile (leitura/gravação de áudio)"; hdiutil detach "$MNT" -quiet; exit 1; }
+            ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^faster_whisper-1\.2\.1\.dist-info$' || { echo "::error::$ARCH: o motor de IA não tem o leitor de letra (faster-whisper)"; hdiutil detach "$MNT" -quiet; exit 1; }
             [ -s "$MNT/VS Stage.app/Contents/Resources/ai-engine/torch-cache/hub/checkpoints/5c90dfd2-34c22ccb.th" ] || { echo "::error::$ARCH: o modelo de IA htdemucs_6s não está embutido"; hdiutil detach "$MNT" -quiet; exit 1; }
             # voz brasileira do Maestro IA: no Apple Silicon, o programa de voz (arm64), os shaders do
             # MLX e as duas vozes; o modelo (1,8 GB) NÃO vai junto (o app baixa). No Intel, nada disso.
@@ -249,6 +250,40 @@ jobs:
             fi
             echo "$ARCH ok: assinatura válida, motor de IA $WANT com versões travadas, motor de voz do Maestro IA $WANT e reconstrução das partes confere"
           done
+
+      # Modelo do leitor de letra (Whisper large-v3-turbo, ~1,6 GB): o programa baixa da nossa VPS
+      # na primeira vez que o diretor envia o repertório. Aqui ele é copiado para lá uma vez só,
+      # com o SHA-256 de cada arquivo conferido (lista em desktop/lyrics-model.json).
+      - name: Espelhar o modelo do leitor de letra na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::warning::Sem acesso à VPS: o programa vai baixar o modelo do Hugging Face."
+            exit 0
+          fi
+          REMOTE="/var/www/download.vsstagepro.com.br/ai-models/whisper-large-v3-turbo"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_model_key
+          chmod 600 ~/.ssh/vps_model_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          SSH=(ssh -i ~/.ssh/vps_model_key "$VPS_USER@$VPS_HOST")
+          "${SSH[@]}" "mkdir -p '$REMOTE'"
+          REPO=$(node -p "require('./desktop/lyrics-model.json').repo")
+          REV=$(node -p "require('./desktop/lyrics-model.json').revision")
+          while read -r FILE SIZE SHA; do
+            HAVE=$("${SSH[@]}" "stat -c %s '$REMOTE/$FILE' 2>/dev/null || echo 0" < /dev/null)
+            if [ "$HAVE" = "$SIZE" ]; then echo "   $FILE já está na VPS"; continue; fi
+            TMP="$RUNNER_TEMP/$FILE"
+            curl -fL -sS --retry 3 -o "$TMP" "https://huggingface.co/$REPO/resolve/$REV/$FILE"
+            [ "$(shasum -a 256 "$TMP" | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::$FILE do Hugging Face não confere (SHA-256)"; exit 1; }
+            scp -i ~/.ssh/vps_model_key "$TMP" "$VPS_USER@$VPS_HOST:$REMOTE/$FILE.part" < /dev/null
+            "${SSH[@]}" "mv '$REMOTE/$FILE.part' '$REMOTE/$FILE' && chmod 644 '$REMOTE/$FILE'" < /dev/null
+            rm -f "$TMP"
+            echo "   $FILE copiado e conferido"
+          done < <(node -e "for (const f of require('./desktop/lyrics-model.json').files) console.log(f.path, f.size, f.sha256)")
 
       # Publica os instaladores em partes de 45 MB na VPS e, em espelho, no bucket Supabase
       # app-downloads (destino aprovado para manter os dois lugares sempre sincronizados).
