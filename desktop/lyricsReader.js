@@ -32,6 +32,41 @@ let child = null;
 let canceled = false;
 /** Andamento da leitura em curso, para a barra da tela: etapa, fração ouvida e início. */
 let current = null;
+
+/**
+ * O Whisper entrega a letra em blocos de 30 s: a fração real anda aos saltos (0, 5%, 26%, 100%).
+ * Para a barra não parar meio minuto e pular, entre um salto e outro ela anda pela velocidade
+ * já medida (ou, no começo, pela duração do áudio), sem passar muito do próximo salto e sem
+ * nunca voltar. Puro, para os testes.
+ */
+function smoothProgress(cur, now) {
+  if (!cur) return 0;
+  const reported = cur.pct || 0;
+  let est = reported;
+  if (cur.loadedAt) {
+    if (reported > 0.05 && cur.reportedAt > cur.loadedAt) {
+      const rate = (reported - 0.05) / ((cur.reportedAt - cur.loadedAt) / 1000);
+      est = reported + rate * ((now - cur.reportedAt) / 1000);
+    } else if (cur.audioSec > 0) {
+      // ainda sem medida: a guia costuma levar ~0,55 s por segundo de música neste Mac
+      est = 0.05 + (0.95 * ((now - cur.loadedAt) / 1000)) / (cur.audioSec * 0.55);
+    }
+  }
+  const capped = Math.min(0.97, reported + 0.3, Math.max(reported, est));
+  return Math.max(cur.shown || 0, capped);
+}
+
+/** Duração (s) de um WAV PCM pelo cabeçalho. */
+function wavSeconds(buf) {
+  try {
+    const b = Buffer.from(buf);
+    const byteRate = b.readUInt32LE(28);
+    const dataLen = b.readUInt32LE(40);
+    return byteRate > 0 ? dataLen / byteRate : 0;
+  } catch {
+    return 0;
+  }
+}
 let supportedCache = null;
 
 /** O Python do motor de IA embutido (no app instalado ou, em desenvolvimento, desktop/ai-engine). */
@@ -86,12 +121,18 @@ function supported() {
   return supportedCache;
 }
 
+function progressNow() {
+  const now = Date.now();
+  current.shown = smoothProgress(current, now);
+  return { stage: current.stage, pct: current.shown, elapsed: Math.round((now - current.startedAt) / 1000) };
+}
+
 async function status() {
   return {
     supported: await supported(),
     model: modelReady() ? { ...download.status(), state: 'ready' } : download.status(),
     busy: !!child,
-    progress: child && current ? { ...current, elapsed: Math.round((Date.now() - current.startedAt) / 1000) } : null,
+    progress: child && current ? progressNow() : null,
   };
 }
 
@@ -117,7 +158,7 @@ async function transcribe(wav, opts = {}) {
   const input = path.join(workDir, 'musica.wav');
   const output = path.join(workDir, 'letra.json');
   canceled = false;
-  current = { stage: 'load', pct: 0, startedAt: Date.now() };
+  current = { stage: 'load', pct: 0, shown: 0, startedAt: Date.now(), loadedAt: 0, reportedAt: 0, audioSec: wavSeconds(wav) };
   try {
     await fsp.writeFile(input, Buffer.from(wav));
     const reply = await new Promise((resolve) => {
@@ -142,7 +183,16 @@ async function transcribe(wav, opts = {}) {
           if (!line.startsWith('{"progress"')) continue;
           try {
             const msg = JSON.parse(line);
-            current = { ...current, stage: msg.progress, pct: typeof msg.pct === 'number' ? msg.pct : current.pct };
+            const now = Date.now();
+            const pct = typeof msg.pct === 'number' ? msg.pct : current.pct;
+            current = {
+              ...current,
+              stage: msg.progress,
+              pct,
+              // o modelo carregou (5%): daqui em diante a barra anda pelo tempo
+              loadedAt: current.loadedAt || (pct >= 0.05 ? now : 0),
+              reportedAt: pct > current.pct ? now : current.reportedAt,
+            };
           } catch { /* linha quebrada */ }
         }
       });
@@ -188,4 +238,4 @@ function stop() {
   download.stop();
 }
 
-module.exports = { status, prepare, transcribe, cancel, setPlaying, stop, MANIFEST };
+module.exports = { status, prepare, transcribe, cancel, setPlaying, stop, MANIFEST, smoothProgress, wavSeconds };
