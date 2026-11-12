@@ -28,18 +28,29 @@ export async function decodePeaks(file: File, buckets = 1600): Promise<{ peaks: 
   return { peaks, duration: audio.duration };
 }
 
-const HEIGHT = 120;
+const HEIGHT = 132;
+/** Movimento (px) que separa um toque na marcação (selecionar) de um arraste. */
+const DRAG_SLOP = 3;
 
-export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, onSeek, onMoveMarker, onPlace }: {
+function firstLine(text: string): string {
+  return text.split('\n').find((l) => l.trim())?.trim() ?? '';
+}
+
+export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, selectedId, onSelect, onSeek, onMoveMarker, onPlace, clampTime }: {
   peaks: Float32Array | null;
   duration: number;
   t: number;
   pages: LyricPage[];
   activeIdx: number;
+  /** Marcação escolhida (para apagar ou ajustar pelo teclado). */
+  selectedId?: string | null;
+  onSelect?: (id: string | null) => void;
   onSeek: (time: number) => void;
   onMoveMarker: (id: string, time: number) => void;
-  /** Duplo clique na onda: coloca ali o trecho que está para marcar. */
+  /** Duplo clique na onda: coloca ali o trecho que está para marcar, ou cria uma marcação. */
   onPlace?: (time: number) => void;
+  /** Onde a marcação pode ficar durante o arraste (não passa por cima das vizinhas). */
+  clampTime?: (id: string, time: number) => number | null;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -81,32 +92,50 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, o
     if (!r || !duration) return 0;
     return Math.min(duration, Math.max(0, ((clientX - r.left) / r.width) * duration));
   };
+  const clamp = (id: string, time: number) => clampTime?.(id, time) ?? time;
 
   const startDrag = (e: React.PointerEvent, id: string) => {
     e.stopPropagation();
     e.preventDefault();
-    const move = (ev: PointerEvent) => setDrag({ id, time: timeAt(ev.clientX) });
-    const up = (ev: PointerEvent) => {
+    const x0 = e.clientX;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - x0) < DRAG_SLOP) return;
+      moved = true;
+      setDrag({ id, time: clamp(id, timeAt(ev.clientX)) });
+    };
+    const finish = (ev: PointerEvent) => {
       window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', finish);
       setDrag(null);
-      onMoveMarker(id, Math.round(timeAt(ev.clientX) * 10) / 10);
+      onSelect?.(id);
+      if (moved && ev.type === 'pointerup') onMoveMarker(id, Math.round(clamp(id, timeAt(ev.clientX)) * 10) / 10);
     };
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', finish);
   };
 
   const pct = (time: number) => (duration ? `${(time / duration) * 100}%` : '0%');
+
+  // Próximo tempo marcado depois de cada página: limita a largura do texto ao lado da marcação.
+  const nextTimes: (number | null)[] = [];
+  let upcoming: number | null = null;
+  for (let i = pages.length - 1; i >= 0; i--) {
+    nextTimes[i] = upcoming;
+    if (pages[i].time !== null) upcoming = pages[i].time;
+  }
 
   return (
     <div>
       <div
         ref={wrapRef}
-        className="relative rounded-lg bg-logic-bg-deep border border-logic-border overflow-hidden cursor-pointer touch-none"
+        className="relative rounded-lg bg-logic-bg-deep border border-logic-border overflow-hidden cursor-pointer touch-none select-none"
         style={{ height: HEIGHT }}
-        onPointerDown={(e) => duration && onSeek(timeAt(e.clientX))}
+        onPointerDown={(e) => { if (duration) { onSelect?.(null); onSeek(timeAt(e.clientX)); } }}
         onDoubleClick={(e) => { if (duration && onPlace) onPlace(timeAt(e.clientX)); }}
-        title={onPlace ? 'Clique para ouvir daqui. Duplo clique para colocar o próximo trecho da letra neste ponto.' : undefined}
+        title={onPlace ? 'Clique para ouvir daqui. Duplo clique para colocar uma marcação neste ponto.' : undefined}
       >
         <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
         {!peaks && (
@@ -118,14 +147,29 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, o
           if (p.time === null) return null;
           const time = drag?.id === p.id ? drag.time : p.time;
           const color = kindInfo(p.kind).color;
+          const selected = selectedId === p.id;
+          const next = nextTimes[i];
+          const spanPx = duration && next !== null ? (Math.max(0, next - time) / duration) * width - 10 : (duration ? ((duration - time) / duration) * width - 10 : 0);
+          const label = firstLine(p.text);
           return (
-            <div key={p.id} className="absolute top-0 bottom-0" style={{ left: pct(time) }}>
-              <div className="absolute top-0 bottom-0 w-px" style={{ background: color, opacity: i === activeIdx ? 1 : 0.6 }} />
+            <div key={p.id} className="absolute top-0 bottom-0" style={{ left: pct(time), zIndex: selected || drag?.id === p.id ? 3 : 1 }}>
+              <div className={`absolute top-0 bottom-0 ${selected ? 'w-0.5' : 'w-px'}`} style={{ background: color, opacity: selected || i === activeIdx ? 1 : 0.6 }} />
+              {label && spanPx > 24 && (
+                <span
+                  className="absolute bottom-1 left-1 pointer-events-none truncate text-[10px] leading-tight px-1 rounded-sm bg-black/55 text-logic-text"
+                  style={{ maxWidth: Math.min(spanPx, 260), width: 'max-content' }}
+                >
+                  {label}
+                </span>
+              )}
               <button
                 onPointerDown={(e) => startDrag(e, p.id)}
-                className={`absolute top-1 -translate-x-1/2 min-w-[20px] h-5 px-1 rounded text-[11px] font-bold text-black cursor-ew-resize shadow ${i === activeIdx ? 'ring-2 ring-white' : ''}`}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className={`absolute top-1 -translate-x-1/2 min-w-[20px] h-5 px-1 rounded text-[11px] font-bold text-black cursor-ew-resize shadow ${selected ? 'ring-2 ring-logic-lcd-amber' : i === activeIdx ? 'ring-2 ring-white' : ''}`}
                 style={{ background: color }}
-                title={`Página ${i + 1} · ${formatClock(time)} (arraste para ajustar)`}
+                title={`Trecho ${i + 1} · ${formatClock(time)} (toque para escolher, arraste para ajustar)`}
+                aria-label={`Marcação do trecho ${i + 1}`}
+                aria-pressed={selected}
               >
                 {i + 1}
               </button>
@@ -133,7 +177,7 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, o
           );
         })}
         {duration > 0 && (
-          <div className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none shadow-[0_0_6px_rgba(255,255,255,0.6)]" style={{ left: pct(t) }} />
+          <div className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none shadow-[0_0_6px_rgba(255,255,255,0.6)]" style={{ left: pct(t), zIndex: 2 }} />
         )}
       </div>
       <div className="flex justify-between mt-1.5 text-xs tabular-nums text-logic-text-dim">

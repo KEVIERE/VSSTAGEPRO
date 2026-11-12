@@ -7,6 +7,20 @@ import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterT
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { producerRequestLyricsSave, producerSaveLyrics } from '@/lib/prompterApi';
 import { producerReferenceList, type ProducerReference } from '@/lib/prompterAudio';
+import type { TimedWord } from '@/lib/lyricsAutoSync';
+
+// Palavras da letra automática, por música: sobrevivem a recarregar a página neste aparelho.
+const WORDS_LS = 'vs_lyrics_words:';
+
+function readWords(songId: string): TimedWord[] {
+  try {
+    const raw = localStorage.getItem(WORDS_LS + songId);
+    const v = raw ? JSON.parse(raw) : [];
+    return Array.isArray(v) ? v.filter((w) => w && typeof w.w === 'string' && Number.isFinite(w.s) && Number.isFinite(w.e)) : [];
+  } catch {
+    return [];
+  }
+}
 
 const SAVE_DEBOUNCE_MS = 800;
 const AUDIO_REFRESH_MS = 30_000;
@@ -34,6 +48,11 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   const [audioRefs, setAudioRefs] = useState<Map<string, ProducerReference>>(new Map());
   const [audioState, setAudioState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [autoPlayId, setAutoPlayId] = useState<string | null>(null);
+  const [words, setWords] = useState<Record<string, TimedWord[]>>({});
+  const saveWords = (id: string, list: TimedWord[]) => {
+    setWords((w) => ({ ...w, [id]: list }));
+    try { localStorage.setItem(WORDS_LS + id, JSON.stringify(list)); } catch { /* sem espaço: fica só nesta aba */ }
+  };
 
   const loadAudio = useCallback(async (quiet = false) => {
     if (!quiet) setAudioState('loading');
@@ -151,6 +170,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   }, [code, save]);
 
   const song = songs.find((s) => s.id === songId) ?? null;
+  const songWords = useMemo(() => (songId ? words[songId] ?? readWords(songId) : []), [words, songId]);
   const liveSnap = useMemo(() => ({ ...snap, prompter: state }), [snap, state]);
 
   const comLetra = songs.filter((s) => pagesOf(s.id).length > 0).length;
@@ -222,7 +242,10 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
       {song ? (
         <SongLyricsEditor
           key={song.id}
+          code={code}
           song={song}
+          words={songWords}
+          onWords={(list) => saveWords(song.id, list)}
           cloudUrl={audioRefs.get(song.id)?.url ?? null}
           autoPlay={autoPlayId === song.id}
           pages={pagesOf(song.id)}

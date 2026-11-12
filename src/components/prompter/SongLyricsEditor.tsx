@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Upload, Play, Pause, Flag, Plus, Trash2, ChevronUp, ChevronDown, ClipboardPaste, Check, Loader2,
-  AlertTriangle, Radio, Eye, X, RotateCcw, Undo2, Redo2,
+  AlertTriangle, Radio, Eye, X, RotateCcw, Undo2, Redo2, Sparkles, Square,
 } from 'lucide-react';
 import LyricsWaveform, { decodePeaks } from '@/components/prompter/LyricsWaveform';
 import StageScreen from '@/components/prompter/StageScreen';
@@ -10,6 +10,16 @@ import { PAGE_KINDS, kindInfo } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { computeLiveView } from '@/lib/liveClock';
 import { autoPageIndex, formatClock, newId } from '@/lib/prompterView';
+import { addMarker, buildPages, clampMarker, moveMarker, removeMarker, type TimedWord } from '@/lib/lyricsAutoSync';
+import { transcribeErrorText, transcribeSong, type TranscribeStep } from '@/lib/lyricsTranscribe';
+import { isLocalClient } from '@/lib/localNetwork';
+
+const GEN_STEPS: { id: TranscribeStep; label: string }[] = [
+  { id: 'prepare', label: 'Preparando o áudio' },
+  { id: 'upload', label: 'Enviando para a IA' },
+  { id: 'separate', label: 'Separando a voz da banda' },
+  { id: 'transcribe', label: 'Ouvindo a letra palavra por palavra' },
+];
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 export interface LyricsHistory { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }
@@ -37,7 +47,8 @@ function splitLyrics(raw: string): LyricPage[] {
     .map((text) => ({ id: newId(), time: null, text: text.slice(0, MAX_PAGE_TEXT), kind: 'verso' as PageKind }));
 }
 
-export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now }: {
+export default function SongLyricsEditor({ code, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
+  code: string;
   song: SetlistSong;
   cloudUrl: string | null;
   autoPlay: boolean;
@@ -48,8 +59,17 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
   snap: PrompterSnapshot;
   sync: { lagMs: number; receivedAt: number };
   now: number;
+  /** Palavras com tempo da última letra automática: deixam a nova marcação cortar na palavra certa. */
+  words: TimedWord[];
+  onWords: (words: TimedWord[]) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const fileRef = useRef<File | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [gen, setGen] = useState<TranscribeStep | null>(null);
+  const [genMsg, setGenMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmGen, setConfirmGen] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [audioName, setAudioName] = useState('');
   const [peaks, setPeaks] = useState<Float32Array | null>(null);
@@ -93,6 +113,7 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
     audioRef.current?.pause();
     setAudioUrl(URL.createObjectURL(file));
     setAudioName(file.name);
+    fileRef.current = file;
     setLocalT(0);
     setFollowLive(false);
     try {
@@ -161,16 +182,67 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
     setMarkIdx(Math.min(pages.length - 1, armedIdx + 1));
   }, [pages.length, armedIdx, t, setPages]);
 
+  // Marcações na onda: escolher, arrastar, apagar e criar (a lógica fica em lyricsAutoSync).
+  const selected = pages.find((p) => p.id === selectedId && p.time !== null) ?? null;
+  const selIdx = selected ? pages.indexOf(selected) : -1;
+  const clampTime = useCallback((id: string, time: number) => clampMarker(pages, id, time, duration), [pages, duration]);
+  const moveTo = useCallback((id: string, time: number) => setPages((ps) => moveMarker(ps, id, time, duration)), [setPages, duration]);
+  const deleteMarker = useCallback((id: string) => { setPages((ps) => removeMarker(ps, id)); setSelectedId(null); }, [setPages]);
+  const createMarker = useCallback((time: number) => {
+    let created: string | null = null;
+    setPages((ps) => addMarker(ps, time, words, duration, () => (created = newId())));
+    if (created) setSelectedId(created);
+  }, [setPages, words, duration]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.code === 'Space' || e.key.toLowerCase() === 'p') { e.preventDefault(); if (!e.repeat) togglePlay(); }
+      if (e.code === 'Space' || e.key.toLowerCase() === 'p') { e.preventDefault(); if (!e.repeat) togglePlay(); return; }
+      if (!selected || selected.time === null) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); deleteMarker(selected.id); }
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const step = (e.shiftKey ? 1 : 0.1) * (e.key === 'ArrowLeft' ? -1 : 1);
+        moveTo(selected.id, selected.time + step);
+      } else if (e.key === 'Escape') setSelectedId(null);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [togglePlay]);
+  }, [togglePlay, selected, deleteMarker, moveTo]);
+
+  // Trocar de música no meio da letra automática cancela o trabalho na nuvem.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const local = isLocalClient();
+  const canGenerate = !!audioUrl && !decoding && gen === null && !local;
+
+  const generate = async () => {
+    const file = fileRef.current;
+    if (!file) return;
+    setConfirmGen(false);
+    setGenMsg(null);
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setGen('prepare');
+    try {
+      const heard = await transcribeSong(code, file, { signal: ac.signal, onStep: setGen });
+      const built = buildPages(heard);
+      if (built.length === 0) throw new Error('no_lyrics');
+      setPages(() => built);
+      onWords(heard);
+      setSelectedId(null);
+      setMarkIdx(0);
+      setGenMsg({ ok: true, text: `Letra gerada: ${built.length} trechos já marcados na onda. Confira o texto, porque a IA pode errar alguma palavra. Para voltar ao que era antes, use Desfazer.` });
+    } catch (e) {
+      const err = e as Error;
+      if (err.message !== 'aborted') setGenMsg({ ok: false, text: transcribeErrorText(err.name === 'EncodingError' ? 'decode' : err.message) });
+    } finally {
+      if (abortRef.current === ac) abortRef.current = null;
+      setGen(null);
+    }
+  };
 
   const update = (id: string, patch: Partial<LyricPage>) => setPages((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   const move = (i: number, d: number) => setPages((ps) => {
@@ -247,6 +319,62 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
         {audioError && <p className="text-xs text-logic-lcd-red mt-2 flex items-center gap-1.5"><AlertTriangle size={13} /> {audioError}</p>}
         {audioUrl && <audio ref={audioRef} src={audioUrl} onEnded={() => setPlaying(false)} preload="auto" />}
 
+        <div className="mt-4 rounded-lg border-2 border-black console-face px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => (pages.length ? setConfirmGen(true) : void generate())}
+              disabled={!canGenerate}
+              className="console-key flex items-center gap-1.5 px-3.5 h-9 text-[12px] disabled:opacity-40"
+              title={local ? 'Disponível quando o produtor entra pelo link da internet' : 'A IA ouve a música, escreve a letra e marca o começo de cada trecho'}
+            >
+              <Sparkles size={14} className="text-logic-lcd-amber" /> Letra automática
+            </button>
+            <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
+              {local
+                ? 'Na rede local a letra automática não funciona: ela roda na nuvem. Entre pelo link da internet para usar.'
+                : !audioUrl
+                  ? 'Carregue o áudio da música para a IA ouvir a letra.'
+                  : 'A IA separa a voz da banda, escreve a letra e marca o início de cada trecho. Leva de 1 a 3 minutos.'}
+            </p>
+          </div>
+
+          {confirmGen && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
+              <span className="flex-1 min-w-[200px] text-logic-text">
+                Isso troca as {pages.length} páginas desta música pela letra que a IA ouvir. Dá para voltar com Desfazer.
+              </span>
+              <button onClick={() => setConfirmGen(false)} className="px-2.5 h-7 text-logic-text-dim hover:text-logic-text">Cancelar</button>
+              <button onClick={() => void generate()} className="console-key is-lit-amber px-3 h-7 text-[11px]">Trocar pela letra da IA</button>
+            </div>
+          )}
+
+          {gen !== null && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs" aria-live="polite">
+              {GEN_STEPS.map((st, i) => {
+                const cur = GEN_STEPS.findIndex((x) => x.id === gen);
+                const state = i < cur ? 'done' : i === cur ? 'now' : 'todo';
+                return (
+                  <span key={st.id} className={`flex items-center gap-1.5 ${state === 'todo' ? 'text-logic-text-muted' : 'text-logic-text'}`}>
+                    <span className={`console-led ${state === 'done' ? 'is-on-green' : state === 'now' ? 'is-on-amber animate-pulse' : ''}`} />
+                    {st.label}
+                  </span>
+                );
+              })}
+              <button onClick={() => abortRef.current?.abort()} className="ml-auto flex items-center gap-1 text-logic-text-dim hover:text-logic-lcd-red transition-colors">
+                <Square size={11} /> Parar
+              </button>
+            </div>
+          )}
+
+          {genMsg && gen === null && (
+            <p className={`mt-2 text-xs flex items-start gap-1.5 leading-relaxed ${genMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>
+              {genMsg.ok ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+              <span className="flex-1">{genMsg.text}</span>
+              <button onClick={() => setGenMsg(null)} className="text-logic-text-muted hover:text-logic-text" aria-label="Fechar aviso"><X size={12} /></button>
+            </p>
+          )}
+        </div>
+
         <div className="mt-4">
           <LyricsWaveform
             peaks={peaks}
@@ -254,16 +382,56 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
             t={t}
             pages={pages}
             activeIdx={activeIdx}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            clampTime={clampTime}
             onSeek={(time) => { if (!useLive) seek(time); }}
-            onMoveMarker={(id, time) => update(id, { time })}
+            onMoveMarker={moveTo}
             onPlace={(time) => {
-              if (!pages.length) return;
-              const at = Math.round(time * 10) / 10;
-              setPages((ps) => ps.map((p, i) => (i === armedIdx ? { ...p, time: at } : p)));
-              setMarkIdx(Math.min(pages.length - 1, armedIdx + 1));
+              // Ainda há trecho sem tempo: o duplo clique coloca ali o trecho armado (jeito manual).
+              // Todos já marcados (letra automática): o duplo clique cria uma marcação nova.
+              if (pages.length && pages.some((p) => p.time === null)) {
+                const at = Math.round(time * 10) / 10;
+                setPages((ps) => ps.map((p, i) => (i === armedIdx ? { ...p, time: at } : p)));
+                setMarkIdx(Math.min(pages.length - 1, armedIdx + 1));
+              } else {
+                createMarker(time);
+              }
             }}
           />
         </div>
+
+        {selected && selected.time !== null && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.06] px-3 py-2 text-xs animate-[fadeIn_120ms_ease-out]">
+            <span className="font-semibold text-logic-text">Marcação {selIdx + 1}</span>
+            <span className="tabular-nums text-logic-text-dim">{fmtPrecise(selected.time)}</span>
+            <span className="truncate text-logic-text-dim min-w-0 max-w-[32ch]">{selected.text.split('\n')[0] || 'trecho vazio'}</span>
+            <span className="flex items-center rounded-md border border-logic-border overflow-hidden ml-auto" title="Mover a marcação (setas do teclado; Shift move 1 s)">
+              {[-0.1, 0.1].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => moveTo(selected.id, (selected.time ?? 0) + d)}
+                  className="px-2 py-1 font-mono text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
+                  aria-label={d < 0 ? 'Mover 0,1 s para a esquerda' : 'Mover 0,1 s para a direita'}
+                >
+                  {d < 0 ? '◀ 0,1' : '0,1 ▶'}
+                </button>
+              ))}
+            </span>
+            <button onClick={() => { if (!useLive && selected.time !== null) seek(selected.time); }} className="flex items-center gap-1 px-2 py-1 rounded-md text-logic-text-dim hover:text-logic-text transition-colors">
+              <Play size={12} /> Ouvir
+            </button>
+            <button
+              onClick={() => deleteMarker(selected.id)}
+              disabled={pages.length < 2}
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-logic-text-dim hover:text-logic-lcd-red disabled:opacity-40 transition-colors"
+              title={selIdx === 0 ? 'Junta o trecho seguinte a este' : 'O trecho desta marcação passa a fazer parte do anterior'}
+            >
+              <Trash2 size={12} /> Apagar marcação
+            </button>
+            <button onClick={() => setSelectedId(null)} className="p-1 text-logic-text-muted hover:text-logic-text" aria-label="Fechar"><X size={12} /></button>
+          </div>
+        )}
 
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
@@ -273,8 +441,16 @@ export default function SongLyricsEditor({ song, cloudUrl, autoPlay, pages, setP
           >
             <Flag size={16} /> Marcar página {pages.length ? armedIdx + 1 : ''}
           </button>
+          <button
+            onClick={() => createMarker(t)}
+            disabled={!duration}
+            className="flex items-center gap-1.5 px-3 py-3 rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light text-sm disabled:opacity-40 transition-colors"
+            title="Cria uma marcação no ponto em que a música está, dividindo o trecho ali"
+          >
+            <Plus size={15} /> Nova marcação aqui
+          </button>
           <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
-            Aperte <kbd className="px-1.5 py-0.5 rounded bg-logic-bg-elevated text-logic-text">Espaço</kbd> para tocar ou pausar, e toque em Marcar na hora em que cada trecho começa. Sem tocar: duplo clique na onda coloca ali o trecho marcado. Arraste os números na onda ou use −0,1/+0,1 para o ajuste fino.
+            Aperte <kbd className="px-1.5 py-0.5 rounded bg-logic-bg-elevated text-logic-text">Espaço</kbd> para tocar ou pausar, e toque em Marcar na hora em que cada trecho começa. Duplo clique na onda coloca ali o trecho sem tempo ou, com tudo marcado, cria uma marcação nova. Toque num número da onda para escolher a marcação: arraste para os lados, use as setas do teclado ou apague com Delete.
           </p>
         </div>
       </div>

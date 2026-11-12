@@ -34,7 +34,7 @@ export async function callPrompterFn<T>(body: Record<string, unknown>): Promise<
 const REF_KBPS = 48;
 const MP3_CHUNK = 1152 * 64;
 
-async function encodeMonoMp3(samples: Float32Array, sampleRate: number): Promise<Blob> {
+export async function encodeMonoMp3(samples: Float32Array, sampleRate: number): Promise<Blob> {
   const { Mp3Encoder } = await import('@breezystack/lamejs');
   const enc = new Mp3Encoder(1, sampleRate, REF_KBPS);
   const parts: Uint8Array[] = [];
