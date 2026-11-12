@@ -1,6 +1,6 @@
 import { useRef } from 'react';
 import type { LyricPage, Notice, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
-import { kindInfo, lyricFontCss } from '@/lib/prompterTypes';
+import { kindInfo, lyricFontCss, pageColor, pageScale } from '@/lib/prompterTypes';
 import type { SetlistSong, ShowLive } from '@/lib/musicianTypes';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import { activeNotice, formatClock, nextPageTime, pageIndexFor, showTimeView } from '@/lib/prompterView';
@@ -296,7 +296,7 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
             {until !== null && until > 0 && <p className="tabular-nums font-semibold text-white/70 mt-[1cqh]" style={{ fontSize: '8cqh' }}>{formatClock(until)}</p>}
           </>
         )}
-        {pages[0] && !counting && <p className="mt-[4cqh] text-center whitespace-pre-line opacity-40" style={{ fontSize: `${fitSize(pages[0].text, p.fontScale) * 0.45}cqh`, lineHeight: 1.3, color: p.lyricColor, fontFamily: lyricFontCss(p.lyricFont) }}>{pages[0].text}</p>}
+        {pages[0] && !counting && <p className="mt-[4cqh] text-center whitespace-pre-line opacity-40" style={{ fontSize: `${fitSize(pages[0].text, pageScale(pages[0], p.fontScale)) * 0.45}cqh`, lineHeight: 1.3, color: pageColor(pages[0], p.lyricColor), fontFamily: lyricFontCss(p.lyricFont) }}>{pages[0].text}</p>}
       </div>
     );
   }
@@ -339,7 +339,7 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
           >
             <p
               className="font-semibold whitespace-pre-line animate-[prompterFade_360ms_ease-out]"
-              style={{ fontSize: `${fitSize(it.text, p.fontScale)}cqh`, lineHeight: LINE_HEIGHT, color: p.lyricColor, fontFamily, textAlign: p.lyricAlign }}
+              style={{ fontSize: `${fitSize(it.text, pageScale(it, p.fontScale))}cqh`, lineHeight: LINE_HEIGHT, color: pageColor(it, p.lyricColor), fontFamily, textAlign: p.lyricAlign }}
             >
               {it.text}
             </p>

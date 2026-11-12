@@ -1,16 +1,13 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Clock, FolderDown, Loader2 } from 'lucide-react';
-import LyricsStyleControls from '@/components/prompter/LyricsStyleControls';
-import type { PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
+import type { PrompterSnapshot } from '@/lib/prompterTypes';
 
 function hhmm(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function LyricsProjectBar({ snap, state, update, onSave }: {
+export default function LyricsProjectBar({ snap, onSave }: {
   snap: PrompterSnapshot;
-  state: PrompterState;
-  update: (fn: (s: PrompterState) => PrompterState) => void;
   onSave: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -75,28 +72,21 @@ export default function LyricsProjectBar({ snap, state, update, onSave }: {
   }
 
   return (
-    <div className="md:col-span-2 bg-logic-bg-panel border border-logic-border rounded-xl">
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3">
-        <div className="flex-1 min-w-[220px]">
-          <p className="text-sm font-semibold text-logic-text">Mapa de letras do show</p>
-          <p className={`flex items-center gap-1.5 text-xs mt-0.5 leading-relaxed ${tone}`}>
-            <Icon size={13} className="shrink-0" /> {statusText}
-          </p>
-        </div>
-        <button
-          onClick={save}
-          disabled={busy}
-          className="h-10 px-4 flex items-center gap-2 rounded-lg bg-logic-accent text-white text-sm font-semibold hover:bg-logic-accent-hover active:scale-[0.97] disabled:opacity-60 transition-all"
-        >
-          {busy ? <Loader2 size={15} className="animate-spin" /> : <FolderDown size={15} />}
-          Salvar no projeto
-        </button>
+    <div className="flex items-center gap-3 rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-2">
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-logic-text">Mapa de letras do show</p>
+        <p className={`flex items-center gap-1.5 text-[11px] leading-snug truncate ${tone}`} title={statusText}>
+          <Icon size={12} className="shrink-0" /> <span className="truncate">{statusText}</span>
+        </p>
       </div>
-      <div className="border-t border-logic-border px-4 py-4">
-        <p className="text-xs font-semibold tracking-wider uppercase text-logic-text-dim mb-3">Estilo da letra na TV</p>
-        <LyricsStyleControls state={state} update={update} />
-        <p className="text-[11px] text-logic-text-muted mt-3">As mudanças aparecem na TV na hora. A prévia fica ao lado da música.</p>
-      </div>
+      <button
+        onClick={save}
+        disabled={busy}
+        className="h-8 px-3 flex items-center gap-1.5 rounded-md bg-logic-accent text-white text-xs font-semibold hover:bg-logic-accent-hover active:scale-[0.97] disabled:opacity-60 transition-all shrink-0"
+      >
+        {busy ? <Loader2 size={13} className="animate-spin" /> : <FolderDown size={13} />}
+        Salvar no projeto
+      </button>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import {
 import LyricsWaveform, { decodePeaks } from '@/components/prompter/LyricsWaveform';
 import StageScreen, { StageLyricsPreview } from '@/components/prompter/StageScreen';
 import type { LyricPage, PageKind, PrompterSnapshot } from '@/lib/prompterTypes';
-import { PAGE_KINDS, kindInfo } from '@/lib/prompterTypes';
+import { LYRIC_COLORS, PAGE_KINDS, PAGE_SIZE_MAX, PAGE_SIZE_MIN, kindInfo } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { computeLiveView } from '@/lib/liveClock';
 import { autoPageIndex, formatClock, newId } from '@/lib/prompterView';
@@ -38,7 +38,7 @@ function splitLyrics(raw: string): LyricPage[] {
     .map((text) => ({ id: newId(), time: null, text: text.slice(0, MAX_PAGE_TEXT), kind: 'verso' as PageKind }));
 }
 
-export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
+export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords, styleControls }: {
   /** Letra lida pelo Mac do diretor (palavras com tempo), quando já chegou. */
   wordsUrl: string | null;
   song: SetlistSong;
@@ -54,6 +54,8 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   /** Palavras com tempo da última letra automática: deixam a nova marcação cortar na palavra certa. */
   words: TimedWord[];
   onWords: (words: TimedWord[]) => void;
+  /** Controles de estilo da letra na TV (cor, tamanho, fonte...), mostrados ao lado do monitor. */
+  styleControls?: React.ReactNode;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -274,58 +276,99 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   }, [pages, scrollToPage]);
 
   const previewPlaying = playing || (useLive && lv.isPlaying);
-  const [previewMin, setPreviewMin] = useState(false);
   const previewP = { ...snap.prompter, nudge: { songId: null, delta: 0 } };
   const shownPage = activeIdx >= 0 ? pages[activeIdx] : null;
 
+  /*
+   * Tela de editor fixa, como num editor de vídeo:
+   *   [ páginas (rolam sozinhas) ][ monitor da TV          ]
+   *   [                          ][ letra automática/estilo ]
+   *   [ linha do tempo: play, onda, marcações (de ponta a ponta) ]
+   * Nada disso rola junto com a página. No celular as áreas ficam empilhadas, com o monitor
+   * preso no topo.
+   */
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] items-start min-w-0">
-      {/* Prévia da TV, sempre à vista. Tela larga: coluna à direita que acompanha a rolagem.
-          Tela menor e celular: pequena, flutuando no canto (não cobre a onda), e dá para recolher.
-          Tocando, a letra corre em tempo real; parada, mostra o estilo escolhido. */}
-      {previewMin && (
-        <button
-          onClick={() => setPreviewMin(false)}
-          className="xl:hidden fixed right-3 bottom-[76px] sm:bottom-3 z-30 console-key flex items-center gap-1.5 px-3 h-8 text-[11px] shadow-lg"
-        >
-          <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} /> Prévia da TV
-        </button>
-      )}
-      <aside className={`${previewMin ? 'hidden xl:block' : ''} fixed right-3 bottom-[76px] sm:bottom-3 z-30 w-[250px] sm:w-[300px] xl:w-auto xl:sticky xl:top-0 xl:bottom-auto xl:right-auto xl:z-10 xl:order-2`}>
-        <div className="console-face border-2 border-black rounded-lg p-2 shadow-2xl xl:shadow-lg">
+    <div className="grid gap-3 min-w-0 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:grid-rows-[auto_minmax(0,1fr)_auto]">
+      {/* MONITOR: a TV. Parado mostra o estilo; tocando, a letra em tempo real. */}
+      <section className="order-1 lg:order-none lg:col-start-2 lg:row-start-1 sticky top-0 z-20 lg:static lg:z-auto -mx-3 px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:px-0 pt-1 pb-2 lg:p-0 bg-logic-bg-deep lg:bg-transparent">
+        <div className="console-face border-2 border-black rounded-lg p-2 shadow-lg">
           <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-7 rounded-t flex items-center gap-2 border-b-2 border-black">
             <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} />
             <p className="console-legend flex-1 !text-logic-text">{previewPlaying ? 'Na TV agora' : 'Prévia da TV'}</p>
             <button onClick={() => setRehearsal(true)} disabled={pages.length === 0} className="console-key flex items-center gap-1 px-2 h-5 text-[10px] disabled:opacity-40" title="Tela inteira, do jeito que os artistas veem">
               <Eye size={11} /> Ensaiar
             </button>
-            <button onClick={() => setPreviewMin(true)} className="xl:hidden console-key flex items-center justify-center w-5 h-5" aria-label="Recolher a prévia">
-              <X size={11} />
-            </button>
           </div>
-          <div className="aspect-video rounded overflow-hidden ring-1 ring-black">
-            <StageLyricsPreview pages={pages} t={t} playing={previewPlaying} songId={song.id} p={previewP} />
-          </div>
-          <div className="flex items-center gap-2 mt-2 text-[11px] min-h-[20px]">
-            {shownPage ? (
-              <>
-                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold text-black" style={{ background: kindInfo(shownPage.kind).color }}>{activeIdx + 1}</span>
-                <span className="tabular-nums text-logic-text-dim">{fmtPrecise(shownPage.time)}</span>
-                <span className="flex-1 min-w-0 truncate text-logic-text">{shownPage.text.split('\n')[0] || 'trecho vazio'}</span>
-                <button onClick={() => scrollToPage(shownPage.id)} className="text-logic-text-muted hover:text-logic-text underline-offset-2 hover:underline shrink-0">ver na lista</button>
-              </>
-            ) : (
-              <span className="text-logic-text-muted">{pages.length ? 'Antes do primeiro trecho.' : 'Sem letra ainda.'} Toque Tocar para acompanhar em tempo real.</span>
-            )}
+          <div className="flex gap-3 lg:block">
+            <div className="w-[48%] max-w-[260px] lg:w-full lg:max-w-none shrink-0 aspect-video rounded overflow-hidden ring-1 ring-black">
+              <StageLyricsPreview pages={pages} t={t} playing={previewPlaying} songId={song.id} p={previewP} />
+            </div>
+            <div className="flex-1 min-w-0 flex flex-col justify-center lg:flex-row lg:items-center gap-1 lg:gap-2 lg:mt-2 text-[11px] min-h-[20px]">
+              {shownPage ? (
+                <>
+                  <span className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold text-black" style={{ background: kindInfo(shownPage.kind).color }}>{activeIdx + 1}</span>
+                    <span className="tabular-nums text-logic-text-dim">{fmtPrecise(shownPage.time)}</span>
+                  </span>
+                  <span className="flex-1 min-w-0 text-logic-text line-clamp-2 lg:truncate">{shownPage.text.split('\n')[0] || 'trecho vazio'}</span>
+                  <button onClick={() => scrollToPage(shownPage.id)} className="self-start lg:self-auto text-logic-text-muted hover:text-logic-text underline-offset-2 hover:underline shrink-0">ver na lista</button>
+                </>
+              ) : (
+                <span className="text-logic-text-muted">{pages.length ? 'Antes do primeiro trecho.' : 'Sem letra ainda.'} Toque Tocar para acompanhar em tempo real.</span>
+              )}
+            </div>
           </div>
         </div>
-      </aside>
-    <div className="space-y-4 min-w-0 xl:order-1">
-      <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-4">
-        <div className="flex flex-wrap items-center gap-3">
+      </section>
+
+      {/* AJUSTES: letra automática e estilo da letra na TV (rola sozinho se faltar espaço). */}
+      <section className="order-3 lg:order-none lg:col-start-2 lg:row-start-2 lg:min-h-0 lg:overflow-y-auto logic-scroll space-y-3">
+        <div className="rounded-lg border-2 border-black console-face px-3 py-2.5">
+          <button
+            onClick={() => (pages.length ? setConfirmGen(true) : void generate())}
+            disabled={!canGenerate}
+            className="console-key w-full flex items-center justify-center gap-1.5 px-3.5 h-9 text-[12px] disabled:opacity-40"
+            title="Escreve a letra que o Mac do diretor ouviu e marca o começo de cada trecho"
+          >
+            {gen ? <Loader2 size={14} className="animate-spin text-logic-lcd-amber" /> : <Sparkles size={14} className="text-logic-lcd-amber" />} Letra automática
+          </button>
+          <p className="text-[11px] text-logic-text-dim leading-relaxed mt-2">
+            {wordsUrl
+              ? 'O Mac do diretor já ouviu a faixa Guia desta música, leu a letra e marcou o início de cada trecho.'
+              : 'A letra desta música ainda não chegou. O Mac do diretor ouve a faixa Guia de cada música depois de enviar o repertório, uns 3 minutos por música, com o programa parado. Música sem Guia não tem letra automática.'}
+          </p>
+          {confirmGen && (
+            <div className="mt-2.5 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
+              <p className="text-logic-text">Isso troca as {pages.length} páginas desta música pela letra que o Mac do diretor ouviu. Dá para voltar com Desfazer.</p>
+              <div className="flex justify-end gap-2 mt-2">
+                <button onClick={() => setConfirmGen(false)} className="px-2.5 h-7 text-logic-text-dim hover:text-logic-text">Cancelar</button>
+                <button onClick={() => void generate()} className="console-key is-lit-amber px-3 h-7 text-[11px]">Trocar pela letra da IA</button>
+              </div>
+            </div>
+          )}
+          {genMsg && !gen && (
+            <p className={`mt-2 text-xs flex items-start gap-1.5 leading-relaxed ${genMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>
+              {genMsg.ok ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+              <span className="flex-1">{genMsg.text}</span>
+              <button onClick={() => setGenMsg(null)} className="text-logic-text-muted hover:text-logic-text" aria-label="Fechar aviso"><X size={12} /></button>
+            </p>
+          )}
+        </div>
+        {styleControls && (
+          <div className="rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-3">
+            <p className="console-legend mb-3">Estilo da letra na TV</p>
+            {styleControls}
+            <p className="text-[11px] text-logic-text-muted mt-3">Muda na TV na hora. Pause para ver o estilo no monitor.</p>
+          </div>
+        )}
+      </section>
+
+      {/* PÁGINAS: a letra, trecho por trecho (rola sozinha). */}
+      <section className="order-4 lg:order-none lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:min-h-0 flex flex-col bg-logic-bg-panel border border-logic-border rounded-xl">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-logic-border shrink-0">
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-logic-text truncate">{song.name}</h2>
-            <p className="text-xs text-logic-text-dim mt-0.5">{formatClock(song.duration)}{song.bpm ? ` · ${song.bpm} BPM` : ''}</p>
+            <h2 className="text-base font-semibold text-logic-text truncate">{song.name}</h2>
+            <p className="text-[11px] text-logic-text-dim">{formatClock(song.duration)}{song.bpm ? ` · ${song.bpm} BPM` : ''} · {pages.length} {pages.length === 1 ? 'página' : 'páginas'}</p>
           </div>
           <SaveBadge status={status} />
           <div className="flex items-center rounded-lg bg-logic-bg-elevated">
@@ -336,71 +379,120 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
               <Redo2 size={15} />
             </button>
           </div>
+          <button onClick={() => setPasteOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-logic-accent hover:text-logic-accent-hover transition-colors">
+            <ClipboardPaste size={14} /> Colar letra inteira
+          </button>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 px-3 py-2 rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light text-sm cursor-pointer transition-colors">
-            {decoding ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
-            {decoding ? 'Carregando áudio...' : audioName ? 'Usar outro arquivo' : 'Carregar áudio do computador'}
+        <div className="flex-1 min-h-0 overflow-y-auto logic-scroll p-3">
+          {pasteOpen && (
+            <div className="mb-4 p-3 rounded-lg border border-logic-border-light bg-logic-bg-deep animate-[fadeIn_160ms_ease-out]">
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                rows={8}
+                placeholder={'Cole a letra aqui.\nDeixe uma linha em branco entre cada trecho: cada trecho vira uma página.'}
+                className="w-full bg-transparent text-sm text-logic-text outline-none resize-y leading-relaxed"
+              />
+              <div className="flex justify-end gap-2 mt-2">
+                <button onClick={() => { setPasteOpen(false); setPasteText(''); }} className="px-3 py-2 text-sm text-logic-text-dim hover:text-logic-text">Cancelar</button>
+                <button
+                  disabled={pasteCount === 0}
+                  onClick={() => { const add = splitLyrics(pasteText); setPages((ps) => [...ps, ...add].slice(0, MAX_PAGES)); setPasteText(''); setPasteOpen(false); }}
+                  className="px-4 py-2 rounded-lg bg-logic-accent text-white text-sm font-medium hover:bg-logic-accent-hover disabled:opacity-40"
+                >
+                  Criar {pasteCount || ''} páginas
+                </button>
+              </div>
+            </div>
+          )}
+
+          {pages.length === 0 && !pasteOpen && (
+            <p className="text-sm text-logic-text-dim py-6 text-center">Nenhuma página ainda. Use a Letra automática, cole a letra inteira ou adicione página por página.</p>
+          )}
+
+          <ol className="space-y-2">
+            {pages.map((p, i) => (
+              <PageRow
+                key={p.id}
+                rowRef={(el) => { if (el) rowRefs.current.set(p.id, el); else rowRefs.current.delete(p.id); }}
+                selected={p.id === selectedId}
+                defaultColor={snap.prompter.lyricColor}
+                page={p}
+                index={i}
+                total={pages.length}
+                active={i === activeIdx}
+                armed={i === armedIdx}
+                onArm={() => setMarkIdx(i)}
+                onChange={(patch) => update(p.id, patch)}
+                onMarkNow={() => update(p.id, { time: Math.round(t * 10) / 10 })}
+                onSeek={() => { if (p.time !== null && !useLive) seek(p.time); }}
+                onMove={(d) => move(i, d)}
+                onDelete={() => setPages((ps) => ps.filter((x) => x.id !== p.id))}
+              />
+            ))}
+          </ol>
+
+          <button
+            onClick={() => setPages((ps) => [...ps, { id: newId(), time: null, text: '', kind: 'verso' as PageKind }].slice(0, MAX_PAGES))}
+            className="mt-3 w-full flex items-center justify-center gap-1.5 py-3 rounded-lg border border-dashed border-logic-border-light text-sm text-logic-text-dim hover:text-logic-text hover:border-logic-accent transition-colors"
+          >
+            <Plus size={15} /> Adicionar página
+          </button>
+        </div>
+      </section>
+
+      {/* LINHA DO TEMPO: play, onda e marcações, de ponta a ponta embaixo. */}
+      <section className="order-2 lg:order-none lg:col-span-2 lg:row-start-3 console-face border-2 border-black rounded-xl px-3 py-2.5 shadow-lg">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] cursor-pointer" title={audioName || 'Carregar áudio do computador'}>
+            {decoding ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
+            <span className="hidden sm:inline">{decoding ? 'Carregando...' : audioName ? 'Outro arquivo' : 'Carregar áudio'}</span>
             <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }} />
           </label>
-          <button onClick={() => skip(-5)} disabled={!audioUrl || useLive} className="p-2 rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light text-sm disabled:opacity-40 transition-colors" title="Voltar 5 segundos">
-            <RotateCcw size={15} />
+          <button onClick={() => skip(-5)} disabled={!audioUrl || useLive} className="console-key flex items-center justify-center w-8 h-8 disabled:opacity-40" title="Voltar 5 segundos">
+            <RotateCcw size={14} />
           </button>
-          <button onClick={togglePlay} disabled={!audioUrl || useLive} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-medium disabled:opacity-40 transition-colors" title="Espaço">
-            {playing ? <Pause size={15} /> : <Play size={15} />} {playing ? 'Pausar' : 'Tocar'}
+          <button onClick={togglePlay} disabled={!audioUrl || useLive} className="flex items-center gap-1.5 px-4 h-8 rounded-md bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-medium disabled:opacity-40 transition-colors" title="Espaço">
+            {playing ? <Pause size={14} /> : <Play size={14} />} {playing ? 'Pausar' : 'Tocar'}
           </button>
-          <span className="text-sm font-medium tabular-nums text-logic-text-dim min-w-[92px]">{formatClock(t)} / {formatClock(duration)}</span>
+          <span className="font-stage text-sm tabular-nums text-logic-lcd-amber min-w-[92px] px-2 h-8 flex items-center rounded bg-black/50 border border-black">{formatClock(t)} / {formatClock(duration)}</span>
           <button
             onClick={() => { audioRef.current?.pause(); setPlaying(false); setFollowLive((v) => !v); }}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-sm transition-colors ${followLive ? 'border-logic-lcd-green text-logic-lcd-green bg-logic-lcd-green/10' : 'border-logic-border text-logic-text-dim hover:text-logic-text'}`}
+            className={`console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] ${followLive ? 'is-lit-amber' : ''}`}
             title="Usa o tempo do play do diretor para marcar"
           >
-            <Radio size={15} /> Seguir o play do diretor
+            <Radio size={13} /> <span className="hidden sm:inline">Seguir o diretor</span>
           </button>
-          {audioName && <span className="text-xs text-logic-text-muted truncate max-w-[200px]">{audioName}</span>}
+          <span className="flex-1" />
+          <button
+            onClick={mark}
+            disabled={pages.length === 0}
+            className="flex items-center gap-1.5 px-4 h-8 rounded-md bg-logic-lcd-amber text-black text-sm font-semibold hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-all"
+            title="Marca agora o começo da página armada"
+          >
+            <Flag size={14} /> Marcar página {pages.length ? armedIdx + 1 : ''}
+          </button>
+          <button
+            onClick={() => createMarker(t)}
+            disabled={!duration}
+            className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] disabled:opacity-40"
+            title="Cria uma marcação no ponto em que a música está, dividindo o trecho ali"
+          >
+            <Plus size={13} /> Nova marcação
+          </button>
+          <span
+            className="console-key flex items-center justify-center w-8 h-8 text-[12px] cursor-help"
+            title="Espaço toca e pausa. Marcar: toque na hora em que cada trecho começa. Duplo clique na onda: coloca ali o trecho sem tempo ou, com tudo marcado, cria uma marcação nova. Toque num número da onda para escolher a marcação: arraste para os lados, use as setas do teclado ou apague com Delete."
+          >
+            ?
+          </span>
         </div>
         {followLive && !liveOnSong && <p className="text-xs text-logic-lcd-amber mt-2">Aguardando o diretor tocar esta música.</p>}
         {audioError && <p className="text-xs text-logic-lcd-red mt-2 flex items-center gap-1.5"><AlertTriangle size={13} /> {audioError}</p>}
         {audioUrl && <audio ref={audioRef} src={audioUrl} onEnded={() => setPlaying(false)} preload="auto" />}
 
-        <div className="mt-4 rounded-lg border-2 border-black console-face px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() => (pages.length ? setConfirmGen(true) : void generate())}
-              disabled={!canGenerate}
-              className="console-key flex items-center gap-1.5 px-3.5 h-9 text-[12px] disabled:opacity-40"
-              title="Escreve a letra que o Mac do diretor ouviu e marca o começo de cada trecho"
-            >
-              {gen ? <Loader2 size={14} className="animate-spin text-logic-lcd-amber" /> : <Sparkles size={14} className="text-logic-lcd-amber" />} Letra automática
-            </button>
-            <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
-              {wordsUrl
-                ? 'O Mac do diretor já ouviu a faixa Guia desta música, leu a letra e marcou o início de cada trecho.'
-                : 'A letra desta música ainda não chegou. O Mac do diretor ouve a faixa Guia de cada música depois de enviar o repertório, uns 3 minutos por música, com o programa parado. Música sem Guia não tem letra automática.'}
-            </p>
-          </div>
-
-          {confirmGen && (
-            <div className="mt-2.5 flex flex-wrap items-center gap-2 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
-              <span className="flex-1 min-w-[200px] text-logic-text">
-                Isso troca as {pages.length} páginas desta música pela letra que o Mac do diretor ouviu. Dá para voltar com Desfazer.
-              </span>
-              <button onClick={() => setConfirmGen(false)} className="px-2.5 h-7 text-logic-text-dim hover:text-logic-text">Cancelar</button>
-              <button onClick={() => void generate()} className="console-key is-lit-amber px-3 h-7 text-[11px]">Trocar pela letra da IA</button>
-            </div>
-          )}
-
-          {genMsg && !gen && (
-            <p className={`mt-2 text-xs flex items-start gap-1.5 leading-relaxed ${genMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>
-              {genMsg.ok ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
-              <span className="flex-1">{genMsg.text}</span>
-              <button onClick={() => setGenMsg(null)} className="text-logic-text-muted hover:text-logic-text" aria-label="Fechar aviso"><X size={12} /></button>
-            </p>
-          )}
-        </div>
-
-        <div className="mt-4">
+        <div className="mt-2">
           <LyricsWaveform
             peaks={peaks}
             duration={duration}
@@ -426,122 +518,42 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
           />
         </div>
 
-        {selected && selected.time !== null && (
-          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.06] px-3 py-2 text-xs animate-[fadeIn_120ms_ease-out]">
-            <span className="font-semibold text-logic-text">Marcação {selIdx + 1}</span>
-            <span className="tabular-nums text-logic-text-dim">{fmtPrecise(selected.time)}</span>
-            <span className="truncate text-logic-text-dim min-w-0 max-w-[32ch]">{selected.text.split('\n')[0] || 'trecho vazio'}</span>
-            <span className="flex items-center rounded-md border border-logic-border overflow-hidden ml-auto" title="Mover a marcação (setas do teclado; Shift move 1 s)">
-              {[-0.1, 0.1].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => moveTo(selected.id, (selected.time ?? 0) + d)}
-                  className="px-2 py-1 font-mono text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
-                  aria-label={d < 0 ? 'Mover 0,1 s para a esquerda' : 'Mover 0,1 s para a direita'}
-                >
-                  {d < 0 ? '◀ 0,1' : '0,1 ▶'}
-                </button>
-              ))}
-            </span>
-            <button onClick={() => { if (!useLive && selected.time !== null) seek(selected.time); }} className="flex items-center gap-1 px-2 py-1 rounded-md text-logic-text-dim hover:text-logic-text transition-colors">
-              <Play size={12} /> Ouvir
-            </button>
-            <button
-              onClick={() => deleteMarker(selected.id)}
-              disabled={pages.length < 2}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-logic-text-dim hover:text-logic-lcd-red disabled:opacity-40 transition-colors"
-              title={selIdx === 0 ? 'Junta o trecho seguinte a este' : 'O trecho desta marcação passa a fazer parte do anterior'}
-            >
-              <Trash2 size={12} /> Apagar marcação
-            </button>
-            <button onClick={() => setSelectedId(null)} className="p-1 text-logic-text-muted hover:text-logic-text" aria-label="Fechar"><X size={12} /></button>
-          </div>
-        )}
-
-        <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button
-            onClick={mark}
-            disabled={pages.length === 0}
-            className="flex items-center gap-2 px-5 py-3 rounded-lg bg-logic-lcd-amber text-black font-semibold hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-all"
-          >
-            <Flag size={16} /> Marcar página {pages.length ? armedIdx + 1 : ''}
-          </button>
-          <button
-            onClick={() => createMarker(t)}
-            disabled={!duration}
-            className="flex items-center gap-1.5 px-3 py-3 rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light text-sm disabled:opacity-40 transition-colors"
-            title="Cria uma marcação no ponto em que a música está, dividindo o trecho ali"
-          >
-            <Plus size={15} /> Nova marcação aqui
-          </button>
-          <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
-            Aperte <kbd className="px-1.5 py-0.5 rounded bg-logic-bg-elevated text-logic-text">Espaço</kbd> para tocar ou pausar, e toque em Marcar na hora em que cada trecho começa. Duplo clique na onda coloca ali o trecho sem tempo ou, com tudo marcado, cria uma marcação nova. Toque num número da onda para escolher a marcação: arraste para os lados, use as setas do teclado ou apague com Delete.
-          </p>
-        </div>
-      </div>
-
-      <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-xs font-semibold tracking-wider uppercase text-logic-text-dim">Páginas da letra</h3>
-          <button onClick={() => setPasteOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-logic-accent hover:text-logic-accent-hover transition-colors">
-            <ClipboardPaste size={14} /> Colar letra inteira
-          </button>
-        </div>
-
-        {pasteOpen && (
-          <div className="mb-4 p-3 rounded-lg border border-logic-border-light bg-logic-bg-deep animate-[fadeIn_160ms_ease-out]">
-            <textarea
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              rows={8}
-              placeholder={'Cole a letra aqui.\nDeixe uma linha em branco entre cada trecho: cada trecho vira uma página.'}
-              className="w-full bg-transparent text-sm text-logic-text outline-none resize-y leading-relaxed"
-            />
-            <div className="flex justify-end gap-2 mt-2">
-              <button onClick={() => { setPasteOpen(false); setPasteText(''); }} className="px-3 py-2 text-sm text-logic-text-dim hover:text-logic-text">Cancelar</button>
-              <button
-                disabled={pasteCount === 0}
-                onClick={() => { const add = splitLyrics(pasteText); setPages((ps) => [...ps, ...add].slice(0, MAX_PAGES)); setPasteText(''); setPasteOpen(false); }}
-                className="px-4 py-2 rounded-lg bg-logic-accent text-white text-sm font-medium hover:bg-logic-accent-hover disabled:opacity-40"
-              >
-                Criar {pasteCount || ''} páginas
+        <div className="mt-1.5 min-h-[34px] flex flex-wrap items-center gap-2 text-xs">
+          {selected && selected.time !== null ? (
+            <>
+              <span className="font-semibold text-logic-lcd-amber">Marcação {selIdx + 1}</span>
+              <span className="tabular-nums text-logic-text-dim">{fmtPrecise(selected.time)}</span>
+              <span className="truncate text-logic-text-dim min-w-0 max-w-[32ch]">{selected.text.split('\n')[0] || 'trecho vazio'}</span>
+              <span className="flex items-center rounded-md border border-logic-border overflow-hidden ml-auto" title="Mover a marcação (setas do teclado; Shift move 1 s)">
+                {[-0.1, 0.1].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => moveTo(selected.id, (selected.time ?? 0) + d)}
+                    className="px-2 py-1 font-mono text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
+                    aria-label={d < 0 ? 'Mover 0,1 s para a esquerda' : 'Mover 0,1 s para a direita'}
+                  >
+                    {d < 0 ? '◀ 0,1' : '0,1 ▶'}
+                  </button>
+                ))}
+              </span>
+              <button onClick={() => { if (!useLive && selected.time !== null) seek(selected.time); }} className="flex items-center gap-1 px-2 py-1 rounded-md text-logic-text-dim hover:text-logic-text transition-colors">
+                <Play size={12} /> Ouvir
               </button>
-            </div>
-          </div>
-        )}
-
-        {pages.length === 0 && !pasteOpen && (
-          <p className="text-sm text-logic-text-dim py-6 text-center">Nenhuma página ainda. Cole a letra inteira ou adicione página por página.</p>
-        )}
-
-        <ol className="space-y-2">
-          {pages.map((p, i) => (
-            <PageRow
-              key={p.id}
-              rowRef={(el) => { if (el) rowRefs.current.set(p.id, el); else rowRefs.current.delete(p.id); }}
-              selected={p.id === selectedId}
-              page={p}
-              index={i}
-              total={pages.length}
-              active={i === activeIdx}
-              armed={i === armedIdx}
-              onArm={() => setMarkIdx(i)}
-              onChange={(patch) => update(p.id, patch)}
-              onMarkNow={() => update(p.id, { time: Math.round(t * 10) / 10 })}
-              onSeek={() => { if (p.time !== null && !useLive) seek(p.time); }}
-              onMove={(d) => move(i, d)}
-              onDelete={() => setPages((ps) => ps.filter((x) => x.id !== p.id))}
-            />
-          ))}
-        </ol>
-
-        <button
-          onClick={() => setPages((ps) => [...ps, { id: newId(), time: null, text: '', kind: 'verso' as PageKind }].slice(0, MAX_PAGES))}
-          className="mt-3 w-full flex items-center justify-center gap-1.5 py-3 rounded-lg border border-dashed border-logic-border-light text-sm text-logic-text-dim hover:text-logic-text hover:border-logic-accent transition-colors"
-        >
-          <Plus size={15} /> Adicionar página
-        </button>
-      </div>
+              <button
+                onClick={() => deleteMarker(selected.id)}
+                disabled={pages.length < 2}
+                className="flex items-center gap-1 px-2 py-1 rounded-md text-logic-text-dim hover:text-logic-lcd-red disabled:opacity-40 transition-colors"
+                title={selIdx === 0 ? 'Junta o trecho seguinte a este' : 'O trecho desta marcação passa a fazer parte do anterior'}
+              >
+                <Trash2 size={12} /> Apagar marcação
+              </button>
+              <button onClick={() => setSelectedId(null)} className="p-1 text-logic-text-muted hover:text-logic-text" aria-label="Fechar"><X size={12} /></button>
+            </>
+          ) : (
+            <span className="text-logic-text-muted">Toque num número da onda para escolher uma marcação. Duplo clique na onda cria uma nova.</span>
+          )}
+        </div>
+      </section>
 
       {rehearsal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-[fadeIn_160ms_ease-out]" onMouseDown={(e) => { if (e.target === e.currentTarget) setRehearsal(false); }}>
@@ -562,12 +574,60 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Cor e tamanho só desta página. Sem mexer, ela segue o estilo geral (o quadro "Estilo da letra
+ * na TV"); a página seguinte não herda nada desta.
+ */
+function PageStyle({ page, defaultColor, onChange }: { page: LyricPage; defaultColor: string; onChange: (patch: Partial<LyricPage>) => void }) {
+  const size = page.size ?? 1;
+  const setSize = (v: number) => {
+    const next = Math.round(Math.min(PAGE_SIZE_MAX, Math.max(PAGE_SIZE_MIN, v)) * 10) / 10;
+    onChange({ size: next === 1 ? undefined : next });
+  };
+  const custom = page.color !== undefined || page.size !== undefined;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+      <span className="console-legend !text-[10px]">Cor</span>
+      <span className="flex items-center gap-1">
+        <button
+          onClick={() => onChange({ color: undefined })}
+          className={`h-5 px-1.5 rounded text-[10px] border transition-colors ${page.color === undefined ? 'border-logic-lcd-amber text-logic-lcd-amber' : 'border-logic-border text-logic-text-muted hover:text-logic-text'}`}
+          title="Usa a cor geral do estilo da letra"
+        >
+          <span className="inline-block w-2 h-2 rounded-full mr-1 align-middle" style={{ background: defaultColor }} />Padrão
+        </button>
+        {LYRIC_COLORS.map((c) => (
+          <button
+            key={c}
+            onClick={() => onChange({ color: c })}
+            className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${page.color === c ? 'border-logic-lcd-amber scale-110' : 'border-black/60'}`}
+            style={{ background: c }}
+            aria-label={`Cor ${c} só nesta página`}
+          />
+        ))}
+      </span>
+      <span className="console-legend !text-[10px] ml-1">Tamanho</span>
+      <span className="flex items-center rounded-md border border-logic-border overflow-hidden">
+        <button onClick={() => setSize(size - 0.1)} disabled={size <= PAGE_SIZE_MIN} className="px-2 h-6 text-xs text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated disabled:opacity-30" aria-label="Letra menor nesta página">A−</button>
+        <span className={`px-1.5 text-[11px] tabular-nums min-w-[52px] text-center ${page.size === undefined ? 'text-logic-text-muted' : 'text-logic-lcd-amber'}`}>
+          {page.size === undefined ? 'padrão' : `${Math.round(size * 100)}%`}
+        </span>
+        <button onClick={() => setSize(size + 0.1)} disabled={size >= PAGE_SIZE_MAX} className="px-2 h-6 text-xs text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated disabled:opacity-30" aria-label="Letra maior nesta página">A+</button>
+      </span>
+      {custom && (
+        <button onClick={() => onChange({ color: undefined, size: undefined })} className="text-[11px] text-logic-text-muted hover:text-logic-text underline-offset-2 hover:underline">
+          voltar ao padrão
+        </button>
+      )}
     </div>
   );
 }
 
-function PageRow({ rowRef, selected, page, index, total, active, armed, onArm, onChange, onMarkNow, onSeek, onMove, onDelete }: {
-  rowRef: (el: HTMLLIElement | null) => void; selected: boolean;
+function PageRow({ rowRef, selected, defaultColor, page, index, total, active, armed, onArm, onChange, onMarkNow, onSeek, onMove, onDelete }: {
+  rowRef: (el: HTMLLIElement | null) => void; selected: boolean; defaultColor: string;
   page: LyricPage; index: number; total: number; active: boolean; armed: boolean;
   onArm: () => void; onChange: (patch: Partial<LyricPage>) => void; onMarkNow: () => void;
   onSeek: () => void; onMove: (d: number) => void; onDelete: () => void;
@@ -579,7 +639,8 @@ function PageRow({ rowRef, selected, page, index, total, active, armed, onArm, o
     <li
       ref={rowRef}
       onClick={onArm}
-      className={`scroll-mt-4 flex gap-3 p-3 rounded-lg border transition-colors ${selected ? 'ring-2 ring-logic-lcd-amber/70' : ''} ${active ? 'border-logic-lcd-green/70 bg-logic-lcd-green/5' : armed ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep'}`}
+      // no celular o monitor fica preso no topo: a página escolhida para logo abaixo dele
+      className={`scroll-mt-[200px] lg:scroll-mt-2 flex gap-3 p-3 rounded-lg border transition-colors ${selected ? 'ring-2 ring-logic-lcd-amber/70' : ''} ${active ? 'border-logic-lcd-green/70 bg-logic-lcd-green/5' : armed ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep'}`}
       style={{ borderLeft: `4px solid ${kind.color}` }}
     >
       <div className="flex flex-col items-center gap-1 w-8 flex-shrink-0">
@@ -637,8 +698,10 @@ function PageRow({ rowRef, selected, page, index, total, active, armed, onArm, o
           onChange={(e) => onChange({ text: e.target.value.slice(0, MAX_PAGE_TEXT) })}
           rows={Math.min(6, Math.max(2, page.text.split('\n').length))}
           placeholder="Texto deste trecho"
-          className="w-full px-3 py-2 rounded-md bg-logic-bg-panel border border-logic-border text-base text-logic-text leading-relaxed outline-none focus:border-logic-accent resize-y"
+          className="w-full px-3 py-2 rounded-md bg-logic-bg-panel border border-logic-border text-base leading-relaxed outline-none focus:border-logic-accent resize-y"
+          style={{ color: page.color ?? undefined }}
         />
+        <PageStyle page={page} defaultColor={defaultColor} onChange={onChange} />
       </div>
     </li>
   );

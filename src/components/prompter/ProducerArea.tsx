@@ -154,8 +154,8 @@ export default function ProducerArea() {
         </div>
       </div>
 
-      <main className="flex-1 min-h-0 overflow-y-auto logic-scroll">
-        <div className={`mx-auto px-3 sm:px-4 py-4 pb-24 sm:pb-6 ${tab === 'notices' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
+      <main className={`flex-1 min-h-0 overflow-y-auto logic-scroll ${tab === 'lyrics' ? 'lg:overflow-hidden' : ''}`}>
+        <div className={`mx-auto px-3 sm:px-4 py-4 pb-24 sm:pb-6 ${tab === 'lyrics' ? 'max-w-[1800px] lg:h-full lg:py-3 lg:pb-3' : tab === 'notices' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
         {tab === 'screen' && <ScreenControlPanel code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} logoUrl={logoUrl} onManageNotices={() => setTab('notices')} />}
         {tab === 'notices' && <NoticeControl state={state} update={ctl.update} songs={snap.show.setlist.songs} now={feed.now} />}
         {tab === 'lyrics' && <LyricsEditor code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} />}

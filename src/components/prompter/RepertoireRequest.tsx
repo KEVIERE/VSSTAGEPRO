@@ -55,36 +55,30 @@ export default function RepertoireRequest({ code, semLetra, total }: {
     }
   };
 
+  const info = `O áudio chega quando o diretor envia o repertório. Depois que você salva as letras ele fica mais 10 minutos e sai ${mode === 'local' ? 'do Mac do diretor' : 'do servidor'}. Para ouvir de novo, peça ao diretor.`;
   return (
-    <div className="rounded-xl border border-logic-border bg-logic-bg-panel p-4">
-      <div className="flex items-center gap-2">
-        <Inbox size={15} className="text-logic-accent" />
-        <p className="text-sm font-semibold text-logic-text">Repertório para ouvir</p>
-        <span className="ml-auto text-2xs tabular-nums text-logic-text-muted">{semLetra} de {total} sem letra</span>
-      </div>
-
-      <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
-        {`O áudio chega quando o diretor envia o repertório. Depois que você salva as letras ele fica mais 10 minutos e sai ${mode === 'local' ? 'do Mac do diretor' : 'do servidor'}. Para ouvir de novo, peça ao diretor.`}
-        {semLetra > 0 && ` Faltam ${semLetra} ${semLetra === 1 ? 'música' : 'músicas'} sem letra.`}
-      </p>
-
-      <div className="flex flex-wrap items-center gap-2 mt-3">
+    <div className="rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-2">
+      <div className="flex items-center gap-3">
+        <Inbox size={15} className="text-logic-accent shrink-0" />
+        <div className="flex-1 min-w-0" title={info}>
+          <p className="text-xs font-semibold text-logic-text">Repertório para ouvir</p>
+          <p className="text-[11px] text-logic-text-dim truncate">
+            {state === 'sent' ? <span className="text-logic-lcd-green">Pedido enviado ao diretor.</span> : `${semLetra} de ${total} sem letra. O áudio sai 10 min depois de salvar.`}
+          </p>
+        </div>
         <button
           onClick={ask}
           disabled={state === 'sending'}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-semibold disabled:opacity-50 transition-all active:scale-[0.98]"
+          className="h-8 px-3 flex items-center gap-1.5 rounded-md bg-logic-accent hover:bg-logic-accent-hover text-white text-xs font-semibold disabled:opacity-50 transition-all active:scale-[0.98] shrink-0"
+          title={info}
         >
-          {state === 'sending' ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          {state === 'sending' ? 'Pedindo...' : 'Pedir o repertório ao diretor'}
+          {state === 'sending' ? <Loader2 size={13} className="animate-spin" /> : state === 'sent' ? <Check size={13} /> : <Send size={13} />}
+          {state === 'sending' ? 'Pedindo...' : 'Pedir repertório'}
         </button>
-        {state === 'sent' && (
-          <span className="flex items-center gap-1.5 text-xs text-logic-lcd-green"><Check size={13} /> Pedido enviado</span>
-        )}
       </div>
-
-      {message && (
-        <p className={`flex items-start gap-1.5 text-xs mt-2 leading-relaxed ${state === 'error' ? 'text-logic-lcd-red' : 'text-logic-text-dim'}`}>
-          {state === 'error' && <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+      {message && state === 'error' && (
+        <p className="flex items-start gap-1.5 text-[11px] mt-1.5 leading-relaxed text-logic-lcd-red">
+          <AlertTriangle size={12} className="shrink-0 mt-0.5" />
           <span>{message}</span>
         </p>
       )}

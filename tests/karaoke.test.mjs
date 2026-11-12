@@ -78,3 +78,42 @@ test('primeiro e último trecho: sem anterior, sem próximo', () => {
   assert.deepEqual(karaokeSlots(PAGES, 3, 1).map((x) => x.slot), ['gone', 'center']);
   assert.deepEqual(karaokeSlots([page('x', 'Só')], 0, 1).map((x) => x.slot), ['center']);
 });
+
+// Cor e tamanho de uma página só: o resto segue o estilo geral.
+import { normalizePages, pageColor, pageScale } from '../src/lib/prompterTypes.ts';
+
+test('página sem ajuste usa a cor e o tamanho gerais; com ajuste, os dela', () => {
+  const geral = '#ffffff';
+  assert.equal(pageColor(page('a', 'x'), geral), geral);
+  assert.equal(pageColor({ ...page('a', 'x'), color: '#ffd60a' }, geral), '#ffd60a');
+  assert.equal(pageScale(page('a', 'x'), 1.2), 1.2);
+  assert.ok(Math.abs(pageScale({ ...page('a', 'x'), size: 1.5 }, 1.2) - 1.8) < 1e-9);
+});
+
+test('a página seguinte não herda a cor nem o tamanho da anterior', () => {
+  const pages = normalizePages([
+    { id: 'a', time: 1, text: 'Um', kind: 'verso', color: '#ff6482', size: 1.4 },
+    { id: 'b', time: 5, text: 'Dois', kind: 'verso' },
+  ]);
+  assert.equal(pages[0].color, '#ff6482');
+  assert.equal(pages[0].size, 1.4);
+  assert.equal(pages[1].color, undefined);
+  assert.equal(pages[1].size, undefined);
+  assert.equal(pageColor(pages[1], '#ffffff'), '#ffffff');
+});
+
+test('cor ou tamanho inválidos são ignorados (fica o geral)', () => {
+  const [p] = normalizePages([{ id: 'a', time: 1, text: 'x', kind: 'verso', color: 'vermelho', size: 9 }]);
+  assert.equal(p.color, undefined);
+  assert.equal(p.size, undefined);
+});
+
+test('página com letra maior ocupa mais espaço e a prévia continua sem encostar', () => {
+  const pages = [{ ...page('a', 'Linha um\nLinha dois'), size: 1.5 }, page('b', 'Próxima\npágina')];
+  const s = karaokeSlots(pages, 0, 1);
+  const center = s.find((x) => x.slot === 'center');
+  const below = s.find((x) => x.slot === 'below');
+  const hc = textHeight(pages[0].text, 1.5);
+  const hb = textHeight(pages[1].text, 1) * below.scale;
+  assert.ok(below.offset - hb / 2 > center.offset + hc / 2);
+});

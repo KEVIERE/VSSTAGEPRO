@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Music2, Play, RefreshCw } from 'lucide-react';
 import SongLyricsEditor, { type SaveStatus } from '@/components/prompter/SongLyricsEditor';
 import LyricsProjectBar from '@/components/prompter/LyricsProjectBar';
+import LyricsStyleControls from '@/components/prompter/LyricsStyleControls';
 import RepertoireRequest from '@/components/prompter/RepertoireRequest';
 import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
@@ -177,13 +178,15 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
 
   const comLetra = songs.filter((s) => pagesOf(s.id).length > 0).length;
 
+  // Tela larga: a aba ocupa a altura da janela, como um editor de vídeo. Cada área rola sozinha.
   return (
-    <div className="grid gap-4 md:grid-cols-[260px_minmax(0,1fr)] items-start">
-      <div className="md:col-span-2 order-first">
+    <div className="flex flex-col gap-3 lg:h-full lg:min-h-0">
+      <div className="grid gap-3 lg:grid-cols-2 shrink-0">
         <RepertoireRequest code={code} semLetra={songs.length - comLetra} total={songs.length} />
+        <LyricsProjectBar snap={snap} onSave={saveToProject} />
       </div>
-      <LyricsProjectBar snap={snap} state={state} update={update} onSave={saveToProject} />
-      <aside className="console-face border-2 border-black rounded-lg p-2 md:sticky md:top-0 md:max-h-[calc(100vh-104px)] md:overflow-y-auto logic-scroll shadow-lg">
+    <div className="grid gap-3 md:grid-cols-[230px_minmax(0,1fr)] items-start lg:items-stretch lg:flex-1 lg:min-h-0">
+      <aside className="console-face border-2 border-black rounded-lg p-2 md:sticky md:top-0 md:max-h-[calc(100vh-104px)] lg:static lg:max-h-none lg:h-full lg:min-h-0 md:overflow-y-auto logic-scroll shadow-lg">
         <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-8 rounded-t flex items-center gap-2 border-b-2 border-black">
           <p className="console-legend flex-1 !text-logic-text">Músicas do show</p>
           <button onClick={() => loadAudio()} className="console-key flex items-center justify-center w-6 h-6" title="Buscar áudios enviados pelo diretor">
@@ -262,6 +265,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           snap={liveSnap}
           sync={sync}
           now={now}
+          styleControls={<LyricsStyleControls state={state} update={update} />}
         />
       ) : (
         <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-10 text-center text-logic-text-dim">
@@ -269,6 +273,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           Escolha uma música para escrever a letra.
         </div>
       )}
+    </div>
     </div>
   );
 }

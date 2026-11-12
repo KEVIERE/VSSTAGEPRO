@@ -40,17 +40,19 @@ export const HALF_AREA = 36;
  * embaixo (ela é só uma dica), nunca o atual.
  */
 export function karaokeSlots(pages: LyricPage[], idx: number, fontScale: number, half = HALF_AREA) {
+  // cada página pode ter tamanho próprio (page.size), multiplicando o geral
+  const h = (pg: LyricPage) => textHeight(pg.text, fontScale * (typeof pg.size === 'number' && pg.size > 0 ? pg.size : 1));
   const cur = pages[idx];
-  const hCur = textHeight(cur.text, fontScale);
+  const hCur = h(cur);
   const next = pages[idx + 1];
-  const hNext = next ? textHeight(next.text, fontScale) * NEXT_SCALE : 0;
+  const hNext = next ? h(next) * NEXT_SCALE : 0;
   // centro do trecho atual: o par centralizado, sem deixar o topo do atual sair da tela
   const pair = next ? hCur + GAP + hNext : hCur;
   const center = Math.max(-half + hCur / 2, -pair / 2 + hCur / 2);
   const out: { page: LyricPage; slot: KaraokeSlot; offset: number; scale: number; opacity: number }[] = [];
   const prev = pages[idx - 1];
   if (prev) {
-    const offset = center - hCur / 2 - GAP * 2 - (textHeight(prev.text, fontScale) * GONE_SCALE) / 2;
+    const offset = center - hCur / 2 - GAP * 2 - (h(prev) * GONE_SCALE) / 2;
     out.push({ page: prev, slot: 'gone', offset, scale: GONE_SCALE, opacity: 0 });
   }
   out.push({ page: cur, slot: 'center', offset: center, scale: 1, opacity: 1 });

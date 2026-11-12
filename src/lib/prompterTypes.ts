@@ -7,6 +7,26 @@ export interface LyricPage {
   time: number | null;
   text: string;
   kind: PageKind;
+  /** Cor só desta página. Sem ela, vale a cor geral do estilo da letra. */
+  color?: string;
+  /** Tamanho só desta página, em relação ao tamanho geral (1 = igual). Sem ele, vale o geral. */
+  size?: number;
+}
+
+/** Tamanhos que dá para escolher numa página (em relação ao geral). */
+export const PAGE_SIZE_MIN = 0.5;
+export const PAGE_SIZE_MAX = 1.8;
+const COLOR_RE = /^#[0-9a-f]{6}$/i;
+
+/** Cor com que a página aparece na TV: a dela, ou a geral. */
+export function pageColor(page: LyricPage, general: string): string {
+  return page.color && COLOR_RE.test(page.color) ? page.color : general;
+}
+
+/** Escala da letra da página na TV: a geral vezes a da página. */
+export function pageScale(page: LyricPage, general: number): number {
+  const own = typeof page.size === 'number' && Number.isFinite(page.size) ? Math.min(PAGE_SIZE_MAX, Math.max(PAGE_SIZE_MIN, page.size)) : 1;
+  return general * own;
 }
 
 export interface SongLyrics {
@@ -174,10 +194,16 @@ export function normalizePrompter(raw: unknown): PrompterState {
 
 export function normalizePages(raw: unknown): LyricPage[] {
   if (!Array.isArray(raw)) return [];
-  return raw.filter((x) => x && typeof x === 'object').map((x: Record<string, unknown>, i) => ({
-    id: typeof x.id === 'string' ? x.id : `p${i}`,
-    time: typeof x.time === 'number' && Number.isFinite(x.time) ? x.time : null,
-    text: typeof x.text === 'string' ? x.text : '',
-    kind: KIND_IDS.has(x.kind as PageKind) ? (x.kind as PageKind) : 'verso',
-  }));
+  return raw.filter((x) => x && typeof x === 'object').map((x: Record<string, unknown>, i) => {
+    const page: LyricPage = {
+      id: typeof x.id === 'string' ? x.id : `p${i}`,
+      time: typeof x.time === 'number' && Number.isFinite(x.time) ? x.time : null,
+      text: typeof x.text === 'string' ? x.text : '',
+      kind: KIND_IDS.has(x.kind as PageKind) ? (x.kind as PageKind) : 'verso',
+    };
+    // cor e tamanho só desta página (opcionais: sem eles vale o estilo geral)
+    if (typeof x.color === 'string' && COLOR_RE.test(x.color)) page.color = x.color;
+    if (typeof x.size === 'number' && Number.isFinite(x.size) && x.size >= PAGE_SIZE_MIN && x.size <= PAGE_SIZE_MAX && x.size !== 1) page.size = x.size;
+    return page;
+  });
 }
