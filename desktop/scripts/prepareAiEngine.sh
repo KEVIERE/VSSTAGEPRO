@@ -64,8 +64,24 @@ ${RUN[@]+"${RUN[@]}"} "$PY_BIN" -m pip install --no-cache-dir --quiet --no-deps 
 
 echo "4. Baixando os pesos da rede neural htdemucs_6s..."
 export TORCH_HOME="$ENGINE_DIR/torch-cache"
-mkdir -p "$TORCH_HOME"
+mkdir -p "$TORCH_HOME/hub/checkpoints"
+# Cópia nossa na VPS: o build não depende do servidor da Meta (em 11/11/2026 o certificado
+# dele venceu e derrubou o instalador). O SHA-256 completo garante que é o mesmo arquivo;
+# se a cópia falhar, o Demucs baixa do endereço original logo abaixo.
+MODEL_FILE="5c90dfd2-34c22ccb.th"
+MODEL_SHA256="34c22ccb381c6f9fdbf324f04e1e2fe21aaaf293f5ded163a162697ff9a02ddd"
+MODEL_URL="https://download.vsstagepro.com.br/ai-models/demucs/$MODEL_FILE"
+MODEL_PATH="$TORCH_HOME/hub/checkpoints/$MODEL_FILE"
+if /usr/bin/curl -fL -sS --retry 3 -o "$MODEL_PATH.part" "$MODEL_URL" \
+  && [ "$(shasum -a 256 "$MODEL_PATH.part" | cut -d' ' -f1)" = "$MODEL_SHA256" ]; then
+  mv "$MODEL_PATH.part" "$MODEL_PATH"
+  echo "   pesos baixados da nossa cópia e conferidos"
+else
+  rm -f "$MODEL_PATH.part"
+  echo "::warning::A cópia dos pesos na VPS falhou ou não confere; baixando do servidor original"
+fi
 ${RUN[@]+"${RUN[@]}"} "$PY_BIN" -c "import demucs.pretrained; demucs.pretrained.get_model('htdemucs_6s')"
+[ "$(shasum -a 256 "$MODEL_PATH" | cut -d' ' -f1)" = "$MODEL_SHA256" ] || { echo "::error::Os pesos do htdemucs_6s não conferem"; exit 1; }
 
 echo "5. Teste: versões e separação real de 3 s de áudio (WAV e MP3), do mesmo jeito que o programa chama..."
 # Mac de usuário comum: sem ffmpeg nem nada instalado além do sistema
