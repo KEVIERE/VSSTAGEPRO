@@ -65,14 +65,21 @@ function script() {
 function supported() {
   if (supportedCache) return supportedCache;
   const eng = engine();
-  if (!eng || !fs.existsSync(script())) return (supportedCache = Promise.resolve(false));
+  if (!eng || !fs.existsSync(script())) {
+    console.log('[leitor de letra] sem motor de IA ou sem o script neste programa');
+    return (supportedCache = Promise.resolve(false));
+  }
   supportedCache = new Promise((resolve) => {
     // mesmo jeito que o leitor abre: sem o PyAV (ver lyricsTranscriber.py)
     const check = 'import sys, types\ntry:\n  import av\nexcept Exception:\n  sys.modules["av"] = types.ModuleType("av")\nimport ctranslate2, tokenizers, faster_whisper';
     const p = spawn(eng.python, ['-I', '-c', check], { stdio: 'ignore' });
     const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* já saiu */ } }, 60_000);
-    p.on('error', () => { clearTimeout(timer); resolve(false); });
-    p.on('close', (code) => { clearTimeout(timer); resolve(code === 0); });
+    p.on('error', () => { clearTimeout(timer); console.log('[leitor de letra] Python do motor não abriu:', eng.python); resolve(false); });
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      console.log(`[leitor de letra] ${code === 0 ? 'pronto' : 'motor sem o faster-whisper'} (${eng.python})`);
+      resolve(code === 0);
+    });
   });
   return supportedCache;
 }
@@ -89,10 +96,12 @@ async function prepare() {
 
 /**
  * Lê a letra de uma música.
- * @param {ArrayBuffer|Buffer} wav  a mixagem LR da música em WAV
+ * @param {ArrayBuffer|Buffer} wav  o áudio em WAV (a faixa Guia da música)
+ * @param {{separate?: boolean}} [opts]  separate: tirar a voz da banda antes (para mixagem
+ *   inteira). A faixa Guia já é a voz, então por padrão não separa (e fica bem mais rápido).
  * @returns {Promise<{segments: object[], seconds: number} | {why: string}>}
  */
-async function transcribe(wav) {
+async function transcribe(wav, opts = {}) {
   if (!(await supported())) return { why: 'unsupported' };
   if (!modelReady()) { download.start(); return { why: 'model_missing' }; }
   if (child) return { why: 'busy' };
@@ -105,7 +114,9 @@ async function transcribe(wav) {
     await fsp.writeFile(input, Buffer.from(wav));
     const reply = await new Promise((resolve) => {
       let out = '';
-      const p = spawn(eng.python, ['-I', script(), '--in', input, '--model', modelDir(), '--out', output], {
+      const args = ['-I', script(), '--in', input, '--model', modelDir(), '--out', output];
+      if (!opts.separate) args.push('--no-separate');
+      const p = spawn(eng.python, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: os.homedir(), TMPDIR: os.tmpdir(), TORCH_HOME: eng.torchHome, HF_HUB_OFFLINE: '1' },
       });
@@ -121,9 +132,10 @@ async function transcribe(wav) {
         try { resolve(JSON.parse(line)); } catch { resolve({ ok: false, error: 'O leitor de letra respondeu algo inesperado.' }); }
       });
     });
-    if (canceled) return { why: 'canceled' };
-    if (!reply.ok) return { why: reply.error || 'failed' };
+    if (canceled) { console.log('[leitor de letra] parou: o play começou'); return { why: 'canceled' }; }
+    if (!reply.ok) { console.log('[leitor de letra] falhou:', reply.error); return { why: reply.error || 'failed' }; }
     const result = JSON.parse(await fsp.readFile(output, 'utf8'));
+    console.log(`[leitor de letra] leu ${Array.isArray(result.segments) ? result.segments.length : 0} frases em ${reply.seconds ?? '?'} s`);
     return { segments: Array.isArray(result.segments) ? result.segments : [], seconds: reply.seconds ?? null };
   } catch (err) {
     return { why: canceled ? 'canceled' : err instanceof Error ? err.message : String(err) };

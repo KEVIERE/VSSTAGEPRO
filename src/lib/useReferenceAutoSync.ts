@@ -4,7 +4,7 @@ import {
   directorReferenceStatus, directorStartSend, directorTakeRepertoireRequest, encodeWav16, parseReferenceStatus,
   renderReference, uploadReferenceBlob, uploadSongWords, type ReferenceStatus,
 } from '@/lib/prompterAudio';
-import { renderLrMasterForSong } from '@/lib/bounceEngine';
+import { renderGuideForSong, songHasGuide } from '@/lib/bounceEngine';
 import { localBridge, useNetworkMode, type LyricsReaderStatus } from '@/lib/localNetwork';
 import type { SavedShow } from '@/lib/useLiveBroadcast';
 import type { ProjectState, Song } from '@/types';
@@ -17,8 +17,8 @@ import type { ProjectState, Song } from '@/types';
  * - Enquanto o envio vale, música que muda (corte, BPM, tom) sobe de novo.
  * - O produtor salvou as letras: 10 minutos depois o áudio some (do Supabase ou do Mac).
  * - Para o produtor ouvir de novo, o diretor envia de novo. O pedido do produtor vira um aviso.
- * - O leitor de letra (no Mac, sem custo) lê as músicas que ainda não têm letra, uma por vez, e
- *   nunca enquanto o play está rodando.
+ * - O leitor de letra (no Mac, sem custo) ouve a faixa Guia (a voz) das músicas que ainda não
+ *   têm letra, uma por vez, e nunca enquanto o play está rodando. Música sem Guia é pulada.
  */
 
 const IDLE_MS = 6000;
@@ -50,9 +50,11 @@ export interface ReferenceSync {
   requestedAt: number | null;
   /** Leitor de letra do Mac (null: programa sem o leitor, ou fora do app do Mac). */
   reader: LyricsReaderStatus | null;
-  /** Músicas sem letra que já têm a letra lida, de quantas. */
+  /** Músicas sem letra (e com faixa Guia) que já têm a letra lida, de quantas. */
   lyricsReady: number;
   lyricsTotal: number;
+  /** Músicas sem letra e sem faixa Guia: não há voz para ler. */
+  noGuide: string[];
   /** Música que o leitor está lendo agora. */
   reading: string | null;
   lyricsFailed: string[];
@@ -129,6 +131,8 @@ function saveMap(key: string, value: Record<string, string>) {
 }
 
 const hasLyrics = (st: ProjectState, id: string) => (st.lyricMaps?.[id]?.length ?? 0) > 0;
+/** Música que o leitor deve ouvir: ainda sem letra e com voz na faixa Guia. */
+const wantsLyrics = (s: Song, st: ProjectState) => !hasLyrics(st, s.id) && songHasGuide(s, st);
 
 export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   const songs = useStore((s) => s.songs);
@@ -266,15 +270,18 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   }, [backend, sent, sigs, failedSigs, isPlaying, songs, clips, tracks, playlistOrder, lrMasterActive, active]);
 
   // 2. Letra lida pelo Mac, só das músicas que ainda não têm letra (uma por vez, com o programa parado).
+  // Depende só de "o leitor está pronto" (um booleano): a situação do leitor chega a cada 4 s
+  // como objeto novo, e depender dela zerava a espera de 6 s antes de começar, para sempre.
+  const readerReady = !!reader?.supported && reader.model.state === 'ready';
   useEffect(() => {
     const desk = window.vsDesktop;
     if (!backend || !sent || !active || isPlaying || running.current || readingNow.current || working) return;
-    if (!desk?.lyricsTranscribe || !reader?.supported || reader.model.state !== 'ready') return;
+    if (!desk?.lyricsTranscribe || !readerReady) return;
     const timer = window.setTimeout(async () => {
       const st = useStore.getState();
       const next = orderedSongs(st).find((s) => {
         const sig = soundSignature(s, st);
-        return sent.has(s.id) && sigs[s.id] === sig && !hasLyrics(st, s.id)
+        return sent.has(s.id) && sigs[s.id] === sig && wantsLyrics(s, st)
           && !(words.has(s.id) && wordSigs[s.id] === sig) && failedWords[s.id] !== sig;
       });
       if (!next) return;
@@ -282,9 +289,10 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       const sig = soundSignature(next, st);
       setReading(next.name);
       try {
-        const wav = encodeWav16(await renderLrMasterForSong(next, useStore.getState()));
+        // Só a faixa Guia (a voz), no mesmo tempo do áudio do produtor: sem separar nada.
+        const wav = encodeWav16(await renderGuideForSong(next, useStore.getState()));
         if (useStore.getState().transport.isPlaying) return;
-        const res = await desk.lyricsTranscribe!(wav);
+        const res = await desk.lyricsTranscribe!(wav, { separate: false });
         if ('why' in res) {
           // Play começou ou o modelo ainda está baixando: tenta de novo depois, sem marcar erro.
           if (res.why !== 'canceled' && res.why !== 'model_missing' && res.why !== 'busy') {
@@ -307,7 +315,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       }
     }, IDLE_MS);
     return () => window.clearTimeout(timer);
-  }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, reader, working, lyricMaps, songs, clips, tracks]);
+  }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, readerReady, working, lyricMaps, songs, clips, tracks]);
 
   const [starting, setStarting] = useState(false);
   const send = useCallback(() => {
@@ -350,7 +358,8 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   const list = orderedSongs(st);
   const ready = sent ? list.filter((s) => sent.has(s.id) && sigs[s.id] === soundSignature(s, st)).length : 0;
   const failed = list.filter((s) => failedSigs[s.id] !== undefined).map((s) => s.name);
-  const needLyrics = list.filter((s) => !hasLyrics(st, s.id));
+  const needLyrics = list.filter((s) => wantsLyrics(s, st));
+  const noGuide = list.filter((s) => !hasLyrics(st, s.id) && !songHasGuide(s, st)).map((s) => s.name);
   const lyricsReady = needLyrics.filter((s) => words.has(s.id) && wordSigs[s.id] === soundSignature(s, st)).length;
   const lyricsFailed = needLyrics.filter((s) => failedWords[s.id] !== undefined).map((s) => s.name);
 
@@ -369,6 +378,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     reader,
     lyricsReady,
     lyricsTotal: needLyrics.length,
+    noGuide,
     reading,
     lyricsFailed,
     send,

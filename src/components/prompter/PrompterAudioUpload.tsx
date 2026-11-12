@@ -9,7 +9,7 @@ function clock(ms: number): string {
 
 /** Linha do leitor de letra (no Mac do diretor, sem custo). */
 function ReaderLine({ sync }: { sync: ReferenceSync }) {
-  const { reader, lyricsReady, lyricsTotal, reading, lyricsFailed } = sync;
+  const { reader, lyricsReady, lyricsTotal, reading, lyricsFailed, noGuide } = sync;
   let text: string;
   let tone = 'text-logic-text-dim';
   let led = '';
@@ -25,10 +25,12 @@ function ReaderLine({ sync }: { sync: ReferenceSync }) {
       : `Baixando o leitor de letra, uma vez só (1,6 GB): ${pct}%.`;
     led = 'is-on-amber animate-pulse';
   } else if (lyricsTotal === 0) {
-    text = 'Todas as músicas já têm letra: nada para o leitor ler.';
-    led = 'is-on-green';
+    text = noGuide.length
+      ? 'Nenhuma música sem letra tem voz na faixa Guia: nada para o leitor ouvir.'
+      : 'Todas as músicas já têm letra: nada para o leitor ler.';
+    led = noGuide.length ? '' : 'is-on-green';
   } else if (reading) {
-    text = `Lendo a letra de ${reading}... (${lyricsReady} de ${lyricsTotal} prontas)`;
+    text = `Ouvindo a Guia de ${reading}... (${lyricsReady} de ${lyricsTotal} prontas)`;
     led = 'is-on-amber animate-pulse';
   } else {
     text = lyricsReady === lyricsTotal
@@ -42,6 +44,11 @@ function ReaderLine({ sync }: { sync: ReferenceSync }) {
         {led ? <span className={`console-led mt-1 shrink-0 ${led}`} /> : <Sparkles size={13} className="shrink-0 mt-0.5 text-logic-lcd-amber" />}
         <span>{text}</span>
       </p>
+      {noGuide.length > 0 && (
+        <p className="text-xs text-logic-text-muted leading-relaxed pl-5">
+          Sem faixa Guia, não há voz para ler: {noGuide.join(', ')}.
+        </p>
+      )}
       {lyricsFailed.length > 0 && (
         <p className="flex items-start gap-1.5 text-xs text-logic-lcd-amber">
           <AlertTriangle size={13} className="shrink-0 mt-0.5" />

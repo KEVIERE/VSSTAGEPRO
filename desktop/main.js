@@ -398,7 +398,7 @@ handle('maestroVoicePlaying', (playing) => { maestroVoiceDownload.setPaused(!!pl
 // Leitor de letra (repertório do produtor): roda no Mac, sem internet e sem custo.
 handle('lyricsReaderStatus', () => lyricsReader.status());
 handle('lyricsReaderPrepare', () => lyricsReader.prepare());
-handle('lyricsTranscribe', (wav) => lyricsReader.transcribe(wav));
+handle('lyricsTranscribe', (wav, opts) => lyricsReader.transcribe(wav, { separate: !!opts?.separate }));
 handle('lyricsTranscribeCancel', () => lyricsReader.cancel());
 handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
 handle('cancelStemSeparation', () => cancelStemSeparation());

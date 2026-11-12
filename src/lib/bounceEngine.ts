@@ -455,6 +455,39 @@ export async function renderLrMasterForSong(song: Song, state: ProjectState): Pr
   return withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true));
 }
 
+/** A faixa Guia (onde fica a voz) e as faixas dentro dela. */
+export const GUIDE_TRACK_ID = 'track-guia';
+
+export function guideTrackIds(tracks: Track[]): Set<string> {
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  const ids = new Set<string>();
+  for (const t of tracks) {
+    let cur: Track | undefined = t;
+    for (let depth = 0; cur && depth < 8; depth++) {
+      if (cur.id === GUIDE_TRACK_ID) { ids.add(t.id); break; }
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+  }
+  return ids;
+}
+
+/** A música tem áudio na faixa Guia? (sem Guia não há voz para ler) */
+export function songHasGuide(song: Song, state: Pick<ProjectState, 'tracks' | 'clips'>): boolean {
+  const ids = guideTrackIds(state.tracks);
+  return state.clips.some((c) => c.songId === song.id && ids.has(c.trackId));
+}
+
+/**
+ * Só a faixa Guia da música, no centro e com o fader em 0 dB (mesmo que ela esteja abaixada ou
+ * muda na mixagem), no mesmo tempo e tom do show: é o que o leitor de letra ouve. O tempo bate
+ * com o áudio de referência do produtor, que sai do mesmo render.
+ */
+export async function renderGuideForSong(song: Song, state: ProjectState): Promise<AudioBuffer> {
+  const ids = guideTrackIds(state.tracks);
+  const unity = state.tracks.map((t) => (ids.has(t.id) ? { ...t, volume: 0.8, pan: 0, antiClip: false } : t));
+  return withSongAudio(song.id, () => renderOffline(song, unity, state.clips, false, (t) => ids.has(t.id), false));
+}
+
 export interface ExportProgress {
   fraction: number;
   label: string;

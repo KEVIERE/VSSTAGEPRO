@@ -157,7 +157,7 @@ declare global {
       /** Leitor de letra no Mac: situação, download do modelo e leitura de uma música (WAV). */
       lyricsReaderStatus?: () => Promise<LyricsReaderStatus>;
       lyricsReaderPrepare?: () => Promise<LyricsReaderStatus>;
-      lyricsTranscribe?: (wav: ArrayBuffer) => Promise<{ segments: unknown[]; seconds: number | null } | { why: string }>;
+      lyricsTranscribe?: (wav: ArrayBuffer, opts?: { separate?: boolean }) => Promise<{ segments: unknown[]; seconds: number | null } | { why: string }>;
       lyricsTranscribeCancel?: () => Promise<boolean>;
       separateStemsLocal?: (
         filename: string,
