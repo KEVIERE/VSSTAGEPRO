@@ -159,7 +159,6 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
 
   const copyTrack = () => {
     duplicateTrack(track.id);
-    for (const songId of new Set(ownClips.map((c) => c.songId))) audioEngine.invalidatePrepared(songId);
     onClose();
   };
 
@@ -281,16 +280,13 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
         <button
           type="button"
           onClick={copyTrack}
-          title={ownClips.length === 0 ? 'Cria uma cópia desta trilha logo abaixo dela' : `Cria uma cópia desta trilha logo abaixo dela, com os ${ownClips.length === 1 ? 'clipe' : `${ownClips.length} clipes`} (o mesmo áudio)`}
+          title="Cria uma trilha igual a esta logo abaixo dela (cor, volume e saída), vazia: os áudios não são copiados"
           className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between gap-2 text-white/90 hover:text-white transition"
         >
           <span className="flex items-center gap-2">
             <Copy size={13} className="text-logic-text-muted" />
             <span>Duplicar trilha</span>
           </span>
-          {ownClips.length > 0 && (
-            <span className="text-[9px] font-mono text-logic-text-muted shrink-0">{ownClips.length} clipe{ownClips.length === 1 ? '' : 's'}</span>
-          )}
         </button>
       )}
 

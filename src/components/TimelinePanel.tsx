@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
 import SaveCancelButton from '@/components/SaveCancelButton';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { cancelImport } from '@/lib/importManager';
@@ -23,6 +23,8 @@ import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
 import { ClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
 import MiniFader from '@/components/MiniFader';
 import { LedMeterH } from '@/components/MeterMask';
+import { dropSlot, laneMoves, laneOffset, reorderChildren } from '@/lib/trackOrder';
+import { beginGesture, endGesture } from '@/lib/undoGestures';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
 import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
@@ -40,7 +42,8 @@ const FOLLOW_SCROLL_CSS = typeof CSS !== 'undefined' && typeof CSS.supports === 
   && CSS.supports('animation-timeline', '--vs-tl-y') && CSS.supports('timeline-scope', '--vs-tl-y');
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
-type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string } | null;
+// `ghosts`: áudios indo para outra trilha (a prévia aparece na trilha de destino); `laneLabel`: para onde.
+type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string; ghosts?: { trackId: string; clipId: string }[]; laneLabel?: string } | null;
 
 /** Medidor VU de LEDs estilo DAW profissional (Logic Pro / Pro Tools) para a entrada da placa */
 function InputVuMeter({ trackHeight = 40 }: { trackHeight?: number }) {
@@ -112,14 +115,16 @@ function LiveRecordingTrackBlock({ startTime, zoomH }: { startTime: number; zoom
   );
 }
 
-function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu, groupColor, isLastChild }: {
+function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
   childId: string; depth: number; expanded: boolean; onToggle: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
   groupColor?: string; isLastChild?: boolean;
+  onReorderStart?: (e: React.PointerEvent<HTMLDivElement>, trackId: string) => void;
+  dragging?: boolean;
 }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === childId));
   if (!track) return null;
-  return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} groupColor={groupColor} isLastChild={isLastChild} />;
+  return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} groupColor={groupColor} isLastChild={isLastChild} onReorderStart={onReorderStart} dragging={dragging} />;
 }
 
 // Alça fina no topo/fim de uma faixa: por padrão arrasta a altura de TODAS as faixas de
@@ -241,13 +246,17 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
   );
 }
 
-function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, groupColor, isLastChild }: {
+function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
   track: Track; depth?: number; expanded?: boolean; onToggle?: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
   /** Cor da faixa mãe (faixas de dentro de um multigrupo) */
   groupColor?: string;
   /** Última faixa de dentro do multigrupo: a guia termina nela */
   isLastChild?: boolean;
+  /** Faixa de dentro: apertar e arrastar para cima ou para baixo muda a ordem na pasta */
+  onReorderStart?: (e: React.PointerEvent<HTMLDivElement>, trackId: string) => void;
+  /** Esta faixa está sendo arrastada */
+  dragging?: boolean;
 }) {
   const selectedTrackId = useStore((s) => s.selectedTrackId);
   const selectTrack = useStore((s) => s.selectTrack);
@@ -446,11 +455,13 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
     return (
       <div
         data-selectable="track"
-        className={`console-row-child group relative flex items-center gap-1.5 pr-1.5 cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
+        data-child-row={track.id}
+        className={`console-row-child group relative flex items-center gap-1.5 pr-1.5 cursor-grab active:cursor-grabbing overflow-hidden ${isSelected ? 'is-selected' : ''} ${dragging ? 'opacity-40' : ''}`}
         style={{ paddingLeft: `${10 + depth * 16}px`, height: `${trackHeight}px` }}
         onClick={() => selectTrack(track.id)}
+        onPointerDown={(e) => onReorderStart?.(e, track.id)}
         onContextMenu={onRowContextMenu}
-        title={rowTitle}
+        title={`${rowTitle}. Arraste para cima ou para baixo para mudar a ordem.`}
       >
         <TrackHeightHandle trackId={track.id} edge="top" />
         <TrackHeightHandle trackId={track.id} edge="bottom" />
@@ -463,10 +474,14 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
           className="absolute h-[2px] w-[7px] pointer-events-none"
           style={{ left: `${depth * 16 - 1}px`, top: 'calc(50% - 1px)', backgroundColor: groupColor ?? track.color, opacity: 0.6 }}
         />
-        <span
-          className="w-1.5 h-1.5 rounded-full shrink-0"
-          style={{ backgroundColor: track.color, boxShadow: `0 0 4px ${track.color}80` }}
-        />
+        {/* Ponto da cor; com o mouse em cima vira a alça de arrastar */}
+        <span className="relative w-2.5 h-3 shrink-0 flex items-center justify-center">
+          <span
+            className="w-1.5 h-1.5 rounded-full group-hover:opacity-0 transition-opacity"
+            style={{ backgroundColor: track.color, boxShadow: `0 0 4px ${track.color}80` }}
+          />
+          <GripVertical size={11} className="absolute text-logic-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
+        </span>
         <span className={`text-[11px] flex-1 min-w-0 truncate ${isSelected ? 'text-white' : 'text-logic-text/80'}`}>
           {track.name}
         </span>
@@ -571,21 +586,78 @@ function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
   onToggle?: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
 }) {
+  const reorderChildTrack = useStore((s) => s.reorderChildTrack);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Trilha sendo arrastada, a posição onde ela vai entrar e a altura da linha âmbar que mostra isso
+  const [drag, setDrag] = useState<{ id: string; slot: number; y: number } | null>(null);
+
+  // Apertar numa trilha de dentro e arrastar para cima ou para baixo muda a ordem dela na pasta.
+  // Só começa depois de andar alguns pixels: um clique continua só selecionando.
+  const startReorder = useCallback((e: React.PointerEvent<HTMLDivElement>, childId: string) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if ((e.target as HTMLElement).closest('button, input, select')) return;
+    const list = listRef.current;
+    if (!list) return;
+    const startY = e.clientY;
+    let active = false;
+    let slot = -1;
+    const move = (ev: PointerEvent) => {
+      if (!active && Math.abs(ev.clientY - startY) < 5) return;
+      active = true;
+      ev.preventDefault();
+      const rows = [...list.querySelectorAll<HTMLElement>(':scope > [data-child-row]')].map((r) => {
+        const b = r.getBoundingClientRect();
+        return { top: b.top, height: b.height };
+      });
+      if (rows.length === 0) return;
+      slot = dropSlot(rows, ev.clientY);
+      const top = list.getBoundingClientRect().top;
+      const last = rows[rows.length - 1];
+      const y = slot < rows.length ? rows[slot].top - top : last.top + last.height - top;
+      // soltar onde ela já está não muda nada: não mostra a linha
+      const ids = [...list.querySelectorAll<HTMLElement>(':scope > [data-child-row]')].map((r) => r.dataset.childRow ?? '');
+      const changes = reorderChildren(ids, childId, slot) !== ids;
+      setDrag({ id: childId, slot: changes ? slot : -1, y });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      setDrag(null);
+      if (active && slot >= 0) reorderChildTrack(childId, slot);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }, [reorderChildTrack]);
+
   return (
     <>
       <TrackRow track={track} depth={0} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} />
-      {expanded && track.children.map((childId, i) => (
-        <ChildTrackRow
-          key={childId}
-          childId={childId}
-          depth={1}
-          expanded={true}
-          onToggle={() => {}}
-          onContextMenu={onContextMenu}
-          groupColor={track.color}
-          isLastChild={i === track.children.length - 1}
-        />
-      ))}
+      {expanded && track.children.length > 0 && (
+        <div ref={listRef} className="relative">
+          {track.children.map((childId, i) => (
+            <ChildTrackRow
+              key={childId}
+              childId={childId}
+              depth={1}
+              expanded={true}
+              onToggle={() => {}}
+              onContextMenu={onContextMenu}
+              groupColor={track.color}
+              isLastChild={i === track.children.length - 1}
+              onReorderStart={startReorder}
+              dragging={drag?.id === childId}
+            />
+          ))}
+          {drag && drag.slot >= 0 && (
+            <div
+              className="absolute left-1 right-1 h-[2px] -translate-y-1/2 rounded-full z-40 pointer-events-none bg-[#ffab1f] shadow-[0_0_6px_rgba(255,171,31,0.8)]"
+              style={{ top: `${drag.y}px` }}
+            />
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -962,6 +1034,8 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
     : clip.trimEnd ?? 0;
   const playLength = clipPlayLength({ duration: clip.duration, trimStart, trimEnd });
   const moving = !!move && move.ids.has(clip.id);
+  // indo para outra trilha: aqui fica só a sombra, a prévia aparece na trilha de destino
+  const leaving = moving && !!move?.ghosts?.some((g) => g.clipId === clip.id);
   const effectiveStart = moving
     ? Math.max(0, clip.startTime + move.delta)
     : isTrimStart
@@ -1031,6 +1105,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
           borderColor: isSelected ? '#ffffff' : (isMuted ? '#52525b' : routingColor),
           borderWidth: isSelected ? '2px' : '1px',
           lineHeight: 0,
+          ...(leaving ? { opacity: 0.3 } : {}),
         }}
         onClick={(e) => {
           e.stopPropagation();
@@ -1435,6 +1510,7 @@ export default function TimelinePanel() {
   const [moveDrag, setMoveDrag] = useState<MoveDrag>(null);
   const updateClip = useStore((s) => s.updateClip);
   const updateClips = useStore((s) => s.updateClips);
+  const moveClipsToTracks = useStore((s) => s.moveClipsToTracks);
   const splitClipAt = useStore((s) => s.splitClipAt);
   const splitClipsAt = useStore((s) => s.splitClipsAt);
   const removeClips = useStore((s) => s.removeClips);
@@ -1785,6 +1861,23 @@ export default function TimelinePanel() {
     let delta = 0;
     let hasMoved = false;
 
+    // Arrastar para cima ou para baixo leva os áudios para outra trilha. Recebem áudio as trilhas
+    // de verdade, na ordem da tela (pasta e timecode não). Vários áudios andam o mesmo tanto.
+    const lanes = allVisibleTracks.filter((t) => !t.isSubgroup && t.id !== TIMECODE_TRACK_ID).map((t) => t.id);
+    const anchorLane = lanes.indexOf(clip.trackId);
+    const sourceLanes = targets.map((c) => lanes.indexOf(c.trackId));
+    let offset = 0;
+    let laneMovesNow: { clipId: string; trackId: string }[] = [];
+    const laneUnder = (y: number): string | null => {
+      const root = scrollRef.current;
+      if (!root) return null;
+      for (const row of root.querySelectorAll<HTMLElement>('[data-lane-track-id]')) {
+        const b = row.getBoundingClientRect();
+        if (y >= b.top && y < b.bottom) return row.dataset.laneTrackId ?? null;
+      }
+      return null;
+    };
+
     const describe = (st: number) => (grid ? `${formatRegionTime(st)} | ${barBeatLabel(st, grid)}` : formatRegionTime(st));
     const move = (ev: PointerEvent) => {
       const dist = Math.hypot(ev.clientX - startX, ev.clientY - startY);
@@ -1795,7 +1888,23 @@ export default function TimelinePanel() {
       const snapped = snapTime(raw, grid, ev.altKey ? "off" : snapStep);
       delta = Math.max(-minStart, snapped - origStart);
       const newStart = origStart + delta;
-      setMoveDrag({ ids: idSet, delta, anchorId: clip.id, start: newStart, label: describe(newStart) });
+      // em cima de pasta ou do timecode, fica na última trilha válida
+      const over = laneUnder(ev.clientY);
+      const overIndex = over ? lanes.indexOf(over) : -1;
+      if (overIndex >= 0) offset = laneOffset(anchorLane, overIndex, sourceLanes, lanes.length);
+      laneMovesNow = laneMoves(lanes, targets, offset);
+      const anchorTo = laneMovesNow.find((m) => m.clipId === clip.id)?.trackId;
+      const toNames = new Set(laneMovesNow.map((m) => m.trackId));
+      const laneLabel = laneMovesNow.length === 0
+        ? undefined
+        : toNames.size === 1
+          ? tracks.find((t) => t.id === anchorTo)?.name ?? ''
+          : `${toNames.size} trilhas`;
+      setMoveDrag({
+        ids: idSet, delta, anchorId: clip.id, start: newStart, label: describe(newStart),
+        ghosts: laneMovesNow.map((m) => ({ trackId: m.trackId, clipId: m.clipId })),
+        laneLabel,
+      });
       // Reposiciona o som ao vivo em tempo real durante o arraste (padrao DAW profissional)
       for (const c of targets) {
         audioEngine.updateLiveClipPosition(c.id, Math.max(0, c.startTime + delta));
@@ -1815,11 +1924,18 @@ export default function TimelinePanel() {
         return;
       }
 
-      if (Math.abs(delta) < 1e-4) return;
-      updateClips(targets.map((c) => ({
-        id: c.id,
-        patch: { startTime: Math.max(0, c.startTime + delta) },
-      })));
+      const timeMoved = Math.abs(delta) >= 1e-4;
+      if (!timeMoved && laneMovesNow.length === 0) return;
+      // tempo e trilha voltam juntos num Cmd+Z só
+      beginGesture();
+      if (timeMoved) {
+        updateClips(targets.map((c) => ({
+          id: c.id,
+          patch: { startTime: Math.max(0, c.startTime + delta) },
+        })));
+      }
+      if (laneMovesNow.length > 0) moveClipsToTracks(laneMovesNow);
+      endGesture();
       audioEngine.invalidatePrepared(song?.id);
     };
     el.addEventListener("pointermove", move);
@@ -2426,9 +2542,29 @@ export default function TimelinePanel() {
                   return (
                     <div key={track.id}>
                     <div
-                      className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
+                      data-lane-track-id={track.id}
+                      className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''} ${moveDrag?.ghosts?.some((g) => g.trackId === track.id) ? 'bg-[#ffab1f]/[0.07] shadow-[inset_0_0_0_1px_rgba(255,171,31,0.55)]' : ''}`}
                       style={{ height: `${rowHeight}px` }}
                     >
+                      {/* Prévia dos áudios que vão cair nesta trilha */}
+                      {moveDrag?.ghosts?.filter((g) => g.trackId === track.id).map((g) => {
+                        const c = songClips.find((x) => x.id === g.clipId);
+                        if (!c) return null;
+                        return (
+                          <div
+                            key={`ghost-${g.clipId}`}
+                            className="absolute rounded-sm border border-dashed border-[#ffab1f] bg-[#ffab1f]/15 pointer-events-none z-20 flex items-start px-1.5 pt-0.5 text-[10px] font-semibold text-[#ffcf7a] truncate"
+                            style={{
+                              left: `${Math.max(0, c.startTime + moveDrag.delta) * zoomH}px`,
+                              top: '2px',
+                              width: `${Math.max(8, clipPlayLength(c) * zoomH)}px`,
+                              height: `${rowHeight - 4}px`,
+                            }}
+                          >
+                            {c.name}
+                          </div>
+                        );
+                      })}
                       {trackClips.map((clip) => (
                         <ClipBlock
                           key={clip.id}
@@ -2482,7 +2618,7 @@ export default function TimelinePanel() {
                   <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${moveDrag.start * zoomH}px` }}>
                     <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
                     <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
-                      Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}
+                      Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}{moveDrag.laneLabel ? ` · para ${moveDrag.laneLabel}` : ''}
                     </span>
                   </div>
                 )}

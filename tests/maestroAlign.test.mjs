@@ -27,7 +27,7 @@ test('pasta recolhida é uma linha só, na coluna dos nomes e na timeline', () =
   // linha só: tudo abaixo de uma pasta recolhida ficava desalinhado.
   assert.doesNotMatch(src, /mergedHeight/, 'a timeline não soma a altura das filhas escondidas');
   assert.match(src, /style=\{\{ height: `\$\{rowHeight\}px` \}\}/, 'a linha da timeline usa a mesma altura da coluna');
-  assert.match(src, /\{expanded && track\.children\.map\(/, 'a coluna esconde as filhas da pasta recolhida');
+  assert.match(src, /\{expanded && track\.children\.length > 0 && \(/, 'a coluna esconde as filhas da pasta recolhida');
   assert.match(src, /if \(track\.isSubgroup && !collapsedFolders\.has\(track\.id\)\)/, 'a timeline esconde as mesmas filhas');
 });
 

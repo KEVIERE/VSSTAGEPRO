@@ -28,6 +28,7 @@ export interface InstantPrep {
 import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switchShow, syncedShows } from '@/lib/shows';
 import { applyHeaders, autoBlockName, blockHeaders, orderBlocks, resolveBlocks } from '@/lib/blocks';
 import { customTrackIds, duplicateTrackName, instrumentTrackIn, mergeCustomChildren, newTrackPlace, uniqueTrackName, canDeleteTrack } from '@/lib/customTracks';
+import { reorderChildren } from '@/lib/trackOrder';
 import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
@@ -243,6 +244,8 @@ interface StoreActions {
   deleteTrack: (trackId: string) => void;
   /** Cópia da trilha logo abaixo dela (mesmos ajustes e clipes, próximo número da sequência). */
   duplicateTrack: (trackId: string) => string | null;
+  /** Muda a trilha de lugar dentro da pasta dela (arrastar na coluna dos nomes). `slot` conta na ordem atual. */
+  reorderChildTrack: (trackId: string, slot: number) => void;
   setPlayFlow: (flow: PlayFlow) => void;
   cyclePlayFlow: () => void;
   play: () => void;
@@ -291,6 +294,8 @@ interface StoreActions {
   applyClickEdit: (edit: { songId: string; shift?: number; removeClipIds: string[]; addClips: AudioClip[]; songPatch?: Partial<Song> }) => void;
   /** Manda o clipe para a faixa. Pasta: vai para a trilha do instrumento dentro dela (`instrument` = o que a IA ouviu). */
   routeClip: (clipId: string, targetTrackId: string, instrument?: string | null) => void;
+  /** Áudios arrastados para outras trilhas na timeline: um passo só no desfazer. */
+  moveClipsToTracks: (moves: { clipId: string; trackId: string }[]) => void;
   resetClipRouting: (clipId: string) => void;
   setClipMarkers: (clipId: string, markers: AudioClip['markers']) => void;
   setImportProgress: (progress: ImportProgress | null) => void;
@@ -908,25 +913,12 @@ export const useStore = create<Store>()(
         const parent = track?.parentId ? s.tracks.find((t) => t.id === track.parentId) : undefined;
         if (!track || !canDeleteTrack(track) || !parent?.isSubgroup) return null;
         const id = `${parent.id}-copia-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+        // Duplicar copia só a trilha (nome na sequência, cor, volume, pan e saída): ela nasce
+        // vazia. Os áudios ficam só na original.
         const copy: Track = {
           ...track, id, name: duplicateTrackName(s.tracks, parent.id, track.name), children: [],
           custom: true, meterLevel: 0, clipIndicator: false, clipPeak: 0,
         };
-        // os clipes da cópia tocam o mesmo áudio da original (nada é regravado)
-        const groups = new Map<string, string>();
-        const own = s.clips.filter((c) => c.trackId === trackId);
-        const copies = own.map((c) => {
-          let groupId: string | undefined;
-          if (c.groupId) {
-            groupId = groups.get(c.groupId) ?? `${c.groupId}-copia-${newEntryId()}`;
-            groups.set(c.groupId, groupId);
-          }
-          return { ...c, id: `clip-dup-${newEntryId()}`, trackId: id, groupId };
-        });
-        own.forEach((c, i) => {
-          const src = getClipSource(c.id);
-          if (src) registerClipSource(copies[i].id, c.songId, src);
-        });
         set((st) => ({
           tracks: [
             ...st.tracks.map((t) => {
@@ -938,11 +930,18 @@ export const useStore = create<Store>()(
             }),
             copy,
           ],
-          clips: [...st.clips, ...copies],
           selectedTrackId: id,
         }));
         return id;
       },
+      reorderChildTrack: (trackId, slot) => set((s) => {
+        const track = s.tracks.find((t) => t.id === trackId);
+        const parent = track?.parentId ? s.tracks.find((t) => t.id === track.parentId) : undefined;
+        if (!track || !parent?.isSubgroup) return s;
+        const children = reorderChildren(parent.children, trackId, slot);
+        if (children === parent.children) return s;
+        return { tracks: s.tracks.map((t) => (t.id === parent.id ? { ...t, children } : t)) };
+      }),
       deleteTrack: (trackId) => set((s) => {
         const track = s.tracks.find((t) => t.id === trackId);
         if (!canDeleteTrack(track)) return s;
@@ -1389,6 +1388,27 @@ export const useStore = create<Store>()(
         const grouped = groupGuides(tracks, s.clips.map((c) => c.id === clipId
           ? { ...c, trackId: actualTrackId, routingMethod: 'manual' as const, routingConfidence: 1 }
           : c));
+        return { tracks: grouped.tracks, clips: grouped.clips };
+      }),
+      moveClipsToTracks: (moves) => set((s) => {
+        // Só trilha de áudio de verdade recebe: nunca pasta, nem o timecode.
+        const ok = moves.filter((m) => {
+          const target = s.tracks.find((t) => t.id === m.trackId);
+          const clip = s.clips.find((c) => c.id === m.clipId);
+          return !!target && !!clip && !target.isSubgroup && clip.trackId !== m.trackId
+            && !isTimecodeTrackId(m.trackId) && !isTimecodeTrackId(clip.trackId);
+        });
+        if (ok.length === 0) return s;
+        const to = new Map(ok.map((m) => [m.clipId, m.trackId]));
+        // A trilha de dentro de pasta que recebe o áudio passa a ser "da pessoa": a reorganização
+        // automática (a cada VS importado) não tira o áudio de lá nem apaga a trilha.
+        const receiving = new Set(ok.map((m) => m.trackId));
+        const tracks = s.tracks.map((t) => (receiving.has(t.id) && t.parentId && !t.custom ? { ...t, custom: true } : t));
+        const clips = s.clips.map((c) => {
+          const trackId = to.get(c.id);
+          return trackId ? { ...c, trackId, routingMethod: 'manual' as const, routingConfidence: 1 } : c;
+        });
+        const grouped = groupGuides(tracks, clips);
         return { tracks: grouped.tracks, clips: grouped.clips };
       }),
       setClipMarkers: (clipId, markers) => set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, markers } : c) })),

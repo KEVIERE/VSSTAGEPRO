@@ -57,19 +57,31 @@ export function customTrackIds(tracks: Track[]): Set<string> {
 }
 
 /**
- * Ordem das subfaixas de uma pasta depois de reorganizar: as automáticas na ordem nova e cada
- * criada à mão logo depois da faixa que vinha antes dela (ou no começo, se era a primeira).
+ * Ordem das subfaixas de uma pasta depois de reorganizar. A ordem de antes continua valendo,
+ * inclusive a que a pessoa arrastou na timeline: tudo que ainda existe fica onde estava. Faixa
+ * automática nova entra logo depois da automática que vem antes dela (passando as criadas à mão
+ * que seguem aquela), ou antes da automática seguinte; sem nenhuma das duas, no fim.
  */
 export function mergeCustomChildren(previous: string[], auto: string[], custom: Set<string>): string[] {
-  const out = auto.filter((id) => !custom.has(id));
-  let anchor: string | null = null;
-  for (const id of previous) {
-    if (custom.has(id)) {
-      out.splice(anchor ? out.indexOf(anchor) + 1 : 0, 0, id);
-      anchor = id;
-    } else if (out.includes(id)) {
-      anchor = id;
+  const autoIds = auto.filter((id) => !custom.has(id));
+  const autoSet = new Set(autoIds);
+  const out = previous.filter((id, i) => (custom.has(id) || autoSet.has(id)) && previous.indexOf(id) === i);
+  for (let i = 0; i < autoIds.length; i++) {
+    const id = autoIds[i];
+    if (out.includes(id)) continue;
+    let at = -1;
+    for (let j = i - 1; j >= 0 && at < 0; j--) {
+      const k = out.indexOf(autoIds[j]);
+      if (k >= 0) {
+        at = k + 1;
+        while (at < out.length && custom.has(out[at])) at++;
+      }
     }
+    for (let j = i + 1; j < autoIds.length && at < 0; j++) {
+      const k = out.indexOf(autoIds[j]);
+      if (k >= 0) at = k;
+    }
+    out.splice(at < 0 ? out.length : at, 0, id);
   }
   return out;
 }
