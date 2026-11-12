@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { ZoomIn, ZoomOut } from 'lucide-react';
 import type { LyricPage } from '@/lib/prompterTypes';
 import { kindInfo } from '@/lib/prompterTypes';
 import { formatClock } from '@/lib/prompterView';
 
-export async function decodePeaks(file: File, buckets = 1600): Promise<{ peaks: Float32Array; duration: number }> {
+export async function decodePeaks(file: File, buckets = 12000): Promise<{ peaks: Float32Array; duration: number }> {
   const buf = await file.arrayBuffer();
   const ctx = new OfflineAudioContext(1, 1, 44100);
   const audio = await ctx.decodeAudioData(buf);
@@ -31,6 +32,21 @@ export async function decodePeaks(file: File, buckets = 1600): Promise<{ peaks: 
 const HEIGHT = 132;
 /** Movimento (px) que separa um toque na marcação (selecionar) de um arraste. */
 const DRAG_SLOP = 3;
+/** Níveis de zoom da onda (1 = música inteira). */
+const ZOOMS = [1, 2, 4, 8, 16, 32];
+/** Espaço mínimo (px) entre marcações para dar para pegar cada uma com o dedo/mouse. */
+const MIN_MARKER_PX = 34;
+
+/** Zoom que deixa as marcações com espaço para pegar: música longa com muita letra abre mais perto. */
+export function suggestZoom(times: number[], duration: number, width: number): number {
+  if (!duration || !width || times.length < 2) return 1;
+  const sorted = [...times].sort((a, b) => a - b);
+  const gaps = sorted.slice(1).map((t, i) => t - sorted[i]).filter((g) => g > 0).sort((a, b) => a - b);
+  if (!gaps.length) return 1;
+  const typical = gaps[Math.floor(gaps.length / 2)];
+  const need = (MIN_MARKER_PX * duration) / (typical * width);
+  return ZOOMS.find((z) => z >= need) ?? ZOOMS[ZOOMS.length - 1];
+}
 
 function firstLine(text: string): string {
   return text.split('\n').find((l) => l.trim())?.trim() ?? '';
@@ -56,6 +72,77 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, s
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(0);
   const [drag, setDrag] = useState<{ id: string; time: number } | null>(null);
+  // Janela visível da onda: com zoom, só um pedaço da música aparece (como no CapCut).
+  const [zoom, setZoom] = useState(1);
+  const [viewStart, setViewStart] = useState(0);
+  const userZoomed = useRef(false);
+  const viewDur = duration > 0 ? duration / zoom : 0;
+  const maxStart = Math.max(0, duration - viewDur);
+  const start = Math.min(maxStart, Math.max(0, viewStart));
+
+  const timed = pages.filter((p) => p.time !== null).map((p) => p.time as number);
+  const timedKey = timed.length;
+  // Zoom automático quando a letra chega: só enquanto a pessoa não mexeu no zoom.
+  useEffect(() => {
+    if (userZoomed.current || !width || !duration) return;
+    setZoom(suggestZoom(timed, duration, width));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timedKey, duration, width]);
+
+  // Tocando (ou pulando para outro ponto), a janela anda junto com a música. Só quando o cursor
+  // muda: se a pessoa rolar a onda para ver outra parte, a janela fica onde ela deixou.
+  const followRef = useRef({ start, viewDur, zoom, drag: !!drag });
+  followRef.current = { start, viewDur, zoom, drag: !!drag };
+  useEffect(() => {
+    const f = followRef.current;
+    if (f.zoom === 1 || !f.viewDur || f.drag) return;
+    if (t < f.start || t > f.start + f.viewDur * 0.95) setViewStart(Math.max(0, t - f.viewDur * 0.1));
+  }, [t]);
+
+  const zoomTo = (next: number, anchor?: number) => {
+    userZoomed.current = true;
+    const z = Math.min(ZOOMS[ZOOMS.length - 1], Math.max(1, next));
+    const at = anchor ?? (t >= start && t <= start + viewDur ? t : start + viewDur / 2);
+    const frac = viewDur ? (at - start) / viewDur : 0.5;
+    const dur = duration / z;
+    setZoom(z);
+    setViewStart(Math.max(0, Math.min(duration - dur, at - frac * dur)));
+  };
+  const zoomStep = (dir: 1 | -1, anchor?: number) => {
+    const i = ZOOMS.indexOf(zoom);
+    zoomTo(ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, (i < 0 ? 0 : i) + dir))], anchor);
+  };
+
+  // Trackpad: pinça (ou Ctrl/Cmd + rolar) aproxima no ponto do mouse; rolar para os lados anda.
+  const wheelState = useRef({ start, viewDur, duration, zoom });
+  wheelState.current = { start, viewDur, duration, zoom };
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    let acc = 0;
+    const onWheel = (e: WheelEvent) => {
+      const st = wheelState.current;
+      if (!st.duration) return;
+      const r = el.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        acc += e.deltaY;
+        if (Math.abs(acc) < 40) return;
+        const anchor = st.start + ((e.clientX - r.left) / r.width) * st.viewDur;
+        zoomStepRef.current(acc < 0 ? 1 : -1, anchor);
+        acc = 0;
+        return;
+      }
+      const dx = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.shiftKey ? e.deltaY : 0;
+      if (!dx || st.zoom === 1) return;
+      e.preventDefault();
+      setViewStart(Math.max(0, Math.min(st.duration - st.viewDur, st.start + (dx / r.width) * st.viewDur)));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+  const zoomStepRef = useRef(zoomStep);
+  zoomStepRef.current = zoomStep;
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -78,19 +165,24 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, s
     const mid = HEIGHT / 2;
     g.fillStyle = 'rgba(255,255,255,0.06)';
     g.fillRect(0, mid, width, 1);
-    if (!peaks) return;
+    if (!peaks || !duration) return;
     g.fillStyle = '#5b8db8';
+    const n = peaks.length;
     for (let x = 0; x < width; x++) {
-      const v = peaks[Math.floor((x / width) * peaks.length)] ?? 0;
+      // cada coluna de pixel pega o pico do trecho de música que ela cobre
+      const a = Math.floor(((start + (x / width) * viewDur) / duration) * n);
+      const b = Math.max(a + 1, Math.floor(((start + ((x + 1) / width) * viewDur) / duration) * n));
+      let v = 0;
+      for (let i = a; i < b && i < n; i++) if (peaks[i] > v) v = peaks[i];
       const h = Math.max(1, v * (HEIGHT / 2 - 6));
       g.fillRect(x, mid - h, 1, h * 2);
     }
-  }, [peaks, width]);
+  }, [peaks, width, start, viewDur, duration]);
 
   const timeAt = (clientX: number) => {
     const r = wrapRef.current?.getBoundingClientRect();
     if (!r || !duration) return 0;
-    return Math.min(duration, Math.max(0, ((clientX - r.left) / r.width) * duration));
+    return Math.min(duration, Math.max(0, start + ((clientX - r.left) / r.width) * viewDur));
   };
   const clamp = (id: string, time: number) => clampTime?.(id, time) ?? time;
 
@@ -117,7 +209,8 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, s
     window.addEventListener('pointercancel', finish);
   };
 
-  const pct = (time: number) => (duration ? `${(time / duration) * 100}%` : '0%');
+  const pct = (time: number) => (viewDur ? `${((time - start) / viewDur) * 100}%` : '0%');
+  const visible = (time: number) => time >= start - viewDur * 0.02 && time <= start + viewDur * 1.02;
 
   // Próximo tempo marcado depois de cada página: limita a largura do texto ao lado da marcação.
   const nextTimes: (number | null)[] = [];
@@ -146,10 +239,12 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, s
         {pages.map((p, i) => {
           if (p.time === null) return null;
           const time = drag?.id === p.id ? drag.time : p.time;
+          if (!visible(time)) return null;
           const color = kindInfo(p.kind).color;
           const selected = selectedId === p.id;
           const next = nextTimes[i];
-          const spanPx = duration && next !== null ? (Math.max(0, next - time) / duration) * width - 10 : (duration ? ((duration - time) / duration) * width - 10 : 0);
+          const pxPerSec = viewDur ? width / viewDur : 0;
+          const spanPx = (Math.max(0, (next ?? duration) - time)) * pxPerSec - 10;
           const label = firstLine(p.text);
           return (
             <div key={p.id} className="absolute top-0 bottom-0" style={{ left: pct(time), zIndex: selected || drag?.id === p.id ? 3 : 1 }}>
@@ -176,13 +271,39 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, s
             </div>
           );
         })}
-        {duration > 0 && (
+        {duration > 0 && visible(t) && (
           <div className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none shadow-[0_0_6px_rgba(255,255,255,0.6)]" style={{ left: pct(t), zIndex: 2 }} />
         )}
       </div>
-      <div className="flex justify-between mt-1.5 text-xs tabular-nums text-logic-text-dim">
-        <span className="text-logic-text font-medium">{formatClock(t)}</span>
-        <span>{formatClock(duration)}</span>
+      {zoom > 1 && duration > 0 && (
+        // Barra de rolagem: o trecho visível da música, arrastável.
+        <div
+          className="relative h-2 mt-1 rounded-full bg-black/40 cursor-pointer"
+          onPointerDown={(e) => {
+            const bar = e.currentTarget.getBoundingClientRect();
+            const go = (cx: number) => setViewStart(Math.max(0, Math.min(maxStart, ((cx - bar.left) / bar.width) * duration - viewDur / 2)));
+            go(e.clientX);
+            const move = (ev: PointerEvent) => go(ev.clientX);
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+          title="Arraste para andar pela música"
+        >
+          <div className="absolute top-0 bottom-0 rounded-full bg-logic-lcd-amber/70" style={{ left: `${(start / duration) * 100}%`, width: `${(viewDur / duration) * 100}%` }} />
+          <div className="absolute top-[-2px] bottom-[-2px] w-0.5 bg-white" style={{ left: `${(t / duration) * 100}%` }} />
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2 mt-1.5 text-xs tabular-nums text-logic-text-dim">
+        <span className="text-logic-text font-medium min-w-[40px]">{formatClock(t)}</span>
+        {duration > 0 && (
+          <span className="flex items-center gap-1" title="Zoom na onda (pinça no trackpad ou Ctrl/Cmd + rolar)">
+            <button onClick={() => zoomStep(-1)} disabled={zoom === 1} className="console-key w-7 h-6 flex items-center justify-center disabled:opacity-30" aria-label="Afastar a onda"><ZoomOut size={12} /></button>
+            <span className="console-legend !text-[10px] w-9 text-center">{zoom}x</span>
+            <button onClick={() => zoomStep(1)} disabled={zoom === ZOOMS[ZOOMS.length - 1]} className="console-key w-7 h-6 flex items-center justify-center disabled:opacity-30" aria-label="Aproximar a onda"><ZoomIn size={12} /></button>
+          </span>
+        )}
+        <span className="min-w-[40px] text-right">{zoom > 1 ? `${formatClock(start)}–${formatClock(start + viewDur)}` : formatClock(duration)}</span>
       </div>
     </div>
   );

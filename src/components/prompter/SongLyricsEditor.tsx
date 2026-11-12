@@ -318,8 +318,8 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
             </button>
             <p className="text-xs text-logic-text-dim leading-relaxed flex-1 min-w-[200px]">
               {wordsUrl
-                ? 'O Mac do diretor já ouviu esta música: separou a voz da banda, leu a letra e marcou o início de cada trecho.'
-                : 'A letra desta música ainda não chegou. Ela é lida no Mac do diretor depois que ele envia o repertório, alguns minutos por música, com o programa parado.'}
+                ? 'O Mac do diretor já ouviu a faixa Guia desta música, leu a letra e marcou o início de cada trecho.'
+                : 'A letra desta música ainda não chegou. O Mac do diretor ouve a faixa Guia de cada música depois de enviar o repertório, uns 3 minutos por música, com o programa parado. Música sem Guia não tem letra automática.'}
             </p>
           </div>
 

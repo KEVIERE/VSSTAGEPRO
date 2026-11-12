@@ -355,10 +355,15 @@ function countTokens(text: string): number {
  * Cria uma marcação no tempo `time`, como cortar uma legenda no CapCut.
  *
  * Se cair dentro de um trecho com texto, o trecho é dividido ali: o que é cantado antes fica,
- * o que vem depois vai para a página nova. Com as palavras da IA o corte cai na palavra certa;
- * se o produtor já mexeu no texto (ou não há palavras), o corte é proporcional ao tempo.
+ * o que vem depois vai para a página nova. Com as palavras da IA o corte cai na palavra certa:
+ * clicou dentro de uma palavra, o trecho novo começa nela; clicou num respiro, gruda no começo da
+ * palavra mais próxima (até SNAP_S de distância). Ninguém acerta o clique no décimo de segundo. Se o produtor já mexeu no texto (ou não há palavras),
+ * o corte é proporcional ao tempo.
  * Antes da primeira marcação, ou sem texto para dividir, a página nova vem vazia.
  */
+/** Distância (s) em que a marcação nova gruda no começo de uma palavra. */
+export const SNAP_S = 0.6;
+
 export function addMarker(
   pages: LyricPage[], time: number, words: TimedWord[] = [], duration = 0, makeId: () => string = defaultId,
 ): LyricPage[] {
@@ -384,9 +389,24 @@ export function addMarker(
   const total = countTokens(page.text);
 
   let k = total;
+  let at = t;
   const inRange = words.filter((w) => w.s >= start - 0.05 && (next === null || w.s < next));
   if (inRange.length > 0 && inRange.length === total) {
     k = inRange.filter((w) => w.s < t).length;
+    // Clique dentro de uma palavra: o trecho novo começa nela. Clique num respiro: gruda no
+    // começo da palavra mais próxima. (A primeira do trecho já tem marcação.)
+    let best = inRange.findIndex((w, i) => i > 0 && w.s <= t && t < w.e);
+    if (best < 0) {
+      inRange.forEach((w, i) => {
+        if (i === 0 || Math.abs(w.s - t) > SNAP_S) return;
+        if (best < 0 || Math.abs(w.s - t) < Math.abs(inRange[best].s - t)) best = i;
+      });
+    }
+    if (best > 0) {
+      const snapped = round1(inRange[best].s);
+      const clash = pages.some((p) => p.time !== null && Math.abs(p.time - snapped) < MIN_MARKER_GAP - 1e-6);
+      if (!clash && snapped > start) { k = best; at = snapped; }
+    }
   } else if (end !== null && end > start) {
     k = Math.round((total * (t - start)) / (end - start));
   }
@@ -397,7 +417,7 @@ export function addMarker(
   if (k > 0 && k < total) {
     const [head, tail] = splitTextAt(page.text, k);
     updated = { ...page, text: head };
-    added = { id: makeId(), time: t, text: tail, kind: page.kind };
+    added = { id: makeId(), time: at, text: tail, kind: page.kind };
   } else {
     added = blank(page.kind);
   }

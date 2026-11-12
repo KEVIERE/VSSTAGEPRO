@@ -214,8 +214,31 @@ test('nova marcação divide o trecho na palavra certa (com as palavras da IA)',
   assert.equal(out.length, 2);
   assert.equal(out[0].text, 'Quão grande és tu');
   assert.equal(out[1].text, 'Meu Senhor');
-  assert.equal(out[1].time, 3.5);
+  assert.equal(out[1].time, 3.6, 'gruda no começo de "meu"');
   assert.equal(out[0].id, 'a', 'o trecho de antes mantém o id');
+});
+
+test('clique dentro de uma palavra (mesmo perto do fim): o trecho novo começa nela', () => {
+  // tempos reais lidos da Guia de uma música
+  const words = W([['Já', 14.18, 14.48], ['tem', 14.48, 14.84], ['Aparentemente', 18.16, 18.88], ['você', 18.88, 19.6]]);
+  const pages = [page('a', 14.2, 'Já tem\nAparentemente você')];
+  for (const click of [18.2, 18.4, 18.7]) {
+    const out = addMarker(pages, click, words, 0, ids);
+    assert.deepEqual(out.map((p) => [p.time, p.text]), [[14.2, 'Já tem'], [18.2, 'Aparentemente você']], `clique em ${click}`);
+  }
+});
+
+test('clique num respiro logo antes da palavra: gruda no começo dela', () => {
+  const words = W([['Já', 14.18, 14.48], ['tem', 14.48, 14.84], ['Aparentemente', 18.16, 18.88]]);
+  const out = addMarker([page('a', 14.2, 'Já tem Aparentemente')], 17.8, words, 0, ids);
+  assert.deepEqual(out.map((p) => [p.time, p.text]), [[14.2, 'Já tem'], [18.2, 'Aparentemente']]);
+});
+
+test('clique longe de qualquer palavra não gruda: corta pelo tempo do clique', () => {
+  const words = W([['um', 0, 0.5], ['dois', 0.6, 1], ['três', 6, 6.5]]);
+  const pages = [page('a', 0, 'um dois três')];
+  const out = addMarker(pages, 3, words, 0, ids);
+  assert.deepEqual(out.map((p) => [p.time, p.text]), [[0, 'um dois'], [3, 'Três']]);
 });
 
 test('nova marcação sem as palavras divide pelo tempo, proporcional', () => {
