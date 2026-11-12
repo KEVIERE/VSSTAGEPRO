@@ -213,7 +213,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   // Tela larga: a aba ocupa a altura da janela, como um editor de vídeo. Cada área rola sozinha.
   return (
     <div className="flex flex-col gap-3 lg:h-full lg:min-h-0">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] shrink-0">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(220px,1fr)_minmax(0,2.2fr)_minmax(220px,1fr)] shrink-0">
         <RepertoireRequest code={code} semLetra={songs.length - comLetra} total={songs.length} />
         {/* Ajustes gerais (todas as músicas): ficam aqui em cima, fora das músicas e das páginas. */}
         <LyricLeadControl
@@ -221,7 +221,9 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           onLead={(v) => update((st) => ({ ...st, lyricLead: v }))}
           scale={state.fontScale}
           onScale={(v) => update((st) => ({ ...st, fontScale: v }))}
-        />
+        >
+          <LyricsStyleControls compact state={state} update={update} />
+        </LyricLeadControl>
         <LyricsProjectBar snap={snap} onSave={saveToProject} />
       </div>
     <div className="grid gap-3 md:grid-cols-[230px_minmax(0,1fr)] items-start lg:items-stretch lg:flex-1 lg:min-h-0">
@@ -304,7 +306,6 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           snap={liveSnap}
           sync={sync}
           now={now}
-          styleControls={<LyricsStyleControls state={state} update={update} />}
         />
       ) : (
         <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-10 text-center text-logic-text-dim">

@@ -9,12 +9,70 @@ const ALIGNS: { id: LyricAlign; label: string; icon: typeof AlignLeft }[] = [
   { id: 'right', label: 'Direita', icon: AlignRight },
 ];
 
-export default function LyricsStyleControls({ state, update }: {
+export default function LyricsStyleControls({ state, update, compact = false }: {
   state: PrompterState;
   update: (fn: (s: PrompterState) => PrompterState) => void;
+  /** Em linha, no quadro "Toda a letra" do topo (sempre à vista). */
+  compact?: boolean;
 }) {
   const [fontOpen, setFontOpen] = useState(false);
   const font = LYRIC_FONTS.find((f) => f.id === state.lyricFont) ?? LYRIC_FONTS[0];
+  const fontDialog = fontOpen && (
+    <FontPickerDialog
+      value={font.id}
+      color={state.lyricColor}
+      onPick={(id) => update((s) => ({ ...s, lyricFont: id }))}
+      onClose={() => setFontOpen(false)}
+    />
+  );
+
+  if (compact) {
+    return (
+      <>
+        <span className="flex items-center gap-1.5" title="Cor da letra na TV">
+          <span className="text-xs text-logic-text">Cor</span>
+          {LYRIC_COLORS.map((c) => {
+            const on = state.lyricColor === c;
+            return (
+              <button
+                key={c}
+                onClick={() => update((s) => ({ ...s, lyricColor: c }))}
+                className={`w-5 h-5 rounded-full shrink-0 transition-transform hover:scale-110 ${on ? 'ring-2 ring-offset-1 ring-offset-logic-bg-panel ring-logic-lcd-amber' : 'ring-1 ring-white/15'}`}
+                style={{ background: c }}
+                aria-label="Escolher cor"
+                aria-pressed={on}
+              />
+            );
+          })}
+        </span>
+        <button
+          onClick={() => setFontOpen(true)}
+          className="flex items-center gap-2 h-8 px-2.5 rounded-md border-2 border-black bg-black/40 hover:bg-white/5 shrink-0"
+          title={`Fonte da letra (${LYRIC_FONTS.length} fontes)`}
+        >
+          <span className="text-base leading-none font-semibold" style={{ fontFamily: font.css, color: state.lyricColor }}>Aa</span>
+          <span className="text-xs text-logic-text">{font.label}</span>
+        </button>
+        <span className="flex items-center h-8 rounded-md border-2 border-black bg-black/40 overflow-hidden shrink-0" role="group" aria-label="Alinhamento">
+          {ALIGNS.map(({ id, label, icon: Icon }) => {
+            const on = state.lyricAlign === id;
+            return (
+              <button
+                key={id}
+                onClick={() => update((s) => ({ ...s, lyricAlign: id }))}
+                className={`w-8 h-full flex items-center justify-center ${on ? 'bg-white/10 text-logic-lcd-amber' : 'text-logic-text-dim hover:text-logic-text hover:bg-white/5'}`}
+                title={`Alinhar à ${label.toLowerCase()}`.replace('à centro', 'ao centro')}
+                aria-pressed={on}
+              >
+                <Icon size={14} />
+              </button>
+            );
+          })}
+        </span>
+        {fontDialog}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -52,14 +110,7 @@ export default function LyricsStyleControls({ state, update }: {
           </span>
           <Type size={15} className="text-logic-text-muted" />
         </button>
-        {fontOpen && (
-          <FontPickerDialog
-            value={font.id}
-            color={state.lyricColor}
-            onPick={(id) => update((s) => ({ ...s, lyricFont: id }))}
-            onClose={() => setFontOpen(false)}
-          />
-        )}
+        {fontDialog}
       </div>
 
       <div>

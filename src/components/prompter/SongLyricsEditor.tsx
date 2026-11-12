@@ -38,7 +38,7 @@ function splitLyrics(raw: string): LyricPage[] {
     .map((text) => ({ id: newId(), time: null, text: text.slice(0, MAX_PAGE_TEXT), kind: 'verso' as PageKind }));
 }
 
-export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords, styleControls }: {
+export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
   /** Letra lida pelo Mac do diretor (palavras com tempo), quando já chegou. */
   wordsUrl: string | null;
   song: SetlistSong;
@@ -55,7 +55,6 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   words: TimedWord[];
   onWords: (words: TimedWord[]) => void;
   /** Controles de estilo da letra na TV (cor, tamanho, fonte...), mostrados ao lado do monitor. */
-  styleControls?: React.ReactNode;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -281,8 +280,8 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
 
   /*
    * Tela de editor fixa, como num editor de vídeo:
-   *   [ páginas (rolam sozinhas) ][ monitor da TV          ]
-   *   [                          ][ letra automática/estilo ]
+   *   [ páginas (rolam sozinhas) ][ monitor da TV ]
+   *   [ (Letra automática no topo)][               ]
    *   [ linha do tempo: play, onda, marcações (de ponta a ponta) ]
    * Nada disso rola junto com a página. No celular as áreas ficam empilhadas, com o monitor
    * preso no topo.
@@ -290,7 +289,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   return (
     <div className="grid gap-3 min-w-0 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:grid-rows-[auto_minmax(0,1fr)_auto]">
       {/* MONITOR: a TV. Parado mostra o estilo; tocando, a letra em tempo real. */}
-      <section className="order-1 lg:order-none lg:col-start-2 lg:row-start-1 sticky top-0 z-20 lg:static lg:z-auto -mx-3 px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:px-0 pt-1 pb-2 lg:p-0 bg-logic-bg-deep lg:bg-transparent">
+      <section className="order-1 lg:order-none lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-start sticky top-0 z-20 lg:static lg:z-auto -mx-3 px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:px-0 pt-1 pb-2 lg:p-0 bg-logic-bg-deep lg:bg-transparent">
         <div className="console-face border-2 border-black rounded-lg p-2 shadow-lg">
           <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-7 rounded-t flex items-center gap-2 border-b-2 border-black">
             <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} />
@@ -321,51 +320,6 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
         </div>
       </section>
 
-      {/* AJUSTES: letra automática e estilo da letra na TV (rola sozinho se faltar espaço). */}
-      <section className="order-3 lg:order-none lg:col-start-2 lg:row-start-2 lg:min-h-0 lg:overflow-y-auto logic-scroll space-y-3">
-        <div className="rounded-lg border-2 border-black console-face px-3 py-2.5">
-          <button
-            onClick={() => (pages.length ? setConfirmGen(true) : void generate())}
-            disabled={!canGenerate}
-            className="console-key w-full flex items-center justify-center gap-1.5 px-3.5 h-9 text-[12px] disabled:opacity-40"
-            title="Escreve a letra que o Mac do diretor ouviu e marca o começo de cada trecho"
-          >
-            {gen ? <Loader2 size={14} className="animate-spin text-logic-lcd-amber" /> : <Sparkles size={14} className="text-logic-lcd-amber" />} Letra automática
-          </button>
-          <p className="text-[11px] text-logic-text-dim leading-relaxed mt-2">
-            {wordsUrl
-              ? 'O Mac do diretor ouviu a faixa Guia, leu a letra e marcou o início de cada trecho. Ela entra sozinha quando a música ainda está sem letra; este botão troca a sua pela do Mac.'
-              : 'A letra desta música ainda não chegou. O Mac do diretor ouve a faixa Guia de cada música depois de enviar o repertório, uns 3 minutos por música, com o programa parado. Música sem Guia não tem letra automática.'}
-          </p>
-          {confirmGen && (
-            <div className="mt-2.5 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
-              <p className="text-logic-text">
-                Esta música já tem {pages.length} {pages.length === 1 ? 'página' : 'páginas'}, com as suas correções. Trocar pela letra que o Mac do diretor ouviu
-                apaga essas correções nesta música. Dá para voltar com Desfazer.
-              </p>
-              <div className="flex justify-end gap-2 mt-2">
-                <button onClick={() => setConfirmGen(false)} className="console-key is-lit-amber px-3 h-7 text-[11px]">Manter a minha letra</button>
-                <button onClick={() => void generate()} className="console-key px-3 h-7 text-[11px] hover:!text-logic-lcd-red">Trocar mesmo assim</button>
-              </div>
-            </div>
-          )}
-          {genMsg && !gen && (
-            <p className={`mt-2 text-xs flex items-start gap-1.5 leading-relaxed ${genMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>
-              {genMsg.ok ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
-              <span className="flex-1">{genMsg.text}</span>
-              <button onClick={() => setGenMsg(null)} className="text-logic-text-muted hover:text-logic-text" aria-label="Fechar aviso"><X size={12} /></button>
-            </p>
-          )}
-        </div>
-        {styleControls && (
-          <div className="rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-3">
-            <p className="console-legend mb-3">Estilo da letra na TV</p>
-            {styleControls}
-            <p className="text-[11px] text-logic-text-muted mt-3">Muda na TV na hora. Pause para ver o estilo no monitor.</p>
-          </div>
-        )}
-      </section>
-
       {/* PÁGINAS: a letra, trecho por trecho (rola sozinha). */}
       <section className="order-4 lg:order-none lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:min-h-0 flex flex-col bg-logic-bg-panel border border-logic-border rounded-xl">
         <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-logic-border shrink-0">
@@ -382,10 +336,48 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
               <Redo2 size={15} />
             </button>
           </div>
+          <button
+            onClick={() => (pages.some((pg) => pg.text.trim()) ? setConfirmGen(true) : void generate())}
+            disabled={!canGenerate}
+            className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] disabled:opacity-40"
+            title={wordsUrl
+              ? 'Escreve a letra que o Mac do diretor ouviu na faixa Guia e marca o começo de cada trecho. Ela já entra sozinha quando a música está sem letra.'
+              : 'A letra desta música ainda não chegou. O Mac do diretor ouve a faixa Guia de cada música depois de enviar o repertório, uns 3 minutos por música. Música sem Guia não tem letra automática.'}
+          >
+            {gen ? <Loader2 size={13} className="animate-spin text-logic-lcd-amber" /> : <Sparkles size={13} className="text-logic-lcd-amber" />} Letra automática
+          </button>
           <button onClick={() => setPasteOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-logic-accent hover:text-logic-accent-hover transition-colors">
             <ClipboardPaste size={14} /> Colar letra inteira
           </button>
         </div>
+        {(confirmGen || (genMsg && !gen) || (!wordsUrl && pages.length === 0)) && (
+          <div className="px-4 py-2 border-b border-logic-border shrink-0 space-y-2">
+            {!wordsUrl && pages.length === 0 && !confirmGen && !genMsg && (
+              <p className="text-[11px] text-logic-text-muted leading-relaxed">
+                Letra automática: a letra desta música ainda não chegou do Mac do diretor (ele lê a faixa Guia depois de enviar o repertório).
+              </p>
+            )}
+            {confirmGen && (
+              <div className="rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
+                <p className="text-logic-text">
+                  Esta música já tem {pages.length} {pages.length === 1 ? 'página' : 'páginas'}, com as suas correções. Trocar pela letra que o Mac do diretor ouviu
+                  apaga essas correções nesta música. Dá para voltar com Desfazer.
+                </p>
+                <div className="flex justify-end gap-2 mt-2">
+                  <button onClick={() => setConfirmGen(false)} className="console-key is-lit-amber px-3 h-7 text-[11px]">Manter a minha letra</button>
+                  <button onClick={() => void generate()} className="console-key px-3 h-7 text-[11px] hover:!text-logic-lcd-red">Trocar mesmo assim</button>
+                </div>
+              </div>
+            )}
+            {genMsg && !gen && (
+              <p className={`text-xs flex items-start gap-1.5 leading-relaxed ${genMsg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>
+                {genMsg.ok ? <Check size={13} className="shrink-0 mt-0.5" /> : <AlertTriangle size={13} className="shrink-0 mt-0.5" />}
+                <span className="flex-1">{genMsg.text}</span>
+                <button onClick={() => setGenMsg(null)} className="text-logic-text-muted hover:text-logic-text" aria-label="Fechar aviso"><X size={12} /></button>
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="flex-1 min-h-0 overflow-y-auto logic-scroll p-3">
           {pasteOpen && (

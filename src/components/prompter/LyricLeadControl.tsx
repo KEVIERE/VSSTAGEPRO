@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Timer, Type } from 'lucide-react';
 
 const LEAD_MAX = 3;
@@ -24,9 +25,11 @@ function Stepper({ label, onMinus, onPlus, minusOff, plusOff, minusLabel, plusLa
  * - Atraso da tela sem fio: a letra sai esse tempo antes da hora marcada (PrompterState.lyricLead).
  *   Uma configuração só; nenhuma página ou música tem valor próprio.
  */
-export default function LyricLeadControl({ lead, onLead, scale, onScale }: {
+export default function LyricLeadControl({ lead, onLead, scale, onScale, children }: {
   lead: number; onLead: (seconds: number) => void;
   scale: number; onScale: (scale: number) => void;
+  /** Cor, fonte e alinhamento (também valem para toda a letra). */
+  children?: ReactNode;
 }) {
   const setLead = (v: number) => onLead(Math.round(Math.min(LEAD_MAX, Math.max(0, v)) * 10) / 10);
   const setScale = (v: number) => onScale(Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, v)) * 100) / 100);
@@ -58,6 +61,7 @@ export default function LyricLeadControl({ lead, onLead, scale, onScale }: {
             minusLabel="Letra sai menos antes" plusLabel="Letra sai mais antes"
           />
         </span>
+        {children}
       </div>
     </div>
   );
