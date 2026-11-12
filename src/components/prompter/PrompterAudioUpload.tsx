@@ -42,17 +42,14 @@ function ReaderLine({ sync }: { sync: ReferenceSync }) {
       : `Baixando o leitor de letra, uma vez só (1,6 GB): ${pct}%.`;
     led = 'is-on-amber animate-pulse';
   } else if (lyricsTotal === 0) {
-    text = noGuide.length
-      ? 'Nenhuma música sem letra tem voz na faixa Guia: nada para o leitor ouvir.'
-      : 'Todas as músicas já têm letra: nada para o leitor ler.';
-    led = noGuide.length ? '' : 'is-on-green';
+    text = 'Nenhuma letra pedida. Use Enviar letras para escolher de quais músicas o Mac lê a letra.';
   } else if (reading) {
     text = `Lendo a letra: ${lyricsReady} de ${lyricsTotal} prontas`;
     led = 'is-on-amber animate-pulse';
   } else {
     text = lyricsReady === lyricsTotal
-      ? `Letra pronta nas ${lyricsTotal} ${lyricsTotal === 1 ? 'música' : 'músicas'} com Guia.`
-      : `Letra lida em ${lyricsReady} de ${lyricsTotal} músicas. Continua quando o programa estiver parado.`;
+      ? `Letra pronta nas ${lyricsTotal} ${lyricsTotal === 1 ? 'música pedida' : 'músicas pedidas'}.`
+      : `Letra lida em ${lyricsReady} de ${lyricsTotal} pedidas. Continua quando o programa estiver parado.`;
     led = lyricsReady === lyricsTotal ? 'is-on-green' : '';
   }
   const pct = readProgress ? Math.round(readProgress.pct * 100) : 0;
@@ -92,7 +89,7 @@ function ReaderLine({ sync }: { sync: ReferenceSync }) {
   );
 }
 
-/** Escolha das músicas do envio: o que já está com o produtor, o que falta, e o que mandar de novo. */
+/** Escolha das músicas do envio do áudio: o que já está com o produtor, o que falta, e o que mandar de novo. */
 function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSend: (ids: string[]) => void; onCancel: () => void }) {
   const missing = songs.filter((s) => !s.withProducer).map((s) => s.id);
   const [chosen, setChosen] = useState<Set<string>>(() => {
@@ -110,7 +107,7 @@ function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSe
     <div className="mt-3 rounded-md border-2 border-black bg-black/30 animate-[fadeIn_160ms_ease-out]">
       <div className="console-rail flex flex-wrap items-center gap-2 px-3 h-9 border-b-2 border-black">
         <ListChecks size={13} className="text-logic-lcd-amber" />
-        <span className="console-legend flex-1 !text-logic-text">Escolha as músicas</span>
+        <span className="console-legend flex-1 !text-logic-text">Enviar repertório: escolha as músicas (só o áudio)</span>
         <button onClick={() => setChosen(new Set(songs.map((s) => s.id)))} className="console-key px-2 h-6 text-[11px]">Todas</button>
         <button onClick={() => setChosen(new Set(missing))} className="console-key px-2 h-6 text-[11px]" title="Só as que ainda não estão com o produtor">Só as que faltam</button>
         <button onClick={() => setChosen(new Set())} className="console-key px-2 h-6 text-[11px]">Nenhuma</button>
@@ -123,12 +120,7 @@ function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSe
               <label className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors ${on ? 'bg-logic-lcd-amber/[0.07]' : 'hover:bg-white/[0.03]'}`}>
                 <input type="checkbox" checked={on} onChange={() => toggle(s.id)} className="accent-[#f5a524] w-4 h-4 shrink-0" />
                 <span className="font-stage text-[11px] tabular-nums w-5 text-logic-text-muted">{i + 1}</span>
-                <span className="flex-1 min-w-0">
-                  <span className="block text-xs text-logic-text truncate">{s.name}</span>
-                  <span className="block text-[10px] text-logic-text-muted truncate">
-                    {s.hasLyrics ? 'já tem letra' : !s.hasGuide ? 'sem Guia: sem letra automática' : s.lyricsRead ? 'letra lida' : 'letra ainda não lida'}
-                  </span>
-                </span>
+                <span className="flex-1 min-w-0 text-xs text-logic-text truncate">{s.name}</span>
                 <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${
                   s.withProducer ? 'border-logic-lcd-green/40 text-logic-lcd-green'
                     : s.outdated ? 'border-logic-lcd-amber/40 text-logic-lcd-amber'
@@ -143,7 +135,7 @@ function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSe
       </ul>
       <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-t-2 border-black">
         <span className="flex-1 min-w-[160px] text-[11px] text-logic-text-dim">
-          {chosen.size === 0 ? 'Marque as músicas que o produtor vai ouvir.' : `${chosen.size} ${chosen.size === 1 ? 'música' : 'músicas'}${resend ? `, ${resend} de novo` : ''}.`}
+          {chosen.size === 0 ? 'Marque as músicas que o produtor vai ouvir.' : `${chosen.size} ${chosen.size === 1 ? 'música' : 'músicas'}${resend ? `, ${resend} de novo` : ''}. Nenhuma letra é lida aqui.`}
         </span>
         <button onClick={onCancel} className="px-2.5 h-8 text-xs text-logic-text-dim hover:text-logic-text">Cancelar</button>
         <button
@@ -158,12 +150,100 @@ function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSe
   );
 }
 
+/**
+ * Enviar letras: o diretor marca de quais músicas quer a letra automática (o Mac ouve a faixa
+ * Guia, uns 3 minutos cada). Avisa as que já têm letra, para não refazer à toa nem arriscar as
+ * correções do produtor. Música sem Guia não dá para marcar.
+ */
+function LyricsPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSend: (ids: string[]) => void; onCancel: () => void }) {
+  const can = (s: RepertoireSong) => s.hasGuide;
+  const missing = songs.filter((s) => can(s) && !s.hasLyrics && !s.lyricsRead).map((s) => s.id);
+  const [chosen, setChosen] = useState<Set<string>>(() => new Set(missing));
+  const toggle = (id: string) => setChosen((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const already = songs.filter((s) => chosen.has(s.id) && (s.hasLyrics || s.lyricsRead));
+  const audioToo = songs.filter((s) => chosen.has(s.id) && !s.withProducer).length;
+
+  return (
+    <div className="mt-3 rounded-md border-2 border-black bg-black/30 animate-[fadeIn_160ms_ease-out]">
+      <div className="console-rail flex flex-wrap items-center gap-2 px-3 h-9 border-b-2 border-black">
+        <Sparkles size={13} className="text-logic-lcd-amber" />
+        <span className="console-legend flex-1 !text-logic-text">Enviar letras: de quais músicas o Mac lê a letra</span>
+        <button onClick={() => setChosen(new Set(missing))} className="console-key px-2 h-6 text-[11px]" title="Só as que ainda não têm letra">Só as que faltam</button>
+        <button onClick={() => setChosen(new Set(songs.filter(can).map((s) => s.id)))} className="console-key px-2 h-6 text-[11px]">Todas com Guia</button>
+        <button onClick={() => setChosen(new Set())} className="console-key px-2 h-6 text-[11px]">Nenhuma</button>
+      </div>
+      <ul className="max-h-[260px] overflow-y-auto logic-scroll divide-y divide-black/50">
+        {songs.map((s, i) => {
+          const on = chosen.has(s.id);
+          const off = !can(s);
+          const status = off ? 'sem Guia: não dá para ler'
+            : s.hasLyrics ? 'já tem letra (do produtor)'
+              : s.lyricsRead ? 'letra automática já enviada'
+                : 'sem letra';
+          const tone = off ? 'border-logic-border text-logic-text-muted'
+            : s.hasLyrics || s.lyricsRead ? 'border-logic-lcd-amber/40 text-logic-lcd-amber'
+              : 'border-logic-lcd-green/40 text-logic-lcd-green';
+          return (
+            <li key={s.id}>
+              <label className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${off ? 'opacity-45 cursor-not-allowed' : on ? 'bg-logic-lcd-amber/[0.07] cursor-pointer' : 'hover:bg-white/[0.03] cursor-pointer'}`}>
+                <input type="checkbox" checked={on} disabled={off} onChange={() => toggle(s.id)} className="accent-[#f5a524] w-4 h-4 shrink-0" />
+                <span className="font-stage text-[11px] tabular-nums w-5 text-logic-text-muted">{i + 1}</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-xs text-logic-text truncate">{s.name}</span>
+                  {on && !s.withProducer && <span className="block text-[10px] text-logic-text-muted">o áudio vai junto</span>}
+                </span>
+                <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${tone}`}>{on && (s.hasLyrics || s.lyricsRead) ? 'ler de novo' : status}</span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {already.length > 0 && (
+        <div className="px-3 py-2.5 border-t-2 border-black bg-logic-lcd-amber/[0.06]">
+          <p className="flex items-start gap-2 text-[11px] text-logic-text leading-relaxed">
+            <AlertTriangle size={13} className="shrink-0 mt-0.5 text-logic-lcd-amber" />
+            <span>
+              {already.length === 1 ? `"${already[0].name}" já tem letra` : `${already.length} músicas marcadas já têm letra`}.
+              O Mac vai ler de novo (uns 3 minutos cada). A letra que o produtor já fez e corrigiu não muda sozinha: só se ele apertar Letra automática e confirmar.
+            </span>
+          </p>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 border-t-2 border-black">
+        <span className="flex-1 min-w-[160px] text-[11px] text-logic-text-dim">
+          {chosen.size === 0
+            ? 'Marque as músicas que precisam de letra.'
+            : `${chosen.size} ${chosen.size === 1 ? 'letra' : 'letras'}, uns ${chosen.size * 3} min com o programa parado${audioToo ? `. O áudio de ${audioToo} vai junto` : ''}.`}
+        </span>
+        <button onClick={onCancel} className="px-2.5 h-8 text-xs text-logic-text-dim hover:text-logic-text">Cancelar</button>
+        <button
+          onClick={() => onSend([...chosen])}
+          disabled={chosen.size === 0}
+          className="flex items-center gap-1.5 px-3.5 h-8 rounded-md bg-logic-lcd-amber text-black text-xs font-semibold hover:brightness-110 disabled:opacity-40 transition-all"
+        >
+          <Sparkles size={13} /> Ler {chosen.size || ''} {chosen.size === 1 ? 'letra' : 'letras'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
-  const { mode, active, starting, halted, ready, total, working, failed, offline, releasedAt, cleared, requestedAt, send, stop, retry, dismissRequest, songs } = sync;
-  const [picking, setPicking] = useState(false);
+  const { mode, active, starting, halted, ready, total, working, failed, offline, releasedAt, cleared, requestedAt, send, sendLyrics, stop, retry, dismissRequest, songs } = sync;
+  const [picking, setPicking] = useState<null | 'audio' | 'lyrics'>(null);
   const allReady = total > 0 && ready === total;
   const where = mode === 'local' ? 'do seu Mac' : 'do servidor';
-  const pick = () => setPicking(true);
+  const pick = () => setPicking('audio');
+  const pickLyrics = () => setPicking('lyrics');
+  const lyricsButton = (
+    <button onClick={pickLyrics} disabled={songs.length === 0 || starting} className="console-key flex items-center gap-1.5 px-3 h-7 text-[11px] disabled:opacity-40" title="Escolher de quais músicas o Mac lê a letra">
+      <Sparkles size={12} className="text-logic-lcd-amber" /> Enviar letras
+    </button>
+  );
 
   if (!mode) {
     return (
@@ -183,8 +263,8 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
         </span>
       </div>
       <p className="text-xs text-logic-text-dim mt-1.5 leading-relaxed">
-        O áudio de cada música vai para a aba Letras do produtor, com o BPM, o tom e os cortes do show, e com a letra lida pelo seu Mac.
-        Fica lá até o produtor salvar as letras; 10 minutos depois sai {where}.
+        <b className="text-logic-text font-semibold">Enviar repertório</b> manda o áudio de cada música (com o BPM, o tom e os cortes do show) para a aba Letras do produtor.
+        <b className="text-logic-text font-semibold"> Enviar letras</b> faz o seu Mac ler a letra só das músicas que você marcar. O áudio fica até o produtor salvar as letras; 10 minutos depois sai {where}.
       </p>
 
       {/* Pedido do produtor: só um aviso. Quem escolhe e envia é o diretor. */}
@@ -199,8 +279,10 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
         </div>
       )}
 
-      {picking ? (
-        <SongPicker songs={songs} onCancel={() => setPicking(false)} onSend={(ids) => { setPicking(false); send(ids); }} />
+      {picking === 'audio' ? (
+        <SongPicker songs={songs} onCancel={() => setPicking(null)} onSend={(ids) => { setPicking(null); send(ids); }} />
+      ) : picking === 'lyrics' ? (
+        <LyricsPicker songs={songs} onCancel={() => setPicking(null)} onSend={(ids) => { setPicking(null); sendLyrics(ids); }} />
       ) : releasedAt !== null ? (
         <div className={`mt-3 flex flex-wrap items-center gap-2 rounded-md border px-3 py-2.5 ${cleared ? 'border-logic-border bg-black/20' : 'border-logic-lcd-green/40 bg-logic-lcd-green/10'}`}>
           <PackageCheck size={14} className={`shrink-0 ${cleared ? 'text-logic-text-muted' : 'text-logic-lcd-green'}`} />
@@ -212,6 +294,7 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
           <button onClick={pick} className="console-key flex items-center gap-1.5 px-3 h-7 text-[11px]">
             <Send size={12} /> Enviar de novo
           </button>
+          {lyricsButton}
         </div>
       ) : halted ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-logic-border bg-black/20 px-3 py-2.5">
@@ -225,6 +308,7 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
           <button onClick={pick} className="console-key flex items-center gap-1.5 px-3 h-7 text-[11px]">
             <ListChecks size={12} /> Escolher músicas
           </button>
+          {lyricsButton}
         </div>
       ) : !active ? (
         <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -234,6 +318,13 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-logic-lcd-amber text-black text-sm font-semibold hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-all"
           >
             {starting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} {starting ? 'Começando o envio...' : 'Enviar repertório para o produtor'}
+          </button>
+          <button
+            onClick={pickLyrics}
+            disabled={songs.length === 0 || starting}
+            className="console-key flex items-center gap-1.5 px-3.5 h-10 text-xs disabled:opacity-40"
+          >
+            <Sparkles size={14} className="text-logic-lcd-amber" /> Enviar letras
           </button>
           <span className="text-xs text-logic-text-muted">{songs.length === 0 ? 'Importe músicas no projeto primeiro.' : 'Você escolhe as músicas na próxima tela.'}</span>
         </div>
@@ -255,6 +346,7 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
               <button onClick={pick} className="console-key flex items-center gap-1.5 px-2.5 h-7 text-[11px]" title="Mandar mais músicas ou mandar alguma de novo">
                 <ListChecks size={12} /> Escolher músicas
               </button>
+              {lyricsButton}
               <button onClick={stop} className="console-key flex items-center gap-1.5 px-2.5 h-7 text-[11px] hover:!text-logic-lcd-red" title="Para o envio e a leitura da letra agora">
                 <X size={12} /> Parar envio
               </button>

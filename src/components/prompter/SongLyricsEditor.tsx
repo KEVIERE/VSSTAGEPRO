@@ -339,10 +339,13 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
           </p>
           {confirmGen && (
             <div className="mt-2.5 rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs animate-[fadeIn_160ms_ease-out]">
-              <p className="text-logic-text">Isso troca as {pages.length} páginas desta música pela letra que o Mac do diretor ouviu. Dá para voltar com Desfazer.</p>
+              <p className="text-logic-text">
+                Esta música já tem {pages.length} {pages.length === 1 ? 'página' : 'páginas'}, com as suas correções. Trocar pela letra que o Mac do diretor ouviu
+                apaga essas correções nesta música. Dá para voltar com Desfazer.
+              </p>
               <div className="flex justify-end gap-2 mt-2">
-                <button onClick={() => setConfirmGen(false)} className="px-2.5 h-7 text-logic-text-dim hover:text-logic-text">Cancelar</button>
-                <button onClick={() => void generate()} className="console-key is-lit-amber px-3 h-7 text-[11px]">Trocar pela letra da IA</button>
+                <button onClick={() => setConfirmGen(false)} className="console-key is-lit-amber px-3 h-7 text-[11px]">Manter a minha letra</button>
+                <button onClick={() => void generate()} className="console-key px-3 h-7 text-[11px] hover:!text-logic-lcd-red">Trocar mesmo assim</button>
               </div>
             </div>
           )}
