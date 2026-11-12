@@ -1,6 +1,6 @@
 import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Radio } from 'lucide-react';
+import { AlertTriangle, Radio, Save } from 'lucide-react';
 import { useStore } from '@/store';
 import { isPixReturnSearch } from '@/lib/pixReturn';
 import { captureAffiliateRef } from '@/lib/affiliateRef';
@@ -344,12 +344,15 @@ function DirectorApp({ license }: { license: License }) {
   const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
 
   // Quando o produtor salva as letras, o programa guarda o projeto sozinho.
-  // Antes isso dependia de o diretor clicar em "Liberar agora" numa faixa que
-  // aparecia a cada abertura — e o áudio já sai do servidor em 10 minutos sem
-  // clique nenhum. Agora o trabalho acontece em silêncio e o aviso não aparece.
+  // Mas gravar no arquivo pode precisar da permissão do Mac, que só vale com um clique da
+  // pessoa: sem clique, a gravação falhava em silêncio e as letras ficavam só na memória
+  // (sumiam ao fechar). Agora, se não gravar, fica uma faixa de aviso até o diretor salvar.
+  const [lyricsNotSaved, setLyricsNotSaved] = useState(false);
+  const saveKind = useStore((s) => s.saveStatus?.kind);
+  useEffect(() => { if (saveKind === 'saved') setLyricsNotSaved(false); }, [saveKind]);
   useEffect(() => {
     if (!lyricsSync.received && local.lyricsReceived === null) return;
-    saveCurrentProject();
+    void saveCurrentProject().then((ok) => { if (!ok) setLyricsNotSaved(true); });
     lyricsSync.confirm();
     local.dismissLyrics();
   }, [lyricsSync, local]);
@@ -750,6 +753,21 @@ function DirectorApp({ license }: { license: License }) {
         )}
         <ReopenLastBar />
         <UpdateBanner />
+        {lyricsNotSaved && (
+          <div className="flex flex-wrap items-center gap-3 px-3 py-2 bg-logic-lcd-red/10 border-b border-logic-lcd-red/40 text-xs text-logic-text animate-[fadeIn_200ms_ease-out]">
+            <AlertTriangle size={14} className="shrink-0 text-logic-lcd-red" />
+            <span className="flex-1 min-w-[220px] leading-relaxed">
+              O produtor salvou as letras, mas o programa não conseguiu gravar no arquivo do projeto (o Mac pede a sua permissão).
+              As letras estão no programa agora: salve para não perder quando fechar.
+            </span>
+            <button
+              onClick={() => { void saveCurrentProject().then((ok) => { if (ok) setLyricsNotSaved(false); }); }}
+              className="console-key is-lit-amber flex items-center gap-1.5 px-3 h-7 text-[11px] shrink-0"
+            >
+              <Save size={12} /> Salvar agora
+            </button>
+          </div>
+        )}
         <JoinRequestsBanner
           show={broadcast.show}
           pending={joinRequests.pending}

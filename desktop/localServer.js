@@ -118,6 +118,10 @@ class LocalServer {
     this.producerLyrics = {};
     this.lyricsUpdatedAt = {};
     this.clearOverridesOnPublish = false;
+    // Letras que o produtor escreveu e o diretor ainda não guardou no projeto: ficam também em
+    // disco. Antes ficavam só na memória e sumiam ao fechar o programa (ver loadDrafts).
+    this.draftsPath = path.join(path.dirname(storePath), 'rede-local-letras.json');
+    this.loadDrafts();
     this.lyricsSave = { requestedAt: null, savedAt: null };
     this.pendingSaveRequest = null;
     this.remoteMeters = null;
@@ -362,8 +366,32 @@ class LocalServer {
     this.publishedAt = new Date().toISOString();
     if (this.clearOverridesOnPublish) {
       this.producerLyrics = {};
+      this.lyricsUpdatedAt = {};
       this.clearOverridesOnPublish = false;
+      this.saveDrafts();
     }
+  }
+
+  /** Letras do produtor ainda não guardadas no projeto, de quando o programa fechou. */
+  loadDrafts() {
+    try {
+      const data = JSON.parse(fs.readFileSync(this.draftsPath, 'utf8'));
+      if (data && typeof data.lyrics === 'object' && data.lyrics) {
+        for (const [songId, pages] of Object.entries(data.lyrics)) {
+          if (Array.isArray(pages)) this.producerLyrics[songId] = pages;
+        }
+      }
+      if (data && typeof data.updatedAt === 'object' && data.updatedAt) this.lyricsUpdatedAt = { ...data.updatedAt };
+    } catch { /* nada guardado */ }
+  }
+
+  saveDrafts() {
+    try {
+      if (Object.keys(this.producerLyrics).length === 0) { fs.rmSync(this.draftsPath, { force: true }); return; }
+      const tmp = `${this.draftsPath}.part`;
+      fs.writeFileSync(tmp, JSON.stringify({ lyrics: this.producerLyrics, updatedAt: this.lyricsUpdatedAt }), { mode: 0o600 });
+      fs.renameSync(tmp, this.draftsPath);
+    } catch { /* sem disco: segue em memória */ }
   }
 
   /** Medidores dos faders para o VS Stage Remote (o programa manda umas 12 vezes por segundo). */
@@ -663,6 +691,7 @@ class LocalServer {
       this.producerLyrics[songId] = body.pages;
       this.lyricsUpdatedAt[songId] = new Date().toISOString();
       this.clearOverridesOnPublish = false;
+      this.saveDrafts();
       return this.json(res, 200, { ok: true });
     }
 

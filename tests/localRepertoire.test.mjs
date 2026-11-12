@@ -171,3 +171,30 @@ test('rede local: sem login não lista nada', async () => {
     assert.equal((await ctx.post('references', {})).status, 401);
   } finally { await ctx.close(); }
 });
+
+test('letra do produtor não guardada no projeto sobrevive a fechar e abrir o programa', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-rascunho-'));
+  const make = () => {
+    const srv = new LocalServer({ webRoot: dir, storePath: path.join(dir, 'rede-local.json'), version: 't' });
+    srv.published = { setlist: { songs: [{ id: 's1', name: 'Um' }] }, name: 'Show', lyrics: {} };
+    return srv;
+  };
+  const srv = make();
+  const httpServer = http.createServer((req, res) => srv.handle(req, res));
+  await new Promise((r) => httpServer.listen(0, '127.0.0.1', r));
+  const origin = `http://127.0.0.1:${httpServer.address().port}`;
+  try {
+    const login = await (await fetch(`${origin}/api/local/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: 'producer', pin: srv.pins.producer, name: 'P' }) })).json();
+    const pages = [{ id: 'a', time: 1, text: 'Letra corrigida', kind: 'prerefrao', color: '#ffd60a' }];
+    const r = await fetch(`${origin}/api/local/lyrics`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${login.token}` }, body: JSON.stringify({ songId: 's1', pages }) });
+    assert.equal(r.status, 200);
+  } finally { await new Promise((r) => httpServer.close(r)); }
+  // programa fechado e aberto de novo
+  const again = make();
+  assert.deepEqual(again.mergedLyrics().s1, [{ id: 'a', time: 1, text: 'Letra corrigida', kind: 'prerefrao', color: '#ffd60a' }]);
+  // depois que o diretor guarda no projeto (salvar + publicar), o rascunho sai do disco
+  again.ackLyricsSave();
+  again.publish({ name: 'Show', setlist: { songs: [{ id: 's1', name: 'Um' }] }, lyrics: { s1: [{ id: 'a', time: 1, text: 'Letra corrigida', kind: 'prerefrao' }] } });
+  assert.equal(fs.existsSync(path.join(dir, 'rede-local-letras.json')), false);
+  assert.equal(make().mergedLyrics().s1, undefined, 'sem rascunho: a letra passa a vir só do que o programa publica (o projeto)');
+});
