@@ -1,6 +1,6 @@
 import type { Setlist, ShowLive } from '@/lib/musicianTypes';
 
-export type PageKind = 'verso' | 'refrao' | 'ponte' | 'fala' | 'solo' | 'intro';
+export type PageKind = 'verso' | 'prerefrao' | 'refrao' | 'ponte' | 'fala' | 'solo' | 'intro';
 
 export interface LyricPage {
   id: string;
@@ -133,6 +133,7 @@ export interface PrompterSnapshot {
 
 export const PAGE_KINDS: { id: PageKind; label: string; color: string }[] = [
   { id: 'verso', label: 'Verso', color: '#64d2ff' },
+  { id: 'prerefrao', label: 'Pré-refrão', color: '#bf5af2' },
   { id: 'refrao', label: 'Refrão', color: '#30d158' },
   { id: 'ponte', label: 'Ponte', color: '#ffd60a' },
   { id: 'fala', label: 'Fala', color: '#ff9f0a' },

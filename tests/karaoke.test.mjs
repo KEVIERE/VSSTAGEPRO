@@ -117,3 +117,13 @@ test('página com letra maior ocupa mais espaço e a prévia continua sem encost
   const hb = textHeight(pages[1].text, 1) * below.scale;
   assert.ok(below.offset - hb / 2 > center.offset + hc / 2);
 });
+
+test('Pré-refrão é um tipo de página que se mantém ao salvar e abrir', async () => {
+  const { PAGE_KINDS, kindInfo } = await import('../src/lib/prompterTypes.ts');
+  const [p] = normalizePages([{ id: 'a', time: 1, text: 'x', kind: 'prerefrao' }]);
+  assert.equal(p.kind, 'prerefrao');
+  assert.equal(kindInfo('prerefrao').label, 'Pré-refrão');
+  const ids = PAGE_KINDS.map((k) => k.id);
+  assert.ok(ids.indexOf('prerefrao') === ids.indexOf('refrao') - 1, 'fica logo antes do Refrão na lista');
+  assert.equal(new Set(PAGE_KINDS.map((k) => k.color)).size, PAGE_KINDS.length, 'cada tipo com uma cor');
+});
