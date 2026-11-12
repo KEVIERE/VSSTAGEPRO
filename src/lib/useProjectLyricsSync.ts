@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import type { SavedShow } from '@/lib/useLiveBroadcast';
 import type { ProjectState } from '@/types';
-import { directorLyricsAck, directorLyricsGet, directorLyricsRestore } from '@/lib/prompterApi';
+import { directorLyricStyleGet, directorLyricStyleRestore, directorLyricsAck, directorLyricsGet, directorLyricsRestore } from '@/lib/prompterApi';
+import { sameLyricStyle, type LyricStyle } from '@/lib/prompterTypes';
 
 const POLL_MS = 15000;
 
@@ -34,6 +35,10 @@ export function useProjectLyricsSync(show: SavedShow | null): ProjectLyricsSync 
   const lyricMaps = useStore((s) => s.lyricMaps);
   const ownMaps = useRef<ProjectState['lyricMaps'] | null>(null);
   const restoredFor = useRef<ProjectState['lyricMaps'] | null>(null);
+  const lyricStyle = useStore((s) => s.lyricStyle ?? null);
+  // estilo que veio do produtor (não volta para o show) e o último devolvido ao show
+  const receivedStyle = useRef<LyricStyle | null>(null);
+  const restoredStyle = useRef<LyricStyle | null>(null);
   const requestedAt = useRef<string | null>(null);
   // Pedido que o diretor fechou com "Depois": não volta nesta sessão (volta ao reabrir).
   const dismissed = useRef<string | null>(null);
@@ -46,6 +51,13 @@ export function useProjectLyricsSync(show: SavedShow | null): ProjectLyricsSync 
     const mine = Object.fromEntries(Object.entries(lyricMaps).filter(([id]) => songIds.has(id)));
     directorLyricsRestore(show.showId, show.directorKey, mine).catch(() => { restoredFor.current = null; });
   }, [show, lyricMaps]);
+
+  // Projeto aberto (aqui ou em outro computador): a letra volta a ter o estilo gravado nele.
+  useEffect(() => {
+    if (!show || !lyricStyle || lyricStyle === receivedStyle.current || lyricStyle === restoredStyle.current) return;
+    restoredStyle.current = lyricStyle;
+    directorLyricStyleRestore(show.showId, show.directorKey, lyricStyle).catch(() => { restoredStyle.current = null; });
+  }, [show, lyricStyle]);
 
   useEffect(() => {
     if (!show) return;
@@ -72,6 +84,14 @@ export function useProjectLyricsSync(show: SavedShow | null): ProjectLyricsSync 
         }
         ownMaps.current = next;
         st.setLyricMaps(next);
+        // tamanho, cor, fonte e "sai antes" vão para o projeto junto com as letras
+        try {
+          const style = await directorLyricStyleGet(show.showId, show.directorKey);
+          if (!cancelled && style && !sameLyricStyle(style, useStore.getState().lyricStyle)) {
+            receivedStyle.current = style;
+            useStore.getState().setLyricStyle(style);
+          }
+        } catch { /* sem o estilo, as letras entram assim mesmo */ }
         await directorLyricsAck(show.showId, show.directorKey);
         if (!cancelled) setReceived({ songs: Object.keys(next).length, at: Date.now() });
       } catch {

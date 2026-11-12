@@ -28,6 +28,8 @@ export interface LocalInfo {
   clients: LocalClient[];
   lyrics: Record<string, LyricPage[]>;
   lyricsSaveRequestedAt: string | null;
+  /** Estilo geral da letra (tamanho, cor, fonte, alinhamento, "sai antes"), cru do servidor. */
+  lyricStyle?: unknown;
   error: string | null;
 }
 
@@ -60,6 +62,7 @@ export interface LocalBridge {
   regeneratePin: (role: PinRole) => Promise<LocalInfo>;
   kick: (clientId: string) => Promise<void>;
   ackLyricsSave: () => Promise<void>;
+  applyLyricStyle?: (style: unknown) => Promise<boolean>;
   networkCheck: () => Promise<NetworkCheck[]>;
   openAction: (action: CheckAction) => Promise<void>;
   /** Contas dos músicos do projeto aberto (versões antigas do app não têm). */

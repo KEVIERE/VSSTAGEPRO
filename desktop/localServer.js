@@ -9,6 +9,9 @@ const { resolveStatic } = require('./staticFiles');
 const { LocalAccounts } = require('./musicianAccounts');
 const { LocalRepertoire } = require('./localRepertoire');
 
+// O que o produtor escolhe para toda a letra e vai gravado no projeto do show.
+const LYRIC_STYLE_KEYS = ['fontScale', 'lyricColor', 'lyricFont', 'lyricAlign', 'lyricLead'];
+
 const DEFAULT_PORT = 8080;
 const HOST_NAME = 'vsstage.local';
 const ONLINE_WINDOW_MS = 10_000;
@@ -341,6 +344,7 @@ class LocalServer {
       urls,
       clients,
       lyrics: this.mergedLyrics(),
+      lyricStyle: this.lyricStyle(),
       lyricsSaveRequestedAt: this.pendingSaveRequest,
       error: this.error,
     };
@@ -426,6 +430,27 @@ class LocalServer {
         this.kicked.add(token);
       }
     }
+  }
+
+  /** Tamanho, cor, fonte, alinhamento e "sai antes" da letra: vão para o projeto junto com as letras. */
+  lyricStyle() {
+    if (!this.prompter || typeof this.prompter !== 'object') return null;
+    const out = {};
+    for (const k of LYRIC_STYLE_KEYS) if (this.prompter[k] !== undefined) out[k] = this.prompter[k];
+    return out;
+  }
+
+  /** Projeto aberto: a letra volta a ter o estilo gravado nele (o resto da tela do palco fica). */
+  applyLyricStyle(style) {
+    if (!style || typeof style !== 'object' || Array.isArray(style)) return false;
+    const next = { ...(this.prompter && typeof this.prompter === 'object' ? this.prompter : {}) };
+    for (const k of LYRIC_STYLE_KEYS) {
+      const v = style[k];
+      if (typeof v === 'number' ? Number.isFinite(v) : typeof v === 'string') next[k] = v;
+    }
+    this.prompter = next;
+    this.persist();
+    return true;
   }
 
   ackLyricsSave() {

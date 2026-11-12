@@ -10,7 +10,7 @@ import type {
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
 import { TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
-import { normalizePages } from '@/lib/prompterTypes';
+import { normalizeLyricStyle, normalizePages } from '@/lib/prompterTypes';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
@@ -176,6 +176,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   playbackError: null,
   preparingParams: null,
   lyricMaps: {},
+  lyricStyle: null,
   musicianBook: null,
 };
 
@@ -201,6 +202,7 @@ function normalizeMusicianBook(raw: unknown): MusicianBook | null {
 interface StoreActions {
   setProjectName: (name: string) => void;
   setLyricMaps: (maps: ProjectState['lyricMaps']) => void;
+  setLyricStyle: (style: ProjectState['lyricStyle']) => void;
   /** Mudança que veio da rede local (conta nova, caderno salvo, senha trocada). */
   applyMusicianChange: (change: { book?: { id: string }; account?: MusicianAccount }) => void;
   /** Diretor: aprovar, bloquear ou voltar a liberar um músico. */
@@ -498,10 +500,10 @@ export function historyEqual(a: HistoryState, b: HistoryState): boolean {
 
 // Aviso de "alteração não salva": compara o projeto com o do último salvamento. Vale o que entra
 // no Desfazer, mais os mapas de letra (o produtor pode mandá-los pela rede).
-export type ProjectSnapshot = { history: HistoryState; lyricMaps: ProjectState['lyricMaps']; musicianBook: ProjectState['musicianBook'] };
+export type ProjectSnapshot = { history: HistoryState; lyricMaps: ProjectState['lyricMaps']; lyricStyle?: ProjectState['lyricStyle']; musicianBook: ProjectState['musicianBook'] };
 
 export function projectSnapshot(state: Store): ProjectSnapshot {
-  return { history: partializeHistory(state), lyricMaps: state.lyricMaps, musicianBook: state.musicianBook };
+  return { history: partializeHistory(state), lyricMaps: state.lyricMaps, lyricStyle: state.lyricStyle ?? null, musicianBook: state.musicianBook };
 }
 
 // Medidor e pico de clip mudam sozinhos tocando; uma faixa de projeto antigo pode nem ter esses campos.
@@ -526,6 +528,7 @@ export function hasUnsavedChanges(state: Store): boolean {
   // projeto novo, nunca salvo: só tem o que perder depois de entrar alguma música
   if (!saved) return state.songs.length > 0 || state.clips.length > 0;
   if (state.lyricMaps !== saved.lyricMaps) return true;
+  if ((state.lyricStyle ?? null) !== (saved.lyricStyle ?? null)) return true;
   if (state.musicianBook !== saved.musicianBook) return true;
   const now = partializeHistory(state);
   for (const key of Object.keys(now) as Array<keyof HistoryState>) {
@@ -541,6 +544,7 @@ export const useStore = create<Store>()(
 
       setProjectName: (name) => set({ projectName: name }),
       setLyricMaps: (maps) => set({ lyricMaps: maps }),
+      setLyricStyle: (style) => set({ lyricStyle: style ?? null }),
 
       applyMusicianChange: (change) => set((s) => {
         let book = s.musicianBook;
@@ -885,6 +889,7 @@ export const useStore = create<Store>()(
           songs,
           tracks,
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
+          lyricStyle: normalizeLyricStyle(data.lyricStyle),
           musicianBook: normalizeMusicianBook(data.musicianBook),
           shows: normalizeShows(data.shows),
           activeShowId: null,

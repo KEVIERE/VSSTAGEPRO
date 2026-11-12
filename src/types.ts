@@ -1,4 +1,4 @@
-import type { LyricPage } from '@/lib/prompterTypes';
+import type { LyricPage, LyricStyle } from '@/lib/prompterTypes';
 
 export type TrackType = 'audio' | 'midi' | 'subgroup' | 'master';
 
@@ -364,6 +364,8 @@ export interface ProjectState {
   playbackError: string | null;
   preparingParams: { done: number; total: number } | null;
   lyricMaps: Record<string, LyricPage[]>;
+  /** Tamanho, cor, fonte, alinhamento e "sai antes" da letra, vindos da Área do Produtor. */
+  lyricStyle?: LyricStyle | null;
   /** Contas e cadernos dos músicos (Rede Local e Show Online). Fica no projeto. */
   musicianBook: MusicianBook | null;
   /** Anti-clip do master: limitador de pico em -0,1 dBFS na saída do master (igual ao dos canais). */

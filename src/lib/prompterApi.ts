@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabaseClient';
-import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
-import { normalizePages, normalizePrompter } from '@/lib/prompterTypes';
+import type { LyricPage, LyricStyle, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
+import { lyricStyleOf, normalizePages, normalizePrompter, sameLyricStyle } from '@/lib/prompterTypes';
 import { isLocalClient } from '@/lib/localNetwork';
 import { localProducerPost, localPrompterState } from '@/lib/localClientApi';
 import { publicLink } from '@/lib/publicUrl';
@@ -126,6 +126,22 @@ export async function directorLyricsRestore(
   const { data, error } = await supabase.rpc('director_lyrics_restore', { p_show: showId, p_key: directorKey, p_lyrics: items });
   if (error) throw error;
   return Number(assertOk(data, 'director_lyrics_restore failed').added ?? 0);
+}
+
+/** Estilo geral da letra que o produtor deixou no show (lido com o código do produtor). */
+export async function directorLyricStyleGet(showId: string, directorKey: string): Promise<LyricStyle | null> {
+  const { producerCode } = await directorPrompterCodes(showId, directorKey);
+  const snap = await producerState(producerCode);
+  return lyricStyleOf(snap.prompter);
+}
+
+/** Projeto aberto: o show volta a ter o estilo de letra gravado no projeto (o resto da tela fica). */
+export async function directorLyricStyleRestore(showId: string, directorKey: string, style: LyricStyle): Promise<boolean> {
+  const { producerCode } = await directorPrompterCodes(showId, directorKey);
+  const snap = await producerState(producerCode);
+  if (sameLyricStyle(lyricStyleOf(snap.prompter), style)) return false;
+  await producerSetPrompter(producerCode, { ...snap.prompter, ...style });
+  return true;
 }
 
 export async function producerSetPrompter(code: string, state: PrompterState): Promise<void> {

@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('vsLocal', {
   regeneratePin: call('regeneratePin'),
   kick: call('kick'),
   ackLyricsSave: call('ackLyricsSave'),
+  applyLyricStyle: call('applyLyricStyle'),
   refStatus: call('refStatus'),
   refStart: call('refStart'),
   refPut: call('refPut'),

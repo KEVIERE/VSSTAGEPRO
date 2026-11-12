@@ -1,6 +1,6 @@
 import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { AlertTriangle, Radio, Save } from 'lucide-react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { Radio } from 'lucide-react';
 import { useStore } from '@/store';
 import { isPixReturnSearch } from '@/lib/pixReturn';
 import { captureAffiliateRef } from '@/lib/affiliateRef';
@@ -19,6 +19,7 @@ import PlaylistPanel from '@/components/PlaylistPanel';
 import TimelinePanel from '@/components/TimelinePanel';
 import ShowModePanel from '@/components/ShowModePanel';
 import { loadOpenedProject, saveCurrentProject } from '@/lib/projectQuickSave';
+import { createCoalescedSave } from '@/lib/coalesceSave';
 import { openProjectFromPath } from '@/lib/projectSaver';
 import { friendlyError } from '@/lib/friendlyError';
 import BounceDialog from '@/components/BounceDialog';
@@ -350,12 +351,20 @@ function DirectorApp({ license }: { license: License }) {
   const [lyricsNotSaved, setLyricsNotSaved] = useState(false);
   const saveKind = useStore((s) => s.saveStatus?.kind);
   useEffect(() => { if (saveKind === 'saved') setLyricsNotSaved(false); }, [saveKind]);
+  // O produtor pode salvar várias vezes seguidas: vale a última. Espera os pedidos pararem e salva
+  // uma vez só (e nunca enquanto outro salvamento ainda está gravando).
+  const producerSave = useMemo(() => createCoalescedSave({
+    delayMs: 3000,
+    busy: () => useStore.getState().saveStatus?.kind === 'saving',
+    run: () => saveCurrentProject(),
+    onDone: (ok) => { if (!ok) setLyricsNotSaved(true); },
+  }), []);
   useEffect(() => {
     if (!lyricsSync.received && local.lyricsReceived === null) return;
-    void saveCurrentProject().then((ok) => { if (!ok) setLyricsNotSaved(true); });
+    producerSave.request();
     lyricsSync.confirm();
     local.dismissLyrics();
-  }, [lyricsSync, local]);
+  }, [lyricsSync, local, producerSave]);
 
   useFeatureTracking();
   // contas e cadernos dos músicos: projeto <-> rede local
@@ -754,17 +763,16 @@ function DirectorApp({ license }: { license: License }) {
         <ReopenLastBar />
         <UpdateBanner />
         {lyricsNotSaved && (
-          <div className="flex flex-wrap items-center gap-3 px-3 py-2 bg-logic-lcd-red/10 border-b border-logic-lcd-red/40 text-xs text-logic-text animate-[fadeIn_200ms_ease-out]">
-            <AlertTriangle size={14} className="shrink-0 text-logic-lcd-red" />
-            <span className="flex-1 min-w-[220px] leading-relaxed">
-              O produtor salvou as letras, mas elas ainda não foram gravadas no arquivo do projeto.
-              Estão no programa agora: salve para não perder quando fechar.
+          <div className="flex items-center gap-2 px-3 h-6 border-b border-logic-border-dark text-2xs text-logic-text-dim animate-[fadeIn_200ms_ease-out]" role="status">
+            <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber shrink-0" />
+            <span className="flex-1 min-w-0 truncate" title="As letras estão no programa: salve para não perder quando fechar.">
+              Letras do produtor ainda não gravadas no arquivo do projeto.
             </span>
             <button
               onClick={() => { void saveCurrentProject().then((ok) => { if (ok) setLyricsNotSaved(false); }); }}
-              className="console-key is-lit-amber flex items-center gap-1.5 px-3 h-7 text-[11px] shrink-0"
+              className="shrink-0 text-logic-text-muted hover:text-logic-text hover:underline underline-offset-2"
             >
-              <Save size={12} /> Salvar agora
+              Salvar agora
             </button>
           </div>
         )}

@@ -189,8 +189,35 @@ export function normalizePrompter(raw: unknown): PrompterState {
     presets: Array.isArray(p.presets) ? p.presets.filter((x) => typeof x === 'string') : DEFAULT_PROMPTER.presets,
     history: Array.isArray(p.history) ? p.history : [],
     scheduled: Array.isArray(p.scheduled) ? p.scheduled : [],
-    lyricLead: num(p.lyricLead, DEFAULT_PROMPTER.lyricLead, 0, 2),
+    lyricLead: num(p.lyricLead, DEFAULT_PROMPTER.lyricLead, 0, 3),
   };
+}
+
+/**
+ * O que vale para toda a letra, escolhido na Área do Produtor: tamanho, cor, fonte, alinhamento e
+ * o "sai antes" da tela sem fio. Fica gravado no arquivo do projeto, junto com as letras.
+ */
+export interface LyricStyle {
+  fontScale: number;
+  lyricColor: string;
+  lyricFont: string;
+  lyricAlign: LyricAlign;
+  lyricLead: number;
+}
+
+export function lyricStyleOf(p: PrompterState): LyricStyle {
+  return { fontScale: p.fontScale, lyricColor: p.lyricColor, lyricFont: p.lyricFont, lyricAlign: p.lyricAlign, lyricLead: p.lyricLead };
+}
+
+export function normalizeLyricStyle(raw: unknown): LyricStyle | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  return lyricStyleOf(normalizePrompter(raw));
+}
+
+export function sameLyricStyle(a: LyricStyle | null | undefined, b: LyricStyle | null | undefined): boolean {
+  if (!a || !b) return a === b || (!a && !b);
+  return a.fontScale === b.fontScale && a.lyricColor === b.lyricColor && a.lyricFont === b.lyricFont
+    && a.lyricAlign === b.lyricAlign && a.lyricLead === b.lyricLead;
 }
 
 export function normalizePages(raw: unknown): LyricPage[] {

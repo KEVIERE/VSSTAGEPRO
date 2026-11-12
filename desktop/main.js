@@ -355,6 +355,7 @@ handle('publish', (payload) => server.publish(payload));
 handle('regeneratePin', (role) => { server.regeneratePin(role); return server.info(); });
 handle('kick', (id) => server.kick(String(id)));
 handle('ackLyricsSave', () => server.ackLyricsSave());
+handle('applyLyricStyle', (style) => server.applyLyricStyle(style));
 // Repertório do produtor na rede local (ver localRepertoire.js)
 handle('refStatus', () => server.repertoire.status());
 handle('refStart', () => { server.repertoire.start(); return server.repertoire.status(); });

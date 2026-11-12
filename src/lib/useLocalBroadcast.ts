@@ -8,6 +8,7 @@ import {
   type LocalInfo, type NetworkMode, type PinRole,
 } from '@/lib/localNetwork';
 import { friendlyError } from '@/lib/friendlyError';
+import { normalizeLyricStyle, sameLyricStyle, type LyricStyle } from '@/lib/prompterTypes';
 
 const INFO_POLL_MS = 2000;
 const HEARTBEAT_PLAYING_MS = 500;
@@ -39,6 +40,10 @@ export function useLocalBroadcast(): LocalBroadcast {
   const [error, setError] = useState<string | null>(null);
   const [lyricsReceived, setLyricsReceived] = useState<number | null>(null);
   const appliedSaveAt = useRef<string | null>(null);
+  // estilo da letra que veio do produtor (não precisa voltar para o servidor)
+  const receivedStyle = useRef<LyricStyle | null>(null);
+  const restoredStyle = useRef<LyricStyle | null>(null);
+  const lyricStyle = useStore((s) => s.lyricStyle ?? null);
   // há celular com o VS Stage Remote conectado (só então os medidores vão para a rede)
   const remotePhones = useRef(false);
   const active = mode === 'local' && !!bridge;
@@ -149,6 +154,12 @@ export function useLocalBroadcast(): LocalBroadcast {
             if (pages.length > 0) next[id] = pages; else delete next[id];
           }
           st.setLyricMaps(next);
+          // tamanho, cor, fonte e "sai antes" vão para o projeto junto com as letras
+          const style = normalizeLyricStyle(i.lyricStyle);
+          if (style && !sameLyricStyle(style, st.lyricStyle)) {
+            receivedStyle.current = style;
+            st.setLyricStyle(style);
+          }
           await bridge.ackLyricsSave();
           setLyricsReceived(Object.keys(next).length);
         }
@@ -160,6 +171,14 @@ export function useLocalBroadcast(): LocalBroadcast {
     const id = window.setInterval(tick, INFO_POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
   }, [bridge, active]);
+
+  // Projeto aberto (aqui ou em outro Mac): a tela do palco volta a ter o estilo de letra gravado nele.
+  useEffect(() => {
+    if (!bridge?.applyLyricStyle || !active || !lyricStyle) return;
+    if (lyricStyle === receivedStyle.current || lyricStyle === restoredStyle.current) return;
+    restoredStyle.current = lyricStyle;
+    bridge.applyLyricStyle(lyricStyle).catch(() => { restoredStyle.current = null; });
+  }, [bridge, active, lyricStyle]);
 
   // Medidores dos faders para a aba Mixer do VS Stage Remote: ~12 por segundo
   useEffect(() => {
