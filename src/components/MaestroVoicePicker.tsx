@@ -150,7 +150,7 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
         <span className={`text-logic-text-muted ${labelClass} shrink-0`}>Prontas</span>
         <div className="flex-1 grid grid-cols-2 gap-1">
           {READY_VOICES.map((v) => {
-            // trocar entre Felipe e Moça mantém a intensidade escolhida
+            // trocar entre Felipe e Bianca mantém a intensidade escolhida
             const id = readyVoiceId(v, intensity);
             return (
               <VoiceChip

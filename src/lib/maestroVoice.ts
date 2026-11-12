@@ -271,7 +271,7 @@ export async function synthesize(text: string, voice: string, span: number, pace
   let result: Omit<SpeechResult, 'buffer'> | null = null;
   let fallbackNote: string | null = null;
 
-  // Falas prontas (Felipe e Moça): a frase da lista sai do arquivo gravado, e passa pelo mesmo
+  // Falas prontas (Felipe e Bianca): a frase da lista sai do arquivo gravado, e passa pelo mesmo
   // acerto das outras vozes (começa na amostra da palavra, estica para a marcação ou a contagem).
   // Texto fora da lista sai na voz do Mac do mesmo gênero.
   const ready = readyVoice(voice);

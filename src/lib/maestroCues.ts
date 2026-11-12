@@ -1,4 +1,4 @@
-// Falas prontas do Maestro por IA: frases comuns de palco gravadas uma vez, nas vozes Felipe e Moça
+// Falas prontas do Maestro por IA: frases comuns de palco gravadas uma vez, nas vozes Felipe e Bianca
 // (ElevenLabs, plano pago), em três intensidades. Os arquivos ficam em
 // public/maestro-falas/<voz>/<id>.mp3 (Normal) e public/maestro-falas/<voz>/<calma|forte>/<id>.mp3,
 // e funcionam sem internet. Texto fora desta lista sai numa voz do próprio Mac (Masculina ou Feminina).
@@ -270,7 +270,8 @@ export interface ReadyVoiceChoice extends ReadyVoice {
 
 export const READY_VOICES: ReadonlyArray<ReadyVoice> = [
   { id: 'pronta:felipe', label: 'Felipe', dir: 'felipe', fallback: 'masculina' },
-  { id: 'pronta:moca', label: 'Moça', dir: 'moca', fallback: 'feminina' },
+  // o id e a pasta continuam "moca" (projetos salvos e arquivos gravados); só o nome na tela mudou
+  { id: 'pronta:moca', label: 'Bianca', dir: 'moca', fallback: 'feminina' },
 ];
 
 /**

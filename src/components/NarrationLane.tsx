@@ -269,7 +269,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
         const clip = n.clipId ? clips.find((c) => c.id === n.clipId) : undefined;
         const tip = [
           n.text || '(sem texto: clique duplo para escrever)',
-          `${formatRegionTime(start)}–${formatRegionTime(end)} · ${span.toFixed(2)}s · ${wpm} palavras/min · voz ${voiceLabel(n.voice)}${n.voiceName ? ` (${n.voiceName})` : ''}`,
+          `${formatRegionTime(start)}–${formatRegionTime(end)} · ${span.toFixed(2)}s · ${wpm} palavras/min · voz ${voiceLabel(n.voice)}${n.voiceName && !n.voice?.startsWith('pronta:') ? ` (${n.voiceName})` : ''}`,
           wpm > FAST_WPM ? 'Rápido demais: pode ficar difícil de entender. Aumente a marcação.' : '',
           over > 0 ? `A fala passa ${over.toFixed(1)}s do fim da marcação: encurte o texto ou aumente a marcação.` : '',
           n.status === 'error' && n.error ? `Erro: ${n.error}` : '',

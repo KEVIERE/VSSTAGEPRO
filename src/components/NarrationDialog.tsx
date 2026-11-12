@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Loader2, Mic, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { Check, Loader2, Mic, Play, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { useStore } from '@/store';
 import type { MaestroNarration, Song } from '@/types';
 import {
@@ -235,7 +235,7 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
         placeholder="O que o maestro deve falar. Ex.: Atenção, dois compassos e entra o refrão!"
         className="w-full resize-none px-2 py-1.5 rounded bg-logic-bg-deep border border-logic-border-light text-logic-text focus:outline-none focus:border-sky-400 transition-colors"
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void generate(); }
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); if (readyVoice(voice)) close(); else void generate(); }
         }}
       />
 
@@ -267,7 +267,7 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
                   className={`px-1.5 py-1 rounded text-[11px] transition-colors ${on ? 'bg-sky-500/30 text-sky-100' : 'text-logic-text-dim hover:text-logic-text hover:bg-white/5'}`}
                   onClick={() => pickCue(c)}
                   disabled={busy}
-                  title="Usar esta fala pronta (voz Felipe ou Moça, já no tempo)"
+                  title="Usar esta fala pronta (voz Felipe ou Bianca, já no tempo)"
                 >
                   {c.text}
                 </button>
@@ -405,17 +405,30 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
           >
             {playing ? <Square size={12} /> : <Play size={12} />}
           </button>
-          <button
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-semibold transition-colors shrink-0 ${
-              busy ? 'bg-sky-500/40 text-white/70 cursor-wait' : 'bg-sky-500 hover:bg-sky-400 text-white disabled:opacity-40 disabled:hover:bg-sky-500'
-            }`}
-            onClick={() => { void generate(); }}
-            disabled={busy || !engine || !text.trim()}
-            title="Gera a voz, coloca na faixa Maestro IA e toca para você ouvir (⌘↩)"
-          >
-            {busy ? <Loader2 size={12} className="animate-spin" /> : <Mic size={12} />}
-            {busy ? 'Gerando...' : state === 'fresh' ? 'Gerar de novo' : 'Gerar e ouvir'}
-          </button>
+          {readyVoice(voice) ? (
+            // Voz pronta (Felipe ou Bianca): a fala escolhida já entra gravada, não há o que gerar.
+            // OK só fecha; texto digitado fora da lista sai na voz do Mac ao fechar.
+            <button
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded font-semibold transition-colors shrink-0 bg-sky-500 hover:bg-sky-400 text-white"
+              onClick={close}
+              title="Fechar (⌘↩)"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+              OK
+            </button>
+          ) : (
+            <button
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded font-semibold transition-colors shrink-0 ${
+                busy ? 'bg-sky-500/40 text-white/70 cursor-wait' : 'bg-sky-500 hover:bg-sky-400 text-white disabled:opacity-40 disabled:hover:bg-sky-500'
+              }`}
+              onClick={() => { void generate(); }}
+              disabled={busy || !engine || !text.trim()}
+              title="Gera a voz, coloca na faixa Maestro IA e toca para você ouvir (⌘↩)"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <Mic size={12} />}
+              {busy ? 'Gerando...' : state === 'fresh' ? 'Gerar de novo' : 'Gerar e ouvir'}
+            </button>
+          )}
         </div>
       </div>
     </div>
