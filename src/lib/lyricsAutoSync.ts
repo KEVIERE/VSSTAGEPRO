@@ -33,6 +33,14 @@ export interface RawSegment {
  */
 const SHORT_GUESS_WORDS = 3;
 const SHORT_GUESS_LOGPROB = -0.55;
+/**
+ * Frase feita só de enchimento ("Tchau, tchau", "E aí", "Uau, uau, uau", "Música") e com
+ * confiança abaixo disto: inventada. Medido num instrumental de 3 minutos (de -0,57 a -0,92).
+ * A confiança sozinha não serve: o Whisper dá a mesma para um bloco de 30 s, e letra real mal
+ * cantada chegou a -1,4 nas guias medidas.
+ */
+const FILLER_LOGPROB = -0.45;
+const FILLER = new Set(['tchau', 'obrigado', 'obrigada', 'musica', 'e', 'ai', 'ah', 'oh', 'uau', 'hum', 'hmm', 'ei', 'amem']);
 
 export interface PageLayout {
   /** Caracteres por linha antes de quebrar. A TV do palco mostra letra grande. */
@@ -94,6 +102,10 @@ export function normalizeWords(segments: RawSegment[]): TimedWord[] {
     if (isHallucination(segText) || isHallucination(wordsText)) continue;
     const count = (rawWords.length ? wordsText : segText).split(/\s+/).filter(Boolean).length;
     if (finite(seg.avg_logprob) && seg.avg_logprob < SHORT_GUESS_LOGPROB && count <= SHORT_GUESS_WORDS) continue;
+    if (finite(seg.avg_logprob) && seg.avg_logprob < FILLER_LOGPROB) {
+      const toks = normalizeForCompare(rawWords.length ? wordsText : segText);
+      if (toks.length > 0 && toks.length <= 8 && toks.every((w) => FILLER.has(w))) continue;
+    }
 
     const segStart = finite(seg.start) ? seg.start : null;
     const segEnd = finite(seg.end) ? seg.end : null;

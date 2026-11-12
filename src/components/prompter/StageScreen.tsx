@@ -5,6 +5,7 @@ import type { SetlistSong, ShowLive } from '@/lib/musicianTypes';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import { activeNotice, formatClock, nextPageTime, pageIndexFor, showTimeView } from '@/lib/prompterView';
 import { songKeyLabel } from '@/lib/musicKey';
+import { fitSize, karaokeSlots, KARAOKE_MS, LINE_HEIGHT } from '@/lib/karaoke';
 import SegmentDisplay from '@/components/SegmentDisplay';
 
 // The TV must keep scrolling lyrics through short internet drops, so tolerate a long gap before freezing.
@@ -275,16 +276,8 @@ function SidePlaylist({ snap, songs, currentId, nextId }: { snap: PrompterSnapsh
   );
 }
 
-function fitSize(text: string, scale: number): number {
-  const lines = text.split('\n');
-  const longest = Math.max(1, ...lines.map((l) => l.length));
-  const byLines = 52 / Math.max(2, lines.length);
-  const byWidth = 150 / longest;
-  return Math.max(3.2, Math.min(11, byLines, byWidth)) * scale;
-}
 
 function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: number; playing: boolean; songId: string; p: PrompterState }) {
-  const mem = useRef<{ pageId: string | null; nextId: string | null; prev: LyricPage | null }>({ pageId: null, nextId: null, prev: null });
   const idx = pageIndexFor(pages, t, songId, p);
   const firstTime = pages.find((x) => x.time !== null)?.time ?? null;
 
@@ -314,18 +307,8 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
   const span = nextT !== null && page.time !== null ? nextT - page.time : 0;
   const progress = span > 0 && page.time !== null ? Math.min(1, Math.max(0, (t - page.time) / span)) : 0;
   const kind = kindInfo(page.kind);
-  const justify = p.lyricAlign === 'left' ? 'justify-start' : p.lyricAlign === 'right' ? 'justify-end' : 'justify-center';
   const fontFamily = lyricFontCss(p.lyricFont);
-  const origin = p.lyricAlign === 'left' ? 'left center' : p.lyricAlign === 'right' ? 'right center' : 'center';
-
-  const flow = mem.current;
-  if (flow.pageId !== page.id) {
-    flow.prev = flow.pageId && flow.nextId === page.id ? pages.find((x) => x.id === flow.pageId) ?? null : null;
-    flow.pageId = page.id;
-  }
-  flow.nextId = next?.id ?? null;
-  const rose = !!flow.prev;
-  const leaving = flow.prev;
+  const items = karaokeSlots(pages, idx, p.fontScale);
 
   return (
     <div className="absolute inset-0 flex flex-col px-[5cqw] pt-[3cqh] pb-[2cqh]">
@@ -335,47 +318,40 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
         </span>
         <span className="text-white/35 tabular-nums" style={{ fontSize: '1.9cqh' }}>{idx + 1}/{pages.length}</span>
       </div>
-      <div className={`relative flex-1 min-h-0 flex items-center ${justify}`}>
-        {leaving && (
-          <div aria-hidden className={`absolute inset-0 flex items-center ${justify} pointer-events-none`}>
+      {/* Karaokê: os trechos andam juntos, como uma lista rolando. O atual sobe, diminui e some
+          em cima; o de baixo (a prévia) sobe para o centro crescendo, na mesma hora, sem pausa.
+          Cada trecho é o mesmo elemento do começo ao fim (chave = id da página): só a posição
+          muda, com transição de transform/opacity (placa de vídeo), então não trava nem pisca.
+          Antes o trecho novo esperava 0,32 s com a tela vazia e entrava de outro lugar. */}
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        {items.map(({ page: it, slot, offset, scale, opacity }) => (
+          <div
+            key={it.id}
+            aria-hidden={slot !== 'center'}
+            className={`absolute inset-x-0 top-1/2 flex ${p.lyricAlign === 'left' ? 'justify-start' : p.lyricAlign === 'right' ? 'justify-end' : 'justify-center'} pointer-events-none`}
+            style={{
+              transform: `translateY(calc(-50% + ${offset}cqh)) scale(${scale})`,
+              transformOrigin: p.lyricAlign === 'left' ? 'left center' : p.lyricAlign === 'right' ? 'right center' : 'center',
+              opacity,
+              transition: `transform ${KARAOKE_MS}ms cubic-bezier(0.22, 1, 0.36, 1), opacity ${slot === 'gone' ? KARAOKE_MS * 0.55 : KARAOKE_MS}ms ease-out`,
+              willChange: 'transform, opacity',
+            }}
+          >
             <p
-              key={`out-${leaving.id}`}
-              /* O antigo sobe e some em 320 ms. A entrada do novo espera esse
-                 tempo (animation-delay abaixo), então os dois trechos nunca
-                 ficam legíveis ao mesmo tempo. */
-              className="font-semibold whitespace-pre-line animate-[prompterLeave_320ms_ease-in_forwards]"
-              style={{ fontSize: `${fitSize(leaving.text, p.fontScale)}cqh`, lineHeight: 1.2, color: p.lyricColor, fontFamily, textAlign: p.lyricAlign, transformOrigin: origin }}
-              onAnimationEnd={() => { if (mem.current.prev === leaving) mem.current.prev = null; }}
+              className="font-semibold whitespace-pre-line animate-[prompterFade_360ms_ease-out]"
+              style={{ fontSize: `${fitSize(it.text, p.fontScale)}cqh`, lineHeight: LINE_HEIGHT, color: p.lyricColor, fontFamily, textAlign: p.lyricAlign }}
             >
-              {leaving.text}
+              {it.text}
             </p>
           </div>
-        )}
-        <p
-          key={page.id}
-          /* Sequência, não cruzamento: o trecho novo só começa a aparecer depois
-             que o anterior saiu (320 ms de espera). Antes os dois dividiam a tela
-             no meio da troca, e as letras se misturavam por um instante. */
-          className={`font-semibold whitespace-pre-line transition-colors duration-300 ${rose ? 'animate-[prompterRise_420ms_cubic-bezier(0.22,1,0.36,1)_320ms_both]' : 'animate-[prompterUp_320ms_ease-out_320ms_both]'}`}
-          style={{ fontSize: `${fitSize(page.text, p.fontScale)}cqh`, lineHeight: 1.2, color: p.lyricColor, fontFamily, textAlign: p.lyricAlign, transformOrigin: origin }}
-        >
-          {page.text}
-        </p>
+        ))}
       </div>
       {span > 0 && (
         <div className="h-[0.6cqh] rounded-full bg-white/10 overflow-hidden">
           <div className="h-full rounded-full" style={{ width: `${progress * 100}%`, background: kind.color, transition: 'width 120ms linear' }} />
         </div>
       )}
-      {next && (
-        <p
-          key={`next-${next.id}`}
-          className="mt-[1.6cqh] whitespace-pre-line line-clamp-3 animate-[prompterNextIn_420ms_ease-out]"
-          style={{ fontSize: `${Math.min(4.2, fitSize(next.text, p.fontScale) * 0.42)}cqh`, lineHeight: 1.25, color: p.lyricColor, opacity: 0.32, fontFamily, textAlign: p.lyricAlign }}
-        >
-          {next.text}
-        </p>
-      )}
+      {!next && <div className="h-[1.6cqh]" />}
     </div>
   );
 }

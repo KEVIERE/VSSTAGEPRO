@@ -63,9 +63,17 @@ test('frase curta com confiança baixa (inventada em trecho sem voz) é descarta
     { start: 0, end: 1.5, text: 'Tchau, tchau.', avg_logprob: -0.613, words: [{ word: 'Tchau,', start: 0, end: 0.6 }, { word: 'tchau.', start: 0.7, end: 1.4 }] },
     { start: 4, end: 6, text: 'Por que demorou?', avg_logprob: -0.227, words: [{ word: 'Por', start: 4, end: 4.3 }, { word: 'que', start: 4.4, end: 4.6 }, { word: 'demorou?', start: 4.7, end: 5.6 }] },
     { start: 8, end: 9, text: 'Aleluia', avg_logprob: -0.3, words: [{ word: 'Aleluia', start: 8, end: 9 }] },
-    { start: 10, end: 14, text: 'frase comprida com pouca certeza mas cantada', avg_logprob: -0.7, words: [] },
+    { start: 10, end: 14, text: 'frase comprida com pouca certeza mas cantada', avg_logprob: -0.55, words: [] },
+    // inventada num instrumental de verdade (medido): só enchimento
+    { start: 30, end: 33, text: 'Uau, uau, uau, uau, uau, uau, uau.', avg_logprob: -0.743, words: [] },
+    { start: 35, end: 36, text: 'E aí', avg_logprob: -0.884, words: [] },
+    // letra de verdade mal reconhecida, com confiança baixa: fica (medido numa guia)
+    { start: 40, end: 43, text: 'É uma mesa com quatro cadeiras', avg_logprob: -1.455, words: [] },
   ]);
-  assert.deepEqual(words.map((w) => w.w), ['Por', 'que', 'demorou?', 'Aleluia', 'frase', 'comprida', 'com', 'pouca', 'certeza', 'mas', 'cantada']);
+  assert.deepEqual(words.map((w) => w.w), [
+    'Por', 'que', 'demorou?', 'Aleluia', 'frase', 'comprida', 'com', 'pouca', 'certeza', 'mas', 'cantada',
+    'É', 'uma', 'mesa', 'com', 'quatro', 'cadeiras',
+  ]);
 });
 
 test('entrada quebrada não derruba a leitura', () => {
