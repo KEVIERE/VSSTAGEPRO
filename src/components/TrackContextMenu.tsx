@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronRight,
+  Copy,
   Edit2,
   Folder,
   FolderInput,
@@ -81,6 +82,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const normalizeTrack = useStore((s) => s.normalizeTrack);
   const createTrack = useStore((s) => s.createTrack);
   const deleteTrack = useStore((s) => s.deleteTrack);
+  const duplicateTrack = useStore((s) => s.duplicateTrack);
   const timelineLocked = useStore((s) => s.timelineLocked);
   // a música que a timeline mostra: a selecionada ou, sem seleção, a primeira da playlist
   const viewSongId = useStore((s) => s.selectedSongId ?? s.playlist[0]?.songId ?? null);
@@ -152,6 +154,12 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const handleCreateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     createTrack(track.id, newName);
+    onClose();
+  };
+
+  const copyTrack = () => {
+    duplicateTrack(track.id);
+    for (const songId of new Set(ownClips.map((c) => c.songId))) audioEngine.invalidatePrepared(songId);
     onClose();
   };
 
@@ -232,7 +240,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
         creating ? (
           <form onSubmit={handleCreateSubmit} className="p-2 border-b border-white/10">
             <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1.5 px-0.5">
-              Nova trilha em {newFolder.name}
+              Criar trilha em {newFolder.name}
             </div>
             <div className="flex items-center gap-1.5">
               <input
@@ -261,11 +269,29 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           >
             <span className="flex items-center gap-2">
               <Plus size={13} className="text-logic-text-muted" />
-              <span>Nova trilha</span>
+              <span>Criar trilha</span>
             </span>
             <span className="text-[9px] text-logic-text-muted truncate">em {newFolder.name}</span>
           </button>
         )
+      )}
+
+      {/* DUPLICAR (só as de dentro das pastas: mesmos ajustes e clipes, logo abaixo) */}
+      {deletable && (
+        <button
+          type="button"
+          onClick={copyTrack}
+          title={ownClips.length === 0 ? 'Cria uma cópia desta trilha logo abaixo dela' : `Cria uma cópia desta trilha logo abaixo dela, com os ${ownClips.length === 1 ? 'clipe' : `${ownClips.length} clipes`} (o mesmo áudio)`}
+          className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between gap-2 text-white/90 hover:text-white transition"
+        >
+          <span className="flex items-center gap-2">
+            <Copy size={13} className="text-logic-text-muted" />
+            <span>Duplicar trilha</span>
+          </span>
+          {ownClips.length > 0 && (
+            <span className="text-[9px] font-mono text-logic-text-muted shrink-0">{ownClips.length} clipe{ownClips.length === 1 ? '' : 's'}</span>
+          )}
+        </button>
       )}
 
       {/* 2. MUDAR COR (SUBMENU / PALETA) */}

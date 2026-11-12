@@ -27,7 +27,7 @@ export interface InstantPrep {
 }
 import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switchShow, syncedShows } from '@/lib/shows';
 import { applyHeaders, autoBlockName, blockHeaders, orderBlocks, resolveBlocks } from '@/lib/blocks';
-import { customTrackIds, mergeCustomChildren, newTrackPlace, uniqueTrackName, canDeleteTrack } from '@/lib/customTracks';
+import { customTrackIds, duplicateTrackName, instrumentTrackIn, mergeCustomChildren, newTrackPlace, uniqueTrackName, canDeleteTrack } from '@/lib/customTracks';
 import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
@@ -241,6 +241,8 @@ interface StoreActions {
   createTrack: (anchorTrackId: string, name: string) => string | null;
   /** Tira a trilha de dentro da pasta e os clipes dela, em todas as músicas (Desfazer volta). */
   deleteTrack: (trackId: string) => void;
+  /** Cópia da trilha logo abaixo dela (mesmos ajustes e clipes, próximo número da sequência). */
+  duplicateTrack: (trackId: string) => string | null;
   setPlayFlow: (flow: PlayFlow) => void;
   cyclePlayFlow: () => void;
   play: () => void;
@@ -287,7 +289,8 @@ interface StoreActions {
   /** Ajustar fim: aplica os cortes do final de várias músicas num passo só de desfazer. */
   applySongEnds: (edits: { songId: string; trims: { id: string; trimEnd: number }[]; removeIds: string[] }[]) => void;
   applyClickEdit: (edit: { songId: string; shift?: number; removeClipIds: string[]; addClips: AudioClip[]; songPatch?: Partial<Song> }) => void;
-  routeClip: (clipId: string, targetTrackId: string) => void;
+  /** Manda o clipe para a faixa. Pasta: vai para a trilha do instrumento dentro dela (`instrument` = o que a IA ouviu). */
+  routeClip: (clipId: string, targetTrackId: string, instrument?: string | null) => void;
   resetClipRouting: (clipId: string) => void;
   setClipMarkers: (clipId: string, markers: AudioClip['markers']) => void;
   setImportProgress: (progress: ImportProgress | null) => void;
@@ -444,6 +447,26 @@ function withBlocks(
     playlistOrder: resolved.map((p) => p.songId),
     songs: songsWithBlocks(s.songs, resolved),
     blocks: orderBlocks(s.blocks, resolved),
+  };
+}
+
+// Pasta nunca recebe áudio: devolve a trilha do instrumento dentro dela (criando a próxima da
+// sequência, "Violão 3", quando as que existem já têm áudio nesta música).
+function intoFolder(tracks: Track[], clips: AudioClip[], folderId: string, clip: AudioClip, instrument?: string | null) {
+  const plan = instrumentTrackIn(tracks, clips, folderId, clip, instrument);
+  if (!plan) return { tracks, trackId: folderId };
+  if ('trackId' in plan) return { tracks, trackId: plan.trackId };
+  const folder = tracks.find((t) => t.id === folderId);
+  const id = `${folderId}-child-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  const child: Track = {
+    id, name: plan.create.name, type: 'audio', color: folder?.color ?? '#5b8db8',
+    volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
+    isSubgroup: false, parentId: folderId, children: [], height: 40, visible: true,
+    outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0,
+  };
+  return {
+    tracks: [...tracks.map((t) => (t.id === folderId ? { ...t, children: [...t.children, id] } : t)), child],
+    trackId: id,
   };
 }
 
@@ -842,6 +865,47 @@ export const useStore = create<Store>()(
         }));
         return id;
       },
+      duplicateTrack: (trackId) => {
+        const s = get();
+        const track = s.tracks.find((t) => t.id === trackId);
+        const parent = track?.parentId ? s.tracks.find((t) => t.id === track.parentId) : undefined;
+        if (!track || !canDeleteTrack(track) || !parent?.isSubgroup) return null;
+        const id = `${parent.id}-copia-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+        const copy: Track = {
+          ...track, id, name: duplicateTrackName(s.tracks, parent.id, track.name), children: [],
+          custom: true, meterLevel: 0, clipIndicator: false, clipPeak: 0,
+        };
+        // os clipes da cópia tocam o mesmo áudio da original (nada é regravado)
+        const groups = new Map<string, string>();
+        const own = s.clips.filter((c) => c.trackId === trackId);
+        const copies = own.map((c) => {
+          let groupId: string | undefined;
+          if (c.groupId) {
+            groupId = groups.get(c.groupId) ?? `${c.groupId}-copia-${newEntryId()}`;
+            groups.set(c.groupId, groupId);
+          }
+          return { ...c, id: `clip-dup-${newEntryId()}`, trackId: id, groupId };
+        });
+        own.forEach((c, i) => {
+          const src = getClipSource(c.id);
+          if (src) registerClipSource(copies[i].id, c.songId, src);
+        });
+        set((st) => ({
+          tracks: [
+            ...st.tracks.map((t) => {
+              if (t.id !== parent.id) return t;
+              const at = t.children.indexOf(trackId);
+              const children = [...t.children];
+              children.splice(at < 0 ? children.length : at + 1, 0, id);
+              return { ...t, children };
+            }),
+            copy,
+          ],
+          clips: [...st.clips, ...copies],
+          selectedTrackId: id,
+        }));
+        return id;
+      },
       deleteTrack: (trackId) => set((s) => {
         const track = s.tracks.find((t) => t.id === trackId);
         if (!canDeleteTrack(track)) return s;
@@ -1094,24 +1158,8 @@ export const useStore = create<Store>()(
         if (!target || !target.isSubgroup) {
           return { clips: [...s.clips, clip] };
         }
-        const firstChildId = target.children[0];
-        if (firstChildId) {
-          return { clips: [...s.clips, { ...clip, trackId: firstChildId }] };
-        }
-        const childId = `${target.id}-child-${Date.now()}`;
-        const child: Track = {
-          id: childId, name: 'Extra 1', type: 'audio', color: target.color,
-          volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
-          isSubgroup: false, parentId: target.id, children: [], height: 40, visible: true,
-          outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0,
-        };
-        return {
-          tracks: [
-            ...s.tracks.map((t) => t.id === target.id ? { ...t, children: [...t.children, childId] } : t),
-            child,
-          ],
-          clips: [...s.clips, { ...clip, trackId: childId }],
-        };
+        const placed = intoFolder(s.tracks, s.clips, target.id, clip);
+        return { tracks: placed.tracks, clips: [...s.clips, { ...clip, trackId: placed.trackId }] };
       }),
       addClips: (newClips) => set((s) => {
         if (newClips.length === 0) return s;
@@ -1137,6 +1185,7 @@ export const useStore = create<Store>()(
       updateClip: (clipId, updates) => set((s) => {
         // nunca deixa um clipe apontar diretamente para um subgrupo (pasta)
         let safe = updates;
+        let tracks = s.tracks;
         const current = s.clips.find((c) => c.id === clipId);
         // o timecode não troca de faixa com os stems, em nenhum sentido
         if (updates.trackId && current && updates.trackId !== current.trackId
@@ -1145,12 +1194,16 @@ export const useStore = create<Store>()(
           delete safe.trackId;
         } else if (updates.trackId) {
           const target = s.tracks.find((t) => t.id === updates.trackId);
-          if (target?.isSubgroup) {
-            const firstChildId = target.children[0];
-            safe = { ...updates, trackId: firstChildId ?? updates.trackId };
+          if (target?.isSubgroup && current) {
+            const placed = intoFolder(s.tracks, s.clips, target.id, { ...current, ...updates });
+            tracks = placed.tracks;
+            safe = { ...updates, trackId: placed.trackId };
           }
         }
-        return { clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c) };
+        return {
+          ...(tracks !== s.tracks ? { tracks } : {}),
+          clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c),
+        };
       }),
       splitClipAt: (clipId, atSeconds) => {
         return get().splitClipsAt([clipId], atSeconds);
@@ -1270,7 +1323,7 @@ export const useStore = create<Store>()(
         };
       }),
       removeClips: (clipIds) => set((s) => withoutClips(s, new Set(clipIds))),
-      routeClip: (clipId, targetTrackId) => set((s) => {
+      routeClip: (clipId, targetTrackId, instrument) => set((s) => {
         const target = s.tracks.find((t) => t.id === targetTrackId);
         if (!target) return s;
         const moving = s.clips.find((c) => c.id === clipId);
@@ -1278,37 +1331,10 @@ export const useStore = create<Store>()(
 
         let actualTrackId = targetTrackId;
         let tracks = s.tracks;
-        if (target.isSubgroup) {
-          const firstChildId = target.children[0];
-          if (firstChildId) {
-            actualTrackId = firstChildId;
-          } else {
-            actualTrackId = `${target.id}-child-${Date.now()}`;
-            const child: Track = {
-              id: actualTrackId,
-              name: `${target.name} 1`,
-              type: 'audio',
-              color: target.color,
-              volume: 0.8,
-              pan: 0,
-              mute: false,
-              solo: false,
-              antiClip: false,
-              isSubgroup: false,
-              parentId: target.id,
-              children: [],
-              height: 40,
-              visible: true,
-              outputChannel: 0,
-              meterLevel: 0,
-              clipIndicator: false,
-              clipPeak: 0,
-            };
-            tracks = s.tracks.map((track) => track.id === target.id
-              ? { ...track, children: [...track.children, actualTrackId] }
-              : track);
-            tracks = [...tracks, child];
-          }
+        if (target.isSubgroup && moving) {
+          const placed = intoFolder(s.tracks, s.clips, target.id, moving, instrument);
+          tracks = placed.tracks;
+          actualTrackId = placed.trackId;
         }
 
         return {
@@ -2000,29 +2026,17 @@ export const useStore = create<Store>()(
         });
 
         // última linha de defesa: nenhum clipe pode terminar apontando para um subgrupo (pasta)
+        // (vai para a trilha do instrumento dentro dela, na sequência, sem ficar por cima de outro)
         const subgroupIds = new Set(parents.map((p) => p.id));
-        const allTracks = [...finalFixed, ...newChildTracks, ...customTracks];
-        const extraChildByParent = new Map<string, string>();
-        const guardedClips = newClips.map((c) => {
-          if (!subgroupIds.has(c.trackId)) return c;
-          const parentId = c.trackId;
-          const parent = allTracks.find((t) => t.id === parentId);
-          const firstChildId = parent?.children[0] ?? extraChildByParent.get(parentId);
-          if (firstChildId) return { ...c, trackId: firstChildId };
-          const childId = `${parentId}-extra-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-          const parentColor = parent?.color ?? '#5b8db8';
-          const extra: Track = {
-            id: childId, name: 'Extra 1', type: 'audio', color: parentColor,
-            volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
-            isSubgroup: false, parentId, children: [], height: 40, visible: true,
-            outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0,
-          };
-          allTracks.push(extra);
-          const parentIdx = allTracks.findIndex((t) => t.id === parentId);
-          if (parentIdx >= 0) allTracks[parentIdx] = { ...allTracks[parentIdx], children: [...allTracks[parentIdx].children, childId] };
-          extraChildByParent.set(parentId, childId);
-          return { ...c, trackId: childId };
-        });
+        let allTracks = [...finalFixed, ...newChildTracks, ...customTracks];
+        const guardedClips = [...newClips];
+        for (let i = 0; i < guardedClips.length; i++) {
+          const c = guardedClips[i];
+          if (!subgroupIds.has(c.trackId)) continue;
+          const placed = intoFolder(allTracks, guardedClips, c.trackId, c);
+          allTracks = placed.tracks;
+          guardedClips[i] = { ...c, trackId: placed.trackId };
+        }
 
         return { tracks: withTimecodeFirst(allTracks), clips: guardedClips };
       }),

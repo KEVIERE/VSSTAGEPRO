@@ -2,7 +2,7 @@
 // A reorganização automática das faixas não pode apagar nem bagunçar as trilhas criadas à mão.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canDeleteTrack, customTrackIds, mergeCustomChildren, newTrackPlace, uniqueTrackName } from '../src/lib/customTracks.ts';
+import { canDeleteTrack, customTrackIds, duplicateTrackName, instrumentTrackIn, mergeCustomChildren, newTrackPlace, uniqueTrackName } from '../src/lib/customTracks.ts';
 
 const t = (id, extra = {}) => ({ id, name: id, isSubgroup: false, parentId: null, children: [], ...extra });
 const tracks = [
@@ -60,4 +60,45 @@ test('reorganizar: a trilha criada fica logo depois da que vinha antes dela', ()
   assert.deepEqual(mergeCustomChildren(['v1', 'v2', 'c1'], ['v1'], custom), ['v1', 'c1']);
   // pasta só com trilhas criadas
   assert.deepEqual(mergeCustomChildren(['c1', 'c2'], [], custom), ['c1', 'c2']);
+});
+
+// Pasta nunca recebe áudio: vai para a trilha do instrumento, na sequência, sem ficar por cima.
+const clipDe = (id, trackId, fileName, songId = 's1') => ({ id, trackId, fileName, name: fileName.replace('.wav', ''), songId });
+
+test('clipe mandado para a pasta vai para a trilha do instrumento que está livre nesta música', () => {
+  const clips = [clipDe('a', 'v1', 'Violao.wav')];
+  const novo = clipDe('n', 'track-violoes', 'Violao base.wav');
+  // Violão 1 já tem áudio nesta música; Violão 2 está livre
+  assert.deepEqual(instrumentTrackIn(tracks, clips, 'track-violoes', novo), { trackId: 'v2' });
+});
+
+test('todas ocupadas: cria a próxima da sequência, nunca põe por cima', () => {
+  const clips = [clipDe('a', 'v1', 'Violao.wav'), clipDe('b', 'v2', 'Violao 2.wav')];
+  const novo = clipDe('n', 'track-violoes', 'Violao base.wav');
+  assert.deepEqual(instrumentTrackIn(tracks, clips, 'track-violoes', novo), { create: { name: 'Violão 3' } });
+  // em outra música as trilhas estão livres
+  assert.deepEqual(instrumentTrackIn(tracks, clips, 'track-violoes', { ...novo, songId: 's2' }), { trackId: 'v1' });
+});
+
+test('o nome do instrumento vem da IA, do nome do arquivo ou da pasta', () => {
+  const vazio = [];
+  // arquivo sem instrumento conhecido: usa o da pasta
+  assert.deepEqual(instrumentTrackIn(tracks, [clipDe('a', 'v1', 'x.wav'), clipDe('b', 'v2', 'y.wav')], 'track-violoes', clipDe('n', 'track-violoes', 'audio 17.wav')), { create: { name: 'Violão 3' } });
+  // a IA ouviu outro instrumento da pasta
+  assert.deepEqual(instrumentTrackIn(tracks, vazio, 'track-outros', clipDe('n', 'track-outros', 'gravacao.wav'), 'Saxofone'), { create: { name: 'Saxofone 1' } });
+  // pasta Outros sem pista nenhuma: Extra
+  assert.deepEqual(instrumentTrackIn(tracks, vazio, 'track-outros', clipDe('n', 'track-outros', 'zzz.wav')), { create: { name: 'Extra 1' } });
+  // não é pasta: nada a fazer
+  assert.equal(instrumentTrackIn(tracks, vazio, 'v1', clipDe('n', 'v1', 'x.wav')), null);
+});
+
+test('o clipe que já está na trilha não ocupa ela para ele mesmo', () => {
+  const clips = [clipDe('a', 'v1', 'Violao.wav')];
+  assert.deepEqual(instrumentTrackIn(tracks, clips, 'track-violoes', clips[0]), { trackId: 'v1' });
+});
+
+test('duplicar: a cópia ganha o próximo número da sequência do instrumento', () => {
+  assert.equal(duplicateTrackName(tracks, 'track-violoes', 'Violão 1'), 'Violão 3');
+  assert.equal(duplicateTrackName(tracks, 'track-violoes', 'Violão 2'), 'Violão 3');
+  assert.equal(duplicateTrackName(tracks, 'track-outros', 'Bumbo'), 'Bumbo 2');
 });

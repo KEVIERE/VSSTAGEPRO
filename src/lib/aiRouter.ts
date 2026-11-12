@@ -139,7 +139,7 @@ export async function reclassifyClipWithAi(clipId: string): Promise<AiRouteResul
       return null;
     }
 
-    store.routeClip(clipId, result.target);
+    store.routeClip(clipId, result.target, result.childName);
     store.updateClip(clipId, { routingMethod: 'ai', routingConfidence: result.confidence });
     store.setImportProgress({ clipId, status: 'done', message: `IA reconheceu: ${result.childName} (${Math.round(result.confidence * 100)}% de confiança)` });
     setTimeout(() => useStore.getState().setImportProgress(null), 3000);
