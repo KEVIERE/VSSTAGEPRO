@@ -17,6 +17,7 @@ import { trimSpeechChannels } from '@/lib/speechTrim';
 import { getClipSource, putClipAudio, registerClipSource, toClipAudio, toClipAudioAsync } from '@/lib/audioLibrary';
 import { processClipAudioAsync } from '@/lib/timeStretch';
 import { audioEngine } from '@/lib/audioEngine';
+import { masterAudioClip } from '@/lib/clipMastering';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { deviceSampleRate, generateMarkers } from '@/lib/audioDecoder';
 import { friendlyError } from '@/lib/friendlyError';
@@ -625,6 +626,9 @@ async function applyNarration(songId: string, narrationId: string, result: Speec
     note: result.note ?? undefined,
   });
   audioEngine.invalidatePrepared(songId);
+  // fala masterizada: a voz nova recebe a mesma masterização
+  const master = findNarration(songId, narrationId)?.master;
+  if (master) void masterAudioClip(clipId, master);
 }
 
 // ---------------------------------------------------------------------------------------------

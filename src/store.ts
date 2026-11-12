@@ -1714,9 +1714,14 @@ export const useStore = create<Store>()(
       setNarrationAudio: (songId, narrationId, clip, patch) => set((s) => {
         const n = s.songs.find((sg) => sg.id === songId)?.narrations?.find((x) => x.id === narrationId);
         if (!n) return s;
-        // troca o áudio antigo pelo novo e marca a fala como pronta, num passo só do desfazer
+        // troca o áudio antigo pelo novo e marca a fala como pronta, num passo só do desfazer.
+        // Volume, mudo e fades que a pessoa ajustou no áudio antigo passam para o novo.
+        const old = n.clipId ? s.clips.find((c) => c.id === n.clipId) : undefined;
+        const kept = old
+          ? { gain: old.gain, mute: old.mute, fadeIn: old.fadeIn, fadeOut: old.fadeOut, fadeCurveIn: old.fadeCurveIn, fadeCurveOut: old.fadeCurveOut }
+          : {};
         return {
-          clips: [...s.clips.filter((c) => c.id !== n.clipId), clip],
+          clips: [...s.clips.filter((c) => c.id !== n.clipId), { ...clip, ...Object.fromEntries(Object.entries(kept).filter(([, v]) => v !== undefined)) }],
           selectedClipIds: n.clipId ? s.selectedClipIds.filter((id) => id !== n.clipId) : s.selectedClipIds,
           songs: s.songs.map((sg) => sg.id === songId
             ? { ...sg, narrations: (sg.narrations ?? []).map((x) => (x.id === narrationId ? { ...x, ...patch, clipId: clip.id } : x)) }

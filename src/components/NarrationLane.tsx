@@ -14,6 +14,8 @@ import { snapTime, songGrid } from '@/lib/grid';
 import { formatRegionTime } from '@/lib/regions';
 import { seekToPosition } from '@/lib/transportControl';
 import { audioEngine } from '@/lib/audioEngine';
+import { masterAudioClip } from '@/lib/clipMastering';
+import { MASTER_PROFILES } from '@/lib/mastering';
 
 /** Altura da régua do Maestro por IA (a coluna de nomes das faixas usa a mesma). */
 export const NARRATION_LANE_HEIGHT = 30;
@@ -287,7 +289,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             data-narration-id={n.id}
             className={`absolute top-[3px] bottom-[3px] rounded-sm flex items-center select-none touch-none group overflow-hidden border hover:brightness-125 ${tone} ${
               isDragging ? 'cursor-grabbing z-20 shadow-lg' : 'cursor-grab z-10'
-            } ${inSelection || selectedId === n.id ? 'ring-2 ring-white/80 brightness-125' : ''}`}
+            } ${inSelection || selectedId === n.id ? 'ring-2 ring-white/80 brightness-125' : ''} ${clip?.mute ? 'opacity-45 saturate-0' : ''}`}
             style={{ left: `${start * zoomH}px`, width: `${width}px` }}
             onPointerDown={(e) => handleBarPointerDown(e, n)}
             onDoubleClick={(e) => { e.stopPropagation(); onEdit(n); }}
@@ -308,6 +310,9 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
               {busy ? <Loader2 size={10} className="animate-spin shrink-0 text-sky-200" />
                 : failed ? <AlertTriangle size={10} className="shrink-0 text-logic-lcd-red" />
                   : <Mic size={10} className={`shrink-0 ${stale ? 'text-logic-lcd-amber' : 'text-sky-200'}`} />}
+              {n.master && !isDragging && (
+                <span className="shrink-0 text-amber-300 text-[10px] leading-none" title="Áudio masterizado com IA">✨</span>
+              )}
               <span className="truncate drop-shadow">
                 {isDragging
                   ? `${formatRegionTime(start)} · ${span.toFixed(1)}s · ${wpm} p/m`
@@ -375,10 +380,36 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
   song: Song; narration: MaestroNarration; x: number; y: number; onEdit: () => void; onEditCount?: () => void; onClose: () => void;
 }) {
   const removeNarration = useStore((s) => s.removeNarration);
+  const updateNarration = useStore((s) => s.updateNarration);
+  const normalizeClip = useStore((s) => s.normalizeClip);
+  const setClipGain = useStore((s) => s.setClipGain);
+  const toggleClipMute = useStore((s) => s.toggleClipMute);
+  const dawMode = useStore((s) => s.dawMode);
+  const clip = useStore((s) => (narration.clipId ? s.clips.find((c) => c.id === narration.clipId) : undefined));
+  const [masterOpen, setMasterOpen] = useState(false);
+  const [normalizeOpen, setNormalizeOpen] = useState(false);
+  const [normalizeDb, setNormalizeDb] = useState('-2');
   const ref = useRef<HTMLDivElement>(null);
   const cursor = cursorTime(song.id);
   const engine = canGenerate(narration.voice);
   const state = narrationState(narration);
+  // as mesmas ferramentas dos outros áudios só valem com a voz já gerada
+  const audioReady = !!clip && state !== 'missing';
+  const gainDb = clip ? 20 * Math.log10(Math.max(1e-4, clip.gain ?? 1)) : 0;
+  const masterOptions: Array<{ id: NonNullable<MaestroNarration['master']>; label: string; hint: string }> = [
+    { id: 'manter', label: 'Manter o volume', hint: 'voz · recomendado' },
+    { id: 'equilibrado', label: MASTER_PROFILES.equilibrado.label, hint: '-10 LUFS' },
+    { id: 'show', label: MASTER_PROFILES.show.label, hint: '-8 LUFS · mais alto' },
+    { id: 'streaming', label: MASTER_PROFILES.streaming.label, hint: '-14 LUFS · plataformas' },
+  ];
+  // A escolha fica guardada na fala: a voz gerada de novo é masterizada do mesmo jeito.
+  const master = (choice: NonNullable<MaestroNarration['master']>) => {
+    if (!clip) return;
+    onClose();
+    updateNarration(song.id, narration.id, { master: choice });
+    void masterAudioClip(clip.id, choice);
+  };
+  const keyCls = 'console-key w-5 h-[18px] text-[11px] leading-none flex items-center justify-center';
 
   useEffect(() => {
     const onDown = (e: PointerEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
@@ -396,7 +427,7 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
     <div
       ref={ref}
       className="fixed z-[300] min-w-52 py-1 bg-logic-bg-panel border border-logic-border-light shadow-2xl rounded text-xs text-logic-text"
-      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.min(y, window.innerHeight - 170) }}
+      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.max(8, Math.min(y, window.innerHeight - (audioReady ? (dawMode ? 420 : 300) : 200))) }}
       onContextMenu={(e) => e.preventDefault()}
       // o menu fica fora da régua na tela, mas os eventos do React sobem até ela: sem isto o
       // clique num item viraria "criar marcação" / "mover o cursor" na régua
@@ -442,6 +473,103 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
       >
         <span>Gerar a voz de novo</span>
       </button>
+      {audioReady && clip && (
+        <>
+          <div className="h-px bg-logic-border-dark my-1" />
+          <div className="px-3 pt-1 pb-0.5 text-[10px] uppercase tracking-wider text-logic-text-muted">Áudio da fala</div>
+          <div className="relative" onMouseEnter={() => setMasterOpen(true)} onMouseLeave={() => setMasterOpen(false)}>
+            <button
+              className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left text-amber-400 hover:bg-amber-500 hover:text-black font-semibold transition-colors duration-75"
+              title="A IA ouve a voz e escolhe EQ, compressão e limitador. Fica guardado: gerando a voz de novo, ela é masterizada igual."
+              onClick={() => master(narration.master ?? 'manter')}
+            >
+              <span>✨ Masterizar com IA</span>
+              <span className="text-[10px] opacity-75 font-normal">
+                {narration.master ? masterOptions.find((o) => o.id === narration.master)?.label : <>&rarr;</>}
+              </span>
+            </button>
+            {masterOpen && (
+              <div className="absolute left-full top-0 min-w-56 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded">
+                <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-logic-text-muted">Volume da master</div>
+                {masterOptions.map((o) => (
+                  <button
+                    key={o.id}
+                    className={`w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-amber-500 hover:text-black transition-colors duration-75 ${narration.master === o.id ? 'text-amber-300' : ''}`}
+                    onClick={() => master(o.id)}
+                  >
+                    <span className="font-semibold">{o.label}</span>
+                    <span className="text-[10px] opacity-75 tabular-nums">{o.hint}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {narration.master && (
+            <button
+              className={item}
+              disabled={!engine || !narration.text.trim()}
+              title="Gera a voz de novo, sem masterização"
+              onClick={() => {
+                onClose();
+                updateNarration(song.id, narration.id, { master: undefined });
+                void generateNarration(song.id, narration.id).catch(() => {});
+              }}
+            >
+              <span>Tirar a masterização</span>
+            </button>
+          )}
+          {dawMode && (
+            <>
+              {normalizeOpen ? (
+                <form
+                  className="px-3 py-1.5 flex items-center gap-1.5"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const db = parseFloat(normalizeDb.replace(',', '.'));
+                    if (Number.isFinite(db)) normalizeClip(clip.id, Math.min(0, db));
+                    onClose();
+                  }}
+                >
+                  <span className="text-logic-text-dim whitespace-nowrap">Pico em</span>
+                  <input
+                    autoFocus
+                    type="text"
+                    inputMode="decimal"
+                    value={normalizeDb}
+                    onChange={(e) => setNormalizeDb(e.target.value)}
+                    className="w-14 bg-logic-bg-deep border border-logic-border-light rounded px-1.5 py-0.5 text-right outline-none focus:border-logic-accent"
+                  />
+                  <span className="text-logic-text-dim">dB</span>
+                  <button type="submit" className="ml-1 px-2 py-0.5 rounded bg-logic-accent text-white hover:brightness-110 transition">OK</button>
+                </form>
+              ) : (
+                <button className={item} onClick={() => setNormalizeOpen(true)}>
+                  <span>Normalizar…</span>
+                </button>
+              )}
+              {/* Volume da fala, de 1 em 1 dB (o mesmo ganho do botão giratório dos outros áudios) */}
+              <div className="flex items-center justify-between gap-3 px-3 py-1">
+                <span>Volume</span>
+                <div className="flex items-center gap-1">
+                  <button className={keyCls} onClick={() => setClipGain(clip.id, Math.pow(10, (gainDb - 1) / 20))} title="Baixar 1 dB">−</button>
+                  <button
+                    className="console-readout console-glow text-logic-lcd-green min-w-[46px]"
+                    onClick={() => setClipGain(clip.id, 1)}
+                    title="Clique: volta para 0 dB"
+                  >
+                    {`${gainDb > 0.05 ? '+' : ''}${gainDb.toFixed(1)} dB`}
+                  </button>
+                  <button className={keyCls} onClick={() => setClipGain(clip.id, Math.pow(10, (gainDb + 1) / 20))} title="Subir 1 dB">+</button>
+                </div>
+              </div>
+              <button className={item} onClick={() => { onClose(); toggleClipMute(clip.id); }}>
+                <span>{clip.mute ? 'Voltar o som da fala' : 'Silenciar a fala'}</span>
+                {clip.mute && <span className="text-[10px] text-logic-lcd-amber">muda</span>}
+              </button>
+            </>
+          )}
+        </>
+      )}
       <div className="h-px bg-logic-border-dark my-1" />
       <button className={`${item} text-logic-lcd-red`} onClick={() => { onClose(); removeNarration(song.id, narration.id); }}>
         <span>Apagar marcação</span>

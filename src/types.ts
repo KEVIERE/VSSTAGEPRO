@@ -91,6 +91,8 @@ export interface MaestroNarration {
   rate?: number;
   /** Aviso da última geração (ex.: a voz pedida não está instalada e outra foi usada). */
   note?: string;
+  /** Masterização escolhida para o áudio desta fala: aplicada de novo sempre que a voz é regerada. */
+  master?: 'manter' | 'equilibrado' | 'show' | 'streaming';
   /**
    * Velocidade fixa da voz (1 = natural), usada na contagem: a fala não estica para preencher a
    * marcação, só acelera se não couber. Sem valor, o tamanho da marcação define a velocidade.
