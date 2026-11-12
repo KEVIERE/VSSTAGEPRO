@@ -98,6 +98,8 @@ export interface PadsState {
   /** Volume geral dos pads (padrão dos faders). */
   master: number;
   message: { ok: boolean; text: string } | null;
+  /** Atraso medido da saída dos pads, em milissegundos (null antes de abrir a saída). */
+  latencyMs: number | null;
 }
 
 const BANK_KEY = 'vsstage.pads.bank';
@@ -120,6 +122,7 @@ let state: PadsState = {
   loading: new Set(),
   master: stored(MASTER_KEY, 0.8, (v) => v >= 0 && v <= 1.5),
   message: null,
+  latencyMs: null,
 };
 const listeners = new Set<() => void>();
 

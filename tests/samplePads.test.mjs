@@ -107,11 +107,18 @@ test('as teclas 1 a 9 saíram das partes da música; pular a parte agora é N', 
   assert.doesNotMatch(read('components', 'sales', 'PricingPage.tsx'), /teclas 1-9/);
 });
 
-test('o som dos pads sai pelo master do programa e fica guardado num banco próprio', () => {
+test('pads com atraso mínimo: saída própria na mesma placa, seguindo o fader master', () => {
   const player = read('lib', 'padPlayer.ts');
-  assert.match(player, /gain\.connect\(audioEngine\.getMasterInput\(\)\);/);
+  assert.match(player, /new AudioContext\(\{ latencyHint: 0 \}\)/, 'o menor bloco de áudio que o sistema aceita');
+  assert.doesNotMatch(player, /getMasterInput/, 'não passa pelo motor das músicas (blocos grandes do modo estável e limitador)');
+  assert.match(player, /const sink = audioEngine\.getOutputSinkId\(\);/, 'mesma placa das músicas');
+  assert.match(player, /setSinkId\(sink\)/);
+  assert.match(player, /faderToGain\(useStore\.getState\(\)\.masterVolume\) \* faderToGain\(getPadsState\(\)\.master\)/, 'o fader master vale para os pads');
   assert.match(player, /if \(info\.loop\) return; \/\/ loop: apertar de novo para/);
   assert.match(player, /buffer\.duration > MAX_PAD_SECONDS/, 'sons de até 3 minutos');
-  assert.match(read('lib', 'audioEngine.ts'), /getMasterInput\(\): AudioNode \{/);
+  assert.match(read('lib', 'audioEngine.ts'), /getOutputSinkId\(\): string \{/);
+  const panel = read('components', 'SamplePadPanel.tsx');
+  assert.match(panel, /useEffect\(\(\) => \{ if \(visible\) openPadOutput\(\); \}, \[visible\]\);/, 'a saída abre junto com o painel');
+  assert.match(panel, /onPointerDown=/, 'o pad toca ao apertar, sem esperar soltar o botão');
   assert.match(read('lib', 'padStorage.ts'), /const DB_NAME = 'vs-stage-pads';/, 'não mexe no banco dos projetos');
 });

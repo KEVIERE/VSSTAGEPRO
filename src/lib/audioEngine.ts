@@ -577,12 +577,11 @@ class AudioEngine {
   }
 
   /**
-   * Entrada do master (fader geral, limitador e saídas 1-2): os pads do Modo Show tocam por aqui,
-   * no mesmo caminho das músicas.
+   * Placa de saída em uso ('' = a padrão do sistema). Os pads do Modo Show tocam na mesma placa,
+   * com um contexto de áudio próprio de atraso mínimo.
    */
-  getMasterInput(): AudioNode {
-    this.getContext();
-    return this.masterGain!;
+  getOutputSinkId(): string {
+    return this.sinkId ?? this.defaultSinkId ?? '';
   }
 
   // Trocar o tamanho do bloco exige recriar o motor de áudio; só é feito com o play parado.

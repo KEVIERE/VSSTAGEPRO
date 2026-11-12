@@ -1,10 +1,14 @@
-// Toca os pads do Modo Show. O som sai pelo master do programa (fader geral, limitador e as
-// mesmas saídas das músicas), passando pelo volume geral dos pads e pelo volume de cada pad.
+// Toca os pads do Modo Show. Atraso mínimo: os pads têm o próprio contexto de áudio, com o menor
+// bloco que o Mac aceita, na mesma placa de saída das músicas (saídas 1-2). O motor das músicas
+// usa blocos grandes de propósito (modo estável, para não estalar no show) e o limitador do
+// master olha o som alguns milissegundos antes de soltar: pelo caminho dele o pad saía atrasado.
+// O volume segue o fader master do programa, o volume geral dos pads e o de cada pad.
 // Apertar um pad que está tocando: sem loop, recomeça do início; com loop, para.
 
 import { audioEngine } from '@/lib/audioEngine';
 import { decodeBlob } from '@/lib/audioDecoder';
 import { faderToGain } from '@/lib/faderScale';
+import { useStore } from '@/store';
 import { deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
 import {
   MAX_PAD_SECONDS, PAD_COUNT, getPadsState, newPadInfo, padFileProblem, padSlot, setPadsState, slotBank, withItem,
@@ -13,20 +17,58 @@ import {
 
 const buffers = new Map<number, AudioBuffer>();
 const voices = new Map<number, { src: AudioBufferSourceNode; gain: GainNode }>();
-let bus: { ctx: AudioContext; gain: GainNode } | null = null;
+let bus: { ctx: AudioContext; gain: GainNode; sink: string | null } | null = null;
 let loaded: Promise<void> | null = null;
 
-/** Saída dos pads; refeita se o motor de áudio trocar de contexto (Modo estável liga/desliga). */
-function padBus(): { ctx: AudioContext; gain: GainNode } {
-  const ctx = audioEngine.getContext();
-  if (!bus || bus.ctx !== ctx) {
+/** Volume da saída dos pads: fader master do programa × volume geral dos pads. */
+function busGain(): number {
+  return faderToGain(useStore.getState().masterVolume) * faderToGain(getPadsState().master);
+}
+
+/**
+ * Saída dos pads: contexto próprio com o menor atraso possível (latencyHint 0), na placa em uso.
+ * Abre quando o painel dos pads abre, para o primeiro toque já sair sem espera.
+ */
+export function openPadOutput(): { ctx: AudioContext; gain: GainNode } {
+  if (!bus || bus.ctx.state === 'closed') {
+    const ctx = new AudioContext({ latencyHint: 0 });
     const gain = ctx.createGain();
-    gain.gain.value = faderToGain(getPadsState().master);
-    gain.connect(audioEngine.getMasterInput());
-    bus = { ctx, gain };
+    gain.gain.value = busGain();
+    gain.connect(ctx.destination);
+    bus = { ctx, gain, sink: null };
     voices.clear();
   }
+  const sink = audioEngine.getOutputSinkId();
+  if (bus.sink !== sink && 'setSinkId' in bus.ctx) {
+    bus.sink = sink;
+    const ctx = bus.ctx;
+    void (ctx as unknown as { setSinkId: (id: string) => Promise<void> }).setSinkId(sink)
+      .catch(() => { /* placa indisponível: fica na saída padrão */ })
+      .finally(() => reportLatency(ctx));
+  }
+  // o atraso da saída (placa e sistema) só aparece depois que o som começa a correr
+  const ctx = bus.ctx;
+  void ctx.resume().then(() => {
+    reportLatency(ctx);
+    setTimeout(() => reportLatency(ctx), 500);
+  });
   return bus;
+}
+
+function reportLatency(ctx: AudioContext) {
+  const out = (ctx as AudioContext & { outputLatency?: number }).outputLatency ?? 0;
+  const ms = Math.round((ctx.baseLatency + out) * 10000) / 10;
+  if (ms !== getPadsState().latencyMs) setPadsState({ latencyMs: ms });
+}
+
+// o fader master do programa vale também para os pads
+useStore.subscribe((s, prev) => {
+  if (s.masterVolume === prev.masterVolume || !bus) return;
+  bus.gain.gain.setTargetAtTime(busGain(), bus.ctx.currentTime, 0.01);
+});
+
+function padBus(): { ctx: AudioContext; gain: GainNode } {
+  return bus && bus.ctx.state !== 'closed' && bus.sink === audioEngine.getOutputSinkId() ? bus : openPadOutput();
 }
 
 function say(ok: boolean, text: string) {
@@ -89,7 +131,7 @@ export function triggerPad(slot: number): void {
     if (info.loop) return; // loop: apertar de novo para
   }
   const { ctx, gain: out } = padBus();
-  void ctx.resume();
+  if (ctx.state !== 'running') void ctx.resume();
   const src = ctx.createBufferSource();
   src.buffer = buffer;
   src.loop = info.loop;
@@ -113,7 +155,7 @@ export function stopAllPads(): void {
 
 export function setPadsMaster(volume: number): void {
   setPadsState({ master: volume });
-  if (bus) bus.gain.gain.setTargetAtTime(faderToGain(volume), bus.ctx.currentTime, 0.01);
+  if (bus) bus.gain.gain.setTargetAtTime(busGain(), bus.ctx.currentTime, 0.01);
 }
 
 /** Muda nome, cor, volume ou loop do pad (o volume vale na hora para o som que está tocando). */

@@ -6,7 +6,7 @@ import MixerPanel from '@/components/MixerPanel';
 import { useStore } from '@/store';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, importPadFile, loadPads, selectBank, setPadsMaster, stopAllPads, triggerPad, updatePad,
+  clearPad, importPadFile, loadPads, openPadOutput, selectBank, setPadsMaster, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
   BANK_COUNT, BANK_LABELS, PAD_COLORS, PAD_COUNT, bankCounts, dropTargets, formatPadTime, getPadsState, padForKey,
@@ -25,6 +25,8 @@ export function PadsOrMixer() {
   const visible = useSyncExternalStore(subscribePads, () => getPadsState().visible);
 
   useEffect(() => { void loadPads(); }, []);
+  // abre a saída dos pads junto com o painel: o primeiro toque já sai sem espera
+  useEffect(() => { if (visible) openPadOutput(); }, [visible]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -97,6 +99,11 @@ function SamplePadPanel() {
         <span className="font-stage text-[13px] font-semibold tracking-wide text-logic-text-dim">Pads</span>
         <span className="console-readout text-logic-lcd-amber !min-w-0 px-1.5" title="Banco aberto">BANCO {BANK_LABELS[st.bank]}</span>
         <span className="console-legend hidden md:inline">TECLAS 1 A 9</span>
+        {st.latencyMs !== null && (
+          <span className="console-readout text-logic-lcd-green !min-w-0 px-1.5" title="Atraso da saída dos pads, do toque até a placa de áudio">
+            {st.latencyMs.toLocaleString('pt-BR')} ms
+          </span>
+        )}
         <span className="flex-1" />
         <span className="console-legend">VOLUME</span>
         <MiniFader value={st.master} onChange={setPadsMaster} onReset={() => setPadsMaster(0.8)} width={84} height={14} tone="cue" />
