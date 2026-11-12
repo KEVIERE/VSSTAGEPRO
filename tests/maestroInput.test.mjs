@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  inputConstraints, inputLabel, pickDevice, saveMaestroInput, savedMaestroInput, usableChannel,
+  inputConstraints, inputLabel, meterBallistics, peakOf, pickDevice, saveMaestroInput, savedMaestroInput, usableChannel,
 } from '../src/lib/maestroInput.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -82,4 +82,35 @@ test('o menu da entrada fica por cima da tela, sem ser cortado pela coluna das f
   assert.match(menu, /document\.body,/);
   assert.match(menu, /aria-label="Canal da placa"/, 'escolhe o canal da placa');
   assert.match(menu, /<LedMeterH id="input-maestro"/, 'mostra o sinal do canal escolhido');
+});
+
+test('medidor do mic: sobe na hora e desce devagar, como os do mixer', () => {
+  assert.equal(meterBallistics(0.1, 0.8, 0.033), 0.8, 'sobe na hora até o pico');
+  const after = meterBallistics(1, 0, 0.1);
+  assert.ok(Math.abs(20 * Math.log10(after) + 2.4) < 1e-9, 'desce 24 dB por segundo (2,4 dB em 0,1 s)');
+  assert.equal(meterBallistics(1, 0, 5), meterBallistics(1, 0, 0.1), 'pausa longa não derruba de uma vez');
+  assert.equal(peakOf(Float32Array.from([0.125, -0.75, 0.25])), 0.75);
+});
+
+test('medidor do mic não treme com a voz oscilando entre quadros', () => {
+  // pico do instante alternando entre forte e fraco a cada quadro (o que fazia o medidor tremer)
+  let level = 0;
+  const shown = [];
+  for (let k = 0; k < 30; k++) {
+    level = meterBallistics(level, k % 2 === 0 ? 0.5 : 0.05, 0.033);
+    shown.push(level);
+  }
+  const db = shown.slice(2).map((v) => 20 * Math.log10(v));
+  assert.ok(Math.max(...db) - Math.min(...db) < 1, `varia menos de 1 dB (antes pulava 20 dB): ${(Math.max(...db) - Math.min(...db)).toFixed(2)} dB`);
+});
+
+test('o medidor do mic lê a janela dos medidores do mixer, sem exagero', () => {
+  const rec = read('lib', 'audioRecorder.ts');
+  assert.match(rec, /analyser\.fftSize = 2048;/);
+  assert.match(rec, /getFloatTimeDomainData\(data\)/);
+  assert.match(rec, /level = meterBallistics\(level, peakOf\(data\), \(now - last\) \/ 1000\);/);
+  assert.doesNotMatch(rec, /peak \* 1\.6/, 'sem multiplicar o sinal');
+  assert.doesNotMatch(rec, /getByteTimeDomainData/);
+  const panel = read('components', 'TimelinePanel.tsx');
+  assert.match(panel, /const level = db <= -48 \? 0 : Math\.min\(1, \(db \+ 48\) \/ 48\);/, 'o VU pequeno usa a escala em dB do mixer');
 });

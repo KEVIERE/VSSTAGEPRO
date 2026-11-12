@@ -6,7 +6,9 @@ import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
 import { generateMarkers } from '@/lib/audioDecoder';
 import { publishMeters } from '@/lib/meterBus';
-import { inputConstraints, inputLabel, usableChannel, type InputAudioDevice, type MaestroInput } from '@/lib/maestroInput';
+import {
+  inputConstraints, inputLabel, meterBallistics, peakOf, usableChannel, type InputAudioDevice, type MaestroInput,
+} from '@/lib/maestroInput';
 
 export type { InputAudioDevice, MaestroInput } from '@/lib/maestroInput';
 
@@ -91,9 +93,9 @@ class AudioRecorder {
       source.connect(splitter);
       const pick = ctx.createGain();
       splitter.connect(pick, usableChannel(input.channel, channels));
+      // janela de 2048 amostras (~43 ms), a mesma dos medidores do mixer
       const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.5;
+      analyser.fftSize = 2048;
       pick.connect(analyser);
       const dest = ctx.createMediaStreamDestination();
       dest.channelCount = 1;
@@ -135,16 +137,23 @@ class AudioRecorder {
   async startMonitoring(input: MaestroInput): Promise<number> {
     await this.open(input);
     if (this.animFrameId === null && this.analyser) {
-      const data = new Uint8Array(this.analyser.frequencyBinCount);
-      const update = () => {
+      // mesmo padrão dos medidores do mixer: ~30 vezes por segundo, sobe na hora e desce devagar
+      const data = new Float32Array(this.analyser.fftSize);
+      let level = 0;
+      let last = performance.now();
+      let lastPublish = 0;
+      const update = (now: number) => {
         if (!this.analyser) { this.animFrameId = null; return; }
-        this.analyser.getByteTimeDomainData(data);
-        let peak = 0;
-        for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs((data[i] - 128) / 128));
-        publishMeters(new Map([['input-maestro', Math.min(1, peak * 1.6)]]));
+        if (now - lastPublish >= 33) {
+          this.analyser.getFloatTimeDomainData(data);
+          level = meterBallistics(level, peakOf(data), (now - last) / 1000);
+          last = now;
+          lastPublish = now;
+          publishMeters(new Map([['input-maestro', level]]));
+        }
         this.animFrameId = requestAnimationFrame(update);
       };
-      update();
+      this.animFrameId = requestAnimationFrame(update);
     }
     return this.channels;
   }

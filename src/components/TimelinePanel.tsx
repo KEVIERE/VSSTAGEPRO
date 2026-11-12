@@ -50,7 +50,10 @@ type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: numb
 
 /** Medidor VU de LEDs estilo DAW profissional (Logic Pro / Pro Tools) para a entrada da placa */
 function InputVuMeter({ trackHeight = 40 }: { trackHeight?: number }) {
-  const level = useMeterLevel('input-maestro');
+  // mesma escala dos medidores do mixer: de -48 dB (apagado) a 0 dB (tudo aceso)
+  const amp = useMeterLevel('input-maestro');
+  const db = amp > 0 ? 20 * Math.log10(amp) : -Infinity;
+  const level = db <= -48 ? 0 : Math.min(1, (db + 48) / 48);
   const isLarge = trackHeight > 55;
   const isExtraLarge = trackHeight > 75;
   const count = isExtraLarge ? 14 : isLarge ? 11 : 8;

@@ -65,3 +65,23 @@ export function pickDevice(saved: string, devices: InputAudioDevice[]): string {
   if (devices.some((d) => d.deviceId === saved)) return saved;
   return devices[0]?.deviceId ?? '';
 }
+
+/**
+ * Medidor da entrada no mesmo padrão dos medidores do mixer (audioEngine.getMeterLevel): sobe na
+ * hora até o pico e desce devagar, 24 dB por segundo. Sem isso o medidor pulava a cada quadro
+ * para o pico do instante e ficava tremendo.
+ */
+export function meterBallistics(prev: number, peak: number, elapsedSec: number): number {
+  const released = prev * Math.pow(10, (-24 * Math.min(0.1, Math.max(0, elapsedSec))) / 20);
+  return Math.max(peak, released);
+}
+
+/** Maior valor absoluto do trecho. */
+export function peakOf(data: Float32Array): number {
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) {
+    const v = Math.abs(data[i]);
+    if (v > peak) peak = v;
+  }
+  return peak;
+}
