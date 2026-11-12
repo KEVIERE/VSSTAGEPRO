@@ -1,7 +1,7 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Folder, FolderOpen, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
 import SaveCancelButton from '@/components/SaveCancelButton';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { cancelImport } from '@/lib/importManager';
@@ -21,6 +21,8 @@ import NarrationDialog from '@/components/NarrationDialog';
 import CountInDialog, { type CountInTarget } from '@/components/CountInDialog';
 import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
 import { ClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
+import MiniFader from '@/components/MiniFader';
+import { LedMeterH } from '@/components/MeterMask';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
 import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
@@ -110,13 +112,14 @@ function LiveRecordingTrackBlock({ startTime, zoomH }: { startTime: number; zoom
   );
 }
 
-function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu }: {
+function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu, groupColor, isLastChild }: {
   childId: string; depth: number; expanded: boolean; onToggle: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
+  groupColor?: string; isLastChild?: boolean;
 }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === childId));
   if (!track) return null;
-  return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} />;
+  return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} groupColor={groupColor} isLastChild={isLastChild} />;
 }
 
 // Alça fina no topo/fim de uma faixa: por padrão arrasta a altura de TODAS as faixas de
@@ -238,14 +241,20 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
   );
 }
 
-function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }: {
+function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, groupColor, isLastChild }: {
   track: Track; depth?: number; expanded?: boolean; onToggle?: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
+  /** Cor da faixa mãe (faixas de dentro de um multigrupo) */
+  groupColor?: string;
+  /** Última faixa de dentro do multigrupo: a guia termina nela */
+  isLastChild?: boolean;
 }) {
   const selectedTrackId = useStore((s) => s.selectedTrackId);
   const selectTrack = useStore((s) => s.selectTrack);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
+  const setVolume = useStore((s) => s.setVolume);
+  const headerWidth = useStore((s) => s.trackHeaderWidth);
   const zoomV = useStore((s) => s.zoomV);
   const childClipCount = useStore((s) => {
     if (!track.isSubgroup) return 0;
@@ -350,137 +359,206 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu }
   const isSelected = selectedTrackId === track.id;
   const trackHeight = Math.round((track.height ?? 40) * zoomV);
   const isFolder = track.isSubgroup;
+  // Faixa de dentro de um multigrupo: visual simples, preso à faixa mãe por uma guia na cor dela.
+  const isChild = depth > 0;
+  // Linha baixa (zoom vertical pequeno): some o medidor e as teclas encolhem.
+  const compact = trackHeight < 30;
 
+  const onRowContextMenu = (e: React.MouseEvent) => {
+    if (onContextMenu) {
+      e.preventDefault();
+      e.stopPropagation();
+      onContextMenu(e, track);
+    }
+  };
+  const rowTitle = isFolder ? 'Pasta: clique direito para renomear, mudar cor ou opções' : 'Faixa: clique direito para renomear, mudar cor, rotear saída ou mover para pasta';
+
+  // REC, entrada da placa e VU da faixa Maestro (mesmas teclas de borracha do mixer)
+  const maestroControls = isMaestro && (
+    <div className="flex items-center gap-[3px] relative shrink-0" ref={inputMenuRef}>
+      <button
+        type="button"
+        className={`console-key w-[18px] ${compact ? 'h-4' : 'h-[18px]'} flex items-center justify-center leading-none ${
+          isRecording ? 'is-lit-red animate-pulse' : 'text-[#ff4136]/80 hover:!text-[#ff4136]'
+        }`}
+        onClick={handleToggleRec}
+        title={isRecording ? 'Gravando voz do Maestro: clique para parar e salvar' : 'Gravar áudio na faixa Maestro (REC)'}
+      >
+        <span className="text-[10px] leading-none">●</span>
+      </button>
+      <button
+        type="button"
+        className={`console-key w-[18px] ${compact ? 'h-4' : 'h-[18px]'} flex items-center justify-center ${showInputMenu ? 'is-lit-blue' : ''}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowInputMenu(!showInputMenu);
+        }}
+        title="Selecionar entrada da placa de áudio (Input)"
+      >
+        <Mic size={10} />
+      </button>
+      {showInputMenu && (
+        <div
+          className="fixed mt-1 z-[999] py-1 bg-[#161720]/95 backdrop-blur-xl border border-white/20 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.85)] text-2xs min-w-[240px] max-w-[320px] animate-[fadeIn_100ms_ease-out]"
+          style={{
+            top: inputMenuRef.current ? inputMenuRef.current.getBoundingClientRect().bottom + 4 : undefined,
+            left: inputMenuRef.current ? Math.min(window.innerWidth - 320, Math.max(10, inputMenuRef.current.getBoundingClientRect().left)) : undefined,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-3 py-1.5 text-logic-text-muted font-bold border-b border-white/10 uppercase tracking-wider text-[9px] flex items-center justify-between">
+            <span>Entrada da Placa de Áudio</span>
+            <span className="text-[8px] px-1 py-0.2 rounded bg-white/10 text-zinc-300">INPUT</span>
+          </div>
+          {inputDevices.length === 0 ? (
+            <div className="px-3 py-2 text-logic-text-dim text-[11px]">
+              Nenhuma entrada de áudio detectada
+            </div>
+          ) : (
+            inputDevices.map((d) => (
+              <button
+                key={d.deviceId}
+                type="button"
+                className={`w-full px-3 py-1.5 text-left truncate flex items-center justify-between hover:bg-white/10 transition ${
+                  (selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId))
+                    ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
+                    : 'text-white'
+                }`}
+                onClick={() => {
+                  setSelectedInputId(d.deviceId);
+                  setShowInputMenu(false);
+                }}
+              >
+                <span className="truncate">{d.label}</span>
+                {(selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId)) && (
+                  <Check size={12} className="text-logic-lcd-green shrink-0 ml-1.5" />
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      {isRecording && <InputVuMeter trackHeight={trackHeight} />}
+    </div>
+  );
+
+  if (isChild) {
+    return (
+      <div
+        data-selectable="track"
+        className={`console-row-child group relative flex items-center gap-1.5 pr-1.5 cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
+        style={{ paddingLeft: `${10 + depth * 16}px`, height: `${trackHeight}px` }}
+        onClick={() => selectTrack(track.id)}
+        onContextMenu={onRowContextMenu}
+        title={rowTitle}
+      >
+        <TrackHeightHandle trackId={track.id} edge="top" />
+        <TrackHeightHandle trackId={track.id} edge="bottom" />
+        {/* Guia do grupo: desce da tecla da faixa mãe e faz um "L" na última faixa de dentro */}
+        <span
+          className="absolute top-0 w-[2px] pointer-events-none"
+          style={{ left: `${depth * 16 - 1}px`, bottom: isLastChild ? '50%' : 0, backgroundColor: groupColor ?? track.color, opacity: 0.6 }}
+        />
+        <span
+          className="absolute h-[2px] w-[7px] pointer-events-none"
+          style={{ left: `${depth * 16 - 1}px`, top: 'calc(50% - 1px)', backgroundColor: groupColor ?? track.color, opacity: 0.6 }}
+        />
+        <span
+          className="w-1.5 h-1.5 rounded-full shrink-0"
+          style={{ backgroundColor: track.color, boxShadow: `0 0 4px ${track.color}80` }}
+        />
+        <span className={`text-[11px] flex-1 min-w-0 truncate ${isSelected ? 'text-white' : 'text-logic-text/80'}`}>
+          {track.name}
+        </span>
+        {maestroControls}
+        <div className="flex items-center gap-[3px] shrink-0">
+          <button
+            className={`console-flatkey w-[18px] h-[15px] text-[10px] leading-none ${track.mute ? 'is-lit-amber' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+            aria-pressed={track.mute}
+            title={track.mute ? 'Faixa muda: clique para voltar' : 'Silenciar a faixa'}
+          >M</button>
+          <button
+            className={`console-flatkey w-[18px] h-[15px] text-[10px] leading-none ${track.solo ? 'is-lit-amber' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+            aria-pressed={track.solo}
+            title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só esta faixa (solo)'}
+          >S</button>
+        </div>
+      </div>
+    );
+  }
+
+  // Faixa mãe (multigrupo, ou canal de topo como Guia, Click e Maestro): um canal do mixer
+  // deitado, com a fita crepe do nome, o fader, o medidor de LED e as teclas M e S.
+  // O fader some quando a coluna está estreita (o Maestro precisa de mais espaço por causa do REC).
+  const showFader = headerWidth >= (isMaestro ? 240 : 170);
   return (
     <div
       data-selectable="track"
-      className={`group relative flex items-center border-b border-logic-border-dark cursor-pointer transition-colors duration-75 bg-[#1e1e24]
-        ${isSelected ? '!bg-logic-accent-dim' : isFolder ? '!bg-[#141418] hover:!bg-[#222228]' : 'hover:!bg-[#282830]'}`}
-      style={{ paddingLeft: `${8 + depth * 16}px`, height: `${trackHeight}px` }}
+      className={`console-row group relative flex items-center gap-1 pl-2 pr-1.5 cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
+      style={{ height: `${trackHeight}px` }}
       onClick={() => selectTrack(track.id)}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
-      onContextMenu={(e) => {
-        if (onContextMenu) {
-          e.preventDefault();
-          e.stopPropagation();
-          onContextMenu(e, track);
-        }
-      }}
-      title={isFolder ? 'Pasta: clique direito para renomear, mudar cor ou opções' : 'Faixa: clique direito para renomear, mudar cor, rotear saída ou mover para pasta'}
+      onContextMenu={onRowContextMenu}
+      title={rowTitle}
     >
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="top" />}
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="bottom" />}
+      {/* Cor da faixa: friso na borda esquerda */}
+      <span className="absolute left-0 top-0 bottom-0 w-[3px] pointer-events-none" style={{ backgroundColor: track.color }} />
+
       {isFolder ? (
         <button
-          className="mr-1 text-logic-text-muted hover:text-logic-text flex items-center"
+          className="console-key w-4 h-4 shrink-0 flex items-center justify-center"
           onClick={(e) => { e.stopPropagation(); onToggle?.(); }}
           aria-label={expanded ? 'Recolher pasta' : 'Expandir pasta'}
+          title={expanded ? 'Recolher as faixas de dentro' : 'Mostrar as faixas de dentro'}
         >
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </button>
       ) : (
-        <span className="w-4" />
+        <span className="w-4 shrink-0" />
       )}
 
-      {isFolder ? (
-        <span className="mr-1.5 flex items-center" style={{ color: track.color }}>
-          {expanded ? <FolderOpen size={13} /> : <Folder size={13} />}
-        </span>
-      ) : (
-        <div
-          className="w-1 h-6 rounded-sm mr-2 flex-shrink-0"
-          style={{ backgroundColor: track.color }}
-        />
-      )}
-
-      <span className={`text-xs flex-1 truncate ${isSelected ? 'text-white' : isFolder ? 'text-logic-text font-medium uppercase tracking-wide' : 'text-logic-text'}`}>
-        {track.name}
+      {/* Nome na fita crepe, como no mixer */}
+      <div className={`console-tape flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`}>
+        <span className="truncate uppercase">{track.name}</span>
         {isFolder && (
-          <span className="ml-1.5 text-2xs text-logic-text-muted font-normal normal-case tracking-normal">
-            ({childClipCount})
+          <span className="ml-auto shrink-0 opacity-50 tabular-nums text-[9.5px]" title={`${childClipCount} áudio(s) nas faixas de dentro`}>
+            {childClipCount}
           </span>
         )}
-      </span>
+      </div>
 
-      <div className="flex items-center gap-1 mr-1">
-        {isMaestro && (
-          <div className="flex items-center gap-1 relative" ref={inputMenuRef}>
-            <button
-              type="button"
-              className={`w-5 h-5 rounded flex items-center justify-center font-bold text-xs transition-all ${
-                isRecording
-                  ? 'bg-logic-lcd-red text-white animate-pulse shadow-[0_0_8px_rgba(255,69,58,0.9)]'
-                  : 'bg-logic-bg-deep text-logic-text-muted hover:text-logic-lcd-red hover:bg-logic-lcd-red/10'
-              }`}
-              onClick={handleToggleRec}
-              title={isRecording ? 'Gravando voz do Maestro: clique para parar e salvar' : 'Gravar áudio na faixa Maestro (REC)'}
-            >
-              <span className="text-[11px] leading-none">●</span>
-            </button>
-            <button
-              type="button"
-              className={`w-5 h-5 rounded flex items-center justify-center transition-colors ${
-                showInputMenu ? 'bg-logic-accent text-white' : 'bg-logic-bg-deep text-logic-text-muted hover:text-white'
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowInputMenu(!showInputMenu);
-              }}
-              title="Selecionar entrada da placa de áudio (Input)"
-            >
-              <Mic size={11} />
-            </button>
-            {showInputMenu && (
-              <div
-                className="fixed mt-1 z-[999] py-1 bg-[#161720]/95 backdrop-blur-xl border border-white/20 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.85)] text-2xs min-w-[240px] max-w-[320px] animate-[fadeIn_100ms_ease-out]"
-                style={{
-                  top: inputMenuRef.current ? inputMenuRef.current.getBoundingClientRect().bottom + 4 : undefined,
-                  left: inputMenuRef.current ? Math.min(window.innerWidth - 320, Math.max(10, inputMenuRef.current.getBoundingClientRect().left)) : undefined,
-                }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="px-3 py-1.5 text-logic-text-muted font-bold border-b border-white/10 uppercase tracking-wider text-[9px] flex items-center justify-between">
-                  <span>Entrada da Placa de Áudio</span>
-                  <span className="text-[8px] px-1 py-0.2 rounded bg-white/10 text-zinc-300">INPUT</span>
-                </div>
-                {inputDevices.length === 0 ? (
-                  <div className="px-3 py-2 text-logic-text-dim text-[11px]">
-                    Nenhuma entrada de áudio detectada
-                  </div>
-                ) : (
-                  inputDevices.map((d) => (
-                    <button
-                      key={d.deviceId}
-                      type="button"
-                      className={`w-full px-3 py-1.5 text-left truncate flex items-center justify-between hover:bg-white/10 transition ${
-                        (selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId))
-                          ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
-                          : 'text-white'
-                      }`}
-                      onClick={() => {
-                        setSelectedInputId(d.deviceId);
-                        setShowInputMenu(false);
-                      }}
-                    >
-                      <span className="truncate">{d.label}</span>
-                      {(selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId)) && (
-                        <Check size={12} className="text-logic-lcd-green shrink-0 ml-1.5" />
-                      )}
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-            {isMaestro && isRecording && <InputVuMeter trackHeight={trackHeight} />}
-          </div>
-        )}
+      {maestroControls}
+
+      {showFader && (
+        <div className="flex flex-col gap-[3px] shrink-0">
+          <MiniFader
+            value={track.volume}
+            onChange={(v) => setVolume(track.id, v)}
+            onReset={() => setVolume(track.id, 0.8)}
+            width={44}
+            height={compact ? 12 : 14}
+            tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
+          />
+          {!compact && <LedMeterH id={track.id} off={track.mute} width={44} title="Nível do sinal deste canal" />}
+        </div>
+      )}
+
+      <div className="flex items-center gap-[3px] shrink-0">
         <button
-          className={`w-6 h-5 text-2xs font-bold rounded transition-colors duration-75 ${track.mute ? 'bg-logic-lcd-amber text-black' : 'bg-logic-bg-deep text-logic-text-muted hover:text-logic-text'}`}
+          className={`console-key ${compact ? 'w-5 h-4 text-[10px]' : 'w-[22px] h-[18px] text-[11px]'} leading-none ${track.mute ? 'is-lit-amber' : ''}`}
           onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+          aria-pressed={track.mute}
+          title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
         >M</button>
         <button
-          className={`w-6 h-5 text-2xs font-bold rounded transition-colors duration-75 ${track.solo ? 'bg-logic-lcd-amber text-black' : 'bg-logic-bg-deep text-logic-text-muted hover:text-logic-text'}`}
+          className={`console-key ${compact ? 'w-5 h-4 text-[10px]' : 'w-[22px] h-[18px] text-[11px]'} leading-none ${track.solo ? 'is-lit-amber' : ''}`}
           onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+          aria-pressed={track.solo}
+          title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
         >S</button>
       </div>
     </div>
@@ -496,8 +574,17 @@ function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
   return (
     <>
       <TrackRow track={track} depth={0} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} />
-      {expanded && track.children.map((childId) => (
-        <ChildTrackRow key={childId} childId={childId} depth={1} expanded={true} onToggle={() => {}} onContextMenu={onContextMenu} />
+      {expanded && track.children.map((childId, i) => (
+        <ChildTrackRow
+          key={childId}
+          childId={childId}
+          depth={1}
+          expanded={true}
+          onToggle={() => {}}
+          onContextMenu={onContextMenu}
+          groupColor={track.color}
+          isLastChild={i === track.children.length - 1}
+        />
       ))}
     </>
   );

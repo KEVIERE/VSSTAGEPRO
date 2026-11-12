@@ -1,10 +1,12 @@
 import { useMeterLevel } from '@/lib/meterBus';
 
-export default function MeterMask({ id, className }: { id: string; className: string }) {
+export default function MeterMask({ id, className, horizontal = false }: { id: string; className: string; horizontal?: boolean }) {
   const level = useMeterLevel(id);
   const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
   const meterPct = db <= -48 ? 0 : Math.min(100, ((db + 48) / 48) * 100);
   if (meterPct >= 100) return null;
+  // Deitado (coluna das faixas da timeline): a parte apagada fica à direita.
+  if (horizontal) return <div className={`absolute top-0 bottom-0 right-0 ${className}`} style={{ width: `${100 - meterPct}%` }} />;
   return <div className={`absolute top-0 left-0 right-0 ${className}`} style={{ height: `${100 - meterPct}%` }} />;
 }
 
@@ -35,6 +37,26 @@ export function LedMeter({ id, off, clipping, onClick, title, height = 120, smoo
           style={{ background: '#ff4136', boxShadow: '0 0 6px #ff4136' }}
         />
       )}
+    </div>
+  );
+}
+
+// O mesmo medidor do mixer, deitado: vai da esquerda (silêncio) para a direita (0 dBFS).
+// Fica na faixa mãe da timeline, embaixo do fader.
+const METER_GRADIENT_H = METER_GRADIENT.replace('to top', 'to right');
+
+export function LedMeterH({ id, off, width, height = 4, title }: {
+  id: string;
+  off?: boolean;
+  width: number;
+  height?: number;
+  title?: string;
+}) {
+  return (
+    <div className="console-well relative overflow-hidden" style={{ width, height }} title={title}>
+      <div className="absolute inset-0" style={{ background: off ? '#3a3d42' : METER_GRADIENT_H }} />
+      <MeterMask id={id} horizontal className="bg-[#0b0c0e]/[0.86]" />
+      <div className="console-meter-segments is-horizontal" />
     </div>
   );
 }
