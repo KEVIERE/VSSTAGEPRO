@@ -4,7 +4,7 @@ import { VOICE_PRESETS } from '@/lib/narrations';
 import { IA_VOICE_NAMES, canGenerate, isPresetVoice, playPreview, stopPreview, voiceDemo, voiceLabel } from '@/lib/maestroVoice';
 import { ONLINE_PACKS, isOnlineVoice, onlineVoiceById } from '@/lib/onlineVoices';
 import { onlineStatus, type OnlineStatus } from '@/lib/maestroCloud';
-import { READY_VOICES, readyVoice } from '@/lib/maestroCues';
+import { READY_INTENSITIES, READY_VOICES, readyVoice, readyVoiceId } from '@/lib/maestroCues';
 import { friendlyError } from '@/lib/friendlyError';
 import type { VoicePitch } from '@/types';
 
@@ -118,7 +118,9 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
   const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
   const selected = (id: string) => voice === id || voice === `qwen:${id}`;
   // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
-  const legacy = !!voice && !isPresetVoice(voice) && !readyVoice(voice) && !/^qwen:(feminina|masculina|henrique|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
+  const ready = readyVoice(voice);
+  const intensity = ready?.intensity ?? 'normal';
+  const legacy = !!voice && !isPresetVoice(voice) && !ready && !/^qwen:(feminina|masculina|henrique|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
 
   return (
     <>
@@ -146,20 +148,48 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
       <div className="flex items-center gap-2">
         <span className={`text-logic-text-muted ${labelClass} shrink-0`}>Prontas</span>
         <div className="flex-1 grid grid-cols-2 gap-1">
-          {READY_VOICES.map((v) => (
-            <VoiceChip
-              key={v.id}
-              label={v.label}
-              title={`Voz ${v.label}: fala as falas prontas, sem internet. Texto fora da lista sai na voz ${v.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`}
-              selected={voice === v.id}
-              onChoose={() => onChoose(v.id)}
-              demo={demoOf(v.id)}
-              onDemo={() => { void playDemo(v.id); }}
-              demoDisabled={null}
-            />
-          ))}
+          {READY_VOICES.map((v) => {
+            // trocar entre Felipe e Moça mantém a intensidade escolhida
+            const id = readyVoiceId(v, intensity);
+            return (
+              <VoiceChip
+                key={v.id}
+                label={v.label}
+                title={`Voz ${v.label}: fala as falas prontas, sem internet. Texto fora da lista sai na voz ${v.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`}
+                selected={ready?.dir === v.dir}
+                onChoose={() => onChoose(id)}
+                demo={demoOf(id)}
+                onDemo={() => { void playDemo(id); }}
+                demoDisabled={null}
+              />
+            );
+          })}
         </div>
       </div>
+
+      {/* Intensidade da voz pronta: calma, normal ou forte (cada uma gravada à parte) */}
+      {ready && (
+        <div className="flex items-center gap-2">
+          <span className={`text-logic-text-muted ${labelClass} shrink-0`} title="Intensidade da voz">Intens.</span>
+          <div className="flex-1 grid grid-cols-3 gap-1" role="group" aria-label="Intensidade da voz">
+            {READY_INTENSITIES.map((l) => (
+              <button
+                key={l.id}
+                className={`px-2 py-1.5 rounded border text-2xs font-semibold transition-colors ${
+                  intensity === l.id
+                    ? 'border-sky-400 bg-sky-500/25 text-sky-100'
+                    : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text'
+                }`}
+                onClick={() => { if (l.id !== intensity) onChoose(readyVoiceId(ready, l.id)); }}
+                aria-pressed={intensity === l.id}
+                title={l.hint}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {legacy && (
         <div className="flex items-center gap-2 -mt-1">

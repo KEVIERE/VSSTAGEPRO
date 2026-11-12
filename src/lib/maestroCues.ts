@@ -1,6 +1,7 @@
 // Falas prontas do Maestro por IA: frases comuns de palco gravadas uma vez, nas vozes Felipe e Moça
-// (ElevenLabs, plano pago). Os arquivos ficam em public/maestro-falas/<voz>/<id>.mp3 e funcionam sem
-// internet. Texto fora desta lista sai numa voz do próprio Mac (Masculina ou Feminina).
+// (ElevenLabs, plano pago), em três intensidades. Os arquivos ficam em
+// public/maestro-falas/<voz>/<id>.mp3 (Normal) e public/maestro-falas/<voz>/<calma|forte>/<id>.mp3,
+// e funcionam sem internet. Texto fora desta lista sai numa voz do próprio Mac (Masculina ou Feminina).
 
 export interface ReadyCue { id: string; text: string }
 export interface ReadyCueGroup { id: string; label: string; cues: ReadyCue[] }
@@ -244,7 +245,7 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
 ];
 
 export interface ReadyVoice {
-  /** Id gravado na marcação. */
+  /** Id gravado na marcação (na intensidade Normal). */
   id: string;
   label: string;
   /** Pasta dos arquivos em public/maestro-falas. */
@@ -253,19 +254,55 @@ export interface ReadyVoice {
   fallback: 'masculina' | 'feminina';
 }
 
+/** Quanta energia a voz pronta põe na fala. */
+export type ReadyIntensity = 'calma' | 'normal' | 'forte';
+
+export const READY_INTENSITIES: ReadonlyArray<{ id: ReadyIntensity; label: string; hint: string }> = [
+  { id: 'calma', label: 'Calma', hint: 'Fala tranquila, para momentos suaves' },
+  { id: 'normal', label: 'Normal', hint: 'Fala animada, de maestro no palco' },
+  { id: 'forte', label: 'Forte', hint: 'Fala empolgada, como quem grita por cima da banda' },
+];
+
+/** A voz pronta escolhida, já com a intensidade. */
+export interface ReadyVoiceChoice extends ReadyVoice {
+  intensity: ReadyIntensity;
+}
+
 export const READY_VOICES: ReadonlyArray<ReadyVoice> = [
   { id: 'pronta:felipe', label: 'Felipe', dir: 'felipe', fallback: 'masculina' },
   { id: 'pronta:moca', label: 'Moça', dir: 'moca', fallback: 'feminina' },
 ];
 
-export function readyVoice(voice: string | undefined): ReadyVoice | null {
-  return READY_VOICES.find((v) => v.id === voice) ?? null;
+/**
+ * A voz pronta de uma marcação. A intensidade vai junto no id ("pronta:felipe:forte"); sem ela
+ * é a Normal. Assim a última voz usada já traz a intensidade para a próxima fala, e trocar a
+ * intensidade gera a fala de novo.
+ */
+export function readyVoice(voice: string | undefined): ReadyVoiceChoice | null {
+  if (!voice) return null;
+  const [kind, dir, level, ...rest] = voice.split(':');
+  if (kind !== 'pronta' || rest.length > 0) return null;
+  const base = READY_VOICES.find((v) => v.dir === dir);
+  if (!base) return null;
+  if (level === undefined) return { ...base, intensity: 'normal' };
+  return level === 'calma' || level === 'forte' ? { ...base, intensity: level } : null;
 }
+
+/** Id da voz pronta numa intensidade. */
+export function readyVoiceId(voice: ReadyVoice, intensity: ReadyIntensity): string {
+  return intensity === 'normal' ? voice.id : `${voice.id}:${intensity}`;
+}
+
+// Números por extenso valem o mesmo que em algarismo ("Verso um" = "Verso 1").
+const NUMBER_WORDS: Record<string, string> = {
+  um: '1', uma: '1', dois: '2', duas: '2', tres: '3', quatro: '4', cinco: '5', seis: '6', sete: '7', oito: '8',
+};
 
 /** Texto comparável: sem acento, sem pontuação, minúsculo ("Vai pro refrão!" = "vai pro refrao"). */
 export function cueKey(text: string): string {
   return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ').trim();
+    .replace(/[^a-z0-9]+/g, ' ').trim()
+    .split(' ').map((w) => NUMBER_WORDS[w] ?? w).join(' ');
 }
 
 const BY_KEY = new Map(READY_CUE_GROUPS.flatMap((g) => g.cues.map((c) => [cueKey(c.text), c] as const)));
@@ -276,6 +313,7 @@ export function findReadyCue(text: string): ReadyCue | null {
 }
 
 /** Endereço do arquivo da fala, no site e no app do Mac. */
-export function readyCueUrl(voice: ReadyVoice, cue: ReadyCue, base = '/'): string {
-  return `${base.endsWith('/') ? base : `${base}/`}maestro-falas/${voice.dir}/${cue.id}.mp3`;
+export function readyCueUrl(voice: ReadyVoiceChoice, cue: ReadyCue, base = '/'): string {
+  const level = voice.intensity === 'normal' ? '' : `${voice.intensity}/`;
+  return `${base.endsWith('/') ? base : `${base}/`}maestro-falas/${voice.dir}/${level}${cue.id}.mp3`;
 }

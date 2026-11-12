@@ -23,7 +23,7 @@ import { friendlyError } from '@/lib/friendlyError';
 import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, currentSignature, fitTempo, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
 import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
-import { findReadyCue, readyCueUrl, readyVoice, type ReadyCue, type ReadyVoice } from '@/lib/maestroCues';
+import { READY_INTENSITIES, findReadyCue, readyCueUrl, readyVoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
 
 /** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
 export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'henrique', string> = { feminina: 'IA', masculina: 'IA', henrique: 'IA' };
@@ -45,7 +45,10 @@ export function voiceLabel(voice: string | undefined): string {
   if (voice === 'masculina') return 'Masculina';
   if (voice === 'henrique') return 'Henrique';
   const ready = readyVoice(voice);
-  if (ready) return ready.label;
+  if (ready) {
+    const level = READY_INTENSITIES.find((x) => x.id === ready.intensity);
+    return ready.intensity === 'normal' || !level ? ready.label : `${ready.label} ${level.label.toLowerCase()}`;
+  }
   // vozes que saíram do seletor: marcações antigas continuam mostrando o nome que tinham
   if (voice === 'cubas' || voice === 'qwen:cubas') return 'Cubas';
   if (voice === 'keven' || voice === 'qwen:keven') return 'Keven';
@@ -206,12 +209,12 @@ export interface SpeechResult {
   engine: 'qwen' | 'online' | 'mac' | 'pronta';
 }
 
-/** Falas prontas já abertas nesta sessão (por taxa da placa, voz e fala). */
+/** Falas prontas já abertas nesta sessão (por taxa da placa, voz, intensidade e fala). */
 const readyCache = new Map<string, AudioBuffer>();
 
 /** O arquivo gravado da fala pronta, aberto na taxa da saída de áudio. */
-async function readyCueBuffer(voice: ReadyVoice, cue: ReadyCue): Promise<AudioBuffer> {
-  const key = `${audioEngine.currentSampleRate() ?? deviceSampleRate()}|${voice.id}|${cue.id}`;
+async function readyCueBuffer(voice: ReadyVoiceChoice, cue: ReadyCue): Promise<AudioBuffer> {
+  const key = `${audioEngine.currentSampleRate() ?? deviceSampleRate()}|${voice.dir}|${voice.intensity}|${cue.id}`;
   const hit = readyCache.get(key);
   if (hit) return hit;
   const res = await fetch(readyCueUrl(voice, cue, import.meta.env.BASE_URL));
