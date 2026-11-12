@@ -15,6 +15,10 @@ export const MAX_PAD_BYTES = 60 * 1024 * 1024;
 export const PITCH_RANGE = 12;
 /** Fade do botão Fade, em segundos. */
 export const FADE_SECONDS = 2;
+/** Modo segurar: apertou e soltou rápido, o som toca este tanto e para. */
+export const HOLD_MIN_SECONDS = 1;
+/** Descida ao soltar no modo segurar (sem estalo). */
+export const HOLD_RELEASE_SECONDS = 0.08;
 
 /** Cor de cada pad da grade, na ordem 1 a 9. */
 export const PAD_COLORS = ['#ff4b4b', '#ff9a2e', '#ffd23f', '#3ee26e', '#2ed8c3', '#38b6ff', '#6f7dff', '#c86bff', '#ff6bb0'];
@@ -36,6 +40,8 @@ export interface PadInfo {
   delay: boolean;
   /** Toca de trás para frente. */
   reverse: boolean;
+  /** Segurar: toca enquanto o pad está apertado; apertou e soltou rápido, toca só 1 segundo. */
+  hold: boolean;
   /** Tipo do arquivo (audio/wav, audio/mpeg...), para guardar e salvar no projeto. */
   type?: string;
 }
@@ -85,7 +91,7 @@ export function padNameFromFile(fileName: string): string {
 export function newPadInfo(slot: number, fileName: string, duration: number): PadInfo {
   return {
     slot, name: padNameFromFile(fileName), color: PAD_COLORS[slotPad(slot)], volume: 0.8, loop: false, duration,
-    pitch: 0, reverb: false, delay: false, reverse: false,
+    pitch: 0, reverb: false, delay: false, reverse: false, hold: false,
   };
 }
 
@@ -93,7 +99,7 @@ export function newPadInfo(slot: number, fileName: string, duration: number): Pa
 export function normalizePadInfo(v: Partial<PadInfo> & { slot: number }): PadInfo {
   return {
     name: 'Som', color: PAD_COLORS[slotPad(v.slot)], volume: 0.8, loop: false, duration: 0,
-    pitch: 0, reverb: false, delay: false, reverse: false,
+    pitch: 0, reverb: false, delay: false, reverse: false, hold: false,
     ...v,
   };
 }
@@ -122,6 +128,14 @@ export function pitchRate(semitones: number): number {
 /** Tempo que o som leva com o pitch (mais agudo = mais rápido). */
 export function pitchedDuration(info: Pick<PadInfo, 'duration' | 'pitch'>): number {
   return info.duration / pitchRate(info.pitch);
+}
+
+/**
+ * Modo segurar: quando o som para depois de soltar o pad. Soltou antes de 1 segundo, ele toca até
+ * completar 1 segundo; soltou depois, para na hora.
+ */
+export function holdStopTime(startedAt: number, releasedAt: number, min = HOLD_MIN_SECONDS): number {
+  return Math.max(releasedAt, startedAt + min);
 }
 
 /** Nome da saída: "Master", "Saída 3/4", "Saída 5". */

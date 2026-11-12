@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BANK_COUNT, BANK_LABELS, MASTER_OUTPUT, PAD_COUNT, bankCounts, chokedBy, clampPitch, delaySeconds, dropTargets, formatPadTime,
-  getPadsState, lastPlaying, makeReverbImpulse, newPadInfo, normalizePadInfo, padAssetId, padAssetPath, padFileProblem,
+  getPadsState, holdStopTime, lastPlaying, makeReverbImpulse, newPadInfo, normalizePadInfo, padAssetId, padAssetPath, padFileProblem,
   padForKey, padNameFromFile, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchRate, pitchedDuration, savedPadsOf,
   setPadsState, slotBank, slotPad, togglePadsPanel, usablePadOutput, withItem, withPlaying,
 } from '../src/lib/samplePads.ts';
@@ -107,6 +107,23 @@ test('um por vez: tocar um pad para os outros; desligado, todos tocam juntos', (
   const panel = read('components', 'SamplePadPanel.tsx');
   assert.match(panel, /onClick=\{\(\) => setPadsChoke\(!st\.choke\)\}/);
   assert.match(panel, /1 POR VEZ/);
+});
+
+test('segurar: apertou e soltou rápido toca 1 segundo; segurando toca até soltar (ou o som acabar)', () => {
+  assert.equal(holdStopTime(10, 10.3), 11, 'soltou com 0,3 s: completa 1 segundo');
+  assert.equal(holdStopTime(10, 12.5), 12.5, 'segurou 2,5 s: para ao soltar');
+  assert.equal(newPadInfo(0, 'a.wav', 1).hold, false);
+  assert.equal(normalizePadInfo({ slot: 1 }).hold, false, 'pad antigo começa sem segurar');
+  const player = read('lib', 'padPlayer.ts');
+  assert.match(player, /export function releasePad\(slot: number\): void \{/);
+  assert.match(player, /if \(!info\?\.hold \|\| !v\) return;/, 'só vale no modo segurar');
+  assert.match(player, /const at = holdStopTime\(v\.startedAt, ctx\.currentTime\);/);
+  assert.match(player, /if \(info\.loop && !info\.hold\) return;/, 'no modo segurar, apertar de novo recomeça');
+  const panel = read('components', 'SamplePadPanel.tsx');
+  assert.match(panel, /label="SEGURAR"/);
+  assert.match(panel, /onPointerUp=\{onRelease\}/, 'soltar o mouse');
+  assert.match(panel, /e\.currentTarget\.setPointerCapture\(e\.pointerId\);/, 'soltar fora do pad também conta');
+  assert.match(panel, /window\.addEventListener\('keyup', onKeyUp\);/, 'soltar a tecla 1 a 9');
 });
 
 test('banco, volume geral e saída ficam guardados; P abre e fecha', () => {

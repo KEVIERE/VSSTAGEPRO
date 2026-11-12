@@ -6,7 +6,7 @@ import MixerPanel, { Fader } from '@/components/MixerPanel';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, selectBank, selectPad, setPadsChoke,
+  clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
   setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
@@ -38,6 +38,8 @@ export function PadsOrMixer() {
   useEffect(() => { if (visible) openPadOutput(); }, [visible]);
 
   useEffect(() => {
+    // tecla apertada → pad que ela tocou (para soltar o mesmo pad, mesmo se o banco mudar no meio)
+    const held = new Map<string, number>();
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const t = e.target as HTMLElement | null;
@@ -51,10 +53,24 @@ export function PadsOrMixer() {
       const pad = padForKey(e.key);
       if (!cur.visible || pad === null) return;
       e.preventDefault();
-      if (!e.repeat) triggerPad(padSlot(cur.bank, pad));
+      if (e.repeat) return;
+      const slot = padSlot(cur.bank, pad);
+      held.set(e.key, slot);
+      triggerPad(slot);
+    };
+    // soltou a tecla: no modo segurar o som para (depois de pelo menos 1 segundo)
+    const onKeyUp = (e: KeyboardEvent) => {
+      const slot = held.get(e.key);
+      if (slot === undefined) return;
+      held.delete(e.key);
+      releasePad(slot);
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, []);
 
   // M (ou o botão do mixer) com os pads abertos: fecha os pads e mostra o mixer aberto
@@ -129,11 +145,12 @@ function SamplePadPanel() {
           <PlayingDisplay />
           <DetailsDisplay info={selected} number={slotPad(st.selected) + 1} bank={st.bank} output={st.output} />
           <PitchFader value={selected?.pitch ?? 0} disabled={!selected} onChange={(v) => set({ pitch: v })} />
-          <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Efeitos do pad escolhido">
+          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Efeitos do pad escolhido">
             <FxKey label="REVERB" on={!!selected?.reverb} lit="is-lit-blue" disabled={!selected} onClick={() => set({ reverb: !selected?.reverb })} title="Reverb: sala com cauda de 2 segundos" />
             <FxKey label="DELAY" on={!!selected?.delay} lit="is-lit-blue" disabled={!selected} onClick={() => set({ delay: !selected?.delay })} title="Delay: repete no tempo da música (uma semínima)" />
             <FxKey label="REVERSO" on={!!selected?.reverse} lit="is-lit-amber" disabled={!selected} onClick={() => set({ reverse: !selected?.reverse })} title="Toca o som de trás para frente (vale no próximo toque)" />
             <FxKey label="LOOP" on={!!selected?.loop} lit="is-lit-green" disabled={!selected} onClick={() => set({ loop: !selected?.loop })} title="Repete até apertar o pad de novo" />
+            <FxKey label="SEGURAR" on={!!selected?.hold} lit="is-lit-amber" disabled={!selected} onClick={() => set({ hold: !selected?.hold })} title="Toca enquanto o pad está apertado: segurando toca o som inteiro; apertou e soltou, toca só 1 segundo" />
           </div>
           <div className="flex items-center gap-1.5 mt-auto">
             <OutputButton output={st.output} />
@@ -213,6 +230,7 @@ function SamplePadPanel() {
                 loading={st.loading.has(slot)}
                 dragOver={dragOver === slot}
                 onPlay={() => triggerPad(slot)}
+                onRelease={() => releasePad(slot)}
                 onPick={() => { selectPad(slot); pickFile(slot); }}
                 onEdit={(anchor) => { selectPad(slot); setEditing({ slot, anchor }); }}
                 onDragState={(on) => setDragOver(on ? slot : null)}
@@ -295,7 +313,7 @@ function PlayingDisplay() {
 /** Visor do pad escolhido: nome, tamanho, volume, pitch, efeitos e saída. */
 function DetailsDisplay({ info, number, bank, output }: { info?: PadInfo; number: number; bank: number; output: PadOutput }) {
   const count = useStore((s) => s.outputChannelCount);
-  const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP'].filter(Boolean).join(' · ') : '';
+  const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP', info.hold && 'SEGURAR'].filter(Boolean).join(' · ') : '';
   return (
     <div className="console-display shrink-0 px-2.5 py-1.5 text-[11px] leading-tight flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5 min-w-0">
@@ -556,7 +574,7 @@ function OutputButton({ output }: { output: PadOutput }) {
   );
 }
 
-function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onPick, onEdit, onDragState, onDropFiles }: {
+function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRelease, onPick, onEdit, onDragState, onDropFiles }: {
   number: number;
   info?: PadInfo;
   playing: boolean;
@@ -564,6 +582,8 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onPic
   loading: boolean;
   dragOver: boolean;
   onPlay: () => void;
+  /** Soltou o pad (modo segurar). */
+  onRelease: () => void;
   onPick: () => void;
   onEdit: (anchor: HTMLElement) => void;
   onDragState: (on: boolean) => void;
@@ -610,7 +630,15 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onPic
   return (
     <button
       type="button"
-      onPointerDown={(e) => { if (e.button === 0) { e.preventDefault(); onPlay(); } }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        // soltar fora do pad também conta como soltar (modo segurar)
+        e.currentTarget.setPointerCapture(e.pointerId);
+        onPlay();
+      }}
+      onPointerUp={onRelease}
+      onPointerCancel={onRelease}
       onKeyDown={(e) => { if (e.key === 'Enter') onPlay(); }}
       onContextMenu={(e) => { e.preventDefault(); onEdit(e.currentTarget); }}
       className="relative min-h-0 rounded-[7px] overflow-hidden text-left transition-[box-shadow,filter] duration-75 active:brightness-110"
@@ -640,6 +668,7 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onPic
           {info.reverb && <span>REV</span>}
           {info.delay && <span>DLY</span>}
           {info.reverse && <span>REV←</span>}
+          {info.hold && <span>SEG</span>}
           {info.pitch !== 0 && <span>{pitchLabel(info.pitch)}</span>}
         </span>
       </span>

@@ -16,7 +16,7 @@ import { meterBallistics, peakOf } from '@/lib/maestroInput';
 import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
-  FADE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delaySeconds, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
+  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delaySeconds, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadInfo, type PadOutput, type SavedPads,
 } from '@/lib/samplePads';
@@ -26,7 +26,7 @@ import { useStore } from '@/store';
 const sources = new Map<number, Blob>();
 const buffers = new Map<number, AudioBuffer>();
 const reversed = new Map<number, AudioBuffer>();
-interface Voice { src: AudioBufferSourceNode; gain: GainNode; reverb: boolean; delay: boolean }
+interface Voice { src: AudioBufferSourceNode; gain: GainNode; reverb: boolean; delay: boolean; startedAt: number }
 const voices = new Map<number, Voice>();
 let loaded: Promise<void> | null = null;
 
@@ -310,7 +310,8 @@ export function triggerPad(slot: number): void {
   if (!info || !buffer) return;
   if (voices.has(slot)) {
     release(slot);
-    if (info.loop) return; // loop: apertar de novo para
+    // loop: apertar de novo para (no modo segurar, apertar de novo sempre recomeça)
+    if (info.loop && !info.hold) return;
   }
   // um por vez: o pad novo para os outros (com uma descida curta, sem estalo)
   for (const other of chokedBy(slot, voices.keys(), getPadsState().choke)) release(other, 0.03);
@@ -324,7 +325,7 @@ export function triggerPad(slot: number): void {
   gain.gain.value = faderToGain(info.volume);
   src.connect(gain);
   gain.connect(o.bus);
-  const voice: Voice = { src, gain, reverb: false, delay: false };
+  const voice: Voice = { src, gain, reverb: false, delay: false, startedAt: o.ctx.currentTime };
   connectSends(voice, o, info.reverb, info.delay);
   src.onended = () => {
     if (voices.get(slot)?.src !== src) return;
@@ -335,6 +336,23 @@ export function triggerPad(slot: number): void {
   voices.set(slot, voice);
   setPadsState({ playing: withPlaying(getPadsState().playing, slot, o.ctx.currentTime) });
   runMeter();
+}
+
+/**
+ * Soltou o pad (mouse ou tecla). Só vale no modo segurar: o som para ao soltar, mas toca pelo
+ * menos 1 segundo (apertou e soltou rápido = 1 segundo). Continua aceso até parar de verdade.
+ */
+export function releasePad(slot: number): void {
+  const info = getPadsState().infos.get(slot);
+  const v = voices.get(slot);
+  if (!info?.hold || !v) return;
+  const ctx = v.gain.context;
+  const at = holdStopTime(v.startedAt, ctx.currentTime);
+  const g = v.gain.gain;
+  g.cancelScheduledValues(at);
+  g.setValueAtTime(faderToGain(info.volume), at);
+  g.linearRampToValueAtTime(0, at + HOLD_RELEASE_SECONDS);
+  try { v.src.stop(at + HOLD_RELEASE_SECONDS + 0.005); } catch { /* já parou */ }
 }
 
 export function stopAllPads(): void {
@@ -401,7 +419,7 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
     }
     const old = getPadsState().infos.get(slot);
     const keep = old
-      ? { color: old.color, volume: old.volume, loop: old.loop, pitch: old.pitch, reverb: old.reverb, delay: old.delay, reverse: old.reverse }
+      ? { color: old.color, volume: old.volume, loop: old.loop, pitch: old.pitch, reverb: old.reverb, delay: old.delay, reverse: old.reverse, hold: old.hold }
       : {};
     const info: PadInfo = { ...newPadInfo(slot, file.name, buffer.duration), ...keep, type };
     release(slot);
