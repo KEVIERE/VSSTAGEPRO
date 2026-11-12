@@ -37,7 +37,7 @@ export default function LyricLeadControl({ lead, onLead, scale, onScale, childre
   return (
     <div className="rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-2">
       <p className="console-legend !text-[10px] mb-1.5">Toda a letra · vale para todas as músicas</p>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="flex items-center gap-2" title="Tamanho geral da letra na TV. Página com tamanho próprio aplica o dela por cima deste.">
           <Type size={14} className="text-logic-lcd-amber shrink-0" />
           <span className="text-xs text-logic-text">Tamanho</span>
@@ -53,7 +53,7 @@ export default function LyricLeadControl({ lead, onLead, scale, onScale, childre
           title="A tela sem fio do palco mostra a imagem com um pequeno atraso. A letra de todas as músicas sai esse tempo antes da hora marcada, para chegar na TV no momento certo."
         >
           <Timer size={14} className="text-logic-lcd-amber shrink-0" />
-          <span className="text-xs text-logic-text">Atraso da tela sem fio: sai antes</span>
+          <span className="text-xs text-logic-text">Tela sem fio: sai antes</span>
           <Stepper
             label={`${leadText} s`}
             onMinus={() => setLead(lead - 0.1)} onPlus={() => setLead(lead + 0.1)}

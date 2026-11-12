@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Music2, Play, RefreshCw } from 'lucide-react';
 import SongLyricsEditor, { type SaveStatus } from '@/components/prompter/SongLyricsEditor';
 import LyricsProjectBar from '@/components/prompter/LyricsProjectBar';
-import LyricsStyleControls from '@/components/prompter/LyricsStyleControls';
+import { LyricStyleButton } from '@/components/prompter/LyricsStyleControls';
 import LyricLeadControl from '@/components/prompter/LyricLeadControl';
 import RepertoireRequest from '@/components/prompter/RepertoireRequest';
 import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
@@ -222,7 +222,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           scale={state.fontScale}
           onScale={(v) => update((st) => ({ ...st, fontScale: v }))}
         >
-          <LyricsStyleControls compact state={state} update={update} />
+          <LyricStyleButton state={state} update={update} />
         </LyricLeadControl>
         <LyricsProjectBar snap={snap} onSave={saveToProject} />
       </div>

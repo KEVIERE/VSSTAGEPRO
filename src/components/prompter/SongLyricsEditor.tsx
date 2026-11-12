@@ -287,22 +287,25 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
    * preso no topo.
    */
   return (
-    <div className="grid gap-3 min-w-0 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:grid-rows-[auto_minmax(0,1fr)_auto]">
+    <div className="grid gap-3 min-w-0 lg:h-full lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(300px,400px)] lg:grid-rows-[minmax(0,1fr)_auto]">
       {/* MONITOR: a TV. Parado mostra o estilo; tocando, a letra em tempo real. */}
-      <section className="order-1 lg:order-none lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:self-start sticky top-0 z-20 lg:static lg:z-auto -mx-3 px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:px-0 pt-1 pb-2 lg:p-0 bg-logic-bg-deep lg:bg-transparent">
-        <div className="console-face border-2 border-black rounded-lg p-2 shadow-lg">
-          <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-7 rounded-t flex items-center gap-2 border-b-2 border-black">
+      <section className="order-1 lg:order-none lg:col-start-2 lg:row-start-1 lg:min-h-0 lg:flex lg:flex-col sticky top-0 z-20 lg:static lg:z-auto -mx-3 px-3 sm:-mx-4 sm:px-4 lg:mx-0 lg:px-0 pt-1 pb-2 lg:p-0 bg-logic-bg-deep lg:bg-transparent">
+        <div className="console-face border-2 border-black rounded-lg p-2 shadow-lg lg:min-h-0 lg:flex lg:flex-col">
+          <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-7 rounded-t flex items-center gap-2 border-b-2 border-black shrink-0">
             <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} />
             <p className="console-legend flex-1 !text-logic-text">{previewPlaying ? 'Na TV agora' : 'Prévia da TV'}</p>
             <button onClick={() => setRehearsal(true)} disabled={pages.length === 0} className="console-key flex items-center gap-1 px-2 h-5 text-[10px] disabled:opacity-40" title="Tela inteira, do jeito que os artistas veem">
               <Eye size={11} /> Ensaiar
             </button>
           </div>
-          <div className="flex gap-3 lg:block">
-            <div className="w-[48%] max-w-[260px] lg:w-full lg:max-w-none shrink-0 aspect-video rounded overflow-hidden ring-1 ring-black">
-              <StageLyricsPreview pages={pages} t={t} playing={previewPlaying} songId={song.id} p={previewP} />
+          <div className="flex gap-3 lg:flex-col lg:gap-2 lg:min-h-0">
+            {/* Tela baixa: a TV diminui (sempre 16:9) em vez de invadir a linha do tempo. */}
+            <div className="w-[48%] max-w-[260px] shrink-0 lg:w-full lg:max-w-none lg:shrink lg:min-h-0 lg:aspect-video lg:flex lg:justify-center">
+              <div className="w-full aspect-video lg:w-auto lg:h-full lg:max-w-full rounded overflow-hidden ring-1 ring-black">
+                <StageLyricsPreview pages={pages} t={t} playing={previewPlaying} songId={song.id} p={previewP} />
+              </div>
             </div>
-            <div className="flex-1 min-w-0 flex flex-col justify-center lg:flex-row lg:items-center gap-1 lg:gap-2 lg:mt-2 text-[11px] min-h-[20px]">
+            <div className="flex-1 min-w-0 flex flex-col justify-center lg:flex-none lg:shrink-0 lg:flex-row lg:items-center gap-1 lg:gap-2 text-[11px] min-h-[20px]">
               {shownPage ? (
                 <>
                   <span className="flex items-center gap-2">
@@ -321,7 +324,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
       </section>
 
       {/* PÁGINAS: a letra, trecho por trecho (rola sozinha). */}
-      <section className="order-4 lg:order-none lg:col-start-1 lg:row-start-1 lg:row-span-2 lg:min-h-0 flex flex-col bg-logic-bg-panel border border-logic-border rounded-xl">
+      <section className="order-4 lg:order-none lg:col-start-1 lg:row-start-1 lg:min-h-0 flex flex-col bg-logic-bg-panel border border-logic-border rounded-xl">
         <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-logic-border shrink-0">
           <div className="flex-1 min-w-0">
             <h2 className="text-base font-semibold text-logic-text truncate">{song.name}</h2>
@@ -438,7 +441,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
       </section>
 
       {/* LINHA DO TEMPO: play, onda e marcações, de ponta a ponta embaixo. */}
-      <section className="order-2 lg:order-none lg:col-span-2 lg:row-start-3 console-face border-2 border-black rounded-xl px-3 py-2.5 shadow-lg">
+      <section className="order-2 lg:order-none lg:col-span-2 lg:row-start-2 console-face border-2 border-black rounded-xl px-3 py-2.5 shadow-lg">
         <div className="flex flex-wrap items-center gap-2">
           <label className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] cursor-pointer" title={audioName || 'Carregar áudio do computador'}>
             {decoding ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
