@@ -24,6 +24,7 @@ import { openProjectFromPath } from '@/lib/projectSaver';
 import { friendlyError } from '@/lib/friendlyError';
 import BounceDialog from '@/components/BounceDialog';
 import MixerPanel from '@/components/MixerPanel';
+import { PadsOrMixer } from '@/components/SamplePadPanel';
 import ContextMenu from '@/components/ContextMenu';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ShowManagerDialog from '@/components/ShowManagerDialog';
@@ -799,7 +800,8 @@ function DirectorApp({ license }: { license: License }) {
                 <div className="flex-1 min-h-0 overflow-hidden">
                   <PlaylistPanel onOpenAiSeparator={() => setAiSeparatorOpen(true)} />
                 </div>
-                <MixerPanel />
+                {/* Pads (tecla P) no lugar do mixer (tecla M) */}
+                <PadsOrMixer />
               </div>
               <ShowModePanel showName={broadcast.showName} />
             </>

@@ -4,8 +4,6 @@ import { useStore } from '@/store';
 import type { Song, SongRegion } from '@/types';
 import { nextRepeat, regionAt, repeatLabel, sortedRegions } from '@/lib/regions';
 
-const MAX_KEYS = 9;
-
 export function SectionPads({ song }: { song: Song }) {
   const regions = sortedRegions(song.regions);
   const currentTime = useStore((s) => s.transport.currentTime);
@@ -24,17 +22,13 @@ export function SectionPads({ song }: { song: Song }) {
       const sg = st.songs.find((x) => x.id === song.id);
       if (!sg) return;
       const list = sortedRegions(sg.regions);
-      if (/^[1-9]$/.test(e.key)) {
-        const r = list[Number(e.key) - 1];
-        if (!r) return;
-        e.preventDefault();
-        pickSection(sg, r);
-      } else if (e.key === 'l' || e.key === 'L') {
+      // as teclas 1 a 9 são dos pads do Modo Show; P abre os pads
+      if (e.key === 'l' || e.key === 'L') {
         const cur = regionAt(list, st.transport.currentTime);
         if (!cur) return;
         e.preventDefault();
         st.updateSongRegion(sg.id, cur.id, { loop: !cur.loop });
-      } else if (e.key === 'p' || e.key === 'P') {
+      } else if (e.key === 'n' || e.key === 'N') {
         e.preventDefault();
         skipSection(sg);
       }
@@ -58,11 +52,9 @@ export function SectionPads({ song }: { song: Song }) {
           key={r.id}
           song={song}
           region={r}
-          index={i}
           isActive={active?.id === r.id}
           isQueued={queuedId === r.id}
           progress={active?.id === r.id ? (currentTime - r.start) / Math.max(0.001, r.end - r.start) : 0}
-          showKey={sectionKeys && i < MAX_KEYS}
         />
       ))}
       <button
@@ -81,7 +73,7 @@ export function SectionPads({ song }: { song: Song }) {
           : skipping ? `Vai para "${nextRegion.name}" ao fim desta passada · clique para cancelar` : `Termina esta passada e vai para "${nextRegion.name}"`}
       >
         <span className="flex items-center gap-1.5 text-sm font-semibold">
-          {sectionKeys && <kbd className="inline-flex items-center justify-center w-4 h-4 rounded-[3px] bg-black/40 border border-white/15 text-2xs font-mono text-logic-text-dim">P</kbd>}
+          {sectionKeys && <kbd className="inline-flex items-center justify-center w-4 h-4 rounded-[3px] bg-black/40 border border-white/15 text-2xs font-mono text-logic-text-dim">N</kbd>}
           <SkipForward size={14} />
           Pular
         </span>
@@ -93,10 +85,10 @@ export function SectionPads({ song }: { song: Song }) {
         className={`console-key self-center ml-auto flex items-center gap-1.5 h-8 px-2.5 text-[12px] ${sectionKeys ? 'is-lit-blue' : ''}`}
         onClick={toggleSectionKeys}
         aria-pressed={sectionKeys}
-        title={sectionKeys ? 'Atalhos ligados: 1–9 escolhem a parte, L liga/desliga o loop da parte atual, P pula para a próxima' : 'Ligar atalhos de teclado para as partes'}
+        title={sectionKeys ? 'Atalhos ligados: L liga/desliga o loop da parte atual, N pula para a próxima' : 'Ligar atalhos de teclado para as partes'}
       >
         <Keyboard size={13} />
-        1–9 · L · P
+        L · N
       </button>
     </div>
   );
@@ -134,14 +126,12 @@ export function pickSection(song: Song, region: SongRegion) {
 interface SectionPadProps {
   song: Song;
   region: SongRegion;
-  index: number;
   isActive: boolean;
   isQueued: boolean;
   progress: number;
-  showKey: boolean;
 }
 
-function SectionPad({ song, region, index, isActive, isQueued, progress, showKey }: SectionPadProps) {
+function SectionPad({ song, region, isActive, isQueued, progress }: SectionPadProps) {
   const updateSongRegion = useStore((s) => s.updateSongRegion);
   // pad de mesa: a parte tocando acende na cor dela; a engatilhada fica com borda âmbar
   return (
@@ -158,9 +148,6 @@ function SectionPad({ song, region, index, isActive, isQueued, progress, showKey
           : isQueued ? 'Próxima parte · clique para cancelar' : 'Pular para esta parte ao fim da parte atual'}
       >
         <span className="flex items-center gap-1.5 text-sm font-semibold truncate max-w-full text-logic-text">
-          {showKey && (
-            <kbd className="inline-flex items-center justify-center w-4 h-4 rounded-[3px] bg-black/40 border border-white/15 text-2xs font-mono text-logic-text-dim">{index + 1}</kbd>
-          )}
           <span className="truncate">{region.name}</span>
         </span>
         <span className="text-2xs font-medium uppercase tracking-[0.12em] h-3.5">

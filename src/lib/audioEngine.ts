@@ -576,6 +576,15 @@ class AudioEngine {
     return this.stableMode;
   }
 
+  /**
+   * Entrada do master (fader geral, limitador e saídas 1-2): os pads do Modo Show tocam por aqui,
+   * no mesmo caminho das músicas.
+   */
+  getMasterInput(): AudioNode {
+    this.getContext();
+    return this.masterGain!;
+  }
+
   // Trocar o tamanho do bloco exige recriar o motor de áudio; só é feito com o play parado.
   async setStableMode(on: boolean): Promise<boolean> {
     if (on === this.stableMode) return true;

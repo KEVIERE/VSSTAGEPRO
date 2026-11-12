@@ -1,10 +1,11 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useStore, BLOCK_COLORS } from '@/store';
 import {
   ListMusic, Plus, Music2, Flag, ArrowUp,
   FlagTriangleRight, Link, Maximize2, Minimize2, SlidersHorizontal, Loader2, AlertTriangle, FolderDown, Gauge, AudioWaveform,
-  ChevronRight, ChevronsDownUp, ChevronsUpDown, CheckCircle2, Search, X,
+  ChevronRight, ChevronsDownUp, ChevronsUpDown, CheckCircle2, Search, X, LayoutGrid,
 } from 'lucide-react';
+import { getPadsState, subscribePads, togglePadsPanel } from '@/lib/samplePads';
 import { formatTime, toneLabel, bpmLabel } from '@/components/ShowRundown';
 import { SongAdjuster } from '@/components/AdjustmentsTower';
 import ImportVSDialog from '@/components/ImportVSDialog';
@@ -46,6 +47,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   const incompleteSongIds = useStore((s) => s.incompleteSongIds);
   const instantPrep = useStore((s) => s.instantPrep);
   const toggleMixer = useStore((s) => s.toggleMixer);
+  const padsVisible = useSyncExternalStore(subscribePads, () => getPadsState().visible);
   const renameBlock = useStore((s) => s.renameBlock);
   const setBlockColor = useStore((s) => s.setBlockColor);
   const deleteBlock = useStore((s) => s.deleteBlock);
@@ -276,12 +278,23 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
           )}
           {playlistMaximized && (
             <button
-              className={hdrKey(mixerVisible ? 'is-lit-blue' : '')}
+              className={hdrKey(mixerVisible && !padsVisible ? 'is-lit-blue' : '')}
               onClick={toggleMixer}
-              title={mixerVisible ? 'Fechar Mixer (M)' : 'Abrir Mixer (M)'}
-              aria-pressed={mixerVisible}
+              title={mixerVisible && !padsVisible ? 'Fechar Mixer (M)' : 'Abrir Mixer (M)'}
+              aria-pressed={mixerVisible && !padsVisible}
             >
               <SlidersHorizontal size={14} />
+            </button>
+          )}
+          {playlistMaximized && (
+            <button
+              className={hdrKey(padsVisible ? 'is-lit-amber' : '')}
+              onClick={togglePadsPanel}
+              title={padsVisible ? 'Fechar os pads e voltar ao mixer (P)' : 'Abrir os pads no lugar do mixer (P)'}
+              aria-pressed={padsVisible}
+              aria-label="Pads"
+            >
+              <LayoutGrid size={14} />
             </button>
           )}
           <button

@@ -543,8 +543,8 @@ function TimelineSection() {
           o momento pedir, sempre no tempo e sem nenhum corte fora do lugar.
         </SectionHead>
         <div ref={keys.ref} className={`mt-7 flex flex-wrap items-center gap-4 ${keys.revealed ? 'is-in' : ''}`}>
-          <div className="vs-keycaps" aria-label="Atalhos do teclado: 1 a 9, L e P">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'L', 'P'].map((k, i) => (
+          <div className="vs-keycaps" aria-label="Atalhos do teclado: L e N">
+            {['L', 'N'].map((k, i) => (
               <span key={k} className="vs-keycap" style={{ '--k': i } as CSSProperties}>{k}</span>
             ))}
           </div>

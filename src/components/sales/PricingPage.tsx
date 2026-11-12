@@ -54,7 +54,7 @@ const COMPARISON_FEATURES = [
       { name: 'Mixer com canal Timecode LTC blindado (−6dB)', monthly: true, yearly: true },
       { name: 'Botão Split Master L/R de emergência instantâneo', monthly: true, yearly: true },
       { name: 'Modo Show à prova de acidentes e cliques errados', monthly: true, yearly: true },
-      { name: 'Live Loop Pads no teclado (teclas 1-9, L, P)', monthly: true, yearly: true },
+      { name: 'Live Loop Pads no teclado (teclas L e N)', monthly: true, yearly: true },
       { name: 'Projetos, repertórios e músicas sem limite', monthly: true, yearly: true },
     ],
   },

@@ -362,7 +362,7 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
 /* ---------- Foto que cresce ao entrar ---------- */
 .vs-grow { transform: scale(calc(0.9 + var(--sp, 1) * 0.1)); transform-origin: 50% 100%; will-change: transform; }
 
-/* ---------- Teclas 1–9, L e P ---------- */
+/* ---------- Teclas do teclado (L e N) ---------- */
 .vs-keycaps { display: flex; flex-wrap: wrap; gap: 0.45rem; }
 .vs-keycap {
   display: grid; place-items: center; width: 2.6rem; height: 2.6rem; border-radius: 0.5rem;
