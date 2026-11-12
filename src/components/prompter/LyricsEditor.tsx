@@ -9,7 +9,7 @@ import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterT
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { producerRequestLyricsSave, producerSaveLyrics } from '@/lib/prompterApi';
 import { producerReferenceList, type ProducerReference } from '@/lib/prompterAudio';
-import type { TimedWord } from '@/lib/lyricsAutoSync';
+import { buildPages, normalizeWords, type RawSegment, type TimedWord } from '@/lib/lyricsAutoSync';
 
 // Palavras da letra automática, por música: sobrevivem a recarregar a página neste aparelho.
 const WORDS_LS = 'vs_lyrics_words:';
@@ -134,6 +134,37 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
     commit(id, next);
     setHistoryTick((t) => t + 1);
   }, [commit, serverPages]);
+
+  // A letra que o Mac do diretor leu entra sozinha nas músicas ainda sem letra, já com as marcações.
+  // Música que já tem texto (correção do produtor) não é trocada: lá fica o botão "Letra automática".
+  const autoFilled = useRef<Set<string>>(new Set());
+  const alive = useRef(true);
+  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => {
+    const songIds = new Set(songs.map((s) => s.id));
+    const hasText = (ps: LyricPage[]) => ps.some((pg) => pg.text.trim().length > 0);
+    const todo = [...audioRefs].filter(([id, ref]) => ref.wordsUrl && songIds.has(id) && !autoFilled.current.has(id));
+    for (const [id] of todo) autoFilled.current.add(id);
+    void (async () => {
+      for (const [id, ref] of todo) {
+        if (hasText(draftsRef.current[id] ?? serverPages(id))) continue;
+        try {
+          const res = await fetch(ref.wordsUrl as string);
+          if (!res.ok) throw new Error('fetch');
+          const body = await res.json() as { segments?: RawSegment[] };
+          const heard = normalizeWords(body.segments ?? []);
+          const built = buildPages(heard);
+          // enquanto buscava, o produtor pode ter começado a escrever: aí não mexe
+          if (!alive.current || built.length === 0 || hasText(draftsRef.current[id] ?? serverPages(id))) continue;
+          setPages(id, () => built);
+          saveWords(id, heard);
+        } catch {
+          autoFilled.current.delete(id); // tenta de novo na próxima atualização da lista
+        }
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioRefs, songs, serverPages, setPages]);
 
   const stepHistory = useCallback((id: string, dir: 'undo' | 'redo') => {
     const h = history.current[id];
