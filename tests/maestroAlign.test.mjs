@@ -22,9 +22,13 @@ test('a régua do Maestro na timeline usa a mesma conta do cabeçalho', () => {
   assert.match(src, /height=\{maestroLaneHeight\}/);
 });
 
-test('pasta recolhida absorve a altura das filhas na timeline', () => {
-  assert.match(src, /const mergedHeight = isFolder && collapsedFolders\.has\(track\.id\)/, 'considera a pasta recolhida');
-  assert.match(src, /style=\{\{ height: `\$\{mergedHeight\}px` \}\}/, 'a linha da timeline usa a altura somada');
+test('pasta recolhida é uma linha só, na coluna dos nomes e na timeline', () => {
+  // Antes a timeline somava a altura das filhas escondidas enquanto a coluna mostrava uma
+  // linha só: tudo abaixo de uma pasta recolhida ficava desalinhado.
+  assert.doesNotMatch(src, /mergedHeight/, 'a timeline não soma a altura das filhas escondidas');
+  assert.match(src, /style=\{\{ height: `\$\{rowHeight\}px` \}\}/, 'a linha da timeline usa a mesma altura da coluna');
+  assert.match(src, /\{expanded && track\.children\.map\(/, 'a coluna esconde as filhas da pasta recolhida');
+  assert.match(src, /if \(track\.isSubgroup && !collapsedFolders\.has\(track\.id\)\)/, 'a timeline esconde as mesmas filhas');
 });
 
 test('a coluna dos nomes rola junto com a timeline, no mesmo quadro (sem atraso)', () => {

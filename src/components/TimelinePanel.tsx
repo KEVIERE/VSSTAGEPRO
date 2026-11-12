@@ -2420,21 +2420,14 @@ export default function TimelinePanel() {
                   // saía deslocada da coluna dos nomes assim que se mudava o tamanho das tracks.
                   const isMaestroRow = track.id === 'track-maestro';
                   const maestroLaneHeight = Math.round(NARRATION_LANE_HEIGHT * zoomV);
-                  // Pasta recolhida é só UMA linha na coluna dos nomes: as filhas não entram. Na
-                  // timeline ela fica com a altura de todas as filhas, senão tudo abaixo desalinha.
-                  const childCount = track.children?.length ?? 0;
-                  const mergedHeight = isFolder && collapsedFolders.has(track.id) && childCount > 0
-                    ? rowHeight + (track.children ?? []).reduce((sum, id) => {
-                        const child = tracks.find((t) => t.id === id);
-                        if (!child) return sum;
-                        return sum + Math.round((child.height ?? 40) * zoomV) + (child.id === 'track-maestro' ? maestroLaneHeight : 0);
-                      }, 0)
-                    : rowHeight;
+                  // Pasta recolhida é UMA linha só, aqui e na coluna dos nomes (as filhas saem das
+                  // duas). Antes a timeline guardava a altura de todas as filhas enquanto a coluna
+                  // mostrava uma linha, e tudo abaixo da pasta ficava desalinhado.
                   return (
                     <div key={track.id}>
                     <div
                       className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
-                      style={{ height: `${mergedHeight}px` }}
+                      style={{ height: `${rowHeight}px` }}
                     >
                       {trackClips.map((clip) => (
                         <ClipBlock
