@@ -4,6 +4,7 @@ import type { ClipAudio } from '@/lib/audioLibrary';
 import type { AudioClip, ProjectState, Track } from '@/types';
 import { projectPlaylist, syncedShows } from '@/lib/shows';
 import { withoutLoops } from '@/lib/regions';
+import { keptAssetIndex, packageTrailer, readPackageTail, VSC_MAGIC, writePackageTail, type KeptAsset } from '@/lib/vssPackage';
 
 type ProgressFn = (msg: string) => void;
 
@@ -60,12 +61,13 @@ export interface LoadedProject {
 }
 
 // .vss (antigo .vsc): [magic][áudios...][manifest][f64 manifestOffset][u32 manifestLen][magic]
-// O índice fica no final para que o arquivo possa ser gravado só acrescentando dados.
-// Áudio 100% de estúdio original sem nenhuma perda de qualidade (lossless).
-const VSC_MAGIC = 'VSSTAGE1';
+// (detalhes em vssPackage.ts). Áudio 100% de estúdio original sem nenhuma perda de qualidade.
 const VSS_EXT = '.vss';
 const VSC_EXT = '.vsc';
-const TRAILER_SIZE = 20;
+
+// Cada áudio aberto de um .vss é um pedaço do próprio arquivo. Guardar de onde veio cada pedaço
+// permite salvar de novo trocando só o fim do arquivo quando nenhum áudio mudou.
+const packageSlices = new WeakMap<Blob, { file: File; begin: number; size: number }>();
 
 function sanitize(name: string): string {
   return (name || '').replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Sem Nome';
@@ -418,12 +420,7 @@ async function writePackage(
   const manifestBytes = enc.encode(JSON.stringify(manifest));
   await write(manifestBytes.buffer as ArrayBuffer);
 
-  const trailer = new ArrayBuffer(TRAILER_SIZE);
-  const dv = new DataView(trailer);
-  dv.setFloat64(0, magic.byteLength + offset, true);
-  dv.setUint32(8, manifestBytes.byteLength, true);
-  for (let i = 0; i < 8; i++) dv.setUint8(12 + i, VSC_MAGIC.charCodeAt(i));
-  await write(trailer);
+  await write(packageTrailer(magic.byteLength + offset, manifestBytes.byteLength));
 
   return { missingCount };
 }
@@ -508,9 +505,55 @@ export function saveTargetLabel(target: SaveTarget): string {
   return target.kind === 'package' ? target.handle.name : target.name;
 }
 
+/**
+ * Salvar de novo sem ter mudado nenhum áudio (só letras, mixagem, ordem): troca só o fim do .vss.
+ * Devolve false quando algum áudio é novo ou veio de outro arquivo; aí o .vss é regravado inteiro.
+ */
+async function writeManifestOnly(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn, signal?: AbortSignal): Promise<boolean> {
+  const file = await handle.getFile();
+  const tail = await readPackageTail(file);
+  if (!tail) return false;
+  const assets = planAssets(state).flatMap((p) => p.assets);
+  const kept: KeptAsset[] = [];
+  for (const a of assets) {
+    const src = getClipSource(a.clip.id);
+    const from = src ? packageSlices.get(src) : undefined;
+    // o pedaço precisa ser deste mesmo arquivo, do jeito que ele está no disco agora
+    if (!from || from.file.name !== file.name || from.file.size !== file.size || from.file.lastModified !== file.lastModified) return false;
+    kept.push({ clipId: a.clip.id, path: a.relPath, begin: from.begin, size: from.size });
+  }
+  const index = keptAssetIndex(kept, tail);
+  if (!index) return false;
+
+  const manifest = buildManifestBase(state);
+  manifest.projectName = stripProjectExt(handle.name);
+  withAssetPaths(manifest, assets);
+  manifest.assets = index;
+
+  checkCancelled(signal);
+  onProgress('Gravando o projeto (os áudios já estão no arquivo)...');
+  const ws = await handle.createWritable({ keepExistingData: true });
+  try {
+    await writePackageTail({
+      write: (params) => ws.write(params),
+      truncate: (size) => ws.truncate(size),
+    }, tail.manifestStart, JSON.stringify(manifest));
+    checkCancelled(signal);
+    await ws.close();
+  } catch (err) {
+    await ws.abort().catch(() => undefined);
+    throw err;
+  }
+  return true;
+}
+
 export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
   if (target.kind === 'package') {
     await ensureWritable(target.handle);
+    if (await writeManifestOnly(state, target.handle, onProgress, signal)) {
+      await rebindPackageSources(state, target.handle);
+      return { missingCount: 0 };
+    }
     const { missingCount } = await writePackageToHandle(state, target.handle, onProgress, signal);
     await rebindPackageSources(state, target.handle);
     return { missingCount };
@@ -585,20 +628,10 @@ export async function reopenProject(target: SaveTarget, onProgress: ProgressFn):
 }
 
 async function readPackage(file: File, onProgress: ProgressFn): Promise<LoadedProject> {
-  const invalid = () => new Error('Este arquivo de projeto (.vss) está incompleto ou corrompido.');
   const dataStart = VSC_MAGIC.length;
-  if (file.size < dataStart + TRAILER_SIZE) throw invalid();
-  if (await file.slice(0, dataStart).text() !== VSC_MAGIC) throw invalid();
-
-  const trailer = new DataView(await file.slice(file.size - TRAILER_SIZE).arrayBuffer());
-  let tail = '';
-  for (let i = 0; i < 8; i++) tail += String.fromCharCode(trailer.getUint8(12 + i));
-  const manifestStart = trailer.getFloat64(0, true);
-  const manifestLen = trailer.getUint32(8, true);
-  if (tail !== VSC_MAGIC || !Number.isFinite(manifestStart) || manifestStart < dataStart
-    || manifestStart + manifestLen > file.size - TRAILER_SIZE) {
-    throw invalid();
-  }
+  const tail = await readPackageTail(file);
+  if (!tail) throw new Error('Este arquivo de projeto (.vss) está incompleto ou corrompido.');
+  const { manifestStart, manifestLen } = tail;
 
   onProgress('Lendo projeto...');
   const manifest = parseManifest(await file.slice(manifestStart, manifestStart + manifestLen).text());
@@ -607,7 +640,9 @@ async function readPackage(file: File, onProgress: ProgressFn): Promise<LoadedPr
     if (!a.size) continue;
     const begin = dataStart + a.offset;
     if (begin + a.size > manifestStart) continue;
-    sources.set(a.clipId, file.slice(begin, begin + a.size));
+    const slice = file.slice(begin, begin + a.size);
+    packageSlices.set(slice, { file, begin, size: a.size });
+    sources.set(a.clipId, slice);
   }
   onProgress(`Projeto aberto (${sources.size} áudios).`);
   return { manifest, sources };
