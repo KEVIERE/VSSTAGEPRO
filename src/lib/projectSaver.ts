@@ -158,12 +158,20 @@ async function forEachAsset(
   const plan = planAssets(state);
   const all = plan.flatMap((p) => p.assets);
   const total = Math.max(1, all.length);
+  // Conta arquivos (cada faixa de cada música), não músicas: antes a tela dizia "1 de 225" com
+  // 14 músicas no projeto, e parecia que o programa via músicas que não existem.
+  const songNames = new Map(state.songs.map((sg) => [sg.id, sg.name]));
+  const trackNames = new Map(state.tracks.map((t) => [t.id, t.name]));
+  const songOrder = new Map(plan.filter((p) => p.assets.length > 0).map((p, i) => [p.songId, i + 1]));
+  const songsWithAudio = plan.filter((p) => p.assets.length > 0).length;
   let done = 0;
 
   for (const a of all) {
     checkCancelled(signal);
     done++;
-    onProgress(`Salvando ${done} de ${total}: ${a.relPath}`);
+    const song = songNames.get(a.clip.songId) ?? 'Música';
+    const track = trackNames.get(a.clip.trackId) ?? 'Faixa';
+    onProgress(`Salvando os áudios: ${done} de ${total} arquivos · música ${songOrder.get(a.clip.songId) ?? 1} de ${Math.max(1, songsWithAudio)} · ${song}, ${track}`);
     let data: Blob | null = getClipSource(a.clip.id);
     // Testa se o source original é acessível; se o arquivo foi movido ou o descritor expirou,
     // reconstrói a partir do buffer de áudio em memória com fallback automático.
