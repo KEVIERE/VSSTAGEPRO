@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, Clock, FolderDown, Loader2 } from 'lucide-react';
 import LyricsStyleControls from '@/components/prompter/LyricsStyleControls';
-import { lyricFontCss, type PrompterSnapshot, type PrompterState } from '@/lib/prompterTypes';
+import type { PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
 
 function hhmm(iso: string): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -92,23 +92,10 @@ export default function LyricsProjectBar({ snap, state, update, onSave }: {
           Salvar no projeto
         </button>
       </div>
-      <div className="border-t border-logic-border px-4 py-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)]">
-        <div>
-          <p className="text-xs font-semibold tracking-wider uppercase text-logic-text-dim mb-3">Estilo da letra na TV</p>
-          <LyricsStyleControls state={state} update={update} />
-        </div>
-        <div className="flex flex-col">
-          <p className="text-xs text-logic-text-dim mb-2">Prévia</p>
-          <div className="flex-1 min-h-[140px] rounded-lg bg-black ring-1 ring-logic-border-light flex items-center px-5 py-4 overflow-hidden">
-            <p
-              className="w-full font-semibold whitespace-pre-line transition-all duration-200"
-              style={{ color: state.lyricColor, fontFamily: lyricFontCss(state.lyricFont), textAlign: state.lyricAlign, fontSize: `${Math.round(26 * state.fontScale)}px`, lineHeight: 1.2 }}
-            >
-              {'Essa é a letra\nque vai aparecer na TV'}
-            </p>
-          </div>
-          <p className="text-[11px] text-logic-text-muted mt-2">As mudanças aparecem na TV na hora.</p>
-        </div>
+      <div className="border-t border-logic-border px-4 py-4">
+        <p className="text-xs font-semibold tracking-wider uppercase text-logic-text-dim mb-3">Estilo da letra na TV</p>
+        <LyricsStyleControls state={state} update={update} />
+        <p className="text-[11px] text-logic-text-muted mt-3">As mudanças aparecem na TV na hora. A prévia fica ao lado da música.</p>
       </div>
     </div>
   );

@@ -356,6 +356,35 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
   );
 }
 
+/**
+ * Prévia da Área do Produtor: só a área da letra, do jeito que sai na TV.
+ * Tocando, a letra corre em tempo real (com a rolagem de karaokê); parada, mostra uma frase de
+ * exemplo com a cor, o tamanho, a fonte e o alinhamento escolhidos.
+ */
+export function StageLyricsPreview({ pages, t, playing, songId, p }: {
+  pages: LyricPage[]; t: number; playing: boolean; songId: string; p: PrompterState;
+}) {
+  const sample = 'Sua letra\naparecerá aqui';
+  return (
+    <div className="w-full h-full bg-black text-white overflow-hidden select-none" style={{ containerType: 'size' }}>
+      <div className="relative w-full h-full" style={{ transform: p.mirror ? 'scaleX(-1)' : undefined }}>
+        {playing && pages.length > 0 ? (
+          <LyricsView pages={pages} t={t} playing={playing} songId={songId} p={p} />
+        ) : (
+          <div className={`absolute inset-0 flex items-center px-[6cqw] ${p.lyricAlign === 'left' ? 'justify-start' : p.lyricAlign === 'right' ? 'justify-end' : 'justify-center'}`}>
+            <p
+              className="font-semibold whitespace-pre-line transition-all duration-200"
+              style={{ fontSize: `${fitSize(sample, p.fontScale)}cqh`, lineHeight: LINE_HEIGHT, color: p.lyricColor, fontFamily: lyricFontCss(p.lyricFont), textAlign: p.lyricAlign }}
+            >
+              {sample}
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function NoticeView({ notice, barSize }: { notice: Notice; barSize: number }) {
   const st = NOTICE_STYLE[notice.level];
   const pulse = notice.level === 'urgent' ? 'animate-[noticePulse_1.2s_ease-in-out_infinite]' : '';

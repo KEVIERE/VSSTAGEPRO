@@ -4,7 +4,7 @@ import {
   AlertTriangle, Radio, Eye, X, RotateCcw, Undo2, Redo2, Sparkles,
 } from 'lucide-react';
 import LyricsWaveform, { decodePeaks } from '@/components/prompter/LyricsWaveform';
-import StageScreen from '@/components/prompter/StageScreen';
+import StageScreen, { StageLyricsPreview } from '@/components/prompter/StageScreen';
 import type { LyricPage, PageKind, PrompterSnapshot } from '@/lib/prompterTypes';
 import { PAGE_KINDS, kindInfo } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
@@ -258,8 +258,69 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
 
   const pasteCount = splitLyrics(pasteText).length;
 
+  // Clicar numa marcação leva a página dela para o topo da lista (debaixo da prévia, no celular).
+  const rowRefs = useRef(new Map<string, HTMLLIElement>());
+  const scrollToPage = useCallback((id: string) => {
+    const el = rowRefs.current.get(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+  const selectMarker = useCallback((id: string | null) => {
+    setSelectedId(id);
+    if (!id) return;
+    const i = pages.findIndex((x) => x.id === id);
+    if (i >= 0) setMarkIdx(i);
+    // espera o React desenhar o destaque antes de rolar
+    window.requestAnimationFrame(() => scrollToPage(id));
+  }, [pages, scrollToPage]);
+
+  const previewPlaying = playing || (useLive && lv.isPlaying);
+  const [previewMin, setPreviewMin] = useState(false);
+  const previewP = { ...snap.prompter, nudge: { songId: null, delta: 0 } };
+  const shownPage = activeIdx >= 0 ? pages[activeIdx] : null;
+
   return (
-    <div className="space-y-4 min-w-0">
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px] items-start min-w-0">
+      {/* Prévia da TV, sempre à vista. Tela larga: coluna à direita que acompanha a rolagem.
+          Tela menor e celular: pequena, flutuando no canto (não cobre a onda), e dá para recolher.
+          Tocando, a letra corre em tempo real; parada, mostra o estilo escolhido. */}
+      {previewMin && (
+        <button
+          onClick={() => setPreviewMin(false)}
+          className="xl:hidden fixed right-3 bottom-[76px] sm:bottom-3 z-30 console-key flex items-center gap-1.5 px-3 h-8 text-[11px] shadow-lg"
+        >
+          <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} /> Prévia da TV
+        </button>
+      )}
+      <aside className={`${previewMin ? 'hidden xl:block' : ''} fixed right-3 bottom-[76px] sm:bottom-3 z-30 w-[250px] sm:w-[300px] xl:w-auto xl:sticky xl:top-0 xl:bottom-auto xl:right-auto xl:z-10 xl:order-2`}>
+        <div className="console-face border-2 border-black rounded-lg p-2 shadow-2xl xl:shadow-lg">
+          <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-7 rounded-t flex items-center gap-2 border-b-2 border-black">
+            <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} />
+            <p className="console-legend flex-1 !text-logic-text">{previewPlaying ? 'Na TV agora' : 'Prévia da TV'}</p>
+            <button onClick={() => setRehearsal(true)} disabled={pages.length === 0} className="console-key flex items-center gap-1 px-2 h-5 text-[10px] disabled:opacity-40" title="Tela inteira, do jeito que os artistas veem">
+              <Eye size={11} /> Ensaiar
+            </button>
+            <button onClick={() => setPreviewMin(true)} className="xl:hidden console-key flex items-center justify-center w-5 h-5" aria-label="Recolher a prévia">
+              <X size={11} />
+            </button>
+          </div>
+          <div className="aspect-video rounded overflow-hidden ring-1 ring-black">
+            <StageLyricsPreview pages={pages} t={t} playing={previewPlaying} songId={song.id} p={previewP} />
+          </div>
+          <div className="flex items-center gap-2 mt-2 text-[11px] min-h-[20px]">
+            {shownPage ? (
+              <>
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold text-black" style={{ background: kindInfo(shownPage.kind).color }}>{activeIdx + 1}</span>
+                <span className="tabular-nums text-logic-text-dim">{fmtPrecise(shownPage.time)}</span>
+                <span className="flex-1 min-w-0 truncate text-logic-text">{shownPage.text.split('\n')[0] || 'trecho vazio'}</span>
+                <button onClick={() => scrollToPage(shownPage.id)} className="text-logic-text-muted hover:text-logic-text underline-offset-2 hover:underline shrink-0">ver na lista</button>
+              </>
+            ) : (
+              <span className="text-logic-text-muted">{pages.length ? 'Antes do primeiro trecho.' : 'Sem letra ainda.'} Toque Tocar para acompanhar em tempo real.</span>
+            )}
+          </div>
+        </div>
+      </aside>
+    <div className="space-y-4 min-w-0 xl:order-1">
       <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 min-w-0">
@@ -275,9 +336,6 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
               <Redo2 size={15} />
             </button>
           </div>
-          <button onClick={() => setRehearsal(true)} disabled={pages.length === 0} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light text-sm disabled:opacity-40 transition-colors">
-            <Eye size={15} /> Ensaiar
-          </button>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -350,7 +408,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
             pages={pages}
             activeIdx={activeIdx}
             selectedId={selectedId}
-            onSelect={setSelectedId}
+            onSelect={selectMarker}
             clampTime={clampTime}
             onSeek={(time) => { if (!useLive) seek(time); }}
             onMoveMarker={moveTo}
@@ -460,6 +518,8 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
           {pages.map((p, i) => (
             <PageRow
               key={p.id}
+              rowRef={(el) => { if (el) rowRefs.current.set(p.id, el); else rowRefs.current.delete(p.id); }}
+              selected={p.id === selectedId}
               page={p}
               index={i}
               total={pages.length}
@@ -502,10 +562,12 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
         </div>
       )}
     </div>
+    </div>
   );
 }
 
-function PageRow({ page, index, total, active, armed, onArm, onChange, onMarkNow, onSeek, onMove, onDelete }: {
+function PageRow({ rowRef, selected, page, index, total, active, armed, onArm, onChange, onMarkNow, onSeek, onMove, onDelete }: {
+  rowRef: (el: HTMLLIElement | null) => void; selected: boolean;
   page: LyricPage; index: number; total: number; active: boolean; armed: boolean;
   onArm: () => void; onChange: (patch: Partial<LyricPage>) => void; onMarkNow: () => void;
   onSeek: () => void; onMove: (d: number) => void; onDelete: () => void;
@@ -515,8 +577,9 @@ function PageRow({ page, index, total, active, armed, onArm, onChange, onMarkNow
   const kind = kindInfo(page.kind);
   return (
     <li
+      ref={rowRef}
       onClick={onArm}
-      className={`flex gap-3 p-3 rounded-lg border transition-colors ${active ? 'border-logic-lcd-green/70 bg-logic-lcd-green/5' : armed ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep'}`}
+      className={`scroll-mt-4 flex gap-3 p-3 rounded-lg border transition-colors ${selected ? 'ring-2 ring-logic-lcd-amber/70' : ''} ${active ? 'border-logic-lcd-green/70 bg-logic-lcd-green/5' : armed ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep'}`}
       style={{ borderLeft: `4px solid ${kind.color}` }}
     >
       <div className="flex flex-col items-center gap-1 w-8 flex-shrink-0">
