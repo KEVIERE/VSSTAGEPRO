@@ -27,6 +27,7 @@ import MiniFader from '@/components/MiniFader';
 import { LedMeterH } from '@/components/MeterMask';
 import { dropSlot, laneMoves, laneOffset, reorderChildren } from '@/lib/trackOrder';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
+import { NARRATION_ROW, clipsInBox, marqueeSelection, rangeSelection, selectionRows, splitNarrationClips } from '@/lib/timelineSelection';
 import { mergeFolderPeaks, type FolderPreview } from '@/lib/folderPreview';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
 import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
@@ -1522,6 +1523,9 @@ export default function TimelinePanel() {
   const splitClipAt = useStore((s) => s.splitClipAt);
   const splitClipsAt = useStore((s) => s.splitClipsAt);
   const removeClips = useStore((s) => s.removeClips);
+  const removeNarration = useStore((s) => s.removeNarration);
+  // Retângulo de seleção (arrastar na grade vazia), em pixels da área da timeline
+  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const recordingMaestro = useStore((s) => s.recordingMaestro);
   const timelineLocked = useStore((s) => s.timelineLocked);
   const groupClips = useStore((s) => s.groupClips);
@@ -1607,6 +1611,16 @@ export default function TimelinePanel() {
     return result;
   }, [tracks, collapsedFolders]);
 
+  // Pasta recolhida: a linha dela vale pelas trilhas de dentro (na seleção por retângulo e no Shift)
+  const collapsedRows = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const folderId of collapsedFolders) {
+      const folder = tracks.find((t) => t.id === folderId);
+      if (folder?.isSubgroup) out.set(folderId, folder.children);
+    }
+    return out;
+  }, [collapsedFolders, tracks]);
+
   const selectAllSongClips = useCallback(() => {
     selectClips(songClips.map((c) => c.id));
   }, [selectClips, songClips]);
@@ -1643,9 +1657,15 @@ export default function TimelinePanel() {
     if (timelineLocked || selectedClipIds.length === 0) return;
     const targetIds = [...selectedClipIds];
     audioEngine.stopClipsLive(targetIds);
-    removeClips(targetIds);
+    // fala do Maestro IA selecionada sai inteira (marcação e voz); os outros áudios, como sempre
+    const narrationOf = new Map((song?.narrations ?? []).filter((n) => n.clipId).map((n) => [n.clipId as string, n.id]));
+    const { clips: plain, narrations } = splitNarrationClips(targetIds, new Set(narrationOf.keys()));
+    beginGesture();
+    if (plain.length > 0) removeClips(plain);
+    if (song) for (const clipId of narrations) removeNarration(song.id, narrationOf.get(clipId)!);
+    endGesture();
     if (song) audioEngine.invalidatePrepared(song.id);
-  }, [timelineLocked, selectedClipIds, removeClips, song]);
+  }, [timelineLocked, selectedClipIds, removeClips, removeNarration, song]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1791,41 +1811,14 @@ export default function TimelinePanel() {
       : [clip.id];
 
     if (isShift && lastSelectedClipIdRef.current) {
-      // Seleção em intervalo vertical por faixas (Shift + Clique):
+      // Shift + clique: tudo entre o áudio clicado antes e este (as linhas entre os dois, falas do
+      // Maestro IA incluídas, no trecho de tempo entre eles)
       const prevClip = songClips.find((c) => c.id === lastSelectedClipIdRef.current);
       if (prevClip) {
-        const trackIds = allVisibleTracks.map((t) => t.id);
-        const idxA = trackIds.indexOf(prevClip.trackId);
-        const idxB = trackIds.indexOf(clip.trackId);
-        if (idxA !== -1 && idxB !== -1) {
-          const minIdx = Math.min(idxA, idxB);
-          const maxIdx = Math.max(idxA, idxB);
-          const inRangeTrackIds = new Set(trackIds.slice(minIdx, maxIdx + 1));
-
-          // Delimita a fatia temporal (mesmo trecho cortado / coluna temporal):
-          const refStart = Math.min(prevClip.startTime, clip.startTime);
-          const refEnd = Math.max(
-            prevClip.startTime + clipPlayLength(prevClip),
-            clip.startTime + clipPlayLength(clip)
-          );
-
-          // Seleciona APENAS os clipes das faixas intermediárias que pertencem à mesma fatia de corte (overlap temporal),
-          // sem selecionar clipes do outro lado do corte.
-          const rangeClips = songClips.filter((c) => {
-            if (!inRangeTrackIds.has(c.trackId)) return false;
-            const cStart = c.startTime;
-            const cEnd = c.startTime + clipPlayLength(c);
-            const overlap = Math.min(cEnd, refEnd) - Math.max(cStart, refStart);
-            return overlap > 0.05;
-          });
-
-          const newIds = additive
-            ? Array.from(new Set([...currentSelection, ...rangeClips.map((c) => c.id)]))
-            : rangeClips.map((c) => c.id);
-
-          selectClips(newIds);
-          return;
-        }
+        const rows = selectionRows(allVisibleTracks.map((t) => t.id));
+        const range = rangeSelection(songClips, rows, prevClip, clip, clipPlayLength, MAESTRO_IA_TRACK_ID, collapsedRows);
+        selectClips(additive ? Array.from(new Set([...currentSelection, ...range])) : range);
+        return;
       }
     }
 
@@ -1843,6 +1836,65 @@ export default function TimelinePanel() {
       selectClips(groupMembers);
       lastSelectedClipIdRef.current = clip.id;
     }
+  };
+
+  /** Clique numa fala do Maestro IA: entra na mesma seleção dos clipes (Cmd soma, Shift vai até ela). */
+  const handleNarrationSelect = (clipId: string, mods: { additive: boolean; shift: boolean }) => {
+    const clip = songClips.find((c) => c.id === clipId);
+    if (!clip) return;
+    if (mods.additive || mods.shift) {
+      handleSelectClip(clip, mods.additive, mods.shift);
+    } else {
+      selectClips([clip.id]);
+      lastSelectedClipIdRef.current = clip.id;
+    }
+  };
+
+  /**
+   * Arrastar na grade vazia: retângulo de seleção, como numa DAW. Pega os áudios das linhas que ele
+   * cobre (falas do Maestro IA e trilhas de pasta recolhida inclusive) no trecho de tempo dele.
+   * Com Cmd ou Shift no começo, soma com a seleção de antes.
+   */
+  const startMarquee = (e: React.PointerEvent<HTMLDivElement>, additive: boolean, onClick?: () => void) => {
+    const content = e.currentTarget;
+    const r0 = content.getBoundingClientRect();
+    const sx = e.clientX - r0.left;
+    const sy = e.clientY - r0.top;
+    const before = additive ? useStore.getState().selectedClipIds : [];
+    const clipsNow = songClips;
+    let active = false;
+    const move = (ev: PointerEvent) => {
+      const rect = content.getBoundingClientRect();
+      const cx = ev.clientX - rect.left;
+      const cy = ev.clientY - rect.top;
+      if (!active && Math.hypot(cx - sx, cy - sy) < 5) return;
+      active = true;
+      const left = Math.max(0, Math.min(sx, cx));
+      const top = Math.max(0, Math.min(sy, cy));
+      const width = Math.abs(cx - sx);
+      const height = Math.abs(cy - sy);
+      setMarquee({ left, top, width, height });
+      const yA = rect.top + top;
+      const yB = rect.top + top + height;
+      const rows: string[] = [];
+      content.querySelectorAll<HTMLElement>('[data-lane-track-id], [data-narration-lane]').forEach((el) => {
+        const b = el.getBoundingClientRect();
+        if (b.bottom > yA && b.top < yB) rows.push(el.hasAttribute('data-narration-lane') ? NARRATION_ROW : (el.dataset.laneTrackId ?? ''));
+      });
+      const picked = clipsInBox(clipsNow, rows, left / zoomH, (left + width) / zoomH, clipPlayLength, MAESTRO_IA_TRACK_ID, { extraRows: collapsedRows });
+      selectClips(marqueeSelection(before, picked, additive));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      setMarquee(null);
+      if (active) lastSelectedClipIdRef.current = null;
+      else onClick?.();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   };
 
   const handleMoveStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => {
@@ -1886,7 +1938,8 @@ export default function TimelinePanel() {
     // de verdade, na ordem da tela (pasta e timecode não). Vários áudios andam o mesmo tanto.
     const lanes = allVisibleTracks.filter((t) => !t.isSubgroup && t.id !== TIMECODE_TRACK_ID).map((t) => t.id);
     const anchorLane = lanes.indexOf(clip.trackId);
-    const sourceLanes = targets.map((c) => lanes.indexOf(c.trackId));
+    // fala do Maestro IA não troca de trilha: só os clipes contam para o arraste para cima/baixo
+    const sourceLanes = targets.filter((c) => c.trackId !== MAESTRO_IA_TRACK_ID).map((c) => lanes.indexOf(c.trackId));
     let offset = 0;
     let laneMovesNow: { clipId: string; trackId: string }[] = [];
     const laneUnder = (y: number): string | null => {
@@ -2533,23 +2586,35 @@ export default function TimelinePanel() {
                 onPointerDown={(e) => {
                   const target = e.target as HTMLElement;
                   if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
-                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
+                    if (e.button !== 0) return;
+                    const plain = !e.ctrlKey && !e.metaKey && !e.shiftKey;
+                    let onClick: (() => void) | undefined;
+                    if (plain) {
                       e.stopPropagation();
                       selectClip(null);
                       lastSelectedClipIdRef.current = null;
-                      // Ao clicar em qualquer lugar vazio da timeline, move o cursor para a posição clicada
-                      // sem trocar a música atual selecionada (mantém na música que está)
+                      // Clique (sem arrastar) em lugar vazio da timeline: leva o cursor para a posição
+                      // clicada, sem trocar a música atual. Arrastando, é seleção e o cursor fica.
                       const rect = e.currentTarget.getBoundingClientRect();
                       const clickX = e.clientX - rect.left;
                       const clickTime = snapTime(Math.max(0, clickX / zoomH), grid, e.altKey ? 'off' : snapStep);
-                      setCurrentTime(clickTime);
-                      if (isPlaying && song) {
-                        audioEngine.seekTo(clickTime);
-                      }
+                      onClick = () => {
+                        setCurrentTime(clickTime);
+                        if (isPlaying && song) audioEngine.seekTo(clickTime);
+                      };
                     }
+                    // arrastar na grade vazia desenha o retângulo de seleção (Cmd ou Shift: soma)
+                    startMarquee(e, !plain, onClick);
                   }
                 }}
               >
+                {/* retângulo de seleção (arrastar na grade vazia) */}
+                {marquee && (
+                  <div
+                    className="absolute z-50 pointer-events-none rounded-[2px] border border-[#5aaaff] bg-[#5aaaff]/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+                    style={marquee}
+                  />
+                )}
                 {allVisibleTracks.map((track) => {
                   const isFolder = track.isSubgroup;
                   const isTc = track.id === TIMECODE_TRACK_ID;
@@ -2630,6 +2695,7 @@ export default function TimelinePanel() {
                         onCreate={createNarration}
                         onEditCount={(group) => setCountTarget({ kind: 'edit', group })}
                         move={moveDrag}
+                        onSelectClip={handleNarrationSelect}
                       />
                     )}
                     </div>

@@ -43,6 +43,8 @@ interface NarrationLaneProps {
   onEditCount?: (group: string) => void;
   /** Arraste da seleção de clipes em andamento: as falas cujo áudio está nela andam junto. */
   move?: { ids: Set<string>; delta: number } | null;
+  /** Clique numa fala com voz: entra na seleção dos clipes da timeline (Cmd soma, Shift vai até ela). */
+  onSelectClip?: (clipId: string, mods: { additive: boolean; shift: boolean }) => void;
 }
 
 /**
@@ -55,7 +57,7 @@ interface NarrationLaneProps {
  *   menor = mais rápido, maior = mais devagar. A voz é gerada de novo sozinha.
  * - Clique duplo abre o editor; botão direito tem "Sincar no beat do cursor". Alt desliga o ímã.
  */
-export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move }: NarrationLaneProps) {
+export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move, onSelectClip }: NarrationLaneProps) {
   const updateNarration = useStore((s) => s.updateNarration);
   const snapStep = useStore((s) => s.snapStep);
   const clips = useStore((s) => s.clips);
@@ -120,9 +122,18 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
     e.preventDefault();
     e.stopPropagation();
     const el = e.currentTarget;
+    const additive = e.metaKey || e.ctrlKey;
+    if (n.clipId && onSelectClip) {
+      // fala com voz: mesma seleção dos clipes (Delete, Cmd+clique, Shift+clique, retângulo)
+      setSelectedId(null);
+      onSelectClip(n.clipId, { additive, shift: e.shiftKey });
+      // Cmd ou Shift só selecionam (não arrastam)
+      if (additive || e.shiftKey) return;
+    } else {
+      setSelectedId(n.id);
+      if (useStore.getState().selectedClipIds.length > 0) useStore.getState().selectClips([]);
+    }
     el.setPointerCapture(e.pointerId);
-    setSelectedId(n.id);
-    if (useStore.getState().selectedClipIds.length > 0) useStore.getState().selectClips([]);
     const rect = el.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     // barra estreita demais para três zonas: o meio sempre move
