@@ -221,6 +221,61 @@ export function placeClickSamples(
   return [outL, outR];
 }
 
+/**
+ * Click com dois sons: o `accent` nas batidas marcadas em `accents` (o 1 de cada compasso) e o
+ * `normal` nas outras. Sem som de acento, todas as batidas usam o normal.
+ */
+export function placeAccentedClicks(
+  times: number[], accents: boolean[] | undefined, length: number, sampleRate: number,
+  normal: [Float32Array, Float32Array], accent?: [Float32Array, Float32Array],
+): [Float32Array, Float32Array] {
+  if (!accent || !accents) return placeClickSamples(times, length, sampleRate, normal[0], normal[1]);
+  const [nL, nR] = placeClickSamples(times.filter((_, i) => !accents[i]), length, sampleRate, normal[0], normal[1]);
+  const [aL, aR] = placeClickSamples(times.filter((_, i) => accents[i]), length, sampleRate, accent[0], accent[1]);
+  for (let i = 0; i < length; i++) {
+    nL[i] += aL[i];
+    nR[i] += aR[i];
+  }
+  return [nL, nR];
+}
+
+/** Início e tamanho do tempo do trecho de andamento em `t` (a grade recomeça a contar em cada trecho). */
+function gridSegmentAt(song: SongTempo, t: number): { start: number; spb: number } {
+  const segs = song.tempoSegments;
+  if (segs && segs.length > 1) {
+    const seg = segs.find((s) => t >= s.startTime && t < s.endTime) ?? (t < segs[0].startTime ? segs[0] : segs[segs.length - 1]);
+    return { start: seg.startTime, spb: 60 / (seg.bpm > 0 ? seg.bpm : song.bpm || 120) };
+  }
+  return { start: 0, spb: 60 / (song.bpm > 0 ? song.bpm : 120) };
+}
+
+/**
+ * Quais batidas (em segundos da timeline) são o 1 do compasso, para o som de dois toques:
+ * 1 2 3 4 | 1 2 3 4. Segue a grade da timeline: o compasso começa no 0 e, com trechos de
+ * andamento, recomeça na mudança (igual às linhas de compasso da grade). Só vale para a batida
+ * que está na grade (até 30 ms da linha). Fora dela (ex.: medley com andamento que a grade não
+ * conhece), continua a contagem da batida anterior, e depois de uma pausa recomeça no 1.
+ */
+export function barStartFlags(song: SongTempo, times: number[], tolerance = 0.03): boolean[] {
+  const bpb = beatsPerBarOf(song);
+  let prev = -1;
+  let prevT = 0;
+  let prevGap = 0;
+  return times.map((t) => {
+    const { start, spb } = gridSegmentAt(song, t);
+    const k = Math.round((t - start) / spb);
+    const gap = prev < 0 ? 0 : t - prevT;
+    let pos: number;
+    if (Math.abs(t - (start + k * spb)) <= Math.min(tolerance, spb / 4)) pos = ((k % bpb) + bpb) % bpb;
+    else if (prev < 0 || (prevGap > 0 && gap > prevGap * 1.75)) pos = 0;
+    else pos = (prev + 1) % bpb;
+    prev = pos;
+    prevGap = gap;
+    prevT = t;
+    return pos === 0;
+  });
+}
+
 /** Tamanho em amostras do áudio de click de `durationSeconds` (pelo menos 50 ms). */
 export function clickBufferLength(durationSeconds: number, sampleRate: number): number {
   return Math.max(1, Math.ceil(Math.max(0.05, durationSeconds) * sampleRate));

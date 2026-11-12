@@ -1,19 +1,35 @@
 // Sons do metrônomo para o Recriar metrônomo. O "VS Stage" é a amostra gravada (clickSampleData,
-// tocada pelo clickGenerator); os outros são feitos aqui mesmo, por conta, sem arquivo e sem
-// internet. Cada som é curto, começa no primeiro instante (o ataque fica em cima da batida) e
-// sai no mesmo volume da amostra padrão: mesma energia nos primeiros 50 ms.
-// Sem AudioBuffer, para dar para testar.
+// tocada pelo clickGenerator). Madeira, Bip e Baqueta são feitos aqui mesmo, por conta.
+// Agradável e Bloco são toques gravados (clickRecordedSounds), já recortados no ataque.
+// Todos começam no primeiro instante (o ataque fica em cima da batida) e saem no mesmo volume
+// da amostra padrão: mesma energia nos primeiros 50 ms. Sem AudioBuffer, para dar para testar.
 
-export type ClickSoundId = 'vs' | 'madeira' | 'bip' | 'baqueta' | 'cowbell' | 'chimbal';
+import {
+  AGRADAVEL_ACENTO_B64, AGRADAVEL_B64, BLOCO_B64, RECORDED_CLICK_RATE,
+} from './clickRecordedSounds.ts';
 
-export const CLICK_SOUNDS: { id: ClickSoundId; label: string; tip: string }[] = [
+export type ClickSoundId = 'vs' | 'madeira' | 'bip' | 'baqueta' | 'agradavel' | 'bloco';
+
+export const CLICK_SOUNDS: { id: ClickSoundId; label: string; tip: string; twoSounds?: boolean }[] = [
   { id: 'vs', label: 'VS Stage', tip: 'O click padrão do VS Stage' },
   { id: 'madeira', label: 'Madeira', tip: 'Bloco de madeira: seco, com corpo, fácil de ouvir com a banda' },
   { id: 'bip', label: 'Bip', tip: 'Bip de metrônomo digital: tom limpo e contínuo' },
   { id: 'baqueta', label: 'Baqueta', tip: 'Baqueta com baqueta, como a contagem do baterista' },
-  { id: 'cowbell', label: 'Cowbell', tip: 'Cowbell de bateria eletrônica: metálico, atravessa a mix no fone' },
-  { id: 'chimbal', label: 'Chimbal', tip: 'Chimbal fechado: o mais suave, bom para música lenta' },
+  {
+    id: 'agradavel', label: 'Agradável', twoSounds: true,
+    tip: 'Dois sons: agudo no 1 de cada compasso, grave nos outros tempos',
+  },
+  { id: 'bloco', label: 'Bloco', tip: 'Bloco gravado: toque cheio e encorpado, em estéreo' },
 ];
+
+/** Um toque em estéreo: [esquerda, direita]. */
+export type ClickHit = [Float32Array, Float32Array];
+
+/** O som de cada batida; `accent` é o do 1 do compasso, quando o som tem dois. */
+export interface ClickSoundSamples {
+  normal: ClickHit;
+  accent?: ClickHit;
+}
 
 export const DEFAULT_CLICK_SOUND: ClickSoundId = 'vs';
 
@@ -69,13 +85,6 @@ function biquad(data: Float32Array, sampleRate: number, kind: FilterKind, freq: 
   return data;
 }
 
-/** Onda quadrada sem chiado de serrilhado: soma dos harmônicos ímpares até `maxHz`. */
-function square(freq: number, t: number, maxHz: number): number {
-  let v = 0;
-  for (let k = 1; k * freq < maxHz; k += 2) v += Math.sin(2 * Math.PI * k * freq * t) / k;
-  return v;
-}
-
 /** Ataque curto no começo e saída suave no fim, para não estalar. */
 function edges(data: Float32Array, sampleRate: number, attackMs: number, fadeMs = 6): Float32Array {
   const att = Math.max(1, Math.round(attackMs * sampleRate / 1000));
@@ -87,9 +96,10 @@ function edges(data: Float32Array, sampleRate: number, attackMs: number, fadeMs 
 
 /** Deixa o som com a mesma energia da amostra padrão, sem passar do pico limite. */
 export function matchClickLevel(data: Float32Array, sampleRate: number): Float32Array {
-  const n = Math.min(data.length, Math.round(0.05 * sampleRate));
+  // sempre 50 ms: som mais curto conta o resto como silêncio, igual à amostra padrão
+  const n = Math.round(0.05 * sampleRate);
   let ss = 0;
-  for (let i = 0; i < n; i++) ss += data[i] * data[i];
+  for (let i = 0; i < Math.min(n, data.length); i++) ss += data[i] * data[i];
   const rms = Math.sqrt(ss / Math.max(1, n));
   if (rms <= 0) return data;
   let gain = CLICK_TARGET_RMS / rms;
@@ -144,64 +154,121 @@ function baqueta(sr: number): Float32Array {
   return edges(out, sr, 0.2);
 }
 
-function cowbell(sr: number): Float32Array {
-  const len = Math.round(0.26 * sr);
-  const raw = new Float32Array(len);
-  const maxHz = Math.min(12000, sr * 0.45);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    raw[i] = square(587, t, maxHz) + square(845, t, maxHz);
+type SynthId = 'madeira' | 'bip' | 'baqueta';
+type RecordedId = 'agradavel' | 'bloco';
+
+const SYNTHS: Record<SynthId, (sr: number) => Float32Array> = { madeira, bip, baqueta };
+
+// ---------- toques gravados ----------
+
+/** Lê o PCM de 16 bits estéreo intercalado (base64) de clickRecordedSounds. */
+export function decodeRecordedHit(b64: string): ClickHit {
+  const bin = atob(b64);
+  const frames = Math.floor(bin.length / 4);
+  const L = new Float32Array(frames);
+  const R = new Float32Array(frames);
+  const s16 = (i: number) => {
+    const v = bin.charCodeAt(i) | (bin.charCodeAt(i + 1) << 8);
+    return (v >= 0x8000 ? v - 0x10000 : v) / 32768;
+  };
+  for (let f = 0; f < frames; f++) {
+    L[f] = s16(f * 4);
+    R[f] = s16(f * 4 + 2);
   }
-  const out = biquad(raw, sr, 'bandpass', 900, 1.6);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    // pancada forte no começo e um resto que soa um pouco
-    out[i] *= 0.7 * Math.exp(-t / 0.012) + 0.3 * Math.exp(-t / 0.07);
-  }
-  return edges(out, sr, 0.5, 12);
+  return [L, R];
 }
 
-function chimbal(sr: number): Float32Array {
-  const len = Math.round(0.09 * sr);
-  const n = biquad(biquad(noise(len, 37), sr, 'highpass', 7000, 0.8), sr, 'highpass', 7000, 0.8);
-  const metal = new Float32Array(len);
-  const maxHz = Math.min(16000, sr * 0.45);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    metal[i] = square(540, t, maxHz) + square(800, t, maxHz) + square(369.6, t, maxHz);
-  }
-  biquad(biquad(metal, sr, 'highpass', 7000, 0.8), sr, 'bandpass', 10000, 1);
-  const out = new Float32Array(len);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    out[i] = (n[i] + 0.35 * metal[i]) * Math.exp(-t / 0.018);
-  }
-  return edges(out, sr, 0.2);
+function lanczos(t: number, a: number): number {
+  if (t === 0) return 1;
+  if (Math.abs(t) >= a) return 0;
+  const pt = Math.PI * t;
+  return (a * Math.sin(pt) * Math.sin(pt / a)) / (pt * pt);
 }
-
-const SYNTHS: Record<Exclude<ClickSoundId, 'vs'>, (sr: number) => Float32Array> = {
-  madeira, bip, baqueta, cowbell, chimbal,
-};
-
-const cache = new Map<string, Float32Array>();
 
 /**
- * Um toque do som escolhido (mono: o mesmo nos dois lados), já no volume da amostra padrão.
- * O "VS Stage" não passa por aqui: é a amostra gravada.
+ * Muda a taxa de amostragem (Lanczos de 8 lóbulos). A amostra 0 continua na amostra 0: o ataque
+ * não sai do lugar.
  */
-export function synthClickSound(id: Exclude<ClickSoundId, 'vs'>, sampleRate: number): Float32Array {
+export function resampleHit(data: Float32Array, from: number, to: number): Float32Array {
+  if (from === to) return Float32Array.from(data);
+  const ratio = from / to;
+  const n = Math.max(1, Math.round(data.length / ratio));
+  const out = new Float32Array(n);
+  const A = 8;
+  // ao baixar a taxa, o filtro alarga para não dobrar os agudos
+  const scale = Math.min(1, to / from);
+  const reach = Math.ceil(A / scale);
+  for (let j = 0; j < n; j++) {
+    const x = j * ratio;
+    const i0 = Math.floor(x);
+    let sum = 0;
+    for (let k = Math.max(0, i0 - reach + 1); k <= Math.min(data.length - 1, i0 + reach); k++) {
+      sum += data[k] * lanczos((x - k) * scale, A);
+    }
+    out[j] = sum * scale;
+  }
+  return out;
+}
+
+const RECORDED: Record<RecordedId, { normal: string; accent?: string }> = {
+  agradavel: { normal: AGRADAVEL_B64, accent: AGRADAVEL_ACENTO_B64 },
+  bloco: { normal: BLOCO_B64 },
+};
+
+function recordedSamples(id: RecordedId, sampleRate: number): ClickSoundSamples {
+  const src = RECORDED[id];
+  const load = (b64: string): ClickHit => {
+    const [L, R] = decodeRecordedHit(b64);
+    return [resampleHit(L, RECORDED_CLICK_RATE, sampleRate), resampleHit(R, RECORDED_CLICK_RATE, sampleRate)];
+  };
+  const normal = load(src.normal);
+  const accent = src.accent ? load(src.accent) : undefined;
+  // volume: a energia do toque normal igual à do click padrão; o do 1 sobe ou desce junto, para
+  // manter a diferença que tem na gravação
+  const n = Math.round(0.05 * sampleRate);
+  let ss = 0;
+  for (let i = 0; i < Math.min(n, normal[0].length); i++) ss += (normal[0][i] * normal[0][i] + normal[1][i] * normal[1][i]) / 2;
+  let gain = CLICK_TARGET_RMS / Math.max(1e-9, Math.sqrt(ss / Math.max(1, n)));
+  let peak = 0;
+  for (const ch of [...normal, ...(accent ?? [])]) for (let i = 0; i < ch.length; i++) peak = Math.max(peak, Math.abs(ch[i]));
+  if (peak * gain > PEAK_LIMIT) gain = PEAK_LIMIT / peak;
+  for (const ch of [...normal, ...(accent ?? [])]) for (let i = 0; i < ch.length; i++) ch[i] *= gain;
+  return accent ? { normal, accent } : { normal };
+}
+
+const cache = new Map<string, ClickSoundSamples>();
+
+/**
+ * Os toques do som escolhido na taxa pedida, já no volume da amostra padrão. Os feitos aqui são
+ * mono (o mesmo nos dois lados); o Agradável tem o toque do 1 do compasso em `accent`.
+ * O "VS Stage" não passa por aqui: é a amostra gravada do clickGenerator.
+ */
+export function clickSoundSamples(id: Exclude<ClickSoundId, 'vs'>, sampleRate: number): ClickSoundSamples {
   const key = `${id}@${sampleRate}`;
   const hit = cache.get(key);
   if (hit) return hit;
-  const data = matchClickLevel(SYNTHS[id](sampleRate), sampleRate);
-  cache.set(key, data);
-  return data;
+  let made: ClickSoundSamples;
+  if (id === 'agradavel' || id === 'bloco') made = recordedSamples(id, sampleRate);
+  else {
+    const mono = matchClickLevel(SYNTHS[id](sampleRate), sampleRate);
+    made = { normal: [mono, mono] };
+  }
+  cache.set(key, made);
+  return made;
 }
 
-/** Batidas de 1 compasso no andamento da música, para ouvir o som antes de escolher. */
-export function previewTimes(bpm: number, beats = 4): number[] {
+/**
+ * Batidas para ouvir o som antes de escolher: 1 compasso e o 1 do compasso seguinte
+ * (1 2 3 4 | 1), no andamento da música. Assim dá para ouvir a virada do compasso.
+ */
+export function previewTimes(bpm: number, beatsPerBar = 4): number[] {
   const spb = 60 / Math.min(240, Math.max(40, bpm > 0 ? bpm : 120));
-  return Array.from({ length: beats }, (_, i) => i * spb);
+  return Array.from({ length: beatsPerBar + 1 }, (_, i) => i * spb);
+}
+
+/** Na prévia, o 1 de cada compasso. */
+export function previewAccents(beatsPerBar = 4): boolean[] {
+  return Array.from({ length: beatsPerBar + 1 }, (_, i) => i % beatsPerBar === 0);
 }
 
 // ---------- o som escolhido fica guardado ----------

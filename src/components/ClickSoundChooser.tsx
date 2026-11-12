@@ -17,6 +17,7 @@ export default function ClickSoundChooser() {
 
 function Chooser({ songId }: { songId: string }) {
   const bpm = useStore((s) => s.songs.find((x) => x.id === songId)?.bpm ?? 120);
+  const beatsPerBar = useStore((s) => s.songs.find((x) => x.id === songId)?.beatsPerBar ?? 4);
   const [sound, setSound] = useState<ClickSoundId>(rememberedClickSound);
   const [playing, setPlaying] = useState<ClickSoundId | null>(null);
   const blocker = isClickToolRunning() ? 'Já há um comando do click em andamento' : clickAddBlocker(songId, 'remake');
@@ -34,7 +35,7 @@ function Chooser({ songId }: { songId: string }) {
   const listen = (id: ClickSoundId) => {
     setSound(id);
     setPlaying(id);
-    void playClickPreview(id, bpm, () => setPlaying((p) => (p === id ? null : p)));
+    void playClickPreview(id, bpm, beatsPerBar, () => setPlaying((p) => (p === id ? null : p)));
   };
 
   // Esc fecha e Enter recria, antes dos atalhos da timeline
@@ -95,6 +96,7 @@ function Chooser({ songId }: { songId: string }) {
                     <span className={`console-led shrink-0 ${playing === s.id ? 'is-on-green animate-pulse' : on ? 'is-on-amber' : ''}`} />
                     <span className={`font-stage font-bold text-[13px] leading-none truncate ${on ? 'text-[#ffd48a]' : 'text-logic-text'}`}>{s.label}</span>
                     {s.id === 'vs' && <span className="console-legend ml-auto shrink-0 text-[9px]">PADRÃO</span>}
+                    {s.twoSounds && <span className="console-legend ml-auto shrink-0 text-[9px]">2 SONS</span>}
                   </span>
                   <span className={`text-[10.5px] leading-snug ${on ? 'text-[#cdbf9c]' : 'text-logic-text-muted'}`}>{s.tip}</span>
                 </button>

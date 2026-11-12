@@ -1,7 +1,7 @@
 import { audioEngine } from '@/lib/audioEngine';
 import { makeClickClip } from '@/lib/clickClip';
 import { generateClickAt } from '@/lib/clickGenerator';
-import { barSeconds, clickClipsOf, playLength, remakeClickTimes } from '@/lib/clickEdit';
+import { barSeconds, barStartFlags, clickClipsOf, playLength, remakeClickTimes } from '@/lib/clickEdit';
 import { DEFAULT_CLICK_SOUND, clickSoundLabel, rememberClickSound, type ClickSoundId } from '@/lib/clickSounds';
 import { clipInput, toDeviceRate } from '@/lib/clipStemSplit';
 import { useStore } from '@/store';
@@ -103,7 +103,9 @@ export async function remakeMetronome(songId: string, sound: ClickSoundId = DEFA
     const channels = Array.from({ length: input.numberOfChannels }, (_, c) => input.getChannelData(c));
     const times = remakeClickTimes(channels, playStart, playLen, sr, click.startTime, song);
     if (times.length < 2) continue;
-    const buffer = await generateClickAt(times, playLen / sr, sr, sound);
+    // o 1 de cada compasso, para o som de dois toques (segue a grade da timeline)
+    const accents = barStartFlags(song, times.map((t) => click.startTime + t));
+    const buffer = await generateClickAt(times, playLen / sr, sr, sound, accents);
     added.push(await makeClickClip(song, buffer, click.startTime, click));
     replaced.push(click.id);
     beats += times.length;

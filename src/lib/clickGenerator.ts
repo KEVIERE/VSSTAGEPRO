@@ -1,6 +1,8 @@
 import { decodeBlob } from '@/lib/audioDecoder';
-import { clickBufferLength, placeClickSamples } from '@/lib/clickEdit';
-import { DEFAULT_CLICK_SOUND, previewTimes, synthClickSound, type ClickSoundId } from '@/lib/clickSounds';
+import { clickBufferLength, placeAccentedClicks } from '@/lib/clickEdit';
+import {
+  DEFAULT_CLICK_SOUND, clickSoundSamples, previewAccents, previewTimes, type ClickSoundId, type ClickSoundSamples,
+} from '@/lib/clickSounds';
 
 function b64ToBlob(b64: string): Blob {
   const binary = atob(b64);
@@ -43,12 +45,9 @@ function createFallbackSample(sampleRate: number): AudioBuffer {
   return buf;
 }
 
-/** Um toque do som escolhido, nos dois lados. O "VS Stage" é a amostra gravada. */
-async function soundSample(sound: ClickSoundId, sampleRate: number): Promise<[Float32Array, Float32Array]> {
-  if (sound !== 'vs') {
-    const mono = synthClickSound(sound, sampleRate);
-    return [mono, mono];
-  }
+/** Os toques do som escolhido. O "VS Stage" é a amostra gravada (um som só). */
+async function soundSamples(sound: ClickSoundId, sampleRate: number): Promise<ClickSoundSamples> {
+  if (sound !== 'vs') return clickSoundSamples(sound, sampleRate);
   let sampleBuf: AudioBuffer;
   try {
     sampleBuf = await loadUserSample();
@@ -56,21 +55,23 @@ async function soundSample(sound: ClickSoundId, sampleRate: number): Promise<[Fl
     sampleBuf = createFallbackSample(sampleRate);
   }
   const sL = sampleBuf.getChannelData(0);
-  return [sL, sampleBuf.numberOfChannels > 1 ? sampleBuf.getChannelData(1) : sL];
+  return { normal: [sL, sampleBuf.numberOfChannels > 1 ? sampleBuf.getChannelData(1) : sL] };
 }
 
 /**
  * Som do metrônomo em cada instante de `times` (segundos), com o começo do som em cima do
  * instante. É o único gerador de click: o Recriar metrônomo passa as batidas do click da faixa
  * e o som escolhido na janela dele; o VS por IA passa as batidas da grade e fica no som padrão
- * (ver gridClickBuffer em clickClip).
+ * (ver gridClickBuffer em clickClip). `accents` marca o 1 de cada compasso, para o som que tem
+ * dois toques (Agradável); os outros sons ignoram.
  */
 export async function generateClickAt(
   times: number[], durationSeconds: number, sampleRate = 44100, sound: ClickSoundId = DEFAULT_CLICK_SOUND,
+  accents?: boolean[],
 ): Promise<AudioBuffer> {
   const length = clickBufferLength(durationSeconds, sampleRate);
-  const [sL, sR] = await soundSample(sound, sampleRate);
-  const [outL, outR] = placeClickSamples(times, length, sampleRate, sL, sR);
+  const samples = await soundSamples(sound, sampleRate);
+  const [outL, outR] = placeAccentedClicks(times, accents, length, sampleRate, samples.normal, samples.accent);
   const buffer = new AudioBuffer({ length, numberOfChannels: 2, sampleRate });
   buffer.getChannelData(0).set(outL);
   buffer.getChannelData(1).set(outR);
@@ -88,15 +89,17 @@ export function stopClickPreview(): void {
   previewSource = null;
 }
 
-/** Toca 1 compasso do som no andamento da música e avisa quando acabar. */
-export async function playClickPreview(sound: ClickSoundId, bpm: number, onEnd?: () => void): Promise<void> {
+/** Toca 1 compasso e o 1 seguinte (1 2 3 4 | 1) no andamento da música e avisa quando acabar. */
+export async function playClickPreview(sound: ClickSoundId, bpm: number, beatsPerBar: number, onEnd?: () => void): Promise<void> {
   stopClickPreview();
   try {
     if (!previewCtx) previewCtx = new AudioContext();
     void previewCtx.resume();
-    const times = previewTimes(bpm);
+    const times = previewTimes(bpm, beatsPerBar);
     const spb = times.length > 1 ? times[1] - times[0] : 0.5;
-    const buffer = await generateClickAt(times, times[times.length - 1] + spb, previewCtx.sampleRate, sound);
+    const buffer = await generateClickAt(
+      times, times[times.length - 1] + spb, previewCtx.sampleRate, sound, previewAccents(beatsPerBar),
+    );
     stopClickPreview();
     const src = previewCtx.createBufferSource();
     src.buffer = buffer;
