@@ -1,4 +1,3 @@
-import SaveCancelButton from '@/components/SaveCancelButton';
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/store';
 import { useHoverDismiss } from '@/lib/useHoverDismiss';
@@ -348,7 +347,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
           </span>
         ) : saveStatus?.kind === 'saving' ? (
           <span className="flex items-center gap-1.5 truncate text-2xs text-logic-text-dim" role="status">
-            <Loader2 size={11} className="animate-spin shrink-0" />{saveStatus.message === SAVE_CANCELLING ? SAVE_CANCELLING : 'Salvando...'} <SaveCancelButton className="ml-1" />
+            <Loader2 size={11} className="animate-spin shrink-0" />{saveStatus.message === SAVE_CANCELLING ? SAVE_CANCELLING : 'Salvando...'}
           </span>
         ) : saveStatus?.kind === 'saved' ? (
           <span className="flex items-center gap-1.5 truncate text-2xs text-logic-lcd-green" role="status">

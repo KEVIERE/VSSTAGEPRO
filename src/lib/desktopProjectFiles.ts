@@ -1,0 +1,60 @@
+// Projeto .vss no app do Mac: abrir e salvar pelo caminho do arquivo (desktop/projectFiles.js).
+// No navegador nada disso existe e o programa continua usando a API de arquivos do navegador.
+
+export interface DesktopProjectInfo {
+  size: number;
+  mtimeMs: number;
+  manifestStart: number | null;
+  manifestLen: number | null;
+}
+
+interface DesktopProjectApi {
+  projectPickOpen: () => Promise<{ name: string; path: string } | null>;
+  projectPickSave: (suggestedName: string) => Promise<{ name: string; path: string } | null>;
+  projectInfo: (filePath: string) => Promise<DesktopProjectInfo>;
+  projectWriteTail: (filePath: string, opts: { expectedSize: number; expectedManifestStart: number; manifest: ArrayBuffer }) =>
+    Promise<{ ok: true; size: number; mtimeMs: number; manifestStart: number } | { ok: false; reason: string }>;
+  projectWriteOpen: (filePath: string) => Promise<string>;
+  projectWriteData: (id: string, data: ArrayBuffer) => Promise<number>;
+  projectWriteCopy: (id: string, srcPath: string, begin: number, size: number) => Promise<number>;
+  projectWriteClose: (id: string) => Promise<{ size: number; mtimeMs: number }>;
+  projectWriteAbort: (id: string) => Promise<void>;
+  projectGiveFile: (filePath: string, selector: string) => Promise<boolean>;
+}
+
+export function desktopProjects(): DesktopProjectApi | null {
+  const d = (window as unknown as { vsDesktop?: Partial<DesktopProjectApi> }).vsDesktop;
+  return d && typeof d.projectGiveFile === 'function' && typeof d.projectWriteTail === 'function' ? d as DesktopProjectApi : null;
+}
+
+// Caminho de onde veio cada arquivo entregue pelo app: os áudios abertos são pedaços dele.
+const filePaths = new WeakMap<File, string>();
+
+export function desktopFilePath(file: File): string | null {
+  return filePaths.get(file) ?? null;
+}
+
+/** O arquivo do disco, lido em pedaços direto de lá (nada é copiado para a memória). */
+export async function desktopFile(filePath: string): Promise<File> {
+  const api = desktopProjects();
+  if (!api) throw new Error('Abra o projeto pelo app do VS Stage para Mac.');
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.id = `vs-project-file-${Math.random().toString(36).slice(2, 12).replace(/[^a-z0-9]/g, '') || 'x'}`;
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  try {
+    await api.projectGiveFile(filePath, `#${input.id}`);
+    const file = input.files?.[0];
+    if (!file) throw new Error('Não foi possível ler o arquivo do projeto.');
+    filePaths.set(file, filePath);
+    return file;
+  } finally {
+    input.remove();
+  }
+}
+
+/** O pedaço lido ainda é do arquivo como ele está no disco agora (mesmo tamanho e data). */
+export function sameFileVersion(file: File, info: { size: number; mtimeMs: number }): boolean {
+  return file.size === info.size && Math.abs(file.lastModified - info.mtimeMs) < 1;
+}

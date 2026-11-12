@@ -4,7 +4,8 @@ import type { ClipAudio } from '@/lib/audioLibrary';
 import type { AudioClip, ProjectState, Track } from '@/types';
 import { projectPlaylist, syncedShows } from '@/lib/shows';
 import { withoutLoops } from '@/lib/regions';
-import { keptAssetIndex, packageTrailer, readPackageTail, VSC_MAGIC, writePackageTail, type KeptAsset } from '@/lib/vssPackage';
+import { keptAssetIndex, packageTrailer, readPackageTail, VSC_MAGIC, writePackageTail, type KeptAsset, type PackageAsset, type PackageTail } from '@/lib/vssPackage';
+import { desktopFile, desktopFilePath, desktopProjects, sameFileVersion } from '@/lib/desktopProjectFiles';
 
 type ProgressFn = (msg: string) => void;
 
@@ -52,7 +53,9 @@ export type SavedManifest = {
 
 export type SaveTarget =
   | { kind: 'package'; handle: FileSystemFileHandle }
-  | { kind: 'folder'; dir: FileSystemDirectoryHandle; name: string };
+  | { kind: 'folder'; dir: FileSystemDirectoryHandle; name: string }
+  /** App do Mac: .vss pelo caminho no disco (salvar só a letra troca só o fim do arquivo). */
+  | { kind: 'path'; path: string; name: string };
 
 export interface LoadedProject {
   manifest: SavedManifest;
@@ -68,6 +71,10 @@ const VSC_EXT = '.vsc';
 // Cada áudio aberto de um .vss é um pedaço do próprio arquivo. Guardar de onde veio cada pedaço
 // permite salvar de novo trocando só o fim do arquivo quando nenhum áudio mudou.
 const packageSlices = new WeakMap<Blob, { file: File; begin: number; size: number }>();
+
+// O que foi gravado por último, para o ⌘S sem mudança nenhuma não gravar nada. `version` diz qual
+// arquivo e em que estado ele ficou (se mudar no disco, grava de novo).
+let lastSaved: { version: string; json: string } | null = null;
 
 function sanitize(name: string): string {
   return (name || '').replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Sem Nome';
@@ -391,7 +398,7 @@ async function writePackage(
   onProgress: ProgressFn,
   write: (chunk: Chunk) => Promise<void>,
   signal?: AbortSignal,
-): Promise<{ missingCount: number }> {
+): Promise<{ missingCount: number; json: string }> {
   checkCancelled(signal);
   const enc = new TextEncoder();
   const magic = enc.encode(VSC_MAGIC);
@@ -417,15 +424,16 @@ async function writePackage(
 
   checkCancelled(signal);
   onProgress('Gravando pacote...');
-  const manifestBytes = enc.encode(JSON.stringify(manifest));
+  const json = JSON.stringify(manifest);
+  const manifestBytes = enc.encode(json);
   await write(manifestBytes.buffer as ArrayBuffer);
 
   await write(packageTrailer(magic.byteLength + offset, manifestBytes.byteLength));
 
-  return { missingCount };
+  return { missingCount, json };
 }
 
-async function writePackageToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
+async function writePackageToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number; json: string }> {
   const ws = await handle.createWritable();
   try {
     const res = await writePackage(state, stripProjectExt(handle.name), onProgress, (chunk) => ws.write(chunk), signal);
@@ -457,6 +465,19 @@ async function rebindPackageSources(state: ProjectState, handle: FileSystemFileH
 /** Devolve onde o projeto ficou salvo, ou null quando o navegador só permitiu baixar o arquivo. */
 export async function saveProjectAsPackage(state: ProjectState, fileName: string, onProgress: ProgressFn, signal?: AbortSignal, rebind = true): Promise<{ target: SaveTarget | null; missingCount: number }> {
   const name = vssFileName(fileName);
+  const desktop = desktopProjects();
+  if (desktop) {
+    const picked = await desktop.projectPickSave(name);
+    if (!picked) throw new DOMException('Cancelado', 'AbortError');
+    checkCancelled(signal);
+    const currentTarget = (state as ProjectState & { saveTarget?: SaveTarget | null }).saveTarget;
+    if (!rebind && currentTarget?.kind === 'path' && currentTarget.path === picked.path) {
+      throw new Error('Escolha outro arquivo para preservar o projeto original.');
+    }
+    const { missingCount } = await writePackageToPath(state, picked.path, stripProjectExt(picked.name), onProgress, signal);
+    if (rebind) await rebindDesktopSources(state, picked.path);
+    return { target: { kind: 'path', path: picked.path, name: picked.name }, missingCount };
+  }
   const picker = fsWin().showSaveFilePicker;
   if (picker && !inSubFrame()) {
     let handle: FileSystemFileHandle | null = null;
@@ -505,63 +526,194 @@ export function saveTargetLabel(target: SaveTarget): string {
   return target.kind === 'package' ? target.handle.name : target.name;
 }
 
-/**
- * Salvar de novo sem ter mudado nenhum áudio (só letras, mixagem, ordem): troca só o fim do .vss.
- * Devolve false quando algum áudio é novo ou veio de outro arquivo; aí o .vss é regravado inteiro.
- */
-async function writeManifestOnly(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn, signal?: AbortSignal): Promise<boolean> {
-  const file = await handle.getFile();
-  const tail = await readPackageTail(file);
-  if (!tail) return false;
+/** Os áudios do projeto, cada um já dentro do arquivo; null se algum é novo ou veio de outro lugar. */
+function keptAssets(state: ProjectState, fromThisFile: (file: File) => boolean): { assets: AssetPlan[]; kept: KeptAsset[] } | null {
   const assets = planAssets(state).flatMap((p) => p.assets);
   const kept: KeptAsset[] = [];
   for (const a of assets) {
     const src = getClipSource(a.clip.id);
     const from = src ? packageSlices.get(src) : undefined;
     // o pedaço precisa ser deste mesmo arquivo, do jeito que ele está no disco agora
-    if (!from || from.file.name !== file.name || from.file.size !== file.size || from.file.lastModified !== file.lastModified) return false;
+    if (!from || !fromThisFile(from.file)) return null;
     kept.push({ clipId: a.clip.id, path: a.relPath, begin: from.begin, size: from.size });
   }
-  const index = keptAssetIndex(kept, tail);
-  if (!index) return false;
+  return { assets, kept };
+}
 
+function tailManifestJson(state: ProjectState, projectName: string, assets: AssetPlan[], index: PackageAsset[]): string {
   const manifest = buildManifestBase(state);
-  manifest.projectName = stripProjectExt(handle.name);
+  manifest.projectName = projectName;
   withAssetPaths(manifest, assets);
   manifest.assets = index;
+  return JSON.stringify(manifest);
+}
+
+type TailResult = 'written' | 'unchanged' | false;
+const TAIL_PROGRESS = 'Gravando o projeto (os áudios já estão no arquivo)...';
+
+/**
+ * Salvar de novo sem ter mudado nenhum áudio (só letras, mixagem, ordem): troca só o fim do .vss.
+ * Devolve false quando algum áudio é novo ou veio de outro arquivo; aí o .vss é regravado inteiro.
+ * No navegador, a API de arquivos ainda copia o arquivo inteiro por baixo; no app do Mac, não.
+ */
+async function writeTailToHandle(state: ProjectState, handle: FileSystemFileHandle, onProgress: ProgressFn, signal?: AbortSignal): Promise<TailResult> {
+  const file = await handle.getFile();
+  const tail = await readPackageTail(file);
+  if (!tail) return false;
+  const plan = keptAssets(state, (f) => f.name === file.name && f.size === file.size && f.lastModified === file.lastModified);
+  const index = plan && keptAssetIndex(plan.kept, tail);
+  if (!plan || !index) return false;
+  const json = tailManifestJson(state, stripProjectExt(handle.name), plan.assets, index);
+  if (lastSaved?.version === handleVersion(file) && lastSaved.json === json) return 'unchanged';
 
   checkCancelled(signal);
-  onProgress('Gravando o projeto (os áudios já estão no arquivo)...');
+  onProgress(TAIL_PROGRESS);
   const ws = await handle.createWritable({ keepExistingData: true });
   try {
     await writePackageTail({
       write: (params) => ws.write(params),
       truncate: (size) => ws.truncate(size),
-    }, tail.manifestStart, JSON.stringify(manifest));
+    }, tail.manifestStart, json);
     checkCancelled(signal);
     await ws.close();
   } catch (err) {
     await ws.abort().catch(() => undefined);
     throw err;
   }
-  return true;
+  lastSaved = { version: handleVersion(await handle.getFile()), json };
+  return 'written';
 }
 
-export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
+function handleVersion(file: File): string {
+  return `arquivo|${file.name}|${file.size}|${file.lastModified}`;
+}
+
+function pathVersion(filePath: string, info: { size: number; mtimeMs: number }): string {
+  return `caminho|${filePath}|${info.size}|${info.mtimeMs}`;
+}
+
+/** App do Mac: troca o fim do .vss no próprio arquivo, sem copiar nada. */
+async function writeTailToPath(state: ProjectState, target: { path: string; name: string }, onProgress: ProgressFn, signal?: AbortSignal): Promise<TailResult> {
+  const api = desktopProjects();
+  if (!api) return false;
+  const info = await api.projectInfo(target.path);
+  if (info.manifestStart == null || info.manifestLen == null) return false;
+  const tail: PackageTail = { manifestStart: info.manifestStart, manifestLen: info.manifestLen };
+  const plan = keptAssets(state, (f) => desktopFilePath(f) === target.path && sameFileVersion(f, info));
+  const index = plan && keptAssetIndex(plan.kept, tail);
+  if (!plan || !index) return false;
+  const json = tailManifestJson(state, stripProjectExt(target.name), plan.assets, index);
+  if (lastSaved?.version === pathVersion(target.path, info) && lastSaved.json === json) return 'unchanged';
+
+  checkCancelled(signal);
+  onProgress(TAIL_PROGRESS);
+  const bytes = new TextEncoder().encode(json);
+  const res = await api.projectWriteTail(target.path, {
+    expectedSize: info.size,
+    expectedManifestStart: tail.manifestStart,
+    manifest: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+  });
+  if (!res.ok) return false;
+  lastSaved = { version: pathVersion(target.path, res), json };
+  return 'written';
+}
+
+const IPC_PIECE = 8 * 1024 * 1024;
+
+/** App do Mac: grava o .vss inteiro num arquivo escondido ao lado e troca no fim. */
+async function writePackageToPath(state: ProjectState, filePath: string, projectName: string, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number }> {
+  const api = desktopProjects();
+  if (!api) throw new Error('Salve o projeto pelo app do VS Stage para Mac.');
+  const id = await api.projectWriteOpen(filePath);
+  const sameVersion = new Map<string, boolean>();
+  try {
+    const res = await writePackage(state, projectName, onProgress, async (chunk) => {
+      if (chunk instanceof Blob) {
+        // áudio que já está num .vss do disco: o app copia de lá direto, sem passar pela tela
+        const from = packageSlices.get(chunk);
+        const src = from ? desktopFilePath(from.file) : null;
+        if (from && src) {
+          const key = `${src}|${from.file.size}|${from.file.lastModified}`;
+          let ok = sameVersion.get(key);
+          if (ok === undefined) {
+            const info = await api.projectInfo(src).catch(() => null);
+            ok = !!info && sameFileVersion(from.file, info);
+            sameVersion.set(key, ok);
+          }
+          if (ok) {
+            await api.projectWriteCopy(id, src, from.begin, from.size);
+            return;
+          }
+        }
+        for (let at = 0; at < chunk.size; at += IPC_PIECE) {
+          checkCancelled(signal);
+          await api.projectWriteData(id, await chunk.slice(at, at + IPC_PIECE).arrayBuffer());
+        }
+        return;
+      }
+      await api.projectWriteData(id, chunk);
+    }, signal);
+    checkCancelled(signal);
+    const closed = await api.projectWriteClose(id);
+    lastSaved = { version: pathVersion(filePath, closed), json: res.json };
+    return { missingCount: res.missingCount };
+  } catch (err) {
+    await api.projectWriteAbort(id).catch(() => undefined);
+    throw err;
+  }
+}
+
+async function readDesktopPackage(filePath: string, onProgress: ProgressFn): Promise<LoadedProject> {
+  let file: File;
+  try {
+    file = await desktopFile(filePath);
+  } catch {
+    throw new Error('Este projeto foi movido, renomeado ou apagado. Use "Abrir Projeto..." para localizá-lo.');
+  }
+  return readPackage(file, onProgress);
+}
+
+// Depois de gravar, os pedaços antigos do arquivo não leem mais: passam a apontar para o arquivo novo.
+async function rebindDesktopSources(state: ProjectState, filePath: string) {
+  try {
+    const { sources } = await readDesktopPackage(filePath, () => undefined);
+    for (const c of state.clips) {
+      const src = sources.get(c.id);
+      if (src) registerClipSource(c.id, c.songId, src);
+    }
+  } catch (err) {
+    console.warn('[projectSaver] rebind pós-salvamento ignorado:', err);
+  }
+}
+
+export async function quickSave(state: ProjectState, target: SaveTarget, onProgress: ProgressFn, signal?: AbortSignal): Promise<{ missingCount: number; unchanged?: boolean }> {
+  if (target.kind === 'path') {
+    const tail = await writeTailToPath(state, target, onProgress, signal);
+    if (tail === 'unchanged') return { missingCount: 0, unchanged: true };
+    if (tail === 'written') {
+      await rebindDesktopSources(state, target.path);
+      return { missingCount: 0 };
+    }
+    const { missingCount } = await writePackageToPath(state, target.path, stripProjectExt(target.name), onProgress, signal);
+    await rebindDesktopSources(state, target.path);
+    return { missingCount };
+  }
   if (target.kind === 'package') {
     await ensureWritable(target.handle);
-    if (await writeManifestOnly(state, target.handle, onProgress, signal)) {
+    const tail = await writeTailToHandle(state, target.handle, onProgress, signal);
+    if (tail === 'unchanged') return { missingCount: 0, unchanged: true };
+    if (tail === 'written') {
       await rebindPackageSources(state, target.handle);
       return { missingCount: 0 };
     }
-    const { missingCount } = await writePackageToHandle(state, target.handle, onProgress, signal);
+    const { missingCount, json } = await writePackageToHandle(state, target.handle, onProgress, signal);
+    lastSaved = { version: handleVersion(await target.handle.getFile()), json };
     await rebindPackageSources(state, target.handle);
     return { missingCount };
-  } else {
-    await ensureWritable(target.dir);
-    await writeProjectFolder(target.dir, target.name, state, onProgress, signal);
-    return { missingCount: 0 };
   }
+  await ensureWritable(target.dir);
+  await writeProjectFolder(target.dir, target.name, state, onProgress, signal);
+  return { missingCount: 0 };
 }
 
 async function pickProjectFile(): Promise<{ file: File; handle?: FileSystemFileHandle }> {
@@ -582,6 +734,14 @@ async function pickProjectFile(): Promise<{ file: File; handle?: FileSystemFileH
 }
 
 export async function openProjectFile(onProgress: ProgressFn): Promise<LoadedProject> {
+  const desktop = desktopProjects();
+  if (desktop) {
+    const picked = await desktop.projectPickOpen();
+    if (!picked) throw new DOMException('Cancelado', 'AbortError');
+    if (!/\.(vss|vsc)$/i.test(picked.name)) throw new Error('Escolha um arquivo de projeto .vss ou .vsc.');
+    const loaded = await readDesktopPackage(picked.path, onProgress);
+    return { ...loaded, target: { kind: 'path', path: picked.path, name: picked.name } };
+  }
   const { file, handle } = await pickProjectFile();
   const nameLower = file.name.toLowerCase();
   if (!nameLower.endsWith(VSS_EXT) && !nameLower.endsWith(VSC_EXT)) {
@@ -593,6 +753,11 @@ export async function openProjectFile(onProgress: ProgressFn): Promise<LoadedPro
 /** Projeto aberto pelo Finder (duplo clique no arquivo): lê do disco pelo app, sem carregar o arquivo todo. */
 export async function openProjectFromPath(name: string, filePath: string, onProgress: ProgressFn): Promise<LoadedProject> {
   if (!/\.(vss|vsc)$/i.test(name)) throw new Error('Escolha um arquivo de projeto .vss ou .vsc.');
+  if (desktopProjects()) {
+    // lê os áudios em pedaços direto do disco e o ⌘S já grava neste mesmo arquivo
+    const loaded = await readDesktopPackage(filePath, onProgress);
+    return { ...loaded, target: { kind: 'path', path: filePath, name } };
+  }
   const url = window.vsDesktop?.projectFileUrl?.(filePath);
   if (!url) throw new Error('Abra o projeto pelo app do VS Stage para Mac.');
   const res = await fetch(url);
@@ -608,6 +773,10 @@ type ReadPermissionHandle = FileSystemHandle & {
 };
 
 export async function reopenProject(target: SaveTarget, onProgress: ProgressFn): Promise<LoadedProject> {
+  if (target.kind === 'path') {
+    if (!desktopProjects()) throw new Error('Este projeto só abre pelo app do VS Stage para Mac.');
+    return { ...(await readDesktopPackage(target.path, onProgress)), target };
+  }
   const h = (target.kind === 'package' ? target.handle : target.dir) as ReadPermissionHandle;
   if (h.queryPermission && h.requestPermission && await h.queryPermission({ mode: 'read' }) !== 'granted'
     && await h.requestPermission({ mode: 'read' }) !== 'granted') {

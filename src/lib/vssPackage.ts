@@ -19,21 +19,39 @@ export interface PackageAsset {
   size: number;
 }
 
+// Se o programa caiu no meio de uma gravação do app do Mac (que acrescenta o manifest novo no fim),
+// o rodapé anterior continua inteiro um pouco antes do fim: procura ele de trás para frente.
+const SCAN_BACK = 64 * 1024 * 1024;
+
+function trailerEndingAt(view: DataView, viewStart: number, end: number): PackageTail | null {
+  const at = end - TRAILER_SIZE - viewStart;
+  if (at < 0 || at + TRAILER_SIZE > view.byteLength) return null;
+  for (let i = 0; i < 8; i++) if (view.getUint8(at + 12 + i) !== VSC_MAGIC.charCodeAt(i)) return null;
+  const manifestStart = view.getFloat64(at, true);
+  const manifestLen = view.getUint32(at + 8, true);
+  if (!Number.isFinite(manifestStart) || manifestStart < VSC_MAGIC.length) return null;
+  if (manifestStart + manifestLen !== end - TRAILER_SIZE) return null;
+  return { manifestStart, manifestLen };
+}
+
 /** Lê o rodapé do arquivo; devolve null quando não é um .vss inteiro. */
 export async function readPackageTail(file: Blob): Promise<PackageTail | null> {
   const dataStart = VSC_MAGIC.length;
   if (file.size < dataStart + TRAILER_SIZE) return null;
   if (await file.slice(0, dataStart).text() !== VSC_MAGIC) return null;
-  const dv = new DataView(await file.slice(file.size - TRAILER_SIZE).arrayBuffer());
-  let tail = '';
-  for (let i = 0; i < 8; i++) tail += String.fromCharCode(dv.getUint8(12 + i));
-  const manifestStart = dv.getFloat64(0, true);
-  const manifestLen = dv.getUint32(8, true);
-  if (tail !== VSC_MAGIC || !Number.isFinite(manifestStart) || manifestStart < dataStart
-    || manifestStart + manifestLen > file.size - TRAILER_SIZE) {
-    return null;
+  const last = new DataView(await file.slice(file.size - TRAILER_SIZE).arrayBuffer());
+  const direct = trailerEndingAt(last, file.size - TRAILER_SIZE, file.size);
+  if (direct) return direct;
+  const start = Math.max(dataStart, file.size - SCAN_BACK);
+  const bytes = new Uint8Array(await file.slice(start).arrayBuffer());
+  const view = new DataView(bytes.buffer);
+  const m0 = VSC_MAGIC.charCodeAt(0);
+  for (let i = bytes.length - 8; i >= 12; i--) {
+    if (bytes[i] !== m0) continue;
+    const found = trailerEndingAt(view, start, start + i + 8);
+    if (found) return found;
   }
-  return { manifestStart, manifestLen };
+  return null;
 }
 
 export function packageTrailer(manifestStart: number, manifestLen: number): ArrayBuffer {

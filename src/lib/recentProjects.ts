@@ -54,6 +54,7 @@ export async function listRecentProjects(): Promise<RecentProject[]> {
 
 async function sameTarget(a: SaveTarget, b: SaveTarget): Promise<boolean> {
   if (a.kind !== b.kind) return false;
+  if (a.kind === 'path' || b.kind === 'path') return a.kind === 'path' && b.kind === 'path' && a.path === b.path;
   const ha = a.kind === 'package' ? a.handle : a.dir;
   const hb = b.kind === 'package' ? b.handle : b.dir;
   try { return await ha.isSameEntry(hb); } catch { return false; }
@@ -64,8 +65,12 @@ export async function rememberProject(name: string, target: SaveTarget | null | 
   try {
     const all = await listRecentProjects();
     const stale: string[] = [];
-    for (const r of all) if (await sameTarget(r.target, target)) stale.push(r.id);
     const label = target.kind === 'package' ? target.handle.name : target.name;
+    for (const r of all) {
+      if (await sameTarget(r.target, target)) stale.push(r.id);
+      // no app do Mac, o mesmo arquivo aberto do jeito antigo (pelo navegador) sai da lista
+      else if (target.kind === 'path' && r.target.kind === 'package' && r.label === label) stale.push(r.id);
+    }
     const entry: RecentProject = { id: crypto.randomUUID(), name: name || 'Sem Nome', label, openedAt: Date.now(), target };
     const overflow = all.filter((r) => !stale.includes(r.id)).slice(MAX_RECENT - 1).map((r) => r.id);
     await run('readwrite', (s) => {
@@ -95,6 +100,7 @@ type PermissionHandle = { queryPermission?: (d: { mode: 'read' }) => Promise<Per
 
 /** Diz se o projeto abre sem pedir permissão (só pedir exige um clique da pessoa). */
 export async function canReopenSilently(entry: RecentProject): Promise<boolean> {
+  if (entry.target.kind === 'path') return true;
   const h = (entry.target.kind === 'package' ? entry.target.handle : entry.target.dir) as unknown as PermissionHandle;
   if (!h.queryPermission) return true;
   try { return await h.queryPermission({ mode: 'read' }) === 'granted'; } catch { return false; }

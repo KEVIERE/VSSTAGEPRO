@@ -83,12 +83,14 @@ export async function saveCurrentProject(): Promise<boolean> {
     // Backup leve (só estrutura, sem áudio) antes de sobrescrever: guarda os últimos 10 salvamentos
     // deste projeto com horário, para poder voltar a uma versão anterior quando precisar.
     void saveProjectBackup(st);
-    const { missingCount } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
+    const { missingCount, unchanged } = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
     useStore.getState().setExportProgress(null);
     // salvo do jeito que estava ao começar: o que mudou durante o salvamento continua pendente
     useStore.getState().markProjectSaved(st);
     void rememberProject(useStore.getState().projectName, target);
-    if (missingCount > 0) {
+    if (unchanged) {
+      flash({ kind: 'saved', message: `Nada mudou desde o último salvamento de "${saveTargetLabel(target)}"` }, 3500);
+    } else if (missingCount > 0) {
       flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}" (Aviso: ${missingCount} áudio(s) ausente(s))` }, 6000);
     } else {
       flash({ kind: 'saved', message: `Salvo em "${saveTargetLabel(target)}"` }, 3500);
@@ -99,7 +101,7 @@ export async function saveCurrentProject(): Promise<boolean> {
     if ((err as DOMException)?.name === 'AbortError' && signal.aborted) {
       useStore.getState().setSaveStatus(null);
       // o .vss é gravado num arquivo à parte e só troca no fim: cancelado, o do disco fica intacto
-      const done = target.kind === 'package'
+      const done = target.kind !== 'folder'
         ? 'Salvamento cancelado. O arquivo do projeto continua como estava.'
         : 'Salvamento cancelado.';
       useStore.getState().setExportProgress({ active: false, message: done });
