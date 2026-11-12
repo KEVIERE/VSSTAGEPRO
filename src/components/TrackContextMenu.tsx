@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   ChevronRight,
@@ -8,7 +8,9 @@ import {
   FolderOpen,
   Headphones,
   Palette,
+  Plus,
   SlidersHorizontal,
+  Trash2,
   Volume2,
   VolumeX,
   X,
@@ -17,6 +19,8 @@ import { useStore } from '@/store';
 import { isCurrentOutput, isTimecodeTrackId, outputOptions, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import type { Track } from '@/types';
 import ClickMenuItems from '@/components/ClickMenuItems';
+import { canDeleteTrack, newTrackPlace } from '@/lib/customTracks';
+import { audioEngine } from '@/lib/audioEngine';
 
 const DAW_COLORS = [
   '#30d158', // Verde
@@ -75,6 +79,9 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
   const normalizeTrack = useStore((s) => s.normalizeTrack);
+  const createTrack = useStore((s) => s.createTrack);
+  const deleteTrack = useStore((s) => s.deleteTrack);
+  const timelineLocked = useStore((s) => s.timelineLocked);
   // a música que a timeline mostra: a selecionada ou, sem seleção, a primeira da playlist
   const viewSongId = useStore((s) => s.selectedSongId ?? s.playlist[0]?.songId ?? null);
   // A pasta normaliza os clipes das subfaixas de dentro; a faixa normaliza os próprios.
@@ -98,7 +105,18 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const [normalizeTrackOpen, setNormalizeTrackOpen] = useState(false);
   const [normalizeTrackDb, setNormalizeTrackDb] = useState('-2');
   const [activeSubmenu, setActiveSubmenu] = useState<'color' | 'folder' | 'output' | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('Nova trilha');
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const isTc = isTimecodeTrackId(track.id);
+  // Nova trilha: na pasta desta (logo abaixo dela); Guia, Click e Maestro mandam para Outros
+  const newPlace = newTrackPlace(tracks, track.id);
+  const newFolder = newPlace ? tracks.find((t) => t.id === newPlace.parentId) : null;
+  const deletable = canDeleteTrack(track);
+  // clipes desta trilha em todas as músicas (vão junto se ela for excluída)
+  const allClips = useStore((s) => s.clips);
+  const ownClips = useMemo(() => allClips.filter((c) => c.trackId === track.id), [allClips, track.id]);
+  const ownSongCount = new Set(ownClips.map((c) => c.songId)).size;
   // Lista mostrada no submenu de saída: mono ou pares estéreo
   const [stereoView, setStereoView] = useState(!isTc && !!track.outputStereo);
   const colorFit = useFitInWindow(activeSubmenu === 'color');
@@ -131,6 +149,20 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
     onClose();
   };
 
+  const handleCreateSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    createTrack(track.id, newName);
+    onClose();
+  };
+
+  const removeTrack = () => {
+    const ids = ownClips.map((c) => c.id);
+    audioEngine.stopClipsLive(ids);
+    deleteTrack(track.id);
+    for (const songId of new Set(ownClips.map((c) => c.songId))) audioEngine.invalidatePrepared(songId);
+    onClose();
+  };
+
   // Pastas disponíveis para enviar
   const availableFolders = tracks.filter((t) => t.isSubgroup && t.id !== track.id && t.id !== TIMECODE_TRACK_ID);
   const currentParent = track.parentId ? tracks.find((t) => t.id === track.parentId) : null;
@@ -138,9 +170,13 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   // Opções de saída de áudio
   const outputs = outputOptions(track, tracks, count, stereoView);
 
-  // Ajusta posição do menu na tela para não vazar da borda
+  // Ajusta posição do menu na tela para não vazar da borda (medido: a altura muda com os itens)
   const menuWidth = 230;
-  const menuHeight = 280;
+  const [menuHeight, setMenuHeight] = useState(280);
+  useLayoutEffect(() => {
+    const h = ref.current?.offsetHeight;
+    if (h && h !== menuHeight) setMenuHeight(h);
+  });
   const posX = Math.max(10, Math.min(x, window.innerWidth - menuWidth - 10));
   const posY = Math.max(10, Math.min(y, window.innerHeight - menuHeight - 10));
 
@@ -189,6 +225,47 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           <Edit2 size={13} className="text-logic-text-muted" />
           <span>Renomear</span>
         </button>
+      )}
+
+      {/* NOVA TRILHA (vazia, na pasta desta) */}
+      {newPlace && newFolder && (
+        creating ? (
+          <form onSubmit={handleCreateSubmit} className="p-2 border-b border-white/10">
+            <div className="text-[10px] font-bold uppercase tracking-wider text-logic-text-muted mb-1.5 px-0.5">
+              Nova trilha em {newFolder.name}
+            </div>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 min-w-0 bg-black/60 border border-logic-lcd-green rounded px-2 py-1 text-xs text-white outline-none"
+                placeholder="Nome da trilha..."
+              />
+              <button
+                type="submit"
+                className="px-2 py-1 bg-logic-lcd-green text-black font-bold text-2xs rounded hover:brightness-110"
+              >
+                Criar
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => { setConfirmDelete(false); setCreating(true); }}
+            title={track.isSubgroup ? `Cria uma trilha vazia dentro de ${newFolder.name}` : `Cria uma trilha vazia em ${newFolder.name}, logo abaixo desta`}
+            className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center justify-between gap-2 text-white/90 hover:text-white transition"
+          >
+            <span className="flex items-center gap-2">
+              <Plus size={13} className="text-logic-text-muted" />
+              <span>Nova trilha</span>
+            </span>
+            <span className="text-[9px] text-logic-text-muted truncate">em {newFolder.name}</span>
+          </button>
+        )
       )}
 
       {/* 2. MUDAR COR (SUBMENU / PALETA) */}
@@ -457,6 +534,58 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           <span>{track.solo ? 'Tirar Solo' : 'Solo'}</span>
         </button>
       </div>
+
+      {/* EXCLUIR TRILHA (só as de dentro das pastas; leva os clipes dela junto) */}
+      {deletable && (
+        <>
+          <div className="h-px bg-white/10 my-1" />
+          {confirmDelete ? (
+            <div className="px-3 py-2">
+              <div className="text-white/90 leading-snug">
+                Excluir <strong className="text-white">{track.name}</strong> e {ownClips.length === 1 ? 'o clipe dela' : `os ${ownClips.length} clipes dela`}
+                {ownSongCount > 1 ? ` (${ownSongCount} músicas)` : ''}?
+              </div>
+              <div className="text-[10px] text-logic-text-muted mt-0.5">Desfazer (⌘Z) traz de volta.</div>
+              <div className="flex gap-1.5 mt-2">
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={removeTrack}
+                  className="flex-1 py-1 rounded-md text-2xs font-bold border border-logic-lcd-red/40 bg-logic-lcd-red/15 text-logic-lcd-red hover:bg-logic-lcd-red/25 transition"
+                >
+                  Excluir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 py-1 rounded-md text-2xs font-bold border border-white/10 bg-white/[0.04] text-logic-text-dim hover:text-white transition"
+                >
+                  Manter
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={timelineLocked}
+              onClick={() => {
+                if (ownClips.length === 0) removeTrack();
+                else { setCreating(false); setConfirmDelete(true); }
+              }}
+              title={timelineLocked ? 'A linha do tempo está travada pelo cadeado' : ownClips.length === 0 ? 'Tira esta trilha vazia' : 'Tira esta trilha e os clipes dela, em todas as músicas'}
+              className={`w-full px-3 py-2 text-left flex items-center justify-between gap-2 transition ${timelineLocked ? 'opacity-30 cursor-not-allowed' : 'text-white/90 hover:text-logic-lcd-red hover:bg-white/10'}`}
+            >
+              <span className="flex items-center gap-2">
+                <Trash2 size={13} className="text-logic-text-muted" />
+                <span>Excluir trilha</span>
+              </span>
+              {ownClips.length > 0 && (
+                <span className="text-[9px] font-mono text-logic-text-muted shrink-0">{ownClips.length} clipe{ownClips.length === 1 ? '' : 's'}</span>
+              )}
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

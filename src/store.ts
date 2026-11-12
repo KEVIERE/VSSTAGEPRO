@@ -27,6 +27,7 @@ export interface InstantPrep {
 }
 import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switchShow, syncedShows } from '@/lib/shows';
 import { applyHeaders, autoBlockName, blockHeaders, orderBlocks, resolveBlocks } from '@/lib/blocks';
+import { customTrackIds, mergeCustomChildren, newTrackPlace, uniqueTrackName, canDeleteTrack } from '@/lib/customTracks';
 import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
@@ -236,6 +237,10 @@ interface StoreActions {
   setTrackHeight: (trackId: string, height: number) => void;
   setOutputChannelCount: (count: number) => void;
   addChildTrack: (parentId: string, name: string, childId?: string) => void;
+  /** Trilha nova vazia na pasta de `anchorTrackId`, logo depois dela. Devolve o id ou null. */
+  createTrack: (anchorTrackId: string, name: string) => string | null;
+  /** Tira a trilha de dentro da pasta e os clipes dela, em todas as músicas (Desfazer volta). */
+  deleteTrack: (trackId: string) => void;
   setPlayFlow: (flow: PlayFlow) => void;
   cyclePlayFlow: () => void;
   play: () => void;
@@ -439,6 +444,28 @@ function withBlocks(
     playlistOrder: resolved.map((p) => p.songId),
     songs: songsWithBlocks(s.songs, resolved),
     blocks: orderBlocks(s.blocks, resolved),
+  };
+}
+
+// Tira clipes e recalcula a duração das músicas que perderam algum.
+function withoutClips(s: Store, toRemove: Set<string>) {
+  const nextClips = s.clips.filter((c) => !toRemove.has(c.id));
+  const touchedSongs = new Set(s.clips.filter((c) => toRemove.has(c.id)).map((c) => c.songId));
+  const newDurations = new Map<string, number>();
+  for (const songId of touchedSongs) {
+    const songRemaining = nextClips.filter((c) => c.songId === songId);
+    newDurations.set(
+      songId,
+      songRemaining.length > 0
+        ? Math.max(0.1, ...songRemaining.map((c) => c.startTime + clipPlayLength(c)))
+        : 0
+    );
+  }
+  return {
+    clips: nextClips,
+    selectedClipIds: s.selectedClipIds.filter((id) => !toRemove.has(id)),
+    songs: s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg)),
+    playlist: s.playlist.map((p) => (newDurations.has(p.songId) ? { ...p, duration: newDurations.get(p.songId)! } : p)),
   };
 }
 
@@ -788,6 +815,45 @@ export const useStore = create<Store>()(
           ],
         }));
       },
+
+      createTrack: (anchorTrackId, name) => {
+        const s = get();
+        const place = newTrackPlace(s.tracks, anchorTrackId);
+        if (!place) return null;
+        const parent = s.tracks.find((t) => t.id === place.parentId);
+        const id = `${place.parentId}-nova-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+        const track: Track = {
+          id, name: uniqueTrackName(s.tracks, place.parentId, name), type: 'audio', color: parent?.color ?? '#5b8db8',
+          volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
+          isSubgroup: false, parentId: place.parentId, children: [], height: 40, visible: true,
+          outputChannel: 0, custom: true, meterLevel: 0, clipIndicator: false, clipPeak: 0,
+        };
+        set((st) => ({
+          tracks: [
+            ...st.tracks.map((t) => {
+              if (t.id !== place.parentId) return t;
+              const children = [...t.children];
+              children.splice(Math.min(place.index, children.length), 0, id);
+              return { ...t, children };
+            }),
+            track,
+          ],
+          selectedTrackId: id,
+        }));
+        return id;
+      },
+      deleteTrack: (trackId) => set((s) => {
+        const track = s.tracks.find((t) => t.id === trackId);
+        if (!canDeleteTrack(track)) return s;
+        const gone = new Set(s.clips.filter((c) => c.trackId === trackId).map((c) => c.id));
+        return {
+          ...withoutClips(s, gone),
+          tracks: s.tracks
+            .filter((t) => t.id !== trackId)
+            .map((t) => (t.children.includes(trackId) ? { ...t, children: t.children.filter((id) => id !== trackId) } : t)),
+          selectedTrackId: s.selectedTrackId === trackId ? null : s.selectedTrackId,
+        };
+      }),
 
       setPlayFlow: (flow) => set((s) => {
         if (flow === 'uma-uma') {
@@ -1203,27 +1269,7 @@ export const useStore = create<Store>()(
           playlist: s.playlist.map((p) => (p.songId === songId ? { ...p, duration: newDuration } : p)),
         };
       }),
-      removeClips: (clipIds) => set((s) => {
-        const toRemove = new Set(clipIds);
-        const nextClips = s.clips.filter((c) => !toRemove.has(c.id));
-        const touchedSongs = new Set(s.clips.filter((c) => toRemove.has(c.id)).map((c) => c.songId));
-        const newDurations = new Map<string, number>();
-        for (const songId of touchedSongs) {
-          const songRemaining = nextClips.filter((c) => c.songId === songId);
-          newDurations.set(
-            songId,
-            songRemaining.length > 0
-              ? Math.max(0.1, ...songRemaining.map((c) => c.startTime + clipPlayLength(c)))
-              : 0
-          );
-        }
-        return {
-          clips: nextClips,
-          selectedClipIds: s.selectedClipIds.filter((id) => !toRemove.has(id)),
-          songs: s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg)),
-          playlist: s.playlist.map((p) => (newDurations.has(p.songId) ? { ...p, duration: newDurations.get(p.songId)! } : p)),
-        };
-      }),
+      removeClips: (clipIds) => set((s) => withoutClips(s, new Set(clipIds))),
       routeClip: (clipId, targetTrackId) => set((s) => {
         const target = s.tracks.find((t) => t.id === targetTrackId);
         if (!target) return s;
@@ -1819,9 +1865,12 @@ export const useStore = create<Store>()(
 
         // a faixa Maestro IA (falas geradas) fica como está, com os áudios dela
         const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup || t.id === MAESTRO_IA_TRACK_ID);
+        // as criadas pela pessoa também ficam, com os clipes que ela pôs nelas
+        const customIds = customTrackIds(s.tracks);
+        const customTracks = s.tracks.filter((t) => customIds.has(t.id));
         const prevChildByFullName = new Map<string, Track>();
         for (const t of s.tracks) {
-          if (t.parentId && !t.isSubgroup) {
+          if (t.parentId && !t.isSubgroup && !customIds.has(t.id)) {
             prevChildByFullName.set(`${t.parentId}|${normalize(t.name)}`, t);
           }
         }
@@ -1831,7 +1880,7 @@ export const useStore = create<Store>()(
         type Dest = { target: RoutingTarget; display: string } | 'guia' | 'click' | 'maestro';
         const destByClip = new Map<string, Dest>();
         for (const clip of s.clips) {
-          if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID) continue;
+          if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID || customIds.has(clip.trackId)) continue;
           if (clip.routingMethod === 'manual' && protectedIds.has(clip.trackId)) {
             destByClip.set(clip.id, clip.trackId === 'track-guia' ? 'guia' : clip.trackId === 'track-click' ? 'click' : 'maestro');
             continue;
@@ -1947,12 +1996,12 @@ export const useStore = create<Store>()(
         }
         const finalFixed = fixedTracks.map((t) => {
           if (!t.isSubgroup) return t;
-          return { ...t, children: childrenByParent.get(t.id) ?? [] };
+          return { ...t, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
         });
 
         // última linha de defesa: nenhum clipe pode terminar apontando para um subgrupo (pasta)
         const subgroupIds = new Set(parents.map((p) => p.id));
-        const allTracks = [...finalFixed, ...newChildTracks];
+        const allTracks = [...finalFixed, ...newChildTracks, ...customTracks];
         const extraChildByParent = new Map<string, string>();
         const guardedClips = newClips.map((c) => {
           if (!subgroupIds.has(c.trackId)) return c;

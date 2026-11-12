@@ -22,6 +22,8 @@ export interface Track {
   /** Com saída física N: true usa o par estéreo N/N+1 (L em N, R em N+1); ausente = mono */
   outputStereo?: boolean;
   faderLocked?: boolean;
+  /** Criada pela pessoa (botão direito > Nova trilha): a reorganização automática não mexe nela. */
+  custom?: boolean;
   meterLevel: number;
   clipIndicator: boolean;
   /** Pico (linear) que causou o último clip, mantido até o usuário resolver */
