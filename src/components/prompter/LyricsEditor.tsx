@@ -266,6 +266,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           sync={sync}
           now={now}
           styleControls={<LyricsStyleControls state={state} update={update} />}
+          onLeadChange={(v) => update((st) => ({ ...st, lyricLead: v }))}
         />
       ) : (
         <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-10 text-center text-logic-text-dim">
