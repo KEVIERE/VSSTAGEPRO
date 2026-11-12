@@ -1,4 +1,4 @@
-import { clickAddBlocker, isClickToolRunning, startClickTool, type ClickToolKind } from '@/lib/clickTools';
+import { clickAddBlocker, isClickToolRunning, openClickChooser, startClickTool, type ClickToolKind } from '@/lib/clickTools';
 
 interface ClickMenuItemsProps {
   songId: string | null;
@@ -9,7 +9,7 @@ interface ClickMenuItemsProps {
 
 const ITEMS: { kind: ClickToolKind; label: string; tip: string }[] = [
   { kind: 'bar', label: 'Adicionar um compasso antes do início', tip: 'Empurra o VS inteiro 1 compasso para a direita e põe 1 compasso de click antes' },
-  { kind: 'remake', label: 'Recriar metrônomo', tip: 'Usa o click desta faixa como guia e troca o som pelo metrônomo padrão do VS Stage, batida por batida' },
+  { kind: 'remake', label: 'Recriar metrônomo...', tip: 'Usa o click desta faixa como guia e troca o som, batida por batida, pelo som de metrônomo que você escolher' },
 ];
 
 /** Os comandos do click, nos menus de botão direito da faixa Click e do clipe de click. */
@@ -30,7 +30,9 @@ export default function ClickMenuItems({ songId, onClose, itemClass }: ClickMenu
             title={blocker ?? item.tip}
             onClick={(e) => {
               e.stopPropagation();
-              if (songId) void startClickTool(songId, item.kind);
+              // o Recriar abre a janela para escolher o som; o compasso antes já roda direto
+              if (songId && item.kind === 'remake') openClickChooser(songId);
+              else if (songId) void startClickTool(songId, item.kind);
               onClose();
             }}
           >

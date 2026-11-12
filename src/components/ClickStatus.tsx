@@ -1,9 +1,22 @@
 import { useSyncExternalStore } from 'react';
 import { Check, Loader2, Timer, X } from 'lucide-react';
+import ClickSoundChooser from '@/components/ClickSoundChooser';
 import { dismissClickTool, getClickToolStatus, subscribeClickTool } from '@/lib/clickTools';
 
-/** Painel no canto da tela para os comandos do click (compasso antes do início e recriar metrônomo). */
+/**
+ * Painel no canto da tela para os comandos do click (compasso antes do início e recriar
+ * metrônomo), junto com a janela de sons do Recriar metrônomo.
+ */
 export default function ClickStatus() {
+  return (
+    <>
+      <ClickSoundChooser />
+      <ClickToolPanel />
+    </>
+  );
+}
+
+function ClickToolPanel() {
   const st = useSyncExternalStore(subscribeClickTool, getClickToolStatus);
   if (st.state === 'idle') return null;
   const working = st.state === 'working';

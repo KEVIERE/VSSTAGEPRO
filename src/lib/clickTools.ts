@@ -2,6 +2,7 @@ import { audioEngine } from '@/lib/audioEngine';
 import { makeClickClip } from '@/lib/clickClip';
 import { generateClickAt } from '@/lib/clickGenerator';
 import { barSeconds, clickClipsOf, playLength, remakeClickTimes } from '@/lib/clickEdit';
+import { DEFAULT_CLICK_SOUND, clickSoundLabel, rememberClickSound, type ClickSoundId } from '@/lib/clickSounds';
 import { clipInput, toDeviceRate } from '@/lib/clipStemSplit';
 import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
@@ -9,7 +10,8 @@ import type { AudioClip } from '@/types';
 // Comandos da faixa Click (botão direito na faixa ou no clipe de click):
 // - Adicionar um compasso antes do início: empurra o VS 1 compasso para a direita e põe 1
 //   compasso de click antes.
-// - Recriar metrônomo: usa o click da faixa como guia e troca o som pelo metrônomo padrão.
+// - Recriar metrônomo: usa o click da faixa como guia e troca o som pelo metrônomo escolhido
+//   na janela de sons (ver ClickSoundChooser).
 // Cada um é um passo só de desfazer (Cmd+Z). O áudio antigo continua guardado para o desfazer.
 
 export type ClickToolKind = 'bar' | 'remake';
@@ -80,11 +82,11 @@ export async function addClickBefore(songId: string): Promise<void> {
 }
 
 /**
- * Recriar metrônomo: acha cada batida do click que está na faixa e põe o som padrão do VS Stage
- * exatamente ali. Segue o click de referência, então acompanha mudança de andamento e medley.
+ * Recriar metrônomo: acha cada batida do click que está na faixa e põe o som escolhido (o padrão
+ * do VS Stage ou um dos outros de clickSounds) exatamente ali. Segue o click de referência, então acompanha mudança de andamento e medley.
  * Só leva para a linha da grade onde o click inteiro está deslocado por igual (ver alignHitsToGrid).
  */
-export async function remakeMetronome(songId: string): Promise<number> {
+export async function remakeMetronome(songId: string, sound: ClickSoundId = DEFAULT_CLICK_SOUND): Promise<number> {
   const blocker = clickAddBlocker(songId, 'remake');
   if (blocker) throw new Error(blocker);
   const state = useStore.getState();
@@ -101,7 +103,7 @@ export async function remakeMetronome(songId: string): Promise<number> {
     const channels = Array.from({ length: input.numberOfChannels }, (_, c) => input.getChannelData(c));
     const times = remakeClickTimes(channels, playStart, playLen, sr, click.startTime, song);
     if (times.length < 2) continue;
-    const buffer = await generateClickAt(times, playLen / sr, sr);
+    const buffer = await generateClickAt(times, playLen / sr, sr, sound);
     added.push(await makeClickClip(song, buffer, click.startTime, click));
     replaced.push(click.id);
     beats += times.length;
@@ -146,17 +148,18 @@ const TITLES: Record<ClickToolKind, string> = {
 };
 
 /** Roda um comando do click pelo menu e mostra o resultado no painel. */
-export async function startClickTool(songId: string, kind: ClickToolKind): Promise<void> {
+export async function startClickTool(songId: string, kind: ClickToolKind, sound: ClickSoundId = DEFAULT_CLICK_SOUND): Promise<void> {
   if (running) return;
   running = true;
   const title = TITLES[kind];
   setStatus({ state: 'working', title, percent: 5, message: 'Preparando...' });
   try {
     if (kind === 'remake') {
-      const beats = await remakeMetronome(songId);
+      const beats = await remakeMetronome(songId, sound);
+      rememberClickSound(sound);
       setStatus({
         state: 'done', title, percent: 100,
-        message: `Metrônomo recriado com o som padrão do VS Stage: ${beats} batidas, no mesmo lugar do click que estava na faixa.`,
+        message: `Metrônomo recriado com o som ${clickSoundLabel(sound)}: ${beats} batidas, no mesmo lugar do click que estava na faixa.`,
       });
       return;
     }
@@ -171,3 +174,20 @@ export async function startClickTool(songId: string, kind: ClickToolKind): Promi
     running = false;
   }
 }
+
+// ---------- Janela de sons do Recriar metrônomo ----------
+
+let chooserSongId: string | null = null;
+const chooserListeners = new Set<() => void>();
+function setChooser(next: string | null) {
+  chooserSongId = next;
+  chooserListeners.forEach((l) => l());
+}
+export function subscribeClickChooser(listener: () => void): () => void {
+  chooserListeners.add(listener);
+  return () => { chooserListeners.delete(listener); };
+}
+/** Música da janela de sons aberta agora (ou null se ela está fechada). */
+export function getClickChooser(): string | null { return chooserSongId; }
+export function openClickChooser(songId: string): void { setChooser(songId); }
+export function closeClickChooser(): void { setChooser(null); }
