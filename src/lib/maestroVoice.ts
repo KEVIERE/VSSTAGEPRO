@@ -27,7 +27,7 @@ import type { MaestroVoiceStatus } from '@/lib/localNetwork';
 import { READY_INTENSITIES, findReadyCue, readyCueUrl, readyVoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
 
 /** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
-export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'henrique', string> = { feminina: 'IA', masculina: 'IA', henrique: 'IA' };
+export const IA_VOICE_NAMES: Record<'feminina' | 'masculina', string> = { feminina: 'IA', masculina: 'IA' };
 
 /** Nome curto de uma voz ("Eddy (Português (Brasil))" → "Eddy"). */
 export function shortVoiceName(name: string): string {
@@ -36,6 +36,7 @@ export function shortVoiceName(name: string): string {
 
 /** A voz é uma das padrão (os botões Feminina/Masculina)? */
 export function isPresetVoice(voice: string | undefined): boolean {
+  // 'henrique' foi apagada: marcação antiga nela fala com a Masculina, como uma voz padrão
   return voice === 'feminina' || voice === 'masculina' || voice === 'henrique';
 }
 
@@ -44,16 +45,14 @@ export function voiceLabel(voice: string | undefined): string {
   if (!voice) return '—';
   if (voice === 'feminina') return 'Feminina';
   if (voice === 'masculina') return 'Masculina';
-  if (voice === 'henrique') return 'Henrique';
   const ready = readyVoice(voice);
   if (ready) {
     const level = READY_INTENSITIES.find((x) => x.id === ready.intensity);
     return ready.intensity === 'normal' || !level ? ready.label : `${ready.label} ${level.label.toLowerCase()}`;
   }
   // vozes que saíram do seletor: marcações antigas continuam mostrando o nome que tinham
-  // Cubas e Keven foram apagadas: marcação antiga nelas fala com a Masculina
-  if (/^(qwen:)?(cubas|keven)$/.test(voice)) return 'Masculina';
-  if (voice === 'qwen:henrique') return 'Henrique';
+  // Cubas, Keven e Henrique foram apagadas: marcação antiga nelas fala com a Masculina
+  if (/^(qwen:)?(cubas|keven|henrique)$/.test(voice)) return 'Masculina';
   if (voice === 'qwen:feminina') return 'Feminina';
   if (voice === 'qwen:masculina') return 'Masculina';
   const online = onlineVoiceLabel(voice);
@@ -135,7 +134,8 @@ export function lastVoice(): string {
   try { v = localStorage.getItem(LAST_VOICE_KEY); } catch { /* sem armazenamento: fica a padrão */ }
   // só as vozes oferecidas hoje: uma voz do Mac escolhida antes pelo nome volta para a padrão
   if (v === 'masculina' || v === 'qwen:masculina') return 'masculina';
-  if (v === 'henrique' || v === 'qwen:henrique') return 'henrique';
+  // Henrique foi apagada: quem usava ela passa para a Masculina
+  if (v === 'henrique' || v === 'qwen:henrique') return 'masculina';
   // Cubas e Keven saíram do seletor: volta para a voz feminina
   if (v && onlineVoiceById(v)) return v;
   return 'feminina';

@@ -69,7 +69,7 @@ fi
 # 2. as duas vozes de IA (referência + texto)
 echo "2. Vozes de IA..."
 mkdir -p "$OUT/voices"
-for v in feminina masculina henrique; do
+for v in feminina masculina; do
   [ -s "$VOICES/$v.wav" ] && [ -s "$VOICES/$v.txt" ] || { echo "::error::Falta a voz $v em desktop/maestro-voices ($v.wav e $v.txt)"; exit 1; }
   cp "$VOICES/$v.wav" "$VOICES/$v.txt" "$OUT/voices/"
 done

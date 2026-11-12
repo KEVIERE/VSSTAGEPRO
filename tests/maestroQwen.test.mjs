@@ -29,20 +29,18 @@ function fresh(env = {}) {
 const tmpDir = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `vs-qwen-${name}-`));
 const { qwen } = fresh();
 
-test('feminina, masculina e henrique viram as vozes de IA; voz do Mac não é de IA', () => {
-  assert.equal(qwen.qwenVoiceFor('henrique').ref, 'henrique');
-  assert.equal(qwen.qwenVoiceFor('qwen:henrique').name, 'Henrique (IA)');
+test('feminina e masculina viram as vozes de IA; voz do Mac não é de IA', () => {
   assert.equal(qwen.qwenVoiceFor('feminina').ref, 'feminina');
   assert.equal(qwen.qwenVoiceFor('masculina').ref, 'masculina');
   assert.equal(qwen.qwenVoiceFor('qwen:masculina').gender, 'masculina');
   assert.equal(qwen.qwenVoiceFor('Luciana'), null);
 });
 
-test('cubas e keven foram apagadas: marcações antigas nelas falam com a Masculina', () => {
-  for (const v of ['cubas', 'qwen:cubas', 'keven', 'qwen:keven']) assert.equal(qwen.qwenVoiceFor(v).ref, 'masculina', v);
-  assert.ok(!qwen.QWEN_VOICES.some((v) => /cubas|keven/.test(v.ref)), 'nenhuma voz aponta para os arquivos apagados');
+test('cubas, keven e henrique foram apagadas: marcações antigas nelas falam com a Masculina', () => {
+  for (const v of ['cubas', 'qwen:cubas', 'keven', 'qwen:keven', 'henrique', 'qwen:henrique']) assert.equal(qwen.qwenVoiceFor(v).ref, 'masculina', v);
+  assert.ok(!qwen.QWEN_VOICES.some((v) => /cubas|keven|henrique/.test(v.ref)), 'nenhuma voz aponta para os arquivos apagados');
   const offered = qwen.OFFERED_VOICES.map((v) => v.id);
-  assert.deepEqual(offered, ['qwen:feminina', 'qwen:masculina', 'qwen:henrique']);
+  assert.deepEqual(offered, ['qwen:feminina', 'qwen:masculina']);
 });
 
 test('rótulo de compasso vira só o número ("A1" não é "a um")', () => {
@@ -135,7 +133,7 @@ function fakeEngine() {
   const engine = tmpDir('motor');
   fs.writeFileSync(path.join(engine, 'vs-maestro-voz'), FAKE_HELPER, { mode: 0o755 });
   fs.mkdirSync(path.join(engine, 'voices'));
-  for (const v of ['feminina', 'masculina', 'henrique']) {
+  for (const v of ['feminina', 'masculina']) {
     fs.writeFileSync(path.join(engine, 'voices', `${v}.wav`), 'x');
     fs.writeFileSync(path.join(engine, 'voices', `${v}.txt`), 'Boa noite, pessoal!\n');
   }

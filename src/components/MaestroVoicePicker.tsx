@@ -67,7 +67,7 @@ function VoiceChip({ label, title, selected, onChoose, demo, onDemo, demoDisable
 }
 
 /**
- * Escolha da voz do Maestro por IA: as vozes do próprio Mac (Feminina, Masculina e Henrique) e,
+ * Escolha da voz do Maestro por IA: as vozes do próprio Mac (Feminina e Masculina) e,
  * logo abaixo, os pacotes de vozes online (Google Gemini e ElevenLabs). Cada voz tem um ▶ para ouvir
  * um exemplo antes de gerar.
  */
@@ -116,8 +116,8 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
 
   const demoOf = (id: string) => (demo?.id === id ? demo.state : null);
   const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
-  // Cubas e Keven foram apagadas: marcação antiga nelas fala com a Masculina (e aparece nela)
-  const selected = (id: string) => voice === id || voice === `qwen:${id}` || (id === 'masculina' && /^(qwen:)?(cubas|keven)$/.test(voice));
+  // Cubas, Keven e Henrique foram apagadas: marcação antiga nelas fala com a Masculina (e aparece nela)
+  const selected = (id: string) => voice === id || voice === `qwen:${id}` || (id === 'masculina' && /^(qwen:)?(cubas|keven|henrique)$/.test(voice));
   // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
   const ready = readyVoice(voice);
   const intensity = ready?.intensity ?? 'normal';
@@ -132,9 +132,7 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
             <VoiceChip
               key={p.id}
               label={<>{p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}</>}
-              title={p.id === 'henrique'
-                ? `Voz ${p.label}: voz gravada de uma pessoa real, copiada por IA no próprio Mac (sem internet)`
-                : `Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
+              title={`Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
               selected={selected(p.id)}
               onChoose={() => onChoose(p.id)}
               demo={demoOf(p.id)}

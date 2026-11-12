@@ -26,14 +26,11 @@ const HELPER = 'vs-maestro-voz';
 const QWEN_VOICES = [
   { id: 'qwen:feminina', name: 'Voz feminina (IA)', gender: 'feminina', ref: 'feminina' },
   { id: 'qwen:masculina', name: 'Voz masculina (IA)', gender: 'masculina', ref: 'masculina' },
-  // voz do Henrique (gravação de 05/11/2026, trecho corrido de ~9 s): o motor copia o timbre e o
-  // sotaque dela.
-  { id: 'qwen:henrique', name: 'Henrique (IA)', gender: 'masculina', ref: 'henrique' },
 ];
 
-// Cubas e Keven (gravações do dono) foram apagadas a pedido dele em 12/11/2026: marcação antiga
-// nessas vozes fala com a Masculina.
-const REMOVED_VOICES = { cubas: 'qwen:masculina', keven: 'qwen:masculina', 'qwen:cubas': 'qwen:masculina', 'qwen:keven': 'qwen:masculina' };
+// Vozes apagadas em 12/11/2026 (a pedido do dono): Cubas e Keven (gravações dele) e Henrique (voz
+// de pessoa real, sem autorização por escrito). Marcação antiga nelas fala com a Masculina.
+const REMOVED_VOICES = Object.fromEntries(['cubas', 'keven', 'henrique'].flatMap((v) => [[v, 'qwen:masculina'], [`qwen:${v}`, 'qwen:masculina']]));
 
 /** Fala comum: se não couber na marcação, acelera até aqui. Nunca desacelera (sobra silêncio). */
 const MAX_FIT_TEMPO = 1.35;
@@ -58,9 +55,9 @@ const CACHE_MAX_FILES = 400;
 /** Muda quando o tratamento do áudio muda (corte do silêncio etc.): as falas antigas não servem mais. */
 const CACHE_VERSION = 6;
 
-/** A voz pedida: 'feminina'/'masculina'/'henrique' ou o id de uma voz de IA. */
+/** A voz pedida: 'feminina'/'masculina' ou o id de uma voz de IA. */
 function qwenVoiceFor(wanted) {
-  const short = { feminina: 'qwen:feminina', masculina: 'qwen:masculina', henrique: 'qwen:henrique', ...REMOVED_VOICES };
+  const short = { feminina: 'qwen:feminina', masculina: 'qwen:masculina', ...REMOVED_VOICES };
   const id = short[wanted] ?? wanted;
   return QWEN_VOICES.find((v) => v.id === id) ?? null;
 }

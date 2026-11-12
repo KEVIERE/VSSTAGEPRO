@@ -19,12 +19,11 @@ const FIT_MARGIN = 1.05;
 /** Folga para o cursor parado "quase" no beat (arredondamento, atraso do clique) contar como nele. */
 const BEAT_TOLERANCE = 0.05;
 
-export type VoicePreset = 'feminina' | 'masculina' | 'henrique';
+export type VoicePreset = 'feminina' | 'masculina';
 
 export const VOICE_PRESETS: ReadonlyArray<{ id: VoicePreset; label: string }> = [
   { id: 'feminina', label: 'Feminina' },
   { id: 'masculina', label: 'Masculina' },
-  { id: 'henrique', label: 'Henrique' },
 ];
 
 /** Marcações da música em ordem de início. */
