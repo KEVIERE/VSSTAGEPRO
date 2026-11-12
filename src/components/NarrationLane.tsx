@@ -13,6 +13,7 @@ import {
 import { snapTime, songGrid } from '@/lib/grid';
 import { formatRegionTime } from '@/lib/regions';
 import { seekToPosition } from '@/lib/transportControl';
+import { audioEngine } from '@/lib/audioEngine';
 
 /** Altura da régua do Maestro por IA (a coluna de nomes das faixas usa a mesma). */
 export const NARRATION_LANE_HEIGHT = 30;
@@ -60,10 +61,49 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
   const [draft, setDraft] = useState<{ start: number; end: number } | null>(null);
   const [dragging, setDragging] = useState<{ id: string; start: number; end: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null);
+  // Fala selecionada com um clique: Delete (ou Backspace) apaga ela e o áudio dela.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const removeNarration = useStore((s) => s.removeNarration);
   const laneRef = useRef<HTMLDivElement>(null);
   const narrations = sortedNarrations(song.narrations);
   const grid = songGrid(song);
   const snap = (t: number, free: boolean) => snapTime(t, grid, free ? 'off' : snapStep);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    // clicar fora da fala tira a seleção
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest(`[data-narration-id="${selectedId}"]`)) return;
+      setSelectedId(null);
+    };
+    // Delete ou Backspace apaga a fala selecionada (com o áudio dela; Cmd+Z traz de volta).
+    // Roda antes dos outros atalhos para não apagar também os áudios selecionados.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      const st = useStore.getState();
+      if (st.timelineLocked) return;
+      const n = song.narrations?.find((x) => x.id === selectedId);
+      if (!n) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (n.clipId) audioEngine.stopClipsLive([n.clipId]);
+      removeNarration(song.id, n.id);
+      audioEngine.invalidatePrepared(song.id);
+      setSelectedId(null);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey, true);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey, true);
+    };
+  }, [selectedId, song.id, song.narrations, removeNarration]);
+
+  // outra música aberta: nada fica selecionado
+  useEffect(() => { setSelectedId(null); }, [song.id]);
 
   /** A posição (s) de um ponto da tela: a régua anda junto com a linha do tempo. */
   const timeAt = (clientX: number) => {
@@ -78,6 +118,8 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
     e.stopPropagation();
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
+    setSelectedId(n.id);
+    if (useStore.getState().selectedClipIds.length > 0) useStore.getState().selectClips([]);
     const rect = el.getBoundingClientRect();
     const localX = e.clientX - rect.left;
     // barra estreita demais para três zonas: o meio sempre move
@@ -232,7 +274,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             : state === 'missing' ? 'O áudio desta fala sumiu do projeto: clique duplo e gere de novo.'
               : stale ? (n.text ? 'Falta gerar a voz: clique duplo e "Gerar e ouvir".' : '')
                 : 'Voz pronta.',
-          'Arraste o meio para mudar de lugar; as bordas mudam a velocidade. Botão direito: sincar no beat do cursor.',
+          'Clique para selecionar (Delete apaga). Arraste o meio para mudar de lugar; as bordas mudam a velocidade. Botão direito: sincar no beat do cursor.',
         ].filter(Boolean).join('\n');
         const tone = failed
           ? 'border-logic-lcd-red/70 bg-logic-lcd-red/20'
@@ -245,7 +287,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             data-narration-id={n.id}
             className={`absolute top-[3px] bottom-[3px] rounded-sm flex items-center select-none touch-none group overflow-hidden border hover:brightness-125 ${tone} ${
               isDragging ? 'cursor-grabbing z-20 shadow-lg' : 'cursor-grab z-10'
-            } ${inSelection ? 'ring-2 ring-white/80 brightness-125' : ''}`}
+            } ${inSelection || selectedId === n.id ? 'ring-2 ring-white/80 brightness-125' : ''}`}
             style={{ left: `${start * zoomH}px`, width: `${width}px` }}
             onPointerDown={(e) => handleBarPointerDown(e, n)}
             onDoubleClick={(e) => { e.stopPropagation(); onEdit(n); }}
