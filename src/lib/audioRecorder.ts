@@ -6,144 +6,172 @@ import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
 import { generateMarkers } from '@/lib/audioDecoder';
 import { publishMeters } from '@/lib/meterBus';
+import { inputConstraints, inputLabel, usableChannel, type InputAudioDevice, type MaestroInput } from '@/lib/maestroInput';
 
-export interface InputAudioDevice {
-  deviceId: string;
-  label: string;
-}
+export type { InputAudioDevice, MaestroInput } from '@/lib/maestroInput';
 
-export async function listInputAudioDevices(): Promise<InputAudioDevice[]> {
-  try {
+/**
+ * Placas de entrada do computador. Com `askPermission`, se vierem sem nome (o sistema só dá o
+ * nome depois da permissão do microfone), pede a permissão uma vez e lista de novo.
+ * `denied` avisa quando a permissão foi negada.
+ */
+export async function listInputAudioDevices(askPermission = false): Promise<{ devices: InputAudioDevice[]; denied: boolean }> {
+  const read = async () => {
     if (!navigator.mediaDevices?.enumerateDevices) return [];
-    // Solicita permissão se ainda não concedida para que os labels apareçam
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const inputs = devices
+    const all = await navigator.mediaDevices.enumerateDevices();
+    return all
       .filter((d) => d.kind === 'audioinput')
-      .map((d, index) => ({
-        deviceId: d.deviceId,
-        label: d.label || `Entrada ${index + 1}`,
-      }));
-    return inputs;
+      .map((d, index) => ({ deviceId: d.deviceId, ...inputLabel(d.label, index) }));
+  };
+  try {
+    let devices = await read();
+    let denied = false;
+    if (askPermission && (devices.length === 0 || devices.some((d) => !d.named))) {
+      try {
+        const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+        probe.getTracks().forEach((t) => t.stop());
+        devices = await read();
+      } catch {
+        denied = true;
+      }
+    }
+    return { devices, denied };
   } catch (err) {
     console.warn('[audioRecorder] erro ao listar entradas de áudio:', err);
-    return [];
+    return { devices: [], denied: false };
   }
 }
 
+/**
+ * Gravação da voz do Maestro: abre a placa escolhida, separa os canais e grava só o canal
+ * escolhido (mono). O medidor de entrada ('input-maestro') mostra esse canal.
+ */
 class AudioRecorder {
   private mediaRecorder: MediaRecorder | null = null;
-  private mediaStream: MediaStream | null = null;
+  private stream: MediaStream | null = null;
+  private ctx: AudioContext | null = null;
+  private analyser: AnalyserNode | null = null;
+  private dest: MediaStreamAudioDestinationNode | null = null;
   private recordedChunks: Blob[] = [];
   private isRecording = false;
-  private monitorCtx: AudioContext | null = null;
-  private monitorSource: MediaStreamAudioSourceNode | null = null;
-  private analyser: AnalyserNode | null = null;
   private animFrameId: number | null = null;
-  private activeDeviceId: string | null = null;
+  private openKey: string | null = null;
+  private opening: Promise<void> | null = null;
+  private closeAfterStop = false;
+  /** Muda a cada fechamento: uma abertura que termina depois de fechar solta a placa. */
+  private gen = 0;
+  /** Quantos canais a placa aberta tem. */
+  channels = 0;
 
   get recording(): boolean {
     return this.isRecording;
   }
 
-  /** Inicia monitoramento contínuo de entrada para alimentar o VU meter */
-  async startMonitoring(deviceId?: string): Promise<void> {
-    if (this.mediaStream && this.activeDeviceId === (deviceId || 'default')) return;
-    this.stopMonitoring();
-
-    try {
-      this.activeDeviceId = deviceId || 'default';
-      const constraints: MediaStreamConstraints = {
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      this.mediaStream = stream;
-
-      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      const ctx = new AudioCtxClass();
-      this.monitorCtx = ctx;
-
+  /** Abre a placa e liga o canal escolhido no medidor e na gravação. */
+  private async open(input: MaestroInput): Promise<void> {
+    const key = `${input.deviceId}|${input.channel}`;
+    if (this.openKey === key && this.ctx) return;
+    if (this.opening) await this.opening.catch(() => {});
+    if (this.openKey === key && this.ctx) return;
+    this.close();
+    const gen = this.gen;
+    this.opening = (async () => {
+      const stream = await navigator.mediaDevices.getUserMedia(inputConstraints(input.deviceId));
+      if (gen !== this.gen) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      const ctx = new AudioContext();
+      // o navegador cria o AudioContext pausado quando não foi um clique que abriu: sem isso a
+      // gravação sairia em silêncio
+      await ctx.resume().catch(() => {});
       const source = ctx.createMediaStreamSource(stream);
-      this.monitorSource = source;
-
+      const channels = Math.max(1, stream.getAudioTracks()[0]?.getSettings().channelCount ?? source.channelCount ?? 1);
+      const splitter = ctx.createChannelSplitter(channels);
+      source.connect(splitter);
+      const pick = ctx.createGain();
+      splitter.connect(pick, usableChannel(input.channel, channels));
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
       analyser.smoothingTimeConstant = 0.5;
-      source.connect(analyser);
+      pick.connect(analyser);
+      const dest = ctx.createMediaStreamDestination();
+      dest.channelCount = 1;
+      pick.connect(dest);
+      this.stream = stream;
+      this.ctx = ctx;
       this.analyser = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateMeter = () => {
-        if (!this.analyser) return;
-        this.analyser.getByteTimeDomainData(dataArray);
-
-        // Calcula amplitude de pico
-        let maxPeak = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          const val = Math.abs((dataArray[i] - 128) / 128);
-          if (val > maxPeak) maxPeak = val;
-        }
-
-        // Converte amplitude linear em escala visual 0..1 com curva perceptiva (dB)
-        const normalized = Math.min(1, maxPeak * 1.6);
-        publishMeters(new Map([['input-maestro', normalized]]));
-
-        this.animFrameId = requestAnimationFrame(updateMeter);
-      };
-      updateMeter();
-    } catch (err) {
-      console.warn('[audioRecorder] Falha ao iniciar monitor de entrada:', err);
+      this.dest = dest;
+      this.channels = channels;
+      this.openKey = key;
+    })();
+    try {
+      await this.opening;
+    } finally {
+      this.opening = null;
     }
   }
 
-  stopMonitoring(): void {
+  private close(): void {
+    this.gen++;
     if (this.animFrameId !== null) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
-    if (this.monitorSource) {
-      try { this.monitorSource.disconnect(); } catch { /* ignore */ }
-      this.monitorSource = null;
+    this.analyser = null;
+    this.dest = null;
+    if (this.ctx) {
+      try { void this.ctx.close(); } catch { /* já fechado */ }
+      this.ctx = null;
     }
-    if (this.analyser) {
-      try { this.analyser.disconnect(); } catch { /* ignore */ }
-      this.analyser = null;
-    }
-    if (this.monitorCtx) {
-      try { this.monitorCtx.close(); } catch { /* ignore */ }
-      this.monitorCtx = null;
-    }
+    // solta o microfone de verdade (sem isso a luz do microfone do Mac fica acesa)
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+    this.openKey = null;
     publishMeters(new Map([['input-maestro', 0]]));
   }
 
-  async start(deviceId?: string): Promise<void> {
+  /** Liga o medidor de entrada do canal escolhido. Devolve quantos canais a placa tem. */
+  async startMonitoring(input: MaestroInput): Promise<number> {
+    await this.open(input);
+    if (this.animFrameId === null && this.analyser) {
+      const data = new Uint8Array(this.analyser.frequencyBinCount);
+      const update = () => {
+        if (!this.analyser) { this.animFrameId = null; return; }
+        this.analyser.getByteTimeDomainData(data);
+        let peak = 0;
+        for (let i = 0; i < data.length; i++) peak = Math.max(peak, Math.abs((data[i] - 128) / 128));
+        publishMeters(new Map([['input-maestro', Math.min(1, peak * 1.6)]]));
+        this.animFrameId = requestAnimationFrame(update);
+      };
+      update();
+    }
+    return this.channels;
+  }
+
+  /** Desliga o medidor e solta a placa (se estiver gravando, solta quando a gravação terminar). */
+  stopMonitoring(): void {
+    if (this.isRecording) {
+      this.closeAfterStop = true;
+      return;
+    }
+    this.close();
+  }
+
+  async start(input: MaestroInput): Promise<void> {
     if (this.isRecording) return;
     this.recordedChunks = [];
-
-    // Garante que o stream de áudio esteja aberto e monitorando
-    if (!this.mediaStream || (deviceId && this.activeDeviceId !== deviceId)) {
-      await this.startMonitoring(deviceId);
-    }
-
-    if (!this.mediaStream) {
-      const constraints: MediaStreamConstraints = {
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
-      };
-      this.mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-    }
-
+    await this.startMonitoring(input);
+    if (!this.dest) throw new Error('entrada de áudio indisponível');
     const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', ''];
     const mimeType = mimeTypes.find((m) => !m || MediaRecorder.isTypeSupported(m)) || '';
-
-    const recorder = mimeType ? new MediaRecorder(this.mediaStream, { mimeType }) : new MediaRecorder(this.mediaStream);
+    const recorder = mimeType ? new MediaRecorder(this.dest.stream, { mimeType }) : new MediaRecorder(this.dest.stream);
     this.mediaRecorder = recorder;
-
     recorder.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) {
-        this.recordedChunks.push(e.data);
-      }
+      if (e.data && e.data.size > 0) this.recordedChunks.push(e.data);
     };
-
     recorder.start(100);
+    this.closeAfterStop = false;
     this.isRecording = true;
   }
 
@@ -158,7 +186,10 @@ class AudioRecorder {
           const rawBlob = new Blob(this.recordedChunks, { type: recorder.mimeType || 'audio/webm' });
           this.recordedChunks = [];
           this.mediaRecorder = null;
-
+          if (this.closeAfterStop) {
+            this.closeAfterStop = false;
+            this.close();
+          }
           const audioBuffer = await decodeBlob(rawBlob);
           resolve({ blob: rawBlob, audioBuffer });
         } catch (err) {
@@ -175,13 +206,8 @@ class AudioRecorder {
   }
 
   dispose(): void {
-    this.stopMonitoring();
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((t) => t.stop());
-      this.mediaStream = null;
-    }
-    this.activeDeviceId = null;
     this.isRecording = false;
+    this.close();
   }
 }
 

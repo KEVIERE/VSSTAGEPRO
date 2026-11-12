@@ -6,7 +6,9 @@ import SaveCancelButton from '@/components/SaveCancelButton';
 import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
-import { audioRecorder, listInputAudioDevices, saveRecordingToMaestro, type InputAudioDevice } from '@/lib/audioRecorder';
+import { audioRecorder, saveRecordingToMaestro, type MaestroInput } from '@/lib/audioRecorder';
+import { savedMaestroInput } from '@/lib/maestroInput';
+import MaestroInputMenu from '@/components/MaestroInputMenu';
 import { masterMaestroClip } from '@/lib/voiceMastering';
 import { useMeterLevel } from '@/lib/meterBus';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
@@ -282,41 +284,16 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
     const activeId = s.selectedSongId ?? s.playlist[0]?.songId;
     return s.clips.some((c) => c.songId === activeId && c.trackId === 'track-maestro');
   });
-  const [inputDevices, setInputDevices] = useState<InputAudioDevice[]>([]);
-  const [selectedInputId, setSelectedInputId] = useState<string>('');
-  const [showInputMenu, setShowInputMenu] = useState(false);
-  const inputMenuRef = useRef<HTMLDivElement>(null);
+  // Entrada da gravação: placa e canal dela (guardados no computador; ver maestroInput)
+  const [input, setInput] = useState<MaestroInput>(savedMaestroInput);
+  const [inputMenuAnchor, setInputMenuAnchor] = useState<HTMLElement | null>(null);
+  const closeInputMenu = useCallback(() => setInputMenuAnchor(null), []);
 
+  // O medidor de entrada fica ligado enquanto grava (o menu da entrada liga o dele sozinho)
   useEffect(() => {
-    if (!isMaestro) return;
-    listInputAudioDevices().then((devs) => {
-      setInputDevices(devs);
-      if (devs.length > 0 && !selectedInputId) {
-        setSelectedInputId(devs[0].deviceId);
-      }
-    });
-  }, [isMaestro, selectedInputId]);
-
-  // Monitor de VU meter só inicia e modula quando o REC estiver efetivamente ligado
-  useEffect(() => {
-    if (!isMaestro) return;
-    if (isRecording) {
-      audioRecorder.startMonitoring(selectedInputId || undefined).catch(() => {});
-    } else {
-      audioRecorder.stopMonitoring();
-    }
-  }, [isMaestro, isRecording, selectedInputId]);
-
-  useEffect(() => {
-    if (!showInputMenu) return;
-    const handleDown = (e: MouseEvent) => {
-      if (inputMenuRef.current && !inputMenuRef.current.contains(e.target as Node)) {
-        setShowInputMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleDown);
-    return () => document.removeEventListener('mousedown', handleDown);
-  }, [showInputMenu]);
+    if (!isMaestro || isRecording || inputMenuAnchor) return;
+    audioRecorder.stopMonitoring();
+  }, [isMaestro, isRecording, inputMenuAnchor]);
 
   const handleToggleRec = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -349,12 +326,12 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
         const cursor = st.transport.isPlaying && st.transport.currentSongId === activeSongId
           ? audioEngine.getCurrentTime()
           : st.transport.currentTime;
-        await audioRecorder.start(selectedInputId || undefined);
+        await audioRecorder.start(input);
         setRecordingMaestro({
           isRecording: true,
           songId: activeSongId,
           startTime: cursor,
-          inputDeviceId: selectedInputId,
+          inputDeviceId: input.deviceId,
         });
         if (!st.transport.isPlaying) {
           startPlayback();
@@ -383,12 +360,17 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   };
   const rowTitle = isFolder ? 'Pasta: clique direito para renomear, mudar cor ou opções' : 'Faixa: clique direito para renomear, mudar cor, rotear saída ou mover para pasta';
 
-  // REC, entrada da placa e VU da faixa Maestro (mesmas teclas de borracha do mixer)
+  // Maestro com altura normal: REC e microfone ficam em cima do M e S (REC sobre o M, microfone
+  // sobre o S), e sobra lugar para o fader como nas outras faixas. Linha baixa: tudo numa fileira.
+  const stackMaestro = isMaestro && !isChild && !compact && trackHeight >= 36;
+  const maestroKey = stackMaestro ? 'w-[22px] h-4' : `w-[18px] ${compact ? 'h-4' : 'h-[18px]'}`;
+
+  // REC e entrada da placa da faixa Maestro (mesmas teclas de borracha do mixer)
   const maestroControls = isMaestro && (
-    <div className="flex items-center gap-[3px] relative shrink-0" ref={inputMenuRef}>
+    <div className="flex items-center gap-[3px] shrink-0">
       <button
         type="button"
-        className={`console-key w-[18px] ${compact ? 'h-4' : 'h-[18px]'} flex items-center justify-center leading-none ${
+        className={`console-key ${maestroKey} flex items-center justify-center leading-none ${
           isRecording ? 'is-lit-red animate-pulse' : 'text-[#ff4136]/80 hover:!text-[#ff4136]'
         }`}
         onClick={handleToggleRec}
@@ -398,57 +380,26 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       </button>
       <button
         type="button"
-        className={`console-key w-[18px] ${compact ? 'h-4' : 'h-[18px]'} flex items-center justify-center ${showInputMenu ? 'is-lit-blue' : ''}`}
+        className={`console-key ${maestroKey} flex items-center justify-center ${inputMenuAnchor ? 'is-lit-blue' : ''}`}
         onClick={(e) => {
           e.stopPropagation();
-          setShowInputMenu(!showInputMenu);
+          const btn = e.currentTarget;
+          setInputMenuAnchor((cur) => (cur ? null : btn));
         }}
-        title="Selecionar entrada da placa de áudio (Input)"
+        aria-expanded={!!inputMenuAnchor}
+        title={`Entrada da gravação: escolher a placa de áudio e o canal (agora: canal ${input.channel + 1})`}
       >
         <Mic size={10} />
       </button>
-      {showInputMenu && (
-        <div
-          className="fixed mt-1 z-[999] py-1 bg-[#161720]/95 backdrop-blur-xl border border-white/20 rounded-xl shadow-[0_12px_40px_rgba(0,0,0,0.85)] text-2xs min-w-[240px] max-w-[320px] animate-[fadeIn_100ms_ease-out]"
-          style={{
-            top: inputMenuRef.current ? inputMenuRef.current.getBoundingClientRect().bottom + 4 : undefined,
-            left: inputMenuRef.current ? Math.min(window.innerWidth - 320, Math.max(10, inputMenuRef.current.getBoundingClientRect().left)) : undefined,
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="px-3 py-1.5 text-logic-text-muted font-bold border-b border-white/10 uppercase tracking-wider text-[9px] flex items-center justify-between">
-            <span>Entrada da Placa de Áudio</span>
-            <span className="text-[8px] px-1 py-0.2 rounded bg-white/10 text-zinc-300">INPUT</span>
-          </div>
-          {inputDevices.length === 0 ? (
-            <div className="px-3 py-2 text-logic-text-dim text-[11px]">
-              Nenhuma entrada de áudio detectada
-            </div>
-          ) : (
-            inputDevices.map((d) => (
-              <button
-                key={d.deviceId}
-                type="button"
-                className={`w-full px-3 py-1.5 text-left truncate flex items-center justify-between hover:bg-white/10 transition ${
-                  (selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId))
-                    ? 'text-logic-lcd-green font-bold bg-white/[0.04]'
-                    : 'text-white'
-                }`}
-                onClick={() => {
-                  setSelectedInputId(d.deviceId);
-                  setShowInputMenu(false);
-                }}
-              >
-                <span className="truncate">{d.label}</span>
-                {(selectedInputId === d.deviceId || (!selectedInputId && inputDevices[0]?.deviceId === d.deviceId)) && (
-                  <Check size={12} className="text-logic-lcd-green shrink-0 ml-1.5" />
-                )}
-              </button>
-            ))
-          )}
-        </div>
+      {inputMenuAnchor && (
+        <MaestroInputMenu
+          anchor={inputMenuAnchor}
+          input={input}
+          recording={isRecording}
+          onChange={setInput}
+          onClose={closeInputMenu}
+        />
       )}
-      {isRecording && <InputVuMeter trackHeight={trackHeight} />}
     </div>
   );
 
@@ -507,8 +458,9 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
 
   // Faixa mãe (multigrupo, ou canal de topo como Guia, Click e Maestro): um canal do mixer
   // deitado, com a fita crepe do nome, o fader, o medidor de LED e as teclas M e S.
-  // O fader some quando a coluna está estreita (o Maestro precisa de mais espaço por causa do REC).
-  const showFader = headerWidth >= (isMaestro ? 240 : 170);
+  // O fader some quando a coluna está estreita. O Maestro em linha baixa (REC e microfone na
+  // mesma fileira do M e S) precisa de mais espaço.
+  const showFader = headerWidth >= (isMaestro && !stackMaestro ? 240 : 170);
   return (
     <div
       data-selectable="track"
@@ -547,7 +499,9 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
         )}
       </div>
 
-      {maestroControls}
+      {!stackMaestro && maestroControls}
+      {/* gravando sem lugar para o fader: o medidor da entrada fica aqui */}
+      {isRecording && !showFader && <InputVuMeter trackHeight={trackHeight} />}
 
       {showFader && (
         <div className="flex flex-col gap-[3px] shrink-0">
@@ -559,23 +513,29 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
             height={compact ? 12 : 14}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
           />
-          {!compact && <LedMeterH id={track.id} off={track.mute} width={44} title="Nível do sinal deste canal" />}
+          {/* gravando, o medidor mostra o sinal que entra da placa */}
+          {!compact && (isRecording
+            ? <LedMeterH id="input-maestro" width={44} title="Sinal da entrada da gravação" />
+            : <LedMeterH id={track.id} off={track.mute} width={44} title="Nível do sinal deste canal" />)}
         </div>
       )}
 
-      <div className="flex items-center gap-[3px] shrink-0">
-        <button
-          className={`console-key ${compact ? 'w-5 h-4 text-[10px]' : 'w-[22px] h-[18px] text-[11px]'} leading-none ${track.mute ? 'is-lit-amber' : ''}`}
-          onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
-          aria-pressed={track.mute}
-          title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
-        >M</button>
-        <button
-          className={`console-key ${compact ? 'w-5 h-4 text-[10px]' : 'w-[22px] h-[18px] text-[11px]'} leading-none ${track.solo ? 'is-lit-amber' : ''}`}
-          onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
-          aria-pressed={track.solo}
-          title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
-        >S</button>
+      <div className={`flex shrink-0 ${stackMaestro ? 'flex-col gap-[2px]' : 'items-center gap-[3px]'}`}>
+        {stackMaestro && maestroControls}
+        <div className="flex items-center gap-[3px]">
+          <button
+            className={`console-key ${compact ? 'w-5 h-4 text-[10px]' : stackMaestro ? 'w-[22px] h-4 text-[10.5px]' : 'w-[22px] h-[18px] text-[11px]'} leading-none ${track.mute ? 'is-lit-amber' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+            aria-pressed={track.mute}
+            title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
+          >M</button>
+          <button
+            className={`console-key ${compact ? 'w-5 h-4 text-[10px]' : stackMaestro ? 'w-[22px] h-4 text-[10.5px]' : 'w-[22px] h-[18px] text-[11px]'} leading-none ${track.solo ? 'is-lit-amber' : ''}`}
+            onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+            aria-pressed={track.solo}
+            title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
+          >S</button>
+        </div>
       </div>
     </div>
   );
