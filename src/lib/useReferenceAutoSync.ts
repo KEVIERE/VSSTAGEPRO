@@ -254,6 +254,15 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
         setWorking(fresh.name);
         try {
           await backend.putAudio(fresh.id, await renderReference(fresh));
+          // O som mudou (corte, BPM, tom): a letra lida antes não bate mais com o áudio.
+          const before = sigs[fresh.id];
+          if (before !== undefined && before !== sig) {
+            setWordSigs((prev) => {
+              const m = { ...prev, [fresh.id]: 'som-mudou' };
+              saveMap(wordKey(backend.scope), m);
+              return m;
+            });
+          }
           setSent((prev) => new Set(prev ?? []).add(fresh.id));
           setSigs((prev) => {
             const next = { ...prev, [fresh.id]: sig };
@@ -275,6 +284,9 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   // Depende só de "o leitor está pronto" (um booleano): a situação do leitor chega a cada 4 s
   // como objeto novo, e depender dela zerava a espera de 6 s antes de começar, para sempre.
   const readerReady = !!reader?.supported && reader.model.state === 'ready';
+  // A letra lida vale enquanto o som da música for o mesmo. Sem registro deste Mac (outro
+  // computador, memória apagada), a que já está lá vale: ler de novo leva minutos.
+  const wordsCurrent = (id: string, sig: string) => words.has(id) && (wordSigs[id] === undefined || wordSigs[id] === sig);
   useEffect(() => {
     const desk = window.vsDesktop;
     // Não espera o envio das outras músicas: lê cada uma assim que o áudio dela subiu.
@@ -285,7 +297,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       const next = orderedSongs(st).find((s) => {
         const sig = soundSignature(s, st);
         return sent.has(s.id) && sigs[s.id] === sig && wantsLyrics(s, st)
-          && !(words.has(s.id) && wordSigs[s.id] === sig) && failedWords[s.id] !== sig;
+          && !wordsCurrent(s.id, sig) && failedWords[s.id] !== sig;
       });
       if (!next) return;
       readingNow.current = true;
@@ -349,9 +361,10 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
 
   const resendAll = useCallback(() => {
     if (!backend) return;
-    try { localStorage.removeItem(sigKey(backend.scope)); localStorage.removeItem(wordKey(backend.scope)); } catch { /* ignore */ }
+    // Reenvia o áudio. A letra lida continua valendo: ela só é lida de novo se o som mudar
+    // (antes este botão fazia o Mac ler todas as letras outra vez, minutos por música).
+    try { localStorage.removeItem(sigKey(backend.scope)); } catch { /* ignore */ }
     setSigs({});
-    setWordSigs({});
     send();
   }, [backend, send]);
 
@@ -363,7 +376,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   const failed = list.filter((s) => failedSigs[s.id] !== undefined).map((s) => s.name);
   const needLyrics = list.filter((s) => wantsLyrics(s, st));
   const noGuide = list.filter((s) => !hasLyrics(st, s.id) && !songHasGuide(s, st)).map((s) => s.name);
-  const lyricsReady = needLyrics.filter((s) => words.has(s.id) && wordSigs[s.id] === soundSignature(s, st)).length;
+  const lyricsReady = needLyrics.filter((s) => words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === soundSignature(s, st))).length;
   const lyricsFailed = needLyrics.filter((s) => failedWords[s.id] !== undefined).map((s) => s.name);
 
   return {
