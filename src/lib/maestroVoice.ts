@@ -23,6 +23,7 @@ import { friendlyError } from '@/lib/friendlyError';
 import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, currentSignature, fitTempo, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
 import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
+import { findReadyCue, readyCueUrl, readyVoice, type ReadyCue, type ReadyVoice } from '@/lib/maestroCues';
 
 /** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
 export const IA_VOICE_NAMES: Record<'feminina' | 'masculina' | 'henrique', string> = { feminina: 'IA', masculina: 'IA', henrique: 'IA' };
@@ -43,6 +44,8 @@ export function voiceLabel(voice: string | undefined): string {
   if (voice === 'feminina') return 'Feminina';
   if (voice === 'masculina') return 'Masculina';
   if (voice === 'henrique') return 'Henrique';
+  const ready = readyVoice(voice);
+  if (ready) return ready.label;
   // vozes que saíram do seletor: marcações antigas continuam mostrando o nome que tinham
   if (voice === 'cubas' || voice === 'qwen:cubas') return 'Cubas';
   if (voice === 'keven' || voice === 'qwen:keven') return 'Keven';
@@ -105,7 +108,7 @@ export function hasVoiceEngine(): boolean {
 
 /** Dá para gerar esta voz aqui? As online funcionam em qualquer lugar com internet e conta. */
 export function canGenerate(voice: string | undefined): boolean {
-  return isOnlineVoice(voice) || hasVoiceEngine();
+  return isOnlineVoice(voice) || !!readyVoice(voice) || hasVoiceEngine();
 }
 
 /**
@@ -199,8 +202,23 @@ export interface SpeechResult {
   note: string | null;
   /** A fala não coube na marcação nem no ritmo máximo do motor. */
   overflow: boolean;
-  /** Qual motor falou: a voz de IA do Mac, uma voz online ou a voz do Mac (reserva). */
-  engine: 'qwen' | 'online' | 'mac';
+  /** Qual motor falou: a voz de IA do Mac, uma voz online, a voz do Mac (reserva) ou uma fala pronta. */
+  engine: 'qwen' | 'online' | 'mac' | 'pronta';
+}
+
+/** Falas prontas já abertas nesta sessão (por taxa da placa, voz e fala). */
+const readyCache = new Map<string, AudioBuffer>();
+
+/** O arquivo gravado da fala pronta, aberto na taxa da saída de áudio. */
+async function readyCueBuffer(voice: ReadyVoice, cue: ReadyCue): Promise<AudioBuffer> {
+  const key = `${audioEngine.currentSampleRate() ?? deviceSampleRate()}|${voice.id}|${cue.id}`;
+  const hit = readyCache.get(key);
+  if (hit) return hit;
+  const res = await fetch(readyCueUrl(voice, cue, import.meta.env.BASE_URL));
+  if (!res.ok) throw new Error('Não encontrei o áudio desta fala pronta. Reinstale o VS Stage.');
+  const buffer = await decodeWavBytes(new Uint8Array(await res.arrayBuffer()));
+  readyCache.set(key, buffer);
+  return buffer;
 }
 
 /**
@@ -249,6 +267,29 @@ export async function synthesize(text: string, voice: string, span: number, pace
   let result: Omit<SpeechResult, 'buffer'> | null = null;
   let fallbackNote: string | null = null;
 
+  // Falas prontas (Felipe e Moça): a frase da lista sai do arquivo gravado, e passa pelo mesmo
+  // acerto das outras vozes (começa na amostra da palavra, estica para a marcação ou a contagem).
+  // Texto fora da lista sai na voz do Mac do mesmo gênero.
+  const ready = readyVoice(voice);
+  if (ready) {
+    const cue = findReadyCue(trimmed);
+    if (cue) {
+      buffer = await readyCueBuffer(ready, cue);
+      const fit = fitTempo(buffer.duration, span, pace);
+      tempo = fit.tempo;
+      result = {
+        wpm: Math.round((trimmed.split(/\s+/).length / Math.max(0.3, fit.seconds)) * 60),
+        voiceName: ready.label,
+        note: null,
+        overflow: fit.overflow,
+        engine: 'pronta',
+      };
+    } else {
+      fallbackNote = `Essa fala não está nas falas prontas: saiu na voz ${ready.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`;
+      voice = ready.fallback;
+    }
+  }
+
   // Voz online (Microsoft): vem na velocidade natural, como a voz de IA do Mac; o ajuste é o mesmo.
   // Feminina e Masculina também a usam quando há internet (Francisca e Antônio, com sotaque do
   // Brasil); sem internet ou se o serviço falhar, caem na voz de IA do próprio Mac.
@@ -258,7 +299,7 @@ export async function synthesize(text: string, voice: string, span: number, pace
     : (voice === 'feminina' || voice === 'masculina') && ONLINE_PACKS.length > 0 && window.vsDesktop?.maestroOnlineSpeak && onlineAllowed()
       ? ONLINE_DEFAULT[voice]
       : null;
-  if (onlineVoice) {
+  if (onlineVoice && !buffer) {
     try {
       const natural = await onlineNatural(trimmed, onlineVoice);
       buffer = natural.buffer;
@@ -333,6 +374,20 @@ export async function voiceDemo(voice: string, pitch?: VoicePitch): Promise<Voic
   const key = `${voice}|${pitch ?? 'padrao'}`;
   const hit = demoCache.get(key);
   if (hit) return { buffer: hit, note: null };
+  if (readyVoice(voice)) {
+    // fala pronta: "Atenção" e a contagem, cada palavra do seu arquivo
+    const parts: AudioBuffer[] = [];
+    for (const w of ['Atenção', 'Um', 'Dois', 'Três', 'Quatro']) parts.push((await synthesize(w, voice, 0, undefined, undefined, pitch)).buffer);
+    const rate = parts[0].sampleRate;
+    const gap = (i: number) => Math.round(rate * (i === 0 ? 0.45 : 0.22));
+    const total = parts.reduce((n, b, i) => n + b.length + (i < parts.length - 1 ? gap(i) : 0), 0);
+    const ctx = new OfflineAudioContext(1, 1, rate);
+    const out = ctx.createBuffer(1, total, rate);
+    let at = 0;
+    parts.forEach((b, i) => { out.getChannelData(0).set(b.getChannelData(0), at); at += b.length + gap(i); });
+    demoCache.set(key, out);
+    return { buffer: out, note: null };
+  }
   const out = await synthesize(DEMO_TEXT, voice, 0, undefined, undefined, pitch);
   // saiu com a voz do Mac no lugar da de IA: não guarda (na próxima, a de IA já pode estar pronta)
   if (out.engine === 'mac' && isPresetVoice(voice)) {

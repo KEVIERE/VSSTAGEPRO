@@ -12,6 +12,7 @@ import {
   iaStatusText, shortVoiceName, stopPreview, subscribeGenerating, voiceEngineStatus,
 } from '@/lib/maestroVoice';
 import MaestroVoicePicker from '@/components/MaestroVoicePicker';
+import { READY_CUE_GROUPS, findReadyCue, readyVoice, type ReadyCue } from '@/lib/maestroCues';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
 import { formatRegionTime } from '@/lib/regions';
 import { friendlyError } from '@/lib/friendlyError';
@@ -43,6 +44,10 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   const [ia, setIa] = useState<MaestroVoiceStatus | null>(null);
   // velocidade fixa (contagem): o controle mexe aqui e grava ao soltar (um passo do desfazer)
   const [paceDraft, setPaceDraft] = useState(narration.pace ?? 1);
+  // falas prontas: o assunto aberto (Tom, Andamento...); abre no assunto da fala atual
+  const [cueGroup, setCueGroup] = useState<string | null>(
+    () => READY_CUE_GROUPS.find((g) => g.cues.some((c) => c.id === findReadyCue(narration.text)?.id))?.id ?? null,
+  );
   const textRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const textNow = useRef(text);
@@ -147,10 +152,21 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
     }
   };
 
+  /** Escolheu uma fala pronta: entra no texto, na voz pronta do mesmo gênero, e já gera. */
+  const pickCue = (cue: ReadyCue) => {
+    const nextVoice = readyVoice(voice) ? voice : voice === 'feminina' ? 'pronta:moca' : 'pronta:felipe';
+    setText(cue.text);
+    textNow.current = cue.text;
+    updateNarration(song.id, narration.id, { text: cue.text, voice: nextVoice });
+    if (nextVoice !== voice) rememberVoice(nextVoice);
+    void generate();
+  };
+
   const generate = async () => {
     const trimmed = commitText();
     if (!trimmed) { setError('Escreva o texto que o maestro deve falar.'); return; }
-    if (!engine) { setError('As vozes Feminina e Masculina só são geradas no app do Mac.'); return; }
+    const voiceNow = useStore.getState().songs.find((s) => s.id === song.id)?.narrations?.find((x) => x.id === narration.id)?.voice ?? voice;
+    if (!canGenerate(voiceNow)) { setError('As vozes Feminina e Masculina só são geradas no app do Mac.'); return; }
     setError(null);
     setDone(null);
     stopPreview();
@@ -220,6 +236,44 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void generate(); }
         }}
       />
+
+      {/* Falas prontas: um botão por assunto; o assunto aberto mostra as falas dele */}
+      <div className="flex flex-col gap-1.5">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Falas prontas por assunto">
+          {READY_CUE_GROUPS.map((g) => (
+            <button
+              key={g.id}
+              className={`px-1.5 py-1 rounded border text-[10px] font-semibold transition-colors ${
+                cueGroup === g.id
+                  ? 'border-sky-400 bg-sky-500/25 text-sky-100'
+                  : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text'
+              }`}
+              onClick={() => setCueGroup(cueGroup === g.id ? null : g.id)}
+              aria-expanded={cueGroup === g.id}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+        {cueGroup && (
+          <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto logic-scroll p-1.5 rounded border border-logic-border bg-logic-bg-deep animate-[fadeIn_120ms_ease-out]">
+            {READY_CUE_GROUPS.find((g) => g.id === cueGroup)?.cues.map((c) => {
+              const on = findReadyCue(text)?.id === c.id;
+              return (
+                <button
+                  key={c.id}
+                  className={`px-1.5 py-1 rounded text-[11px] transition-colors ${on ? 'bg-sky-500/30 text-sky-100' : 'text-logic-text-dim hover:text-logic-text hover:bg-white/5'}`}
+                  onClick={() => pickCue(c)}
+                  disabled={busy}
+                  title="Usar esta fala pronta (voz Felipe ou Moça, já no tempo)"
+                >
+                  {c.text}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
       {/* Voz: as padrão (Feminina e Masculina, de IA no próprio Mac) e, logo abaixo, as vozes online */}
       <MaestroVoicePicker voice={voice} onChoose={chooseVoice} iaReady={iaAvailable} pitch={narration.pitch} />

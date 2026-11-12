@@ -4,6 +4,7 @@ import { VOICE_PRESETS } from '@/lib/narrations';
 import { IA_VOICE_NAMES, canGenerate, isPresetVoice, playPreview, stopPreview, voiceDemo, voiceLabel } from '@/lib/maestroVoice';
 import { ONLINE_PACKS, isOnlineVoice, onlineVoiceById } from '@/lib/onlineVoices';
 import { onlineStatus, type OnlineStatus } from '@/lib/maestroCloud';
+import { READY_VOICES, readyVoice } from '@/lib/maestroCues';
 import { friendlyError } from '@/lib/friendlyError';
 import type { VoicePitch } from '@/types';
 
@@ -117,7 +118,7 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
   const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
   const selected = (id: string) => voice === id || voice === `qwen:${id}`;
   // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
-  const legacy = !!voice && !isPresetVoice(voice) && !/^qwen:(feminina|masculina|henrique|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
+  const legacy = !!voice && !isPresetVoice(voice) && !readyVoice(voice) && !/^qwen:(feminina|masculina|henrique|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
 
   return (
     <>
@@ -136,6 +137,25 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
               demo={demoOf(p.id)}
               onDemo={() => { void playDemo(p.id); }}
               demoDisabled={demoBlocked(p.id)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Falas prontas: frases comuns de palco gravadas em estúdio (escolha nos botões por assunto) */}
+      <div className="flex items-center gap-2">
+        <span className={`text-logic-text-muted ${labelClass} shrink-0`}>Prontas</span>
+        <div className="flex-1 grid grid-cols-2 gap-1">
+          {READY_VOICES.map((v) => (
+            <VoiceChip
+              key={v.id}
+              label={v.label}
+              title={`Voz ${v.label}: fala as falas prontas, sem internet. Texto fora da lista sai na voz ${v.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`}
+              selected={voice === v.id}
+              onChoose={() => onChoose(v.id)}
+              demo={demoOf(v.id)}
+              onDemo={() => { void playDemo(v.id); }}
+              demoDisabled={null}
             />
           ))}
         </div>
