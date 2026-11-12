@@ -102,3 +102,25 @@ test('duplicar: a cópia ganha o próximo número da sequência do instrumento',
   assert.equal(duplicateTrackName(tracks, 'track-violoes', 'Violão 2'), 'Violão 3');
   assert.equal(duplicateTrackName(tracks, 'track-outros', 'Bumbo'), 'Bumbo 2');
 });
+
+// Nome com acento separado da letra (zip, outro computador) e plurais: violão não pode cair fora de Violões.
+import { routeByName } from '../src/lib/nameRouter.ts';
+test('nome com acento separado, plural e começo acentuado acham o instrumento', () => {
+  for (const nome of ['Violão.wav', 'VIOLÃO 2.wav', 'Violões.wav']) {
+    for (const forma of ['NFC', 'NFD']) assert.equal(routeByName(nome.normalize(forma))?.target, 'track-violoes', `${nome} ${forma}`);
+  }
+  for (const nome of ['Sanfona.wav', 'Acordeão.wav', 'Acordeom.wav', 'Acordeon.wav']) assert.equal(routeByName(nome.normalize('NFD'))?.target, 'track-sanfonas', nome);
+  assert.equal(routeByName('Órgão.wav')?.target, 'track-teclados');
+  assert.equal(routeByName('Sanfona Solo.wav')?.target, 'track-solos', 'com "solo" no nome vai para Solos');
+});
+
+test('guia: a regra de nome manda as guias para a faixa Guia (o grupo é montado na reorganização)', () => {
+  for (const nome of ['Guia.wav', 'Guia 2.wav', 'Voz Guia.wav']) assert.equal(routeByName(nome)?.target, 'track-guia', nome);
+  // dentro do grupo de Guias, a próxima guia vira "Guia N"
+  const comGuias = [
+    t('track-guia', { name: 'Guia', isSubgroup: true, children: ['g1'] }),
+    t('g1', { name: 'Guia 1', parentId: 'track-guia' }),
+  ];
+  const clips = [{ id: 'a', trackId: 'g1', songId: 's1', fileName: 'Guia.wav', name: 'Guia' }];
+  assert.deepEqual(instrumentTrackIn(comGuias, clips, 'track-guia', { id: 'n', songId: 's1', fileName: 'Guia 2.wav', name: 'Guia 2' }), { create: { name: 'Guia 2' } });
+});

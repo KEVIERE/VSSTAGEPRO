@@ -278,7 +278,7 @@ function MixerChannel({ trackId }: { trackId: string }) {
           onDoubleClick={() => setVolume(track.id, 0.8)}
           width={24}
           height={120}
-          tone={track.isSubgroup ? 'band' : 'cue'}
+          tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
         />
         <LedMeter
           id={track.id}

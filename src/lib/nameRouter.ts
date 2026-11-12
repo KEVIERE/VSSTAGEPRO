@@ -111,6 +111,8 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bsax\b/i, target: 'track-outros', childName: 'Saxofone', weight: 10 },
 
   { pattern: /\bacorde[oô]n/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
+  { pattern: /\bacorde[aã]o/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
+  { pattern: /\bacorde[oô]m\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
   { pattern: /\bsf\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 9 },
   { pattern: /\baccordion/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
   { pattern: /\bsanfona/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
@@ -123,6 +125,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bviol[aã]o\b/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
   { pattern: /\bviol[aã]o\s*[lr]\b/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
   { pattern: /\bviolao/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
+  { pattern: /\bviol[oõ]es\b/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
   { pattern: /\bnylon\b/i, target: 'track-violoes', childName: 'Violão', weight: 9 },
   { pattern: /\ba[cç]o\b/i, target: 'track-violoes', childName: 'Violão', weight: 7 },
   { pattern: /\bac[uú]stico\b/i, target: 'track-violoes', childName: 'Violão', weight: 7 },
@@ -262,8 +265,11 @@ const KEYWORDS: Keyword[] = [
 ];
 
 // "_" e números colados ("01_Click2") impediriam o reconhecimento de palavra inteira.
+// No Mac, nome que veio de zip ou de outro computador pode ter o acento separado da letra
+// ("Viola" + "~" + "o"): sem juntar de volta, "Violão" não era reconhecido.
 function stripExt(fileName: string): string {
   return fileName
+    .normalize('NFC')
     .replace(/\.[^.]+$/, '')
     .replace(/_/g, ' ')
     .replace(/(\p{L})(\d)/gu, '$1 $2')
@@ -296,8 +302,11 @@ export function routeByName(fileName: string): RouteResult | null {
   const scores = new Map<RoutingTarget, Hit>();
   const matchedTargets = new Set<RoutingTarget>();
 
+  // O "\b" das regras só entende letra sem acento: "Órgão" no começo do nome não batia com
+  // /\b[oó]rg[aã]o\b/. Confere também o nome sem acento (mesmas posições).
+  const plainName = baseName.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   const consider = (kw: Keyword) => {
-    const m = baseName.match(kw.pattern);
+    const m = baseName.match(kw.pattern) ?? plainName.match(kw.pattern);
     if (!m) return;
     matchedTargets.add(kw.target);
     const existing = scores.get(kw.target);

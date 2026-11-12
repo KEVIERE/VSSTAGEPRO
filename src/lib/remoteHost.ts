@@ -192,7 +192,7 @@ export function buildRemoteState(): RemoteState {
       .filter((tr): tr is NonNullable<typeof tr> => !!tr && !tr.parentId)
       .map((tr) => ({
         id: tr.id, name: tr.name, volume: tr.volume, mute: tr.mute, solo: tr.solo,
-        locked: !!tr.faderLocked, tone: tr.isSubgroup ? 'band' : 'cue',
+        locked: !!tr.faderLocked, tone: tr.isSubgroup && tr.id !== 'track-guia' ? 'band' : 'cue',
       })),
     master: st.masterVolume,
   };

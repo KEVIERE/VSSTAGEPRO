@@ -1929,6 +1929,20 @@ export const useStore = create<Store>()(
           destByClip.set(clip.id, { target: 'track-outros', display: 'Extra' });
         }
 
+        // Música com mais de uma guia: a Guia vira pasta ("Guia 1", "Guia 2"...), no mesmo padrão
+        // das outras. Uma vez pasta, continua pasta. A saída e o LR mágico seguem os da Guia.
+        const guia = s.tracks.find((t) => t.id === 'track-guia');
+        const guiasPorMusica = new Map<string, number>();
+        for (const c of s.clips) {
+          if (destByClip.get(c.id) === 'guia') guiasPorMusica.set(c.songId, (guiasPorMusica.get(c.songId) ?? 0) + 1);
+        }
+        const guiaPasta = !!guia && (guia.isSubgroup || [...guiasPorMusica.values()].some((n) => n > 1));
+        if (guiaPasta) {
+          for (const [clipId, dest] of destByClip) {
+            if (dest === 'guia') destByClip.set(clipId, { target: 'track-guia', display: 'Guia' });
+          }
+        }
+
         // numera por música: na mesma música, 1º violão vira "Violão 1", 2º "Violão 2" etc
         const clipsBySong = new Map<string, AudioClip[]>();
         for (const c of s.clips) {
@@ -1960,7 +1974,7 @@ export const useStore = create<Store>()(
         const now = Date.now();
         for (const [key, max] of maxNByKey) {
           const target = key.split('|')[0];
-          const parent = parents.find((p) => p.id === target);
+          const parent = s.tracks.find((p) => p.id === target);
           const display = displayByKey.get(key) ?? 'Extra';
           for (let n = 1; n <= max; n++) {
             seq++;
@@ -2021,13 +2035,22 @@ export const useStore = create<Store>()(
           childrenByParent.set(ch.parentId, arr);
         }
         const finalFixed = fixedTracks.map((t) => {
-          if (!t.isSubgroup) return t;
+          if (t.id === 'track-guia' && guiaPasta) {
+            return { ...t, isSubgroup: true, type: 'subgroup' as const, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
+          }
+          // faixa que não é pasta só guarda subfaixa que ainda existe (ex.: o Maestro IA)
+          if (!t.isSubgroup) {
+            if (t.children.length === 0) return t;
+            const kept = t.children.filter((id) => id === MAESTRO_IA_TRACK_ID || customIds.has(id));
+            return kept.length === t.children.length ? t : { ...t, children: kept };
+          }
           return { ...t, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
         });
 
         // última linha de defesa: nenhum clipe pode terminar apontando para um subgrupo (pasta)
         // (vai para a trilha do instrumento dentro dela, na sequência, sem ficar por cima de outro)
         const subgroupIds = new Set(parents.map((p) => p.id));
+        if (guiaPasta) subgroupIds.add('track-guia');
         let allTracks = [...finalFixed, ...newChildTracks, ...customTracks];
         const guardedClips = [...newClips];
         for (let i = 0; i < guardedClips.length; i++) {
