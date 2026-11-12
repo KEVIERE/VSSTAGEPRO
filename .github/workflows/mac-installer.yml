@@ -2,13 +2,106 @@ name: Instalador para Mac
 
 on:
   workflow_dispatch:
+    inputs:
+      avisar:
+        description: "Avisar no Telegram no início e no fim"
+        type: boolean
+        default: true
   workflow_call:
+    # Dentro do upgrade de produção quem avisa é o promote-production.yml; aqui fica quieto
+    # para o Telegram não receber o aviso duas vezes.
+    inputs:
+      avisar:
+        type: boolean
+        default: false
   # Só dispara sob comando — manualmente aqui, pelo botão "Upgrade de produção" do admin
   # (aba Teste interno, que dispara promote-production.yml) ou como parte desse workflow.
   # Deixou de rodar sozinho a cada push: isso evita publicar pra todo mundo algo que
   # ainda não passou pelo ambiente de teste (staging).
 
 jobs:
+  notify-start:
+    if: ${{ inputs.avisar }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enviar alerta de início no Telegram
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUILD_NUM: ${{ github.run_number }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
+            NOW=$(TZ="America/Sao_Paulo" date +"%d/%m/%Y às %H:%M:%S")
+            MSG=$(printf '%s\n%s\n%s\n%s\n%s' \
+              "🍎 *INSTALADOR DO MAC INICIADO*" \
+              "━━━━━━━━━━━━━━━━━━━━" \
+              "🌿 *Branch:* \`${BRANCH}\` (Build ${BUILD_NUM})" \
+              "🕒 *Horário:* ${NOW} (Horário de Brasília)" \
+              "⏳ *Etapas:* Voz do Maestro e instaladores .dmg (ARM64 + Intel). Site e staging não mudam.")
+            RESP=$(curl -s -w '\n%{http_code}' -X POST \
+              -H "Authorization: Bearer $SUPABASE_KEY" \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg m "$MSG" '{message: $m}')" \
+              "$SUPABASE_URL/functions/v1/telegram-alert")
+            CODE=$(printf '%s' "$RESP" | tail -n1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+            if [ "$CODE" = "200" ]; then
+              echo "Aviso de inicio enviado no Telegram."
+            else
+              echo "::warning::Aviso de inicio NAO foi para o Telegram (HTTP $CODE): $BODY"
+            fi
+          fi
+
+  notify-finish:
+    needs: [voz, mac]
+    if: ${{ always() && inputs.avisar }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enviar alerta de conclusão no Telegram
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BUILD_NUM: ${{ github.run_number }}
+          RESULT: ${{ needs.mac.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_KEY" ]; then
+            NOW=$(TZ="America/Sao_Paulo" date +"%d/%m/%Y às %H:%M:%S")
+            if [ "$RESULT" = "success" ]; then
+              MANIFEST=$(curl -s "https://download.vsstagepro.com.br/mac/manifest.json?t=$(date +%s)" || echo "{}")
+              PUB_VER=$(echo "$MANIFEST" | jq -r '.version // empty')
+              MSG=$(printf '%s\n%s\n%s\n%s\n%s' \
+                "✅ *INSTALADOR DO MAC PUBLICADO!*" \
+                "━━━━━━━━━━━━━━━━━━━━" \
+                "📦 *Versão:* \`v${PUB_VER:-?}\` (Build ${BUILD_NUM})" \
+                "🕒 *Horário:* ${NOW} (Brasília)" \
+                "💻 *Instaladores Mac:* Apple Silicon (arm64) e Intel (x64) prontos no download oficial.")
+            else
+              MSG=$(printf '%s\n%s\n%s\n%s\n%s' \
+                "❌ *INSTALADOR DO MAC FALHOU*" \
+                "━━━━━━━━━━━━━━━━━━━━" \
+                "⚠️ *Status:* ${RESULT}. O download continua na versão anterior." \
+                "🕒 *Horário:* ${NOW} (Brasília)" \
+                "🔗 ${RUN_URL}")
+            fi
+            RESP=$(curl -s -w '\n%{http_code}' -X POST \
+              -H "Authorization: Bearer $SUPABASE_KEY" \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Content-Type: application/json" \
+              --data "$(jq -n --arg m "$MSG" '{message: $m}')" \
+              "$SUPABASE_URL/functions/v1/telegram-alert")
+            CODE=$(printf '%s' "$RESP" | tail -n1)
+            BODY=$(printf '%s' "$RESP" | sed '$d')
+            if [ "$CODE" = "200" ]; then
+              echo "Aviso de conclusao enviado no Telegram."
+            else
+              echo "::warning::Aviso de conclusao NAO foi para o Telegram (HTTP $CODE): $BODY"
+            fi
+          fi
+
   # Programa de voz do Maestro IA (Swift + MLX): precisa do Swift 6.3 (Xcode 26.4 ou mais novo),
   # que só a máquina macos-26 tem. Compila aqui e entrega pronto para o instalador (macos-15).
   voz:
