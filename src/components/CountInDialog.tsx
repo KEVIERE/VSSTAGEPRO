@@ -12,6 +12,7 @@ import MaestroVoicePicker from '@/components/MaestroVoicePicker';
 import { barBeatLabel, songGrid } from '@/lib/grid';
 import { formatRegionTime } from '@/lib/regions';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
+import { useFitOnScreen } from '@/lib/useFitOnScreen';
 
 export type CountInTarget = { kind: 'new'; start: number } | { kind: 'edit'; group: string };
 
@@ -58,6 +59,7 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
   const [ia, setIa] = useState<MaestroVoiceStatus | null>(null);
   const iaReady = !!ia?.ready;
   const panelRef = useRef<HTMLDivElement>(null);
+  const fit = useFitOnScreen(panelRef);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
@@ -106,8 +108,8 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
   return (
     <div
       ref={panelRef}
-      className="fixed z-[200] w-[450px] max-w-[calc(100vw-32px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
-      style={{ top: '16%', left: '50%', transform: 'translateX(-50%)' }}
+      className="fixed z-[200] w-[450px] max-w-[calc(100vw-32px)] overflow-y-auto logic-scroll rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 [&>*]:shrink-0 text-xs animate-[fadeIn_120ms_ease-out]"
+      style={{ top: fit.top, maxHeight: fit.maxHeight, left: '50%', transform: 'translateX(-50%)' }}
       role="dialog"
       aria-label="Contagem do Maestro IA"
     >
