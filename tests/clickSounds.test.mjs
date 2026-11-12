@@ -14,7 +14,7 @@ import { barStartFlags, clickOnsetIndex, placeAccentedClicks } from '../src/lib/
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (...p) => fs.readFileSync(path.join(here, '..', 'src', ...p), 'utf8');
-const OTHERS = CLICK_SOUNDS.filter((s) => s.id !== 'vs').map((s) => s.id);
+const OTHERS = CLICK_SOUNDS.filter((s) => s.id !== 'vs' && !s.custom).map((s) => s.id);
 
 /** Energia dos primeiros 50 ms (o que faltar conta como silêncio), média dos dois lados. */
 const rms50 = ([L, R], sr) => {
@@ -39,9 +39,11 @@ const mainFreq = (d, sr) => {
   return bf;
 };
 
-test('a lista tem o padrão do VS Stage e mais 5 sons; Cowbell e Chimbal saíram', () => {
+test('a lista tem o padrão do VS Stage, mais 4 sons e o seu som; Bip, Cowbell e Chimbal saíram', () => {
   assert.equal(CLICK_SOUNDS[0].id, 'vs', 'o padrão vem primeiro');
-  assert.deepEqual(CLICK_SOUNDS.map((s) => s.label), ['VS Stage', 'Madeira', 'Bip', 'Baqueta', 'Agradável', 'Bloco']);
+  assert.deepEqual(CLICK_SOUNDS.map((s) => s.label), ['VS Stage', 'Madeira', 'Baqueta', 'Agradável', 'Bloco', 'Seu som']);
+  assert.deepEqual(CLICK_SOUNDS.filter((s) => s.custom).map((s) => s.id), ['meu'], 'o último botão é o som importado');
+  assert.ok(!isClickSound('bip'), 'quem tinha Bip guardado volta ao padrão');
   for (const s of CLICK_SOUNDS) assert.ok(s.tip.length > 10, `${s.id} explica o som`);
   assert.deepEqual(CLICK_SOUNDS.filter((s) => s.twoSounds).map((s) => s.id), ['agradavel']);
   assert.equal(clickSoundLabel('bloco'), 'Bloco');
@@ -166,6 +168,8 @@ test('o programa lembra o último som escolhido', () => {
     assert.equal(rememberedClickSound(), 'agradavel');
     mem.set('vsstage.clickSound', 'cowbell');
     assert.equal(rememberedClickSound(), 'vs', 'som que saiu da lista volta ao padrão');
+    mem.set('vsstage.clickSound', 'meu');
+    assert.equal(rememberedClickSound(), 'vs', 'seu som sem nada importado volta ao padrão');
   } finally {
     globalThis.localStorage = saved;
   }
@@ -183,5 +187,8 @@ test('Recriar metrônomo abre a janela de sons e usa o som e o 1 do compasso', (
   assert.match(chooser, /startClickTool\(songId, 'remake', sound\)/);
   assert.match(chooser, /playClickPreview\(id, bpm, beatsPerBar/, 'apertar um som toca a prévia');
   assert.match(chooser, /2 SONS/, 'o Agradável mostra que tem dois sons');
+  assert.match(chooser, /Importar seu som/, 'o último botão importa o som do usuário');
+  assert.match(chooser, /type="file"/);
+  assert.match(chooser, /importClickFile\(file\)/, 'o arquivo passa pelo ajuste automático');
   assert.match(read('components', 'ClickStatus.tsx'), /<ClickSoundChooser \/>/, 'a janela está montada');
 });

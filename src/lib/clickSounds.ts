@@ -1,6 +1,7 @@
 // Sons do metrônomo para o Recriar metrônomo. O "VS Stage" é a amostra gravada (clickSampleData,
-// tocada pelo clickGenerator). Madeira, Bip e Baqueta são feitos aqui mesmo, por conta.
+// tocada pelo clickGenerator). Madeira e Baqueta são feitos aqui mesmo, por conta.
 // Agradável e Bloco são toques gravados (clickRecordedSounds), já recortados no ataque.
+// "Seu som" é o arquivo que o usuário importa, ajustado por clickImport e guardado aqui.
 // Todos começam no primeiro instante (o ataque fica em cima da batida) e saem no mesmo volume
 // da amostra padrão: mesma energia nos primeiros 50 ms. Sem AudioBuffer, para dar para testar.
 
@@ -8,18 +9,21 @@ import {
   AGRADAVEL_ACENTO_B64, AGRADAVEL_B64, BLOCO_B64, RECORDED_CLICK_RATE,
 } from './clickRecordedSounds.ts';
 
-export type ClickSoundId = 'vs' | 'madeira' | 'bip' | 'baqueta' | 'agradavel' | 'bloco';
+export type ClickSoundId = 'vs' | 'madeira' | 'baqueta' | 'agradavel' | 'bloco' | 'meu';
 
-export const CLICK_SOUNDS: { id: ClickSoundId; label: string; tip: string; twoSounds?: boolean }[] = [
+export const CLICK_SOUNDS: { id: ClickSoundId; label: string; tip: string; twoSounds?: boolean; custom?: boolean }[] = [
   { id: 'vs', label: 'VS Stage', tip: 'O click padrão do VS Stage' },
   { id: 'madeira', label: 'Madeira', tip: 'Bloco de madeira: seco, com corpo, fácil de ouvir com a banda' },
-  { id: 'bip', label: 'Bip', tip: 'Bip de metrônomo digital: tom limpo e contínuo' },
   { id: 'baqueta', label: 'Baqueta', tip: 'Baqueta com baqueta, como a contagem do baterista' },
   {
     id: 'agradavel', label: 'Agradável', twoSounds: true,
     tip: 'Dois sons: agudo no 1 de cada compasso, grave nos outros tempos',
   },
   { id: 'bloco', label: 'Bloco', tip: 'Bloco gravado: toque cheio e encorpado, em estéreo' },
+  {
+    id: 'meu', label: 'Seu som', custom: true,
+    tip: 'Importe o áudio do seu click: o programa corta o começo, acha os dois sons e acerta o volume',
+  },
 ];
 
 /** Um toque em estéreo: [esquerda, direita]. */
@@ -125,18 +129,6 @@ function madeira(sr: number): Float32Array {
   return edges(out, sr, 0.3);
 }
 
-function bip(sr: number): Float32Array {
-  const len = Math.round(0.07 * sr);
-  const out = new Float32Array(len);
-  const hold = 0.03;
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    const env = t < hold ? 1 : Math.exp(-(t - hold) / 0.008);
-    out[i] = (Math.sin(2 * Math.PI * 1600 * t) + 0.12 * Math.sin(2 * Math.PI * 4800 * t)) * env;
-  }
-  return edges(out, sr, 1);
-}
-
 function baqueta(sr: number): Float32Array {
   const len = Math.round(0.08 * sr);
   const out = new Float32Array(len);
@@ -154,10 +146,10 @@ function baqueta(sr: number): Float32Array {
   return edges(out, sr, 0.2);
 }
 
-type SynthId = 'madeira' | 'bip' | 'baqueta';
+type SynthId = 'madeira' | 'baqueta';
 type RecordedId = 'agradavel' | 'bloco';
 
-const SYNTHS: Record<SynthId, (sr: number) => Float32Array> = { madeira, bip, baqueta };
+const SYNTHS: Record<SynthId, (sr: number) => Float32Array> = { madeira, baqueta };
 
 // ---------- toques gravados ----------
 
@@ -215,16 +207,35 @@ const RECORDED: Record<RecordedId, { normal: string; accent?: string }> = {
   bloco: { normal: BLOCO_B64 },
 };
 
+/** PCM de 16 bits estéreo intercalado em base64 (o formato de clickRecordedSounds). */
+export function encodeHit([L, R]: ClickHit): string {
+  let bin = '';
+  const s16 = (v: number) => {
+    const x = Math.max(-32768, Math.min(32767, Math.round(v * 32767)));
+    const u = x < 0 ? x + 0x10000 : x;
+    return String.fromCharCode(u & 0xff, u >> 8);
+  };
+  for (let i = 0; i < L.length; i++) bin += s16(L[i]) + s16(R[i]);
+  return btoa(bin);
+}
+
+function loadHit(b64: string, from: number, to: number): ClickHit {
+  const [L, R] = decodeRecordedHit(b64);
+  return [resampleHit(L, from, to), resampleHit(R, from, to)];
+}
+
 function recordedSamples(id: RecordedId, sampleRate: number): ClickSoundSamples {
   const src = RECORDED[id];
-  const load = (b64: string): ClickHit => {
-    const [L, R] = decodeRecordedHit(b64);
-    return [resampleHit(L, RECORDED_CLICK_RATE, sampleRate), resampleHit(R, RECORDED_CLICK_RATE, sampleRate)];
-  };
-  const normal = load(src.normal);
-  const accent = src.accent ? load(src.accent) : undefined;
-  // volume: a energia do toque normal igual à do click padrão; o do 1 sobe ou desce junto, para
-  // manter a diferença que tem na gravação
+  const normal = loadHit(src.normal, RECORDED_CLICK_RATE, sampleRate);
+  const accent = src.accent ? loadHit(src.accent, RECORDED_CLICK_RATE, sampleRate) : undefined;
+  return levelHits(normal, accent, sampleRate);
+}
+
+/**
+ * Volume: a energia do toque normal igual à do click padrão; o do 1 sobe ou desce junto, para
+ * manter a diferença que tem na gravação. Nada passa do pico limite.
+ */
+export function levelHits(normal: ClickHit, accent: ClickHit | undefined, sampleRate: number): ClickSoundSamples {
   const n = Math.round(0.05 * sampleRate);
   let ss = 0;
   for (let i = 0; i < Math.min(n, normal[0].length); i++) ss += (normal[0][i] * normal[0][i] + normal[1][i] * normal[1][i]) / 2;
@@ -244,6 +255,7 @@ const cache = new Map<string, ClickSoundSamples>();
  * O "VS Stage" não passa por aqui: é a amostra gravada do clickGenerator.
  */
 export function clickSoundSamples(id: Exclude<ClickSoundId, 'vs'>, sampleRate: number): ClickSoundSamples {
+  if (id === 'meu') return customSamples(sampleRate);
   const key = `${id}@${sampleRate}`;
   const hit = cache.get(key);
   if (hit) return hit;
@@ -278,6 +290,7 @@ const STORE_KEY = 'vsstage.clickSound';
 export function rememberedClickSound(): ClickSoundId {
   try {
     const v = globalThis.localStorage?.getItem(STORE_KEY);
+    if (v === 'meu' && !savedCustomClick()) return DEFAULT_CLICK_SOUND;
     return isClickSound(v) ? v : DEFAULT_CLICK_SOUND;
   } catch {
     return DEFAULT_CLICK_SOUND;
@@ -286,4 +299,51 @@ export function rememberedClickSound(): ClickSoundId {
 
 export function rememberClickSound(id: ClickSoundId): void {
   try { globalThis.localStorage?.setItem(STORE_KEY, id); } catch { /* sem armazenamento: só não lembra */ }
+}
+
+// ---------- Seu som (importado) ----------
+
+/** O som importado, já ajustado (clickImport), como fica guardado no computador. */
+export interface CustomClick {
+  /** Nome do arquivo que o usuário escolheu. */
+  name: string;
+  /** Taxa de amostragem dos toques guardados. */
+  rate: number;
+  normal: string;
+  accent?: string;
+  /** Quando foi importado (troca o som guardado na memória quando importa outro). */
+  at: number;
+}
+
+const CUSTOM_KEY = 'vsstage.clickSound.custom';
+
+export function savedCustomClick(): CustomClick | null {
+  try {
+    const raw = globalThis.localStorage?.getItem(CUSTOM_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as CustomClick;
+    return typeof v?.normal === 'string' && v.rate > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Guarda o som importado. Erro se o computador não deixar guardar. */
+export function saveCustomClick(c: CustomClick): void {
+  globalThis.localStorage?.setItem(CUSTOM_KEY, JSON.stringify(c));
+}
+
+function customSamples(sampleRate: number): ClickSoundSamples {
+  const c = savedCustomClick();
+  if (!c) throw new Error('importe o seu som primeiro');
+  const key = `meu:${c.at}@${sampleRate}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const made = levelHits(
+    loadHit(c.normal, c.rate, sampleRate),
+    c.accent ? loadHit(c.accent, c.rate, sampleRate) : undefined,
+    sampleRate,
+  );
+  cache.set(key, made);
+  return made;
 }

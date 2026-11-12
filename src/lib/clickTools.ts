@@ -161,7 +161,7 @@ export async function startClickTool(songId: string, kind: ClickToolKind, sound:
       rememberClickSound(sound);
       setStatus({
         state: 'done', title, percent: 100,
-        message: `Metrônomo recriado com o som ${clickSoundLabel(sound)}: ${beats} batidas, no mesmo lugar do click que estava na faixa.`,
+        message: `Metrônomo recriado com ${sound === 'meu' ? 'o seu som' : `o som ${clickSoundLabel(sound)}`}: ${beats} batidas, no mesmo lugar do click que estava na faixa.`,
       });
       return;
     }

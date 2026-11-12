@@ -1,7 +1,9 @@
 import { decodeBlob } from '@/lib/audioDecoder';
 import { clickBufferLength, placeAccentedClicks } from '@/lib/clickEdit';
+import { prepareImportedClick, scaleForStorage } from '@/lib/clickImport';
 import {
-  DEFAULT_CLICK_SOUND, clickSoundSamples, previewAccents, previewTimes, type ClickSoundId, type ClickSoundSamples,
+  DEFAULT_CLICK_SOUND, clickSoundSamples, encodeHit, previewAccents, previewTimes, saveCustomClick,
+  type ClickSoundId, type ClickSoundSamples,
 } from '@/lib/clickSounds';
 
 function b64ToBlob(b64: string): Blob {
@@ -113,4 +115,33 @@ export async function playClickPreview(sound: ClickSoundId, bpm: number, beatsPe
   } catch {
     onEnd?.();
   }
+}
+
+// ---------- Importar o som do usuário ----------
+
+/**
+ * Abre o arquivo de áudio do usuário, ajusta (clickImport: corte no ataque, dois sons, fim
+ * suave) e guarda como "Seu som". Erro com mensagem para a tela.
+ */
+export async function importClickFile(file: File): Promise<{ hits: number; twoSounds: boolean }> {
+  let buf: AudioBuffer;
+  try {
+    buf = await decodeBlob(file);
+  } catch {
+    throw new Error('não consegui abrir esse arquivo de áudio (use WAV, MP3, AIFF ou M4A)');
+  }
+  const channels = Array.from({ length: Math.min(2, buf.numberOfChannels) }, (_, c) => buf.getChannelData(c));
+  const prepared = scaleForStorage(prepareImportedClick(channels, buf.sampleRate));
+  try {
+    saveCustomClick({
+      name: file.name,
+      rate: buf.sampleRate,
+      normal: encodeHit(prepared.normal),
+      accent: prepared.accent ? encodeHit(prepared.accent) : undefined,
+      at: Date.now(),
+    });
+  } catch {
+    throw new Error('não deu para guardar o som neste computador');
+  }
+  return { hits: prepared.hits, twoSounds: !!prepared.accent };
 }
