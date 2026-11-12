@@ -104,6 +104,10 @@ test('estilo da letra: só o que é de toda a letra, com os limites de sempre', 
   assert.equal(s.lyricLead, 0.8);
   assert.equal(normalizeLyricStyle({ fontScale: 9, lyricLead: -3 }).fontScale, 1.6);
   assert.equal(normalizeLyricStyle(null), null);
+  // tela sem fio com mais atraso: a letra pode sair até 3 segundos antes
+  assert.equal(normalizeLyricStyle({ lyricLead: 3 }).lyricLead, 3);
+  assert.equal(normalizeLyricStyle({ lyricLead: 2.7 }).lyricLead, 2.7);
+  assert.equal(normalizeLyricStyle({ lyricLead: 5 }).lyricLead, 3);
   assert.ok(sameLyricStyle(s, { ...s }));
   assert.ok(!sameLyricStyle(s, { ...s, lyricLead: 0.3 }));
   assert.deepEqual(lyricStyleOf(DEFAULT_PROMPTER).lyricLead, DEFAULT_PROMPTER.lyricLead);

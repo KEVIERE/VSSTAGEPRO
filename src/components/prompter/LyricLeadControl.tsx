@@ -1,6 +1,6 @@
 import { Timer, Type } from 'lucide-react';
 
-const LEAD_MAX = 1.5;
+const LEAD_MAX = 3;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 1.6;
 
