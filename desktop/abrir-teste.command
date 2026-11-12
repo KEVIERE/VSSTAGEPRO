@@ -46,5 +46,13 @@ if [ -x "$MOTOR_LETRA" ] && [ -d "/Applications/VS Stage.app/Contents/Resources/
   export TORCH_HOME="/Applications/VS Stage.app/Contents/Resources/ai-engine/torch-cache"
 fi
 
+# Vozes de digitar do Maestro (Feminina, Masculina e Henrique) no programa de teste: o programa de
+# voz de IA só vem no instalador (desktop/maestro-voice-engine fica vazio aqui). Sem ele, essas
+# vozes não falavam no teste. Usa o do VS Stage instalado; o modelo baixado é o mesmo dos dois.
+MOTOR_VOZ="/Applications/VS Stage.app/Contents/Resources/maestro-voice-engine"
+if [ -x "$MOTOR_VOZ/vs-maestro-voz" ] && [ -d "$MOTOR_VOZ/voices" ]; then
+  export VS_MAESTRO_ENGINE_DIR="$MOTOR_VOZ"
+fi
+
 echo "Abrindo o VS Stage de teste..."
 npm start
