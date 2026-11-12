@@ -35,6 +35,8 @@ export interface ReferenceSync {
   mode: RepertoireMode | null;
   /** Há um envio valendo: o áudio está (ou está indo) para o produtor. */
   active: boolean;
+  /** O clique em "Enviar repertório" está sendo confirmado pelo servidor. */
+  starting: boolean;
   ready: number;
   total: number;
   working: string | null;
@@ -168,7 +170,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     setOffline(false);
   }, []);
 
-  // Situação ao abrir (e a cada 20 s): o que já está com o produtor, se ele salvou, se pediu.
+  // Trocou de show ou de modo (online/rede local): começa do zero.
   useEffect(() => {
     setSent(null);
     setWords(new Set());
@@ -180,6 +182,13 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     if (!backend) return;
     setSigs(loadMap(sigKey(backend.scope)));
     setWordSigs(loadMap(wordKey(backend.scope)));
+  }, [backend]);
+
+  // Situação ao abrir, depois de cada envio e a cada 20 s: o que já está com o produtor, se ele
+  // salvou, se pediu. (Antes este efeito também zerava o "envio pedido": o clique em "Enviar
+  // repertório" era desfeito na mesma hora e nada subia.)
+  useEffect(() => {
+    if (!backend) return;
     let cancelled = false;
     const check = async () => {
       try {
@@ -296,17 +305,25 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     return () => window.clearTimeout(timer);
   }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, reader, working, lyricMaps, songs, clips, tracks]);
 
+  const [starting, setStarting] = useState(false);
   const send = useCallback(() => {
     if (!backend) return;
-    setSendRequested(true);
-    setReleasedAt(null);
-    setRequestedAt(null);
+    setStarting(true);
     setFailedSigs({});
     setFailedWords({});
     void window.vsDesktop?.lyricsReaderPrepare?.().then((s) => setReader(s.supported ? s : null)).catch(() => {});
+    // Só começa a subir depois que o servidor (ou o Mac, na rede local) aceitou o envio novo:
+    // senão o áudio subiria com a marca de "produtor já salvou" e seria apagado na hora.
     backend.start()
-      .then(() => setRound((r) => r + 1))
-      .catch(() => setOffline(true));
+      .then(() => {
+        setSendRequested(true);
+        setReleasedAt(null);
+        setRequestedAt(null);
+        setOffline(false);
+        setRound((r) => r + 1);
+      })
+      .catch(() => setOffline(true))
+      .finally(() => setStarting(false));
   }, [backend]);
 
   const retry = useCallback(() => {
@@ -336,6 +353,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   return {
     mode: backend?.mode ?? null,
     active,
+    starting,
     ready,
     total: list.length,
     working,

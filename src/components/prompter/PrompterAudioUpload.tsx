@@ -53,7 +53,7 @@ function ReaderLine({ sync }: { sync: ReferenceSync }) {
 }
 
 export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
-  const { mode, active, ready, total, working, failed, offline, releasedAt, cleared, requestedAt, send, retry, resendAll, dismissRequest } = sync;
+  const { mode, active, starting, ready, total, working, failed, offline, releasedAt, cleared, requestedAt, send, retry, resendAll, dismissRequest } = sync;
   const allReady = total > 0 && ready === total;
   const pct = total ? (ready / total) * 100 : 0;
   const where = mode === 'local' ? 'do seu Mac' : 'do servidor';
@@ -108,10 +108,10 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             onClick={send}
-            disabled={total === 0}
+            disabled={total === 0 || starting}
             className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-logic-lcd-amber text-black text-sm font-semibold hover:brightness-110 active:scale-[0.98] disabled:opacity-40 transition-all"
           >
-            <Send size={15} /> Enviar repertório para o produtor
+            {starting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />} {starting ? 'Começando o envio...' : 'Enviar repertório para o produtor'}
           </button>
           <span className="text-xs text-logic-text-muted">{total === 0 ? 'Importe músicas no projeto primeiro.' : `${total} ${total === 1 ? 'música' : 'músicas'} no projeto`}</span>
         </div>
@@ -149,7 +149,9 @@ export default function PrompterAudioUpload({ sync }: { sync: ReferenceSync }) {
       )}
       {offline && (
         <p className="text-xs text-logic-lcd-red mt-2">
-          {mode === 'local' ? 'A rede local não respondeu.' : 'Sem conexão com o show online.'} <button className="underline" onClick={retry}>Tentar de novo</button>
+          {mode === 'local'
+            ? 'A rede local não respondeu.'
+            : 'O servidor não aceitou o envio. Confira a internet; se continuar, o servidor ainda está na versão antiga (falta publicar a atualização).'} <button className="underline" onClick={retry}>Tentar de novo</button>
         </p>
       )}
     </div>
