@@ -340,7 +340,7 @@ export function triggerPad(slot: number): void {
 
 /**
  * Soltou o pad (mouse ou tecla). Só vale no modo segurar: o som para ao soltar, mas toca pelo
- * menos 1 segundo (apertou e soltou rápido = 1 segundo). Continua aceso até parar de verdade.
+ * menos meio segundo (apertou e soltou rápido = meio segundo). Continua aceso até parar de verdade.
  */
 export function releasePad(slot: number): void {
   const info = getPadsState().infos.get(slot);

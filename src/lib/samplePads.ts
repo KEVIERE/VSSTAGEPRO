@@ -16,7 +16,7 @@ export const PITCH_RANGE = 12;
 /** Fade do botão Fade, em segundos. */
 export const FADE_SECONDS = 2;
 /** Modo segurar: apertou e soltou rápido, o som toca este tanto e para. */
-export const HOLD_MIN_SECONDS = 1;
+export const HOLD_MIN_SECONDS = 0.5;
 /** Descida ao soltar no modo segurar (sem estalo). */
 export const HOLD_RELEASE_SECONDS = 0.08;
 
@@ -40,7 +40,7 @@ export interface PadInfo {
   delay: boolean;
   /** Toca de trás para frente. */
   reverse: boolean;
-  /** Segurar: toca enquanto o pad está apertado; apertou e soltou rápido, toca só 1 segundo. */
+  /** Segurar: toca enquanto o pad está apertado; apertou e soltou rápido, toca só meio segundo. */
   hold: boolean;
   /** Tipo do arquivo (audio/wav, audio/mpeg...), para guardar e salvar no projeto. */
   type?: string;
@@ -131,8 +131,8 @@ export function pitchedDuration(info: Pick<PadInfo, 'duration' | 'pitch'>): numb
 }
 
 /**
- * Modo segurar: quando o som para depois de soltar o pad. Soltou antes de 1 segundo, ele toca até
- * completar 1 segundo; soltou depois, para na hora.
+ * Modo segurar: quando o som para depois de soltar o pad. Soltou antes de meio segundo, ele toca
+ * até completar meio segundo; soltou depois, para na hora.
  */
 export function holdStopTime(startedAt: number, releasedAt: number, min = HOLD_MIN_SECONDS): number {
   return Math.max(releasedAt, startedAt + min);

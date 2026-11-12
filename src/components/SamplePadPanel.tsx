@@ -58,7 +58,7 @@ export function PadsOrMixer() {
       held.set(e.key, slot);
       triggerPad(slot);
     };
-    // soltou a tecla: no modo segurar o som para (depois de pelo menos 1 segundo)
+    // soltou a tecla: no modo segurar o som para (depois de pelo menos meio segundo)
     const onKeyUp = (e: KeyboardEvent) => {
       const slot = held.get(e.key);
       if (slot === undefined) return;
@@ -150,7 +150,7 @@ function SamplePadPanel() {
             <FxKey label="DELAY" on={!!selected?.delay} lit="is-lit-blue" disabled={!selected} onClick={() => set({ delay: !selected?.delay })} title="Delay: repete no tempo da música (uma semínima)" />
             <FxKey label="REVERSO" on={!!selected?.reverse} lit="is-lit-amber" disabled={!selected} onClick={() => set({ reverse: !selected?.reverse })} title="Toca o som de trás para frente (vale no próximo toque)" />
             <FxKey label="LOOP" on={!!selected?.loop} lit="is-lit-green" disabled={!selected} onClick={() => set({ loop: !selected?.loop })} title="Repete até apertar o pad de novo" />
-            <FxKey label="SEGURAR" on={!!selected?.hold} lit="is-lit-amber" disabled={!selected} onClick={() => set({ hold: !selected?.hold })} title="Toca enquanto o pad está apertado: segurando toca o som inteiro; apertou e soltou, toca só 1 segundo" />
+            <FxKey label="SEGURAR" on={!!selected?.hold} lit="is-lit-amber" disabled={!selected} onClick={() => set({ hold: !selected?.hold })} title="Toca enquanto o pad está apertado: segurando toca o som inteiro; apertou e soltou, toca só meio segundo" />
           </div>
           <div className="flex items-center gap-1.5 mt-auto">
             <OutputButton output={st.output} />

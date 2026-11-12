@@ -8,7 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   BANK_COUNT, BANK_LABELS, MASTER_OUTPUT, PAD_COUNT, bankCounts, chokedBy, clampPitch, delaySeconds, dropTargets, formatPadTime,
-  getPadsState, holdStopTime, lastPlaying, makeReverbImpulse, newPadInfo, normalizePadInfo, padAssetId, padAssetPath, padFileProblem,
+  HOLD_MIN_SECONDS, getPadsState, holdStopTime, lastPlaying, makeReverbImpulse, newPadInfo, normalizePadInfo, padAssetId, padAssetPath, padFileProblem,
   padForKey, padNameFromFile, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchRate, pitchedDuration, savedPadsOf,
   setPadsState, slotBank, slotPad, togglePadsPanel, usablePadOutput, withItem, withPlaying,
 } from '../src/lib/samplePads.ts';
@@ -109,8 +109,9 @@ test('um por vez: tocar um pad para os outros; desligado, todos tocam juntos', (
   assert.match(panel, /1 POR VEZ/);
 });
 
-test('segurar: apertou e soltou rápido toca 1 segundo; segurando toca até soltar (ou o som acabar)', () => {
-  assert.equal(holdStopTime(10, 10.3), 11, 'soltou com 0,3 s: completa 1 segundo');
+test('segurar: apertou e soltou rápido toca meio segundo; segurando toca até soltar (ou o som acabar)', () => {
+  assert.equal(holdStopTime(10, 10.2), 10.5, 'soltou com 0,2 s: completa meio segundo');
+  assert.equal(HOLD_MIN_SECONDS, 0.5);
   assert.equal(holdStopTime(10, 12.5), 12.5, 'segurou 2,5 s: para ao soltar');
   assert.equal(newPadInfo(0, 'a.wav', 1).hold, false);
   assert.equal(normalizePadInfo({ slot: 1 }).hold, false, 'pad antigo começa sem segurar');
