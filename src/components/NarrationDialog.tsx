@@ -205,8 +205,8 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   return (
     <div
       ref={panelRef}
-      className="fixed z-[200] w-[450px] max-w-[calc(100vw-32px)] overflow-y-auto logic-scroll rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 [&>*]:shrink-0 text-xs animate-[fadeIn_120ms_ease-out]"
-      style={{ top: fit.top, maxHeight: fit.maxHeight, left: '50%', transform: 'translateX(-50%)' }}
+      className="fixed z-[200] w-[860px] max-w-[calc(100vw-24px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
+      style={{ top: fit.top, left: '50%', transform: `translateX(-50%) scale(${fit.scale})`, transformOrigin: 'top center' }}
       role="dialog"
       aria-label="Maestro por IA"
     >
@@ -225,6 +225,8 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
         <span className={wpm > FAST_WPM ? 'text-logic-lcd-amber' : 'text-white/70'}>{wpm} palavras/min</span>
       </div>
 
+      <div className="grid gap-3 items-start min-[760px]:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-2.5 min-w-0">
       <textarea
         ref={textRef}
         value={text}
@@ -258,7 +260,7 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
           ))}
         </div>
         {cueGroup && (
-          <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto logic-scroll p-1.5 rounded border border-logic-border bg-logic-bg-deep animate-[fadeIn_120ms_ease-out]">
+          <div className="flex flex-wrap gap-1 p-1.5 rounded border border-logic-border bg-logic-bg-deep animate-[fadeIn_120ms_ease-out]">
             {READY_CUE_GROUPS.find((g) => g.id === cueGroup)?.cues.map((c) => {
               const on = findReadyCue(text)?.id === c.id;
               return (
@@ -277,6 +279,9 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
         )}
       </div>
 
+      </div>
+
+      <div className="flex flex-col gap-2.5 min-w-0">
       {/* Voz: as padrão (Feminina e Masculina, de IA no próprio Mac) e, logo abaixo, as vozes online */}
       <MaestroVoicePicker voice={voice} onChoose={chooseVoice} iaReady={iaAvailable} pitch={narration.pitch} />
 
@@ -387,6 +392,9 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
       {done && !error && (
         <div className="px-2 py-1.5 rounded bg-logic-lcd-green/15 border border-logic-lcd-green/40 text-logic-lcd-green text-2xs">{done}</div>
       )}
+
+      </div>
+      </div>
 
       <div className="flex items-center justify-between pt-2 border-t border-logic-border-dark gap-1">
         <button

@@ -108,8 +108,8 @@ export default function CountInDialog({ song, target, onClose }: CountInDialogPr
   return (
     <div
       ref={panelRef}
-      className="fixed z-[200] w-[450px] max-w-[calc(100vw-32px)] overflow-y-auto logic-scroll rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 [&>*]:shrink-0 text-xs animate-[fadeIn_120ms_ease-out]"
-      style={{ top: fit.top, maxHeight: fit.maxHeight, left: '50%', transform: 'translateX(-50%)' }}
+      className="fixed z-[200] w-[450px] max-w-[calc(100vw-24px)] rounded-lg border border-logic-border-light bg-logic-bg-panel shadow-2xl p-3 flex flex-col gap-2.5 text-xs animate-[fadeIn_120ms_ease-out]"
+      style={{ top: fit.top, left: '50%', transform: `translateX(-50%) scale(${fit.scale})`, transformOrigin: 'top center' }}
       role="dialog"
       aria-label="Contagem do Maestro IA"
     >
