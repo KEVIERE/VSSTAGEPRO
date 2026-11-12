@@ -30,6 +30,8 @@ const download = createModelDownload({
 
 let child = null;
 let canceled = false;
+/** Andamento da leitura em curso, para a barra da tela: etapa, fração ouvida e início. */
+let current = null;
 let supportedCache = null;
 
 /** O Python do motor de IA embutido (no app instalado ou, em desenvolvimento, desktop/ai-engine). */
@@ -85,7 +87,12 @@ function supported() {
 }
 
 async function status() {
-  return { supported: await supported(), model: modelReady() ? { ...download.status(), state: 'ready' } : download.status(), busy: !!child };
+  return {
+    supported: await supported(),
+    model: modelReady() ? { ...download.status(), state: 'ready' } : download.status(),
+    busy: !!child,
+    progress: child && current ? { ...current, elapsed: Math.round((Date.now() - current.startedAt) / 1000) } : null,
+  };
 }
 
 /** Começa (ou retoma) o download do modelo em segundo plano. */
@@ -110,6 +117,7 @@ async function transcribe(wav, opts = {}) {
   const input = path.join(workDir, 'musica.wav');
   const output = path.join(workDir, 'letra.json');
   canceled = false;
+  current = { stage: 'load', pct: 0, startedAt: Date.now() };
   try {
     await fsp.writeFile(input, Buffer.from(wav));
     const reply = await new Promise((resolve) => {
@@ -122,7 +130,22 @@ async function transcribe(wav, opts = {}) {
       });
       child = p;
       const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* já saiu */ } }, TIMEOUT_MS);
-      p.stdout.on('data', (c) => { out += c.toString(); });
+      let pending = '';
+      p.stdout.on('data', (c) => {
+        const text = c.toString();
+        out += text;
+        // linhas {"progress": "...", "pct": 0.4}: andamento para a barra da tela
+        pending += text;
+        const lines = pending.split('\n');
+        pending = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('{"progress"')) continue;
+          try {
+            const msg = JSON.parse(line);
+            current = { ...current, stage: msg.progress, pct: typeof msg.pct === 'number' ? msg.pct : current.pct };
+          } catch { /* linha quebrada */ }
+        }
+      });
       p.stderr.on('data', (c) => { out = (out + c.toString()).slice(-20000); });
       p.on('error', () => { clearTimeout(timer); resolve({ ok: false, error: 'Não foi possível abrir o leitor de letra.' }); });
       p.on('close', () => {
@@ -141,6 +164,7 @@ async function transcribe(wav, opts = {}) {
     return { why: canceled ? 'canceled' : err instanceof Error ? err.message : String(err) };
   } finally {
     child = null;
+    current = null;
     await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }

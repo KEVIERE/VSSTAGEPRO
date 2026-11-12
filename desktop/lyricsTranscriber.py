@@ -23,8 +23,12 @@ def say(obj):
     print(json.dumps(obj, ensure_ascii=False), flush=True)
 
 
-def progress(step):
-    say({"progress": step})
+def progress(step, pct=None):
+    """Andamento para a tela: etapa e quanto (0 a 1) da música já foi ouvido."""
+    msg = {"progress": step}
+    if pct is not None:
+        msg["pct"] = round(max(0.0, min(1.0, pct)), 3)
+    say(msg)
 
 
 def load_audio(path):
@@ -118,6 +122,9 @@ def transcribe(audio, model_dir, regions, threads):
     from faster_whisper import WhisperModel
 
     model = WhisperModel(model_dir, device="cpu", compute_type="int8", cpu_threads=threads)
+    progress("transcribe", 0.05)
+    # até onde tem voz: é o fim da barra de progresso
+    total = regions[-1][1] if regions else 1.0
     clips = [round(x, 2) for r in regions for x in r]
     segments, info = model.transcribe(
         audio,
@@ -133,6 +140,7 @@ def transcribe(audio, model_dir, regions, threads):
     )
     out = []
     for seg in segments:
+        progress("transcribe", 0.05 + 0.95 * (seg.end / total if total else 1))
         words = [
             {"word": w.word.strip(), "start": round(w.start, 2), "end": round(w.end, 2), "probability": round(w.probability, 3)}
             for w in (seg.words or [])
@@ -174,7 +182,7 @@ def main():
         regions = voiced_regions(audio)
         segments, lang = [], "pt"
         if regions:
-            progress("transcribe")
+            progress("transcribe", 0.0)
             segments, lang = transcribe(audio, args.model, regions, threads)
         result = {"segments": segments, "language": lang, "regions": regions}
         with open(args.out, "w", encoding="utf-8") as f:

@@ -89,6 +89,8 @@ export interface LyricsReaderStatus {
   supported: boolean;
   model: { state: 'missing' | 'downloading' | 'paused' | 'verifying' | 'ready' | 'error'; progress: number; error: string | null };
   busy: boolean;
+  /** Leitura em andamento: etapa, fração ouvida (0 a 1) e segundos desde o começo. */
+  progress?: { stage: string; pct: number; elapsed: number } | null;
 }
 
 /** Situação da voz brasileira de IA do Maestro (Qwen3-TTS) no app do Mac. */

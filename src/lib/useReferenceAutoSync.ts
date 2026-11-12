@@ -27,8 +27,29 @@ const READ_DELAY_MS = 1500;
 // De quanto em quanto tempo o programa confere o pedido do produtor e a situação do envio.
 const POLL_MS = 20000;
 const READER_POLL_MS = 4000;
+const READER_READING_POLL_MS = 1000;
 const sigKey = (scope: string) => `prompter-ref-sigs:${scope}`;
 const wordKey = (scope: string) => `prompter-word-sigs:${scope}`;
+const selectKey = (scope: string) => `prompter-ref-select:${scope}`;
+const haltKey = (scope: string) => `prompter-ref-halt:${scope}`;
+
+/** Uma música na lista de escolha do envio. */
+export interface RepertoireSong {
+  id: string;
+  name: string;
+  /** Já está com o produtor, na versão atual. */
+  withProducer: boolean;
+  /** Está com o produtor, mas o som mudou depois (corte, BPM, tom). */
+  outdated: boolean;
+  /** Escolhida para este envio. */
+  selected: boolean;
+  /** A letra lida pelo Mac já está com o produtor. */
+  lyricsRead: boolean;
+  /** Já tem letra no projeto (o leitor não precisa ouvir). */
+  hasLyrics: boolean;
+  /** Tem voz na faixa Guia (sem Guia não há letra automática). */
+  hasGuide: boolean;
+}
 
 export type RepertoireMode = 'online' | 'local';
 
@@ -60,8 +81,16 @@ export interface ReferenceSync {
   /** Música que o leitor está lendo agora. */
   reading: string | null;
   lyricsFailed: string[];
-  /** "Enviar repertório" (e "Enviar de novo"). */
-  send: () => void;
+  /** Envia as músicas escolhidas (as já enviadas que forem escolhidas sobem de novo). Sem lista: continua o envio anterior. */
+  send: (ids?: string[]) => void;
+  /** Para o envio e a leitura da letra na hora (o que já subiu continua com o produtor). */
+  stop: () => void;
+  /** O diretor parou o envio. */
+  halted: boolean;
+  /** Músicas do projeto, para escolher o que enviar. */
+  songs: RepertoireSong[];
+  /** Andamento da letra que está sendo lida agora (0 a 1) e há quantos segundos. */
+  readProgress: { pct: number; elapsed: number } | null;
   retry: () => void;
   /** Reenvia tudo, mesmo o que já subiu (ação manual do diretor). */
   resendAll: () => void;
@@ -169,8 +198,12 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   const [sendRequested, setSendRequested] = useState(false);
   const [reader, setReader] = useState<LyricsReaderStatus | null>(null);
   const [round, setRound] = useState(0);
+  const [selected, setSelected] = useState<Set<string> | null>(null);
+  const [halted, setHalted] = useState(false);
   const running = useRef(false);
   const readingNow = useRef(false);
+  const haltRef = useRef(false);
+  haltRef.current = halted;
 
   const applyStatus = useCallback((st: ReferenceStatus) => {
     setSent(new Set(st.files.keys()));
@@ -192,6 +225,14 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     if (!backend) return;
     setSigs(loadMap(sigKey(backend.scope)));
     setWordSigs(loadMap(wordKey(backend.scope)));
+    try {
+      const sel = JSON.parse(localStorage.getItem(selectKey(backend.scope)) ?? 'null');
+      setSelected(Array.isArray(sel) ? new Set(sel.filter((x: unknown) => typeof x === 'string')) : null);
+      setHalted(localStorage.getItem(haltKey(backend.scope)) === '1');
+    } catch {
+      setSelected(null);
+      setHalted(false);
+    }
   }, [backend]);
 
   // Situação ao abrir, depois de cada envio e a cada 20 s: o que já está com o produtor, se ele
@@ -215,9 +256,13 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     return () => { cancelled = true; window.clearInterval(id); };
   }, [backend, round, applyStatus]);
 
-  const active = !!backend && releasedAt === null && ((sent?.size ?? 0) > 0 || sendRequested);
+  const active = !!backend && releasedAt === null && !halted && ((sent?.size ?? 0) > 0 || sendRequested);
+  // Sem escolha do diretor, nada novo sobe: só as que já estão com o produtor ficam em dia.
+  const inSelection = useCallback((id: string) => selected !== null && selected.has(id), [selected]);
 
-  // Leitor de letra: situação (e progresso do download do modelo) enquanto o envio vale.
+  // Leitor de letra: situação (download do modelo e andamento da leitura) enquanto o envio vale.
+  // Lendo, pergunta a cada segundo: é o que move a barra de progresso da letra.
+  const isReading = reading !== null;
   useEffect(() => {
     const desk = window.vsDesktop;
     if (!desk?.lyricsReaderStatus) { setReader(null); return; }
@@ -225,9 +270,9 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     const tick = () => desk.lyricsReaderStatus!().then((s) => { if (alive) setReader(s.supported ? s : null); }).catch(() => {});
     tick();
     if (!active) return () => { alive = false; };
-    const id = window.setInterval(tick, READER_POLL_MS);
+    const id = window.setInterval(tick, isReading ? READER_READING_POLL_MS : READER_POLL_MS);
     return () => { alive = false; window.clearInterval(id); };
-  }, [active]);
+  }, [active, isReading]);
 
   // Play começou: a leitura em andamento para na hora (volta quando o programa ficar parado).
   useEffect(() => {
@@ -241,13 +286,17 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       const st = useStore.getState();
       const pending = orderedSongs(st).filter((s) => {
         const sig = soundSignature(s, st);
-        return (!sent.has(s.id) || sigs[s.id] !== sig) && failedSigs[s.id] !== sig;
+        if (failedSigs[s.id] === sig) return false;
+        // escolhida e ainda não está com o produtor (ou foi escolhida para subir de novo)
+        if (inSelection(s.id) && (!sent.has(s.id) || sigs[s.id] !== sig)) return true;
+        // já está com o produtor e o som mudou: atualiza
+        return sent.has(s.id) && sigs[s.id] !== undefined && sigs[s.id] !== sig;
       });
       if (pending.length === 0) return;
       running.current = true;
       for (const song of pending) {
         const now = useStore.getState();
-        if (now.transport.isPlaying) break;
+        if (now.transport.isPlaying || haltRef.current) break;
         const fresh = now.songs.find((s) => s.id === song.id);
         if (!fresh) continue;
         const sig = soundSignature(fresh, now);
@@ -278,7 +327,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       running.current = false;
     }, IDLE_MS);
     return () => window.clearTimeout(timer);
-  }, [backend, sent, sigs, failedSigs, isPlaying, songs, clips, tracks, playlistOrder, lrMasterActive, active]);
+  }, [backend, sent, sigs, failedSigs, isPlaying, songs, clips, tracks, playlistOrder, lrMasterActive, active, inSelection]);
 
   // 2. Letra lida pelo Mac, só das músicas que ainda não têm letra (uma por vez, com o programa parado).
   // Depende só de "o leitor está pronto" (um booleano): a situação do leitor chega a cada 4 s
@@ -306,7 +355,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       try {
         // Só a faixa Guia (a voz), no mesmo tempo do áudio do produtor: sem separar nada.
         const wav = encodeWav16(await renderGuideForSong(next, useStore.getState()));
-        if (useStore.getState().transport.isPlaying) return;
+        if (useStore.getState().transport.isPlaying || haltRef.current) return;
         const res = await desk.lyricsTranscribe!(wav, { separate: false });
         if ('why' in res) {
           // Play começou ou o modelo ainda está baixando: tenta de novo depois, sem marcar erro.
@@ -333,11 +382,25 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, readerReady, lyricMaps, songs, clips, tracks]);
 
   const [starting, setStarting] = useState(false);
-  const send = useCallback(() => {
+  const send = useCallback((ids?: string[]) => {
     if (!backend) return;
     setStarting(true);
     setFailedSigs({});
     setFailedWords({});
+    setHalted(false);
+    haltRef.current = false;
+    try { localStorage.removeItem(haltKey(backend.scope)); } catch { /* ignore */ }
+    if (ids) {
+      // A escolha do diretor: as que já estavam com o produtor e foram marcadas sobem de novo.
+      setSelected(new Set(ids));
+      try { localStorage.setItem(selectKey(backend.scope), JSON.stringify(ids)); } catch { /* ignore */ }
+      setSigs((prev) => {
+        const m = { ...prev };
+        for (const id of ids) delete m[id];
+        saveMap(sigKey(backend.scope), m);
+        return m;
+      });
+    }
     void window.vsDesktop?.lyricsReaderPrepare?.().then((s) => setReader(s.supported ? s : null)).catch(() => {});
     // Só começa a subir depois que o servidor (ou o Mac, na rede local) aceitou o envio novo:
     // senão o áudio subiria com a marca de "produtor já salvou" e seria apagado na hora.
@@ -360,27 +423,57 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   }, []);
 
   const resendAll = useCallback(() => {
+    // Reenvia o áudio de todas. A letra lida continua valendo: ela só é lida de novo se o som
+    // mudar (antes este botão fazia o Mac ler todas as letras outra vez, minutos por música).
+    send(orderedSongs(useStore.getState()).map((s) => s.id));
+  }, [send]);
+
+  const stop = useCallback(() => {
     if (!backend) return;
-    // Reenvia o áudio. A letra lida continua valendo: ela só é lida de novo se o som mudar
-    // (antes este botão fazia o Mac ler todas as letras outra vez, minutos por música).
-    try { localStorage.removeItem(sigKey(backend.scope)); } catch { /* ignore */ }
-    setSigs({});
-    send();
-  }, [backend, send]);
+    setHalted(true);
+    haltRef.current = true;
+    setSendRequested(false);
+    try { localStorage.setItem(haltKey(backend.scope), '1'); } catch { /* ignore */ }
+    void window.vsDesktop?.lyricsTranscribeCancel?.().catch(() => {});
+  }, [backend]);
 
   const dismissRequest = useCallback(() => setRequestedAt(null), []);
 
   const st = { songs, clips, tracks, playlistOrder, lrMasterActive, lyricMaps } as ProjectState;
-  const list = orderedSongs(st);
-  const ready = sent ? list.filter((s) => sent.has(s.id) && sigs[s.id] === soundSignature(s, st)).length : 0;
+  const all = orderedSongs(st);
+  // O envio vale para as escolhidas e as que já estão com o produtor.
+  const list = all.filter((s) => inSelection(s.id) || !!sent?.has(s.id));
+  // Sem registro deste Mac (outro computador, memória apagada), a que está lá conta como em dia.
+  const isCurrent = (s: Song) => !!sent?.has(s.id) && (sigs[s.id] === undefined || sigs[s.id] === soundSignature(s, st));
+  const ready = list.filter(isCurrent).length;
   const failed = list.filter((s) => failedSigs[s.id] !== undefined).map((s) => s.name);
   const needLyrics = list.filter((s) => wantsLyrics(s, st));
   const noGuide = list.filter((s) => !hasLyrics(st, s.id) && !songHasGuide(s, st)).map((s) => s.name);
   const lyricsReady = needLyrics.filter((s) => words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === soundSignature(s, st))).length;
   const lyricsFailed = needLyrics.filter((s) => failedWords[s.id] !== undefined).map((s) => s.name);
 
+  const songRows: RepertoireSong[] = all.map((s) => {
+    const sig = soundSignature(s, st);
+    const onServer = !!sent?.has(s.id);
+    return {
+      id: s.id,
+      name: s.name,
+      withProducer: onServer && (sigs[s.id] === undefined || sigs[s.id] === sig),
+      outdated: onServer && sigs[s.id] !== undefined && sigs[s.id] !== sig,
+      selected: selected === null ? !onServer : selected.has(s.id),
+      lyricsRead: words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === sig),
+      hasLyrics: hasLyrics(st, s.id),
+      hasGuide: songHasGuide(s, st),
+    };
+  });
+  const rp = reader?.progress ?? null;
+
   return {
     mode: backend?.mode ?? null,
+    stop,
+    halted,
+    songs: songRows,
+    readProgress: rp && reading ? { pct: rp.pct, elapsed: rp.elapsed } : null,
     active,
     starting,
     ready,
