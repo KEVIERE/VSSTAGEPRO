@@ -21,5 +21,13 @@ if pgrep -x "VS Stage" >/dev/null; then
   fi
 fi
 
+# Leitor de letra no programa de teste: o motor embutido só existe no instalador. Se este Mac
+# tiver o motor de teste (Python do VS Stage instalado + faster-whisper), usa ele.
+MOTOR_LETRA="$HOME/Library/Application Support/VS Stage/motor-letra-teste/bin/python3"
+if [ -x "$MOTOR_LETRA" ] && [ -d "/Applications/VS Stage.app/Contents/Resources/ai-engine/torch-cache" ]; then
+  export VS_LYRICS_PYTHON="$MOTOR_LETRA"
+  export TORCH_HOME="/Applications/VS Stage.app/Contents/Resources/ai-engine/torch-cache"
+fi
+
 echo "Abrindo o VS Stage de teste..."
 npm start
