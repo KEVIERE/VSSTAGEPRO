@@ -140,10 +140,14 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   const isPlaying = useStore((s) => s.transport.isPlaying);
   const netMode = useNetworkMode();
 
+  // Só troca quando muda o modo ou o show de verdade: um objeto novo do mesmo show (a cada
+  // conferência do show online) não pode zerar um envio em andamento.
+  const showId = show?.showId ?? null;
+  const directorKey = show?.directorKey ?? null;
   const backend = useMemo<Backend | null>(() => {
     if (netMode === 'local') return localBackend();
-    return show ? cloudBackend(show) : null;
-  }, [netMode, show]);
+    return showId && directorKey ? cloudBackend({ showId, directorKey }) : null;
+  }, [netMode, showId, directorKey]);
 
   const [sent, setSent] = useState<Set<string> | null>(null);
   const [words, setWords] = useState<Set<string>>(new Set());
