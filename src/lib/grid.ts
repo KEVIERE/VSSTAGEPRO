@@ -85,6 +85,19 @@ export function snapTime(seconds: number, grid: SongGrid | null, step: SnapStep)
   return Math.max(0, snapped);
 }
 
+/**
+ * Início do compasso onde `seconds` está (na grade do trecho de andamento onde ele cai). Clicando
+ * já colado na linha seguinte (último 15% do compasso), vale a linha seguinte.
+ */
+export function barStartAt(seconds: number, grid: SongGrid): number {
+  const segs = sortedSegments(grid);
+  const seg = segs ? segs[segmentIndexAt(segs, seconds)] : null;
+  const origin = seg ? seg.startTime : grid.downbeat;
+  const bar = (seg ? 60 / seg.bpm : grid.beat) * grid.beatsPerBar;
+  const k = Math.floor((seconds - origin) / bar + 0.15);
+  return Math.max(0, origin + k * bar);
+}
+
 /** "compasso.tempo", contado a partir do primeiro tempo forte (pode ser negativo antes dele). */
 export function barBeatLabel(seconds: number, grid: SongGrid): string {
   // Medley: conta os compassos de cada trecho no BPM dele, como a régua

@@ -30,7 +30,7 @@ import { beginGesture, endGesture } from '@/lib/undoGestures';
 import { NARRATION_ROW, clipsInBox, marqueeSelection, rangeSelection, selectionRows, splitNarrationClips } from '@/lib/timelineSelection';
 import { mergeFolderPeaks, type FolderPreview } from '@/lib/folderPreview';
 import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
-import { barBeatLabel, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
+import { barBeatLabel, barStartAt, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
@@ -2607,10 +2607,10 @@ function TimelinePanel() {
                 // Botão direito simples: último recurso manual — abre o campo para cravar o
                 // andamento (BPM) a partir deste ponto exato da régua (ideal para medleys).
                 const rect = e.currentTarget.getBoundingClientRect();
-                // a mudança de andamento crava no início do compasso mais perto, na grade do
+                // a mudança de andamento crava no início do compasso onde o clique caiu, na grade do
                 // trecho onde o clique caiu (Alt: no ponto exato)
                 const rawTime = Math.max(0, (e.clientX - rect.left) / zoomH);
-                const clickTime = e.altKey ? rawTime : snapTime(rawTime, grid, 'bar');
+                const clickTime = e.altKey ? rawTime : barStartAt(rawTime, grid);
                 const segs = grid.tempoSegments;
                 const existingBpm = segs?.find((s) => clickTime >= s.startTime && clickTime < s.endTime)?.bpm ?? song.bpm;
                 setManualTempoPoint({ time: clickTime, x: e.clientX, y: e.clientY, existingBpm });
