@@ -236,7 +236,7 @@ export default function TimecodeMixerChannel() {
       </div>
 
       {/* mesma fita dos canais: h-[22px] e alinhada à esquerda como o nome das faixas */}
-      <div className="console-tape w-full h-[22px] flex items-center justify-center px-1" title={track.name}>Timecode</div>
+      <div className="console-tape console-lcdname w-full h-[22px] flex items-center justify-center px-1" title={track.name}>Timecode</div>
 
       <div className="flex gap-[3px] items-end">
         {/* a escala de dB dos canais ocupa SCALE_W=14 à esquerda: sem ela o fader subiria 14 px */}

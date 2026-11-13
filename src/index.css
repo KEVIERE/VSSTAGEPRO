@@ -189,6 +189,40 @@
     clip-path: polygon(0 0, 100% 0, calc(100% - 2px) 22%, 100% 44%, calc(100% - 1.5px) 66%, 100% 84%, calc(100% - 2px) 100%, 0 100%, 2px 80%, 0 58%, 1.5px 38%, 0 18%);
   }
 
+  /* Visor com o nome do canal (no lugar da fita crepe): vidro escuro embutido no painel com
+     moldura de metal, o nome aceso em âmbar com brilho, as linhas finas do visor e o reflexo no
+     vidro. Só na Analógica (as outras skins desenham o nome do jeito delas). */
+  :root:not([data-skin]) .console-lcdname {
+    font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+    color: #ffc66b;
+    text-shadow: 0 0 1px rgba(255, 214, 140, 0.9), 0 0 5px rgba(255, 166, 48, 0.6);
+    background:
+      linear-gradient(170deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 38%, rgba(255, 255, 255, 0) 39%),
+      repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.32) 0 1px, rgba(0, 0, 0, 0) 1px 2px),
+      radial-gradient(120% 160% at 50% 40%, #1d1407 0%, #0c0904 70%, #070502 100%);
+    clip-path: none;
+    border-radius: 2px;
+    box-shadow:
+      inset 0 1px 3px rgba(0, 0, 0, 0.95),
+      inset 0 0 0 1px rgba(0, 0, 0, 0.85),
+      0 0 0 1px #3d434b,
+      0 0 0 2px #15181b,
+      0 1px 0 2px rgba(255, 255, 255, 0.06);
+  }
+
+  /* nome inteiro numa linha (sem partir a palavra); se não couber, fica com reticências */
+  :root:not([data-skin]) .console-lcdname > span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    word-break: normal;
+  }
+
   /* Rebaixo do painel: onde ficam medidores, visores de nível e trilhos */
   .console-well {
     background-color: #0b0c0e;

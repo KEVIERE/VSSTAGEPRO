@@ -198,3 +198,11 @@ test('Oficina: pan fora do centro acende o arco verde', () => {
   assert.match(pieces, /\{off && \(\s*<path[\s\S]*?stroke="#3ddc84"/);
 });
 
+test('Analógica: o nome do canal num visor âmbar no lugar da fita crepe (mixer e timeline)', () => {
+  assert.match(analogCss, /:root:not\(\[data-skin\]\) \.console-lcdname \{/, 'só na Analógica');
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.equal((mixer.match(/console-tape console-lcdname/g) ?? []).length, 2, 'canais e master');
+  assert.match(read('src', 'components', 'TimelinePanel.tsx'), /console-tape console-lcdname/);
+  assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /console-tape console-lcdname/);
+});
+

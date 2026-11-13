@@ -618,7 +618,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
       </div>
 
       {/* Nome do canal na fita crepe, inteiro em até 2 linhas */}
-      <div className="console-tape w-full h-[22px] flex items-center justify-center px-1" title={track.name}>
+      <div className="console-tape console-lcdname w-full h-[22px] flex items-center justify-center px-1" title={track.name}>
         <span className="line-clamp-2 break-words text-center">{track.name}</span>
       </div>
 
@@ -957,7 +957,7 @@ export default function MixerPanel() {
           </button>
 
           {/* mesma altura da fita dos canais (h-[22px]): a fita do master não pode levantar o fader */}
-          <div className="console-tape w-full h-[22px] flex items-center justify-center px-1.5 text-[11.5px] tracking-wide">MASTER</div>
+          <div className="console-tape console-lcdname w-full h-[22px] flex items-center justify-center px-1.5 text-[11.5px] tracking-wide">MASTER</div>
 
           <div className="flex gap-[3px] items-end">
             <Fader

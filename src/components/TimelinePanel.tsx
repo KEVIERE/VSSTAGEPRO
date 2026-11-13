@@ -515,7 +515,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
           <OfTrackLabel name={track.name} color={rowColor} compact={compact} />
         </div>
       ) : (
-      <div className={`console-tape flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
+      <div className={`console-tape console-lcdname flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
         <span className="truncate uppercase">{track.name}</span>
       </div>
       )}
