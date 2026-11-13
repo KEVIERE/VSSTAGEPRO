@@ -24,7 +24,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * - `nativo`: Wake Lock do navegador ativo.
  * - `video`: o vídeo invisível está segurando a tela.
  * - `precisaToque`: falta o primeiro toque para o vídeo começar (qualquer toque na página serve).
- * - `precisaBotao`: modo 'botao' sem Wake Lock; a página mostra o botão "Manter a tela acesa".
+ * - `precisaBotao`: modo 'botao' sem Wake Lock (ou com ele recusado; aí o próximo toque pede de
+ *   novo); a página mostra o botão "Manter a tela acesa".
  * - `falhou`: nada segurou a tela (o aparelho pode apagar).
  */
 export type KeepAwake = 'nativo' | 'video' | 'precisaToque' | 'precisaBotao' | 'falhou';
@@ -88,6 +89,22 @@ export function useKeepAwake(active: boolean, video: KeepAwakeVideo = 'auto'): K
     let useVideo = !hasNativeWakeLock() && videoAllowed();
     let armed = false;
     let retry = 0;
+    // Modo 'botao' com Wake Lock recusado: o próximo toque pede de novo (o Safari pode recusar o
+    // pedido feito sem toque). Só click, touchend e tecla contam como toque; pointerdown não.
+    let nativeArmed = false;
+    let asking = false;
+
+    const onNativeGesture = () => { if (!asking) void requestNative(); };
+    const armNative = () => {
+      if (nativeArmed) return;
+      nativeArmed = true;
+      for (const ev of GESTURES) document.addEventListener(ev, onNativeGesture, true);
+    };
+    const disarmNative = () => {
+      if (!nativeArmed) return;
+      nativeArmed = false;
+      for (const ev of GESTURES) document.removeEventListener(ev, onNativeGesture, true);
+    };
 
     const onGesture = () => { playVideo(true); };
     const arm = () => {
@@ -132,30 +149,50 @@ export function useKeepAwake(active: boolean, video: KeepAwakeVideo = 'auto'): K
       });
     }
 
-    // Sem Wake Lock (ou recusado): o vídeo, se este modo deixa; senão a página mostra o botão.
+    // Sem Wake Lock (ou recusado): o vídeo, se este modo deixa; senão a página mostra o botão e,
+    // havendo Wake Lock, o próximo toque pede de novo.
     const fallback = () => {
       if (videoAllowed()) { useVideo = true; playVideo(false); }
-      else setState('precisaBotao');
+      else {
+        setState('precisaBotao');
+        if (hasNativeWakeLock()) armNative();
+      }
     };
 
     const requestNative = async () => {
       if (!hasNativeWakeLock()) { fallback(); return; }
+      asking = true;
       try {
         const l = await navigator.wakeLock.request('screen');
         if (cancelled) { l.release().catch(() => {}); return; }
-        lock = l;
-        setState('nativo');
+        // Dois pedidos ao mesmo tempo (toque e volta da página): fica uma trava só, a que a
+        // limpeza solta ao sair.
+        if (lock && !lock.released) l.release().catch(() => {});
+        else {
+          lock = l;
+          // Solta com a página à vista (o sistema tirou a trava): o próximo toque pede de novo.
+          // Com a página escondida quem pede de novo é a volta dela (onVis).
+          l.addEventListener('release', () => {
+            if (!cancelled && !useVideo && document.visibilityState === 'visible') armNative();
+          });
+        }
+        disarmNative();
+        // O toque que pediu de novo pode ter sido no botão: aí o vídeo já está segurando a tela.
+        if (!useVideo) setState('nativo');
       } catch {
         // Recusado com a tela à vista (economia de bateria, política do navegador): usa o vídeo.
-        // Com a página escondida, espera ela voltar.
-        if (cancelled || document.visibilityState !== 'visible') return;
+        // Com a página escondida, espera ela voltar. Se o botão já ligou o vídeo, nada a fazer.
+        if (cancelled || useVideo || document.visibilityState !== 'visible') return;
         fallback();
+      } finally {
+        asking = false;
       }
     };
 
     // Chamado no clique do botão: o vídeo começa dentro do mesmo toque.
     startRef.current = () => {
       useVideo = true;
+      disarmNative();
       playVideo(true);
     };
 
@@ -170,6 +207,7 @@ export function useKeepAwake(active: boolean, video: KeepAwakeVideo = 'auto'): K
       cancelled = true;
       startRef.current = null;
       disarm();
+      disarmNative();
       window.clearTimeout(retry);
       document.removeEventListener('visibilitychange', onVis);
       lock?.release().catch(() => {});

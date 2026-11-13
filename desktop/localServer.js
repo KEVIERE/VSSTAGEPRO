@@ -154,6 +154,24 @@ class LocalServer {
     const saved = this.load();
     this.pins = saved.pins;
     this.prompter = saved.prompter;
+    // Identidade fixa deste Mac (por instalação). O Remote usa para confirmar que o vsstage.local
+    // que respondeu é o mesmo Mac quando o IP muda no meio do show.
+    this.installId = this.loadInstallId();
+  }
+
+  /**
+   * Fica gravada (não só por execução): com o programa reaberto, a página antiga do celular ainda
+   * reconhece o mesmo Mac. Mora num arquivo próprio, para não regravar o arquivo dos PINs.
+   */
+  loadInstallId() {
+    const file = path.join(path.dirname(this.storePath), 'rede-local-id.txt');
+    try {
+      const kept = fs.readFileSync(file, 'utf8').trim();
+      if (/^[\w-]{8,64}$/.test(kept)) return kept;
+    } catch { /* primeira vez */ }
+    const id = crypto.randomUUID();
+    try { fs.writeFileSync(file, id, { mode: 0o600 }); } catch { /* sem disco: vale só nesta execução */ }
+    return id;
   }
 
   load() {
@@ -577,7 +595,8 @@ class LocalServer {
       try { html = fs.readFileSync(file, 'utf8'); } catch { return this.json(res, 503, { error: 'web_missing' }); }
       const host = this.mdnsActive ? `;window.__VS_HOST__=${JSON.stringify(`${HOST_NAME}:${this.port}`)}` : '';
       const ver = this.version ? `;window.__VS_VERSION__=${JSON.stringify(this.version)}` : '';
-      html = html.replace('</head>', `<script>window.__VS_LOCAL__=1${host}${ver}</script></head>`);
+      const id = this.installId ? `;window.__VS_ID__=${JSON.stringify(this.installId)}` : '';
+      html = html.replace('</head>', `<script>window.__VS_LOCAL__=1${host}${ver}${id}</script></head>`);
       // Pré-visualização de links (iMessage, WhatsApp) só aceita endereço completo da imagem.
       const reqHost = /^[A-Za-z0-9.:-]{1,100}$/.test(req.headers.host || '') ? req.headers.host : `${this.addresses()[0] || '127.0.0.1'}:${this.port}`;
       html = html.split('content="/og-image.jpg"').join(`content="http://${reqHost}/og-image.jpg"`);
@@ -590,7 +609,16 @@ class LocalServer {
   }
 
   async api(req, res, route) {
-    if (route === 'ping') return this.json(res, 200, { ok: true });
+    if (route === 'ping') {
+      // O Remote aberto pelo IP antigo pergunta ao vsstage.local se ele é o mesmo Mac (`?id=`).
+      // A página vem de outra origem, por isso o CORS. A resposta é só sim ou não: o id não sai
+      // daqui, então uma página qualquer na rede não lê a identidade do Mac. GET simples, sem
+      // cabeçalho próprio: não há preflight.
+      const asked = new URL(req.url, 'http://local').searchParams.get('id');
+      const body = asked === null ? { ok: true } : { ok: true, same: !!this.installId && safeEqual(asked, this.installId) };
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*' });
+      return res.end(JSON.stringify(body));
+    }
 
     if (route === 'login' && req.method === 'POST') {
       const addr = this.address(req);

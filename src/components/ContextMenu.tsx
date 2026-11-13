@@ -9,6 +9,7 @@ import { glueSelectedClips } from '@/lib/clipGlue';
 import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
 import NarrationDialog from '@/components/NarrationDialog';
 import ClickMenuItems from '@/components/ClickMenuItems';
+import { audioEngine } from '@/lib/audioEngine';
 
 interface ContextMenuState {
   visible: boolean;
@@ -34,6 +35,9 @@ export default function ContextMenu() {
   const clips = useStore((s) => s.clips);
   const tracks = useStore((s) => s.tracks);
   const songs = useStore((s) => s.songs);
+  // música no ar e trava da timeline: o Dividir fica apagado (mesma regra da tecla S na timeline)
+  const playingSongId = useStore((s) => (s.transport.isPlaying ? s.transport.currentSongId : null));
+  const timelineLocked = useStore((s) => s.timelineLocked);
   // Editor da fala: aberto a partir do próprio clipe gerado (também dá pelo clique duplo na régua)
   const [editingNarrationId, setEditingNarrationId] = useState<{ songId: string; narrationId: string } | null>(null);
 
@@ -258,16 +262,24 @@ export default function ContextMenu() {
       <div className="h-px bg-logic-border-dark my-1" />
 
       <button
-        className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit disabled:cursor-default"
+        disabled={timelineLocked || (!!clip && clip.songId === playingSongId)}
         onClick={() => {
-          if (state.clipId) {
-            const cursor = useStore.getState().transport.currentTime;
-            useStore.getState().splitClipAt(state.clipId, cursor);
+          // Com a música deste clipe tocando, a parte 1 acabava num ponto que já passou e a parte 2
+          // (clipe novo) não entra no meio do play: a faixa ficava muda até o fim. Só divide parada.
+          const st = useStore.getState();
+          const target = st.clips.find((c) => c.id === state.clipId);
+          const playing = !!target && st.transport.isPlaying && st.transport.currentSongId === target.songId;
+          if (target && !st.timelineLocked && !playing && st.splitClipAt(target.id, st.transport.currentTime)) {
+            audioEngine.invalidatePrepared(target.songId);
           }
           closeMenu();
         }}
       >
-        Dividir no Cursor (Split)
+        <span>Dividir no Cursor (Split)</span>
+        {!!clip && clip.songId === playingSongId && (
+          <span className="text-[10px] opacity-75">Pare para dividir</span>
+        )}
       </button>
 
       <button

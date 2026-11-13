@@ -130,7 +130,9 @@ function route(o: PadOut) {
 
 /** Saída dos pads: abre junto com o painel, para o primeiro toque já sair sem espera. */
 export function openPadOutput(): PadOut {
+  let fresh = false;
   if (!out || out.ctx.state === 'closed') {
+    fresh = true;
     const ctx = new AudioContext({ latencyHint: 0 });
     const bus = ctx.createGain();
     bus.gain.value = busGain();
@@ -200,6 +202,12 @@ export function openPadOutput(): PadOut {
       .finally(() => { o.routeKey = ''; route(o); reportLatency(o.ctx); });
   }
   route(o);
+  // Saída parada fora do Modo Show (suspendWhenQuiet) com música tocando: o painel de pads aberto
+  // não faz ela voltar no meio da música (ver resumeWhenStopped). O toque num pad volta na hora.
+  if (!fresh && o.ctx.state !== 'running' && useStore.getState().transport.isPlaying) {
+    resumeWhenStopped(o);
+    return o;
+  }
   // o atraso da saída (placa e sistema) só aparece depois que o som começa a correr
   void o.ctx.resume().then(() => {
     reportLatency(o.ctx);
@@ -224,6 +232,45 @@ function stopQuietTimer(): void {
   quietTimer = null;
 }
 
+/** Saída parada esperando a música parar para rodar de novo (ver resumeWhenStopped). */
+let unsubResume: (() => void) | null = null;
+let resumeTimer: ReturnType<typeof setTimeout> | null = null;
+/** Música parada há esse tempo: a próxima do repertório, dada logo em seguida, não pega a troca. */
+const RESUME_AFTER_STOP_MS = 2000;
+
+function cancelResumeWhenStopped(): void {
+  unsubResume?.();
+  unsubResume = null;
+  if (resumeTimer !== null) clearTimeout(resumeTimer);
+  resumeTimer = null;
+}
+
+/**
+ * A saída parou fora do Modo Show (suspendWhenQuiet) e o Modo Show voltou com a música tocando.
+ * Voltar a rodar agora mudaria o bloco da placa no meio da música, que é o que a parada evita.
+ * Espera a música parar (e ficar parada 2 s) e só então roda de novo, ainda antes do primeiro
+ * toque. Um toque num pad antes disso roda na hora (triggerPad): é o operador pedindo o som.
+ */
+function resumeWhenStopped(o: PadOut): void {
+  if (unsubResume) return;
+  const check = () => {
+    resumeTimer = null;
+    if (useStore.getState().transport.isPlaying) return;
+    cancelResumeWhenStopped();
+    if (showReady && out === o && o.ctx.state === 'suspended') {
+      void o.ctx.resume().then(() => reportLatency(o.ctx)).catch(() => { /* o toque num pad tenta de novo */ });
+    }
+  };
+  unsubResume = useStore.subscribe((s) => {
+    if (s.transport.isPlaying) {
+      // voltou a tocar antes dos 2 s: espera a próxima parada
+      if (resumeTimer !== null) { clearTimeout(resumeTimer); resumeTimer = null; }
+      return;
+    }
+    if (resumeTimer === null) resumeTimer = setTimeout(check, RESUME_AFTER_STOP_MS);
+  });
+}
+
 /**
  * Deixa a saída aberta, rodando e acordada com um sinal inaudível (-120 dB). Só com algum pad com
  * som: sem pad nenhum não há o que tocar, e a saída de bloco mínimo aberta à toa encurta o bloco
@@ -233,8 +280,11 @@ function armPads(): void {
   if (!showReady || getPadsState().infos.size === 0) return;
   stopQuietTimer();
   const o = padOut();
-  // voltou ao Modo Show depois de a saída parar: roda de novo antes do primeiro toque
-  if (o.ctx.state !== 'running') void o.ctx.resume();
+  // voltou ao Modo Show depois de a saída parar: roda de novo antes do primeiro toque. Com música
+  // tocando, espera ela parar (ver resumeWhenStopped); o sinal inaudível já fica ligado e passa a
+  // correr quando a saída voltar
+  if (o.ctx.state !== 'running' && useStore.getState().transport.isPlaying) resumeWhenStopped(o);
+  else if (o.ctx.state !== 'running') void o.ctx.resume();
   if (o.keepAlive) return;
   const k = o.ctx.createConstantSource();
   k.offset.value = 1e-6;
@@ -278,6 +328,7 @@ function suspendWhenQuiet(): void {
 export function keepPadsReady(on: boolean): void {
   showReady = on;
   if (!on) {
+    cancelResumeWhenStopped();
     if (out?.keepAlive) {
       try { out.keepAlive.stop(); } catch { /* já parou */ }
       out.keepAlive.disconnect();

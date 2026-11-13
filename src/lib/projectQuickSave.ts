@@ -1,5 +1,5 @@
-import { useStore } from '@/store';
-import { quickSave, reopenProject, saveTargetLabel, type LoadedProject } from '@/lib/projectSaver';
+import { useStore, hasUnsavedChanges, type Store } from '@/store';
+import { quickSave, reopenProject, saveTargetLabel, type LoadedProject, type SaveTarget } from '@/lib/projectSaver';
 import { stopPlayback } from '@/lib/transportControl';
 import { forgetRecentProject, rememberProject, type RecentProject } from '@/lib/recentProjects';
 import { saveProjectBackup } from '@/lib/projectBackups';
@@ -64,11 +64,74 @@ function flash(status: NonNullable<ReturnType<typeof useStore.getState>['saveSta
   }, ms);
 }
 
+export const SAVE_WHEN_STOPPED = 'Será salvo quando a música parar';
+
+// ⌘S ou menu Salvar com a música tocando: gravar o .vss troca o arquivo de onde o motor ainda lê
+// os áudios, e a faixa que ainda não tinha chegado ficava muda até o Stop. Grava uma vez só,
+// quando a música parar (pausa ou stop), como o Salvar do músico.
+let waitingStop: Promise<boolean> | null = null;
+const waitingListeners = new Set<() => void>();
+
+/** A barra de menus mostra "Será salvo quando a música parar" enquanto isto for true. */
+export function isSaveWaitingStop(): boolean {
+  return waitingStop !== null;
+}
+
+export function subscribeSaveWaiting(cb: () => void): () => void {
+  waitingListeners.add(cb);
+  return () => { waitingListeners.delete(cb); };
+}
+
+function notifyWaiting() {
+  for (const cb of waitingListeners) cb();
+}
+
+function waitUntil(done: (s: Store) => boolean): Promise<void> {
+  return new Promise((resolve) => {
+    if (done(useStore.getState())) { resolve(); return; }
+    const off = useStore.subscribe((s) => {
+      if (!done(s)) return;
+      off();
+      resolve();
+    });
+  });
+}
+
+async function saveAfterStop(target: SaveTarget): Promise<boolean> {
+  await waitUntil((s) => !s.transport.isPlaying);
+  // deixa terminar o que parou a música: abrir outro projeto para a música e troca o projeto
+  // logo em seguida, e aí este salvar não vale mais
+  await new Promise<void>((r) => window.setTimeout(r, 0));
+  waitingStop = null;
+  notifyWaiting();
+  const now = useStore.getState();
+  // projeto trocado (abrir, novo) ou já gravado em outro lugar: não grava este
+  if (now.saveTarget !== target) return !hasUnsavedChanges(now);
+  if (now.transport.isPlaying) return saveWhenStopped(target);
+  if (now.saveStatus?.kind === 'saving') {
+    // outro salvar começou na parada (ex.: o do músico) e já grava o projeto como estava
+    await waitUntil((s) => s.saveStatus?.kind !== 'saving');
+    return !hasUnsavedChanges(useStore.getState());
+  }
+  // outro salvar já gravou tudo (ex.: o do músico terminou antes de chegarmos aqui): nada a gravar
+  if (!hasUnsavedChanges(now)) return true;
+  return saveCurrentProject({ now: true });
+}
+
+/** Devolve o resultado do salvar feito depois da parada (vários ⌘S seguidos viram um só). */
+function saveWhenStopped(target: SaveTarget): Promise<boolean> {
+  if (waitingStop) return waitingStop;
+  waitingStop = saveAfterStop(target);
+  notifyWaiting();
+  return waitingStop;
+}
+
 /**
  * Salva por cima do arquivo do projeto atual; se ele nunca foi salvo, abre a janela de salvar.
+ * Com a música tocando e o projeto num .vss, espera ela parar para gravar (now: true grava na hora).
  * Devolve true quando gravou o arquivo.
  */
-export async function saveCurrentProject(): Promise<boolean> {
+export async function saveCurrentProject(opts: { now?: boolean } = {}): Promise<boolean> {
   const st = useStore.getState();
   if (st.saveStatus?.kind === 'saving') return false;
   if (!st.saveTarget) {
@@ -76,6 +139,9 @@ export async function saveCurrentProject(): Promise<boolean> {
     return false;
   }
   const target = st.saveTarget;
+  if (!opts.now && st.transport.isPlaying && (target.kind === 'path' || target.kind === 'package')) {
+    return saveWhenStopped(target);
+  }
   saveController = new AbortController();
   const signal = saveController.signal;
   st.setSaveStatus({ kind: 'saving', message: 'Salvando...' });

@@ -7,7 +7,7 @@ import ProjectBackupsDialog from '@/components/ProjectBackupsDialog';
 import ShowsMenu from '@/components/ShowsMenu';
 import { DEFAULT_SHOW_NAME } from '@/lib/shows';
 import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package, Palette } from 'lucide-react';
-import { openRecentProject, SAVE_CANCELLING, saveCurrentProject } from '@/lib/projectQuickSave';
+import { isSaveWaitingStop, openRecentProject, SAVE_CANCELLING, SAVE_WHEN_STOPPED, saveCurrentProject, subscribeSaveWaiting } from '@/lib/projectQuickSave';
 import { confirmLeaveProject } from '@/lib/unsavedChanges';
 import { autoOpenEnabled, clearRecentProjects, listRecentProjects, setAutoOpenEnabled, type RecentProject } from '@/lib/recentProjects';
 import NetworkModeButton, { useModeSwitch } from '@/components/network/NetworkModeButton';
@@ -30,6 +30,8 @@ interface MenuItem {
   /** Abre ao lado a janelinha de escolher a skin */
   skins?: boolean;
   checked?: boolean;
+  /** Item apagado (não clica); o motivo aparece no lugar do atalho */
+  disabled?: boolean;
 }
 
 interface MenuDef {
@@ -71,6 +73,13 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const timelineLocked = useStore((s) => s.timelineLocked);
   const toggleTimelineLocked = useStore((s) => s.toggleTimelineLocked);
   const skin = useSyncExternalStore(subscribeSkin, currentSkin);
+  const saveWaitingStop = useSyncExternalStore(subscribeSaveWaiting, isSaveWaitingStop);
+  // Mesma regra da tecla S na timeline: com a música do corte tocando, dividir deixava as faixas
+  // cortadas mudas até o fim (a parte 2 é um clipe novo que o motor não liga no meio do play).
+  const splitBlocked = useStore((s) => {
+    const sid = s.selectedSongId ?? s.playlist[0]?.songId;
+    return !!sid && s.transport.isPlaying && s.transport.currentSongId === sid;
+  });
 
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [recentOpen, setRecentOpen] = useState(false);
@@ -167,20 +176,20 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         },
         {
           label: 'Dividir Clipes no Cursor',
-          shortcut: 'S',
+          shortcut: splitBlocked ? 'Pare para dividir' : 'S',
+          disabled: splitBlocked,
           action: () => {
             const st = useStore.getState();
             const sid = st.selectedSongId ?? st.playlist[0]?.songId;
-            if (sid && !st.timelineLocked) {
+            // dividir só com a música parada (ou em pausa), como na timeline
+            const playing = !!sid && st.transport.isPlaying && st.transport.currentSongId === sid;
+            if (sid && !st.timelineLocked && !playing) {
               const songClips = st.clips.filter((c) => c.songId === sid);
-              const cursor = st.transport.isPlaying && st.transport.currentSongId === sid
-                ? audioEngine.getCurrentTime()
-                : st.transport.currentTime;
+              const cursor = st.transport.currentTime;
               const crossing = songClips.filter((c) => cursor > c.startTime && cursor < c.startTime + clipPlayLength(c));
               const sel = crossing.filter((c) => st.selectedClipIds.includes(c.id));
               const targetIds = sel.length > 0 ? sel.map((c) => c.id) : crossing.map((c) => c.id);
-              if (targetIds.length > 0) {
-                st.splitClipsAt(targetIds, cursor);
+              if (targetIds.length > 0 && st.splitClipsAt(targetIds, cursor)) {
                 audioEngine.invalidatePrepared(sid);
               }
             }
@@ -335,9 +344,11 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
                 ) : (
                   <button
                     key={i}
+                    disabled={item.disabled}
                     className="w-full flex items-center justify-between px-3 py-1.5 text-left
-                      hover:bg-logic-accent hover:text-white transition-colors duration-75"
-                    onClick={() => item.action?.()}
+                      hover:bg-logic-accent hover:text-white transition-colors duration-75
+                      disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit disabled:cursor-default"
+                    onClick={() => { if (!item.disabled) item.action?.(); }}
                   >
                     <span className="flex items-center gap-1.5">
                       {item.checked !== undefined && (
@@ -381,6 +392,10 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
         ) : saveStatus?.kind === 'saving' ? (
           <span className="flex items-center gap-1.5 truncate text-2xs text-logic-text-dim" role="status">
             <Loader2 size={11} className="animate-spin shrink-0" />{saveStatus.message === SAVE_CANCELLING ? SAVE_CANCELLING : 'Salvando...'}
+          </span>
+        ) : saveWaitingStop ? (
+          <span className="flex items-center gap-1.5 truncate text-2xs text-logic-lcd-amber" role="status">
+            <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber shrink-0" />{SAVE_WHEN_STOPPED}
           </span>
         ) : saveStatus?.kind === 'saved' ? (
           <span className="flex items-center gap-1.5 truncate text-2xs text-logic-lcd-green" role="status">

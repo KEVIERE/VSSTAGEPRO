@@ -178,7 +178,13 @@ export function useRemoteLink(): RemoteLink {
     let busy = false;
     let lastOk = Date.now();
     const poll = async () => {
-      if (busy || !alive) return;
+      if (!alive) return;
+      if (busy) {
+        // Consulta pendurada (o IP do Mac sumiu): o "sem sinal" sai pelos 6 s sem resposta, sem
+        // esperar o prazo da consulta acabar (antes saía perto dos 10 s).
+        if (Date.now() - lastOk > LOST_MS) setStatus((s) => (s === 'connecting' ? s : 'lost'));
+        return;
+      }
       busy = true;
       try {
         const { remote, serverNow } = await within(POLL_TIMEOUT_MS, localRemoteState(pin));
@@ -261,14 +267,14 @@ export function useRemoteLink(): RemoteLink {
     const macId = w.__VS_ID__;
     if (via !== 'local' || status !== 'lost' || !pin || !host || !macId || window.location.host === host) return;
     let alive = true;
-    /** null: ninguém respondeu; senão o id que veio (ou undefined, se não veio) */
-    const probe = async (url: string): Promise<{ id: unknown } | null> => {
+    /** null: ninguém respondeu; senão o "same" que veio (undefined em Mac sem a pergunta pelo id) */
+    const probe = async (url: string): Promise<{ same: unknown } | null> => {
       const ctrl = new AbortController();
       const t = window.setTimeout(() => ctrl.abort(), 2500);
       try {
         const r = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
         const data = r.ok ? await r.json().catch(() => null) : null;
-        return { id: data && typeof data === 'object' ? (data as { id?: unknown }).id : undefined };
+        return { same: data && typeof data === 'object' ? (data as { same?: unknown }).same : undefined };
       } catch {
         return null;
       } finally {
@@ -276,8 +282,10 @@ export function useRemoteLink(): RemoteLink {
       }
     };
     const tryMove = async () => {
-      const [here, there] = await Promise.all([probe('/api/local/ping'), probe(`http://${host}/api/local/ping`)]);
-      if (alive && !here && there?.id === macId) window.location.replace(`http://${host}/show#pin=${pin}`);
+      // O vsstage.local só diz se é o mesmo Mac (sim ou não); o id não volta na resposta.
+      const there = `http://${host}/api/local/ping?id=${encodeURIComponent(macId)}`;
+      const [here, moved] = await Promise.all([probe('/api/local/ping'), probe(there)]);
+      if (alive && !here && moved?.same === true) window.location.replace(`http://${host}/show#pin=${pin}`);
     };
     void tryMove();
     const timer = window.setInterval(() => { void tryMove(); }, MOVE_PROBE_MS);

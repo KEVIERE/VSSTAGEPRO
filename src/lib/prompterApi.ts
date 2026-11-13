@@ -84,16 +84,38 @@ function stateArgs(code: string, lyricsRev?: string | null): Record<string, stri
   return typeof lyricsRev === 'string' && lyricsRev ? { p_code: code, p_lyrics_rev: lyricsRev } : { p_code: code };
 }
 
+/**
+ * Prazo de cada consulta do estado online (TV e produtor). O usePrompterFeed só pede de novo
+ * quando a consulta anterior termina; sem prazo, um pedido que não volta (Wi-Fi do palco
+ * associado mas sem passar pacote, 4G caindo) deixava a TV parada na última letra até o
+ * navegador desistir, mesmo com a internet de volta. Cancelada, a consulta volta como erro de
+ * conexão ('offline' no usePrompterFeed) e o laço pede de novo. Só nestas consultas: o resto do
+ * Supabase segue sem prazo (o mesmo formato do `stateRpc` de musicianApi.ts).
+ */
+export const STATE_TIMEOUT_MS = 8000;
+
+async function stateRpc(name: 'producer_state' | 'screen_state', args: Record<string, string>) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), STATE_TIMEOUT_MS);
+  try {
+    const q = supabase.rpc(name, args);
+    // O rpc falso dos testes devolve uma Promise simples, sem abortSignal.
+    return await (typeof q.abortSignal === 'function' ? q.abortSignal(ctrl.signal) : q);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function producerState(code: string, lyricsRev?: string | null): Promise<PrompterSnapshot> {
   if (isLocalClient()) return toSnapshot(await localPrompterState('producer', code));
-  const { data, error } = await supabase.rpc('producer_state', stateArgs(code, lyricsRev));
+  const { data, error } = await stateRpc('producer_state', stateArgs(code, lyricsRev));
   if (error) throw rpcError(error);
   return toSnapshot(assertOk(data, 'producer_state failed'));
 }
 
 export async function screenState(code: string, lyricsRev?: string | null): Promise<PrompterSnapshot> {
   if (isLocalClient()) return toSnapshot(await localPrompterState('screen', code));
-  const { data, error } = await supabase.rpc('screen_state', stateArgs(code, lyricsRev));
+  const { data, error } = await stateRpc('screen_state', stateArgs(code, lyricsRev));
   if (error) throw rpcError(error);
   return toSnapshot(assertOk(data, 'screen_state failed'));
 }

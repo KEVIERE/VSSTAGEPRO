@@ -23,7 +23,8 @@ function buildBuffer(audio: ClipAudio): AudioBuffer {
   return buffer;
 }
 
-async function buildBufferAsync(audio: ClipAudio): Promise<AudioBuffer> {
+// `keep` falso entre uma fatia e outra: a música saiu da lista e o resto da conversão não é feito.
+async function buildBufferAsync(audio: ClipAudio, keep: () => boolean): Promise<AudioBuffer | null> {
   const buffer = emptyBuffer(audio);
   for (let c = 0; c < audio.channels.length; c++) {
     const src = audio.channels[c];
@@ -32,6 +33,7 @@ async function buildBufferAsync(audio: ClipAudio): Promise<AudioBuffer> {
     for (let i = 0; i < end; i += BUILD_SLICE) {
       fillRange(src, out, i, Math.min(end, i + BUILD_SLICE));
       await new Promise((r) => setTimeout(r, 0));
+      if (!keep()) return null;
     }
   }
   return buffer;
@@ -47,10 +49,14 @@ export class TimecodePlayer {
   private output: AudioNode;
   private current: Voice | null = null;
   private pending: Voice | null = null;
-  // O LTC já montado no formato do navegador: o da música no ar e o da próxima (preparado antes).
+  // O LTC já montado no formato do navegador: o da música no ar e os das músicas retidas
+  // (selecionada e próxima), preparados antes do Play.
   private cache = new Map<string, AudioBuffer>();
   private building = new Map<string, Promise<void>>();
   private currentClipId: string | null = null;
+  // LTCs das músicas que ainda valem ficar montados. null: ninguém disse ainda (fica só o do ar
+  // e o último preparado).
+  private retained: Set<string> | null = null;
   private disposed = false;
   /** Velocidade de leitura (1 = original; 1,1 = BPM 10% mais rápido). */
   private rate = 1;
@@ -60,13 +66,36 @@ export class TimecodePlayer {
     this.output = output;
   }
 
+  private isRetained(clipId: string): boolean {
+    return !this.retained || this.retained.has(clipId) || clipId === this.currentClipId;
+  }
+
   private remember(clipId: string, buffer: AudioBuffer) {
     this.cache.delete(clipId);
     this.cache.set(clipId, buffer);
-    // fica só o do ar e o último preparado: cada LTC de 5 min ocupa ~57 MB
+    // cada LTC de 5 min ocupa ~57 MB
+    if (this.retained) {
+      // ficam o do ar, o que acabou de ser montado e os das músicas retidas
+      for (const id of Array.from(this.cache.keys())) {
+        if (id !== clipId && !this.isRetained(id)) this.cache.delete(id);
+      }
+      return;
+    }
+    // sem lista: fica só o do ar e o último preparado
     for (const id of Array.from(this.cache.keys())) {
       if (this.cache.size <= 2) break;
       if (id !== clipId && id !== this.currentClipId) this.cache.delete(id);
+    }
+  }
+
+  /**
+   * LTCs que devem continuar montados (os da música no ar, da selecionada e da próxima). Os outros
+   * saem do cache na hora, menos o que está no ar.
+   */
+  retain(clipIds: Iterable<string>) {
+    this.retained = new Set(clipIds);
+    for (const id of Array.from(this.cache.keys())) {
+      if (!this.isRetained(id)) this.cache.delete(id);
     }
   }
 
@@ -75,8 +104,18 @@ export class TimecodePlayer {
     return hit && hit.length === audio.length && hit.sampleRate === audio.sampleRate ? hit : null;
   }
 
-  private bufferFor(clipId: string, audio: ClipAudio): AudioBuffer {
+  // Acerto de cache: o pedido por último passa para o fim da fila e não é o primeiro a sair.
+  private touch(clipId: string, audio: ClipAudio): AudioBuffer | null {
     const hit = this.cached(clipId, audio);
+    if (hit) {
+      this.cache.delete(clipId);
+      this.cache.set(clipId, hit);
+    }
+    return hit;
+  }
+
+  private bufferFor(clipId: string, audio: ClipAudio): AudioBuffer {
+    const hit = this.touch(clipId, audio);
     if (hit) return hit;
     const buffer = buildBuffer(audio);
     this.remember(clipId, buffer);
@@ -85,11 +124,12 @@ export class TimecodePlayer {
 
   /** Monta antes o LTC de uma música (a próxima), para o Play não converter nada na hora da largada. */
   preload(clipId: string, audio: ClipAudio): Promise<void> {
-    if (this.disposed || this.cached(clipId, audio) || audio.length <= 0 || audio.channels.length === 0) return Promise.resolve();
+    if (this.disposed || this.touch(clipId, audio) || audio.length <= 0 || audio.channels.length === 0) return Promise.resolve();
     const inflight = this.building.get(clipId);
     if (inflight) return inflight;
-    const task = buildBufferAsync(audio)
-      .then((buffer) => { if (!this.disposed && !this.cached(clipId, audio)) this.remember(clipId, buffer); })
+    const keep = () => !this.disposed && this.isRetained(clipId);
+    const task = buildBufferAsync(audio, keep)
+      .then((buffer) => { if (buffer && keep() && !this.cached(clipId, audio)) this.remember(clipId, buffer); })
       .catch((err) => console.warn('[timecode] não consegui preparar o LTC', err))
       .finally(() => this.building.delete(clipId));
     this.building.set(clipId, task);
@@ -165,6 +205,8 @@ export class TimecodePlayer {
     if (this.current) this.halt(this.current, now);
     this.pending = null;
     this.current = null;
+    // parado, o LTC da última música tocada não prende vaga no cache (o start grava de novo)
+    this.currentClipId = null;
   }
 
   dispose() {

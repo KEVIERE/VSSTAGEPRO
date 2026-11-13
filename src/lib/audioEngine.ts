@@ -579,7 +579,9 @@ class AudioEngine {
       this.masterLimitOut = this.ctx.createGain();
       this.masterGain.connect(this.masterLimiter);
       this.masterLimiter.connect(this.masterLimitOut);
+      // contexto novo começa em 0 s: o relógio da última leitura volta junto, senão o LUFS fica parado
       this.loudness.clear();
+      this.loudLastAt = -Infinity;
       this.loudL = null;
       this.loudR = null;
       this.applyLimiterMode();
@@ -888,6 +890,14 @@ class AudioEngine {
     for (const songId of Array.from(this.prepared.keys())) {
       if (!keep.has(songId)) this.invalidatePrepared(songId);
     }
+    this.retainTimecodes();
+  }
+
+  // O LTC montado da selecionada e o da próxima não se expulsam do cache um ao outro.
+  private retainTimecodes() {
+    const wanted = this.wanted;
+    if (!this.timecode || !wanted) return;
+    this.timecode.retain(useStore.getState().clips.filter((c) => wanted.has(c.songId) && isTimecodeTrackId(c.trackId)).map((c) => c.id));
   }
 
   private isPlayingSong(songId: string): boolean {
@@ -1255,6 +1265,7 @@ class AudioEngine {
     if (tc) channel.gain.gain.value = channelGainFor(tc, [tc], tc.volume);
     channel.panner.pan.value = 0;
     this.timecode = new TimecodePlayer(ctx, channel.gain);
+    this.retainTimecodes();
     return this.timecode;
   }
 
@@ -1288,7 +1299,7 @@ class AudioEngine {
         console.warn('[timecode] não consegui abrir o LTC', err);
         return null;
       })
-      .finally(() => this.timecodeLoads.delete(clip.id));
+      .finally(() => { if (this.timecodeLoads.get(clip.id) === task) this.timecodeLoads.delete(clip.id); });
     this.timecodeLoads.set(clip.id, task);
     return task;
   }
@@ -1296,10 +1307,14 @@ class AudioEngine {
   /** Deixa o LTC da música aberto e já montado antes do Play. */
   private async preloadTimecode(songId: string): Promise<void> {
     const clip = this.timecodeClip(songId);
-    if (!clip) return;
+    if (!clip || !this.isWanted(songId)) return;
     const audio = await this.loadTimecodeAudio(songId);
-    if (!audio || this.timecodeClip(songId)?.id !== clip.id || !this.ctx || this.ctx.state === 'closed') return;
-    await this.ensureTimecode().preload(clip.id, audio);
+    // o operador pode ter só passado pela música enquanto o arquivo abria: aí não monta nada
+    if (!audio || !this.isWanted(songId) || this.timecodeClip(songId)?.id !== clip.id || !this.ctx || this.ctx.state === 'closed') return;
+    const player = this.ensureTimecode();
+    // um LTC que entrou depois da última lista (importado agora) também fica retido
+    this.retainTimecodes();
+    await player.preload(clip.id, audio);
   }
 
   // Coloca o timecode da música no mesmo ponto dos stems; se o áudio ainda está abrindo, entra assim que abrir.
@@ -1907,6 +1922,11 @@ class AudioEngine {
       this.cancelAllRenders();
       this.diskSongs.clear();
       this.onAirDiskDone = null;
+      // o LTC montado do projeto anterior sai da memória e não é reaproveitado por um clipe de
+      // mesmo id (o mesmo projeto aberto de novo)
+      this.timecode?.dispose();
+      this.timecode = null;
+      this.timecodeLoads.clear();
     });
     useStore.subscribe((s, prev) => {
       // Desfazer/Refazer (e qualquer outra mudança no estado) chega ao som: fader master e
@@ -2587,7 +2607,7 @@ class AudioEngine {
   private loudR: AnalyserNode | null = null;
   private loudness = new LoudnessWindow();
   private loudScratch: Float32Array<ArrayBuffer> | null = null;
-  private loudLastAt = 0;
+  private loudLastAt = -Infinity;
 
   // Filtro K na saída do master (o que vai para as saídas 1-2), um medidor por lado
   private connectLoudness(ctx: AudioContext) {
@@ -2605,6 +2625,7 @@ class AudioEngine {
     this.loudR = make(1);
     this.loudScratch = new Float32Array(fftSize);
     this.loudness.clear();
+    this.loudLastAt = -Infinity;
   }
 
   /**
@@ -2614,6 +2635,8 @@ class AudioEngine {
   getMasterLoudness(): { momentary: number; shortTerm: number } {
     const now = this.ctx?.currentTime ?? 0;
     if (!this.loudL || !this.loudR || !this.loudScratch) return { momentary: -Infinity, shortTerm: -Infinity };
+    // relógio de um contexto anterior (mais adiantado): mede já, sem esperar o novo alcançar
+    if (now < this.loudLastAt) this.loudLastAt = -Infinity;
     if (now - this.loudLastAt >= 0.04) {
       this.loudLastAt = now;
       let sum = 0;

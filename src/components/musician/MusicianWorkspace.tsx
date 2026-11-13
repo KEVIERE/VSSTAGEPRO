@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Maximize2, Minimize2, MonitorPlay, PenLine, Radio, X } from 'lucide-react';
+import { Maximize2, Minimize2, MonitorPlay, PenLine, Radio, Sun, X } from 'lucide-react';
 import LivePanel, { defaultSignalHint } from '@/components/musician/LivePanel';
 import SheetPanel from '@/components/musician/SheetPanel';
 import StageView from '@/components/musician/StageView';
 import { ProfilePhotoButton } from '@/components/musician/MusicianAvatar';
-import { useScreenAwake } from '@/components/musician/useScreenAwake';
+import { useKeepAwake } from '@/lib/useWakeLock';
 import { currentPart, liveSheetKey, resolveKey } from '@/lib/medleySheets';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import { isLocalClient } from '@/lib/localNetwork';
@@ -101,8 +101,14 @@ export default function MusicianWorkspace({
   const [stage, setStage] = useState(() => { try { return localStorage.getItem(STAGE_LS) === '1'; } catch { return false; } });
   const saveStage = (on: boolean) => { setStage(on); try { localStorage.setItem(STAGE_LS, on ? '1' : '0'); } catch { /* conveniência */ } };
   const { focus, enter: enterFocus, exit: exitFocus } = usePanelFocus();
-  // o celular não apaga enquanto o músico lê a cifra
-  useScreenAwake();
+  // O celular não apaga enquanto o músico lê a cifra: a trava nativa do navegador sempre (pedida de
+  // novo ao voltar para a página e no toque). Sem ela (Rede Local, em http, ou pedido recusado), o
+  // vídeo invisível só entra no botão "Manter a tela acesa": ele tem faixa de som e no iPhone pode
+  // pausar o som de outro app (o click do músico, por exemplo).
+  const awake = useKeepAwake(true, 'botao');
+  const [awakeDismissed, setAwakeDismissed] = useState(false);
+  const awakeAsk = !awakeDismissed
+    && (awake.state === 'precisaBotao' || awake.state === 'precisaToque' || awake.state === 'falhou');
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -253,6 +259,32 @@ export default function MusicianWorkspace({
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {awakeAsk && (
+        <div role="status" className="console-rail flex items-center gap-2 px-3 py-1.5 border-b border-black">
+          <span className="console-led is-on-amber shrink-0" />
+          <span className="min-w-0 flex-1 text-xs leading-snug text-logic-text-dim">
+            {awake.state === 'falhou'
+              ? 'A tela ainda pode apagar. Toque de novo no botão ou desligue o bloqueio automático da tela do aparelho.'
+              : 'A tela pode apagar durante o show.'}
+            {' '}No iPhone, o botão pode pausar o som de outro app.
+          </span>
+          {/* o vídeo precisa começar dentro deste clique */}
+          <button
+            onClick={awake.startVideo}
+            className="console-key is-lit-amber flex items-center gap-1.5 h-8 px-2.5 text-[13px] shrink-0"
+          >
+            <Sun size={14} /> Manter a tela acesa
+          </button>
+          <button
+            onClick={() => setAwakeDismissed(true)}
+            className="console-key w-8 h-8 flex items-center justify-center shrink-0"
+            aria-label="Fechar aviso da tela acesa"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
 
