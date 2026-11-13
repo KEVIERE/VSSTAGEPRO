@@ -1136,8 +1136,10 @@ class AudioEngine {
     this.masterSplitter = ctx.createChannelSplitter(2);
     this.masterAnalyser.connect(this.masterSplitter);
     // medidor estéreo do master: L e R da saída 1-2
-    this.masterMeterL ??= ctx.createAnalyser();
-    this.masterMeterR ??= ctx.createAnalyser();
+    // medidores do master: recria se forem de outro contexto (ligar o "Áudio estável" troca o
+    // contexto; ligar um nó de outro contexto dava erro aqui e o programa ficava mudo)
+    if (!this.masterMeterL || this.masterMeterL.context !== ctx) this.masterMeterL = ctx.createAnalyser();
+    if (!this.masterMeterR || this.masterMeterR.context !== ctx) this.masterMeterR = ctx.createAnalyser();
     this.masterMeterL.fftSize = METER_FFT;
     this.masterMeterR.fftSize = METER_FFT;
     this.masterSplitter.connect(this.masterMeterL, 0);

@@ -124,6 +124,8 @@ declare global {
   interface Window {
     vsLocal?: LocalBridge;
     vsDesktop?: {
+      /** Arquitetura do programa ('arm64' ou 'x64'; 'x64' = versão Intel, nativa ou no Rosetta). */
+      arch?: string;
       appReady: () => void;
       checkUpdate: (supabaseUrl: string) => Promise<UpdateInfo | null>;
       installUpdate: (info: UpdateInfo) => Promise<void>;

@@ -1,6 +1,7 @@
 // Peças da skin Analógica nas faixas da timeline: o knob de volume (no lugar do fader deitado) e o
 // medidor vertical colado na borda direita da faixa.
-import { useId } from 'react';
+import { useId, useSyncExternalStore } from 'react';
+import { isPerfLite, subscribePerf } from '@/lib/perfMode';
 import { useMeterLevel } from '@/lib/meterBus';
 import { volumeToDb } from '@/lib/audioEngine';
 import { beginHistoryGesture, endHistoryGesture, historyGestureStep } from '@/lib/historyGesture';
@@ -18,6 +19,8 @@ const UNITY = 0.8 / 1.5; // 0 dB no curso do knob (o mesmo do fader)
  */
 export function VsKnobFace({ value, bipolar = false, unity = UNITY }: { value: number; bipolar?: boolean; unity?: number }) {
   const uid = useId().replace(/:/g, '');
+  // modo leve: os LEDs acendem sem o brilho com filtro (o que mais pesa com muitos knobs na tela)
+  const lite = useSyncExternalStore(subscribePerf, isPerfLite);
   const pct = Math.max(0, Math.min(1, value));
   const angle = -135 + pct * 270;
   const mid = (SEG - 1) / 2;
@@ -61,7 +64,7 @@ export function VsKnobFace({ value, bipolar = false, unity = UNITY }: { value: n
             stroke={on ? color : '#141415'}
             strokeWidth={1.7}
             strokeLinecap="round"
-            style={on ? { filter: `drop-shadow(0 0 1.5px ${color})` } : undefined}
+            style={on && !lite ? { filter: `drop-shadow(0 0 1.5px ${color})` } : undefined}
           />
         );
       })}
@@ -200,6 +203,7 @@ const CAP_GAP = 'M6.4 31.3 Q10 27.6 13.6 31.3 Z';
  */
 export function VsCap({ tone, className = '', style }: { tone: VsCapTone; className?: string; style?: React.CSSProperties }) {
   const uid = useId().replace(/:/g, '');
+  const lite = useSyncExternalStore(subscribePerf, isPerfLite);
   const line = VS_CAP_LINE[tone];
   return (
     <svg viewBox="0 0 20 32" preserveAspectRatio="none" className={`vs-cap ${className}`} style={style} aria-hidden="true">
@@ -258,7 +262,8 @@ export function VsCap({ tone, className = '', style }: { tone: VsCapTone; classN
       <path d={CAP_TOP} fill={`url(#${uid}-saddle)`} />
       <path d={CAP_TOP} fill={`url(#${uid}-edge)`} />
       <path d={CAP_TOP} fill={`url(#${uid}-sheen)`} />
-      <path d={CAP_TOP} fill="#808080" filter={`url(#${uid}-satin)`} />
+      {/* grão acetinado do alumínio (fora no modo leve) */}
+      {!lite && <path d={CAP_TOP} fill="#808080" filter={`url(#${uid}-satin)`} />}
       {/* fio de luz nas duas pontas altas */}
       <path d="M3.2 2.3 H16.8" stroke="#fff" strokeWidth="0.7" strokeLinecap="round" opacity="0.95" />
       <path d="M2.8 27.2 H17.2" stroke="#fff" strokeWidth="0.55" strokeLinecap="round" opacity="0.75" />

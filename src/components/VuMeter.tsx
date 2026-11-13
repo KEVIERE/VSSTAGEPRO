@@ -62,14 +62,25 @@ function VuFace({ side, label }: { side: 'L' | 'R'; label: string }) {
     let last = performance.now();
     let needle = 0;
     let peakUntil = 0;
+    let shownAngle = NaN;
+    let shownLed = '';
     const tick = (now: number) => {
       const target = vuPosition(levelToVu(meterLevel(`master-rms:${side}`)));
       needle = vuStep(needle, target, (now - last) / 1000);
       last = now;
-      needleRef.current?.setAttribute('transform', `rotate(${-SWEEP + needle * SWEEP * 2} ${PX} ${PY})`);
+      // só escreve quando o ponteiro anda de verdade (parado, nada é redesenhado)
+      const angle = Math.round((-SWEEP + needle * SWEEP * 2) * 20) / 20;
+      if (angle !== shownAngle) {
+        shownAngle = angle;
+        needleRef.current?.setAttribute('transform', `rotate(${angle} ${PX} ${PY})`);
+      }
       // LED de pico: o pico real passou de -1 dBFS; segura 1 s
       if (meterLevel(`master:${side}`) >= PEAK_LED) peakUntil = now + 1000;
-      peakRef.current?.setAttribute('opacity', now < peakUntil ? '1' : '0.15');
+      const led = now < peakUntil ? '1' : '0.15';
+      if (led !== shownLed) {
+        shownLed = led;
+        peakRef.current?.setAttribute('opacity', led);
+      }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

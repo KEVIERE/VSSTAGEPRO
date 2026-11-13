@@ -46,6 +46,8 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
   const modeSwitch = useModeSwitch(broadcast, local, onOpenLocal);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const openMenuRef = useRef(openMenu);
+  openMenuRef.current = openMenu;
   const [importOpen, setImportOpen] = useState(false);
   const [backupsOpen, setBackupsOpen] = useState(false);
   const newProject = useStore((s) => s.newProject);
@@ -257,7 +259,8 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
       }
     };
     document.addEventListener('mousedown', handler);
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpenMenu(null); };
+    // Esc com um menu aberto só fecha o menu (sem o preventDefault o atalho geral dava Stop na música)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && openMenuRef.current) { e.preventDefault(); setOpenMenu(null); } };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', handler);

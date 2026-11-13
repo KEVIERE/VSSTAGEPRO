@@ -3,7 +3,8 @@
 // nome gravados a laser, o grão do metal, um arranhão pequeno e as bordas um pouco gastas; com
 // pouco espaço, só a onda e o play gravados direto no chassi.
 // Usa as geometrias da logo oficial (VsLogo), sem o quadrado.
-import { useId } from 'react';
+import { useId, useSyncExternalStore } from 'react';
+import { isPerfLite, subscribePerf } from '@/lib/perfMode';
 import { VS_PLAY_D, VS_WAVE_D } from '@/components/VsLogo';
 
 /** Onda e play gravados: o traço afundado, com a quina de sombra em cima e a de luz embaixo. */
@@ -56,6 +57,7 @@ export function PlateScrew({ angle, className = '' }: { angle: number; className
 /** Desgaste da chapa: grão do metal, bordas gastas, sujeira em volta dos parafusos e um arranhão. */
 function PlateWear() {
   const uid = useId().replace(/:/g, '');
+  const lite = useSyncExternalStore(subscribePerf, isPerfLite);
   return (
     <svg viewBox="0 0 140 48" preserveAspectRatio="none" className="vs-plate-wear" aria-hidden="true">
       <defs>
@@ -72,7 +74,7 @@ function PlateWear() {
           <stop offset="1" stopColor="#3a3328" stopOpacity="0" />
         </radialGradient>
       </defs>
-      <rect width="140" height="48" filter={`url(#${uid}-grain)`} />
+      {!lite && <rect width="140" height="48" filter={`url(#${uid}-grain)`} />}
       <rect width="140" height="48" fill={`url(#${uid}-edge)`} />
       {/* sujeira em volta dos parafusos */}
       {[[7, 7], [133, 7], [7, 41], [133, 41]].map(([x, y]) => (

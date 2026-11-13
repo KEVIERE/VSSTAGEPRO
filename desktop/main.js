@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, protocol, net, shell, session, Menu, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, net, shell, session, Menu, dialog, powerSaveBlocker } = require('electron');
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -305,6 +305,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // num show a janela pode ficar atrás de outra (telão, letra): os relógios de passagem de
+      // música e de loop não podem ser freados pelo modo de economia de janela em segundo plano
+      backgroundThrottling: false,
     },
   });
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -413,7 +416,14 @@ handle('maestroVoices', () => maestroVoice.listVoices());
 handle('maestroSpeak', (payload) => maestroVoice.renderNarration(payload));
 handle('maestroVoiceStatus', () => maestroVoice.voiceStatus());
 // música tocando: o download da voz pausa (não disputa a rede e o disco durante o show)
-handle('maestroVoicePlaying', (playing) => { maestroVoiceDownload.setPaused(!!playing); lyricsReader.setPlaying(!!playing); });
+// Com música tocando o Mac não dorme nem apaga a tela (no meio do show isso derrubava o som).
+let showSleepBlock = null;
+handle('maestroVoicePlaying', (playing) => {
+  maestroVoiceDownload.setPaused(!!playing);
+  lyricsReader.setPlaying(!!playing);
+  if (playing && showSleepBlock === null) showSleepBlock = powerSaveBlocker.start('prevent-display-sleep');
+  else if (!playing && showSleepBlock !== null) { powerSaveBlocker.stop(showSleepBlock); showSleepBlock = null; }
+});
 // Leitor de letra (repertório do produtor): roda no Mac, sem internet e sem custo.
 handle('lyricsReaderStatus', () => lyricsReader.status());
 handle('lyricsReaderPrepare', () => lyricsReader.prepare());

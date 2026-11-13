@@ -73,6 +73,7 @@ export default function MiniFader({ value, onChange, onReset, width, height = 14
         className="es-hslider relative shrink-0 cursor-ew-resize select-none"
         style={{ width: `${width}px`, height: `${height}px`, touchAction: 'none' }}
         onPointerDown={handleDown}
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onReset(); }}
         title={`Volume: ${dbLabel} dB. Arraste para os lados (Shift: ajuste fino). Duplo clique: 0 dB.`}
       >
@@ -88,6 +89,7 @@ export default function MiniFader({ value, onChange, onReset, width, height = 14
       className="relative shrink-0 cursor-ew-resize select-none"
       style={{ width: `${width}px`, height: `${height}px`, touchAction: 'none' }}
       onPointerDown={handleDown}
+        onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); onReset(); }}
       title={`Volume: ${dbLabel} dB. Arraste para os lados (Shift: ajuste fino). Duplo clique: 0 dB.`}
     >

@@ -1133,6 +1133,8 @@ export const useStore = create<Store>()(
         clearAudioLibrary();
         // as saídas são da placa conectada, não do projeto
         set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })), outputChannelCount: get().outputChannelCount });
+        // projeto novo ou aberto: o Desfazer recomeça (⌘Z não pode voltar ao projeto anterior no meio do show)
+        useStore.temporal.getState().clear();
       },
 
       loadProject: (data) => {
@@ -1186,6 +1188,8 @@ export const useStore = create<Store>()(
             }),
           });
         }
+        // projeto novo ou aberto: o Desfazer recomeça (⌘Z não pode voltar ao projeto anterior no meio do show)
+        useStore.temporal.getState().clear();
       },
 
       addToPlaylist: (songId, name, duration, bpm) => set((s) => ({

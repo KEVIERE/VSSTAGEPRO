@@ -447,6 +447,8 @@ function DirectorApp({ license }: { license: License }) {
         const store = useStore.getState();
         // Se a timeline estiver travada pelo cadeado, não permite deletar clipes
         if (store.timelineLocked) return;
+        // No Modo Show a timeline não aparece: apagar daqui tiraria áudio da música no ar sem ninguém ver
+        if (store.playlistMaximized) return;
 
         // Se houver clipes selecionados na timeline, a tecla Delete/Backspace exclui os clipes selecionados
         if (store.selectedClipIds.length > 0) {

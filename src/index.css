@@ -3042,6 +3042,13 @@
   :root:not([data-skin]) [class~='hover:bg-logic-accent-hover'][class~='text-white']:hover {
     color: #121314;
   }
+  /* itens de menu que acendem verde no hover (lista de saídas, menus de cima) e o botão principal */
+  :root:not([data-skin]) :is([class~='hover:bg-logic-accent'], [class~='hover:bg-logic-accent-hover']):hover,
+  :root:not([data-skin]) :is([class~='hover:bg-logic-accent'], [class~='hover:bg-logic-accent-hover']):hover :is([class*='text-logic-'], [class*='text-white']) {
+    color: #121314;
+  }
+  :where(:root:not([data-skin])) .logic-btn-accent { color: #121314; }
+  :root:not([data-skin]) [class~='bg-logic-accent/90'][class~='text-white'] { color: #121314; }
 
   /* ---------- teclas pretas; acesas em verde-limão, laranja ou vermelho ---------- */
   :where(:root:not([data-skin])) .console-key,
@@ -3375,4 +3382,23 @@
     background-color: rgba(255, 255, 255, 0.02);
   }
   :root:not([data-skin]) .sk-tc-row { background-color: #232325; }
+}
+
+/* ================= Modo leve (versão Intel, ou escolhido em Visualizar) =================
+   O mesmo visual, sem o que mais pesa para desenhar nos Macs Intel: as texturas geradas
+   (grão da pintura e do alumínio), os brilhos com filtro e as sombras de texto que piscam com os
+   números. O som não muda. */
+@layer components {
+  :root:not([data-skin])[data-perf='leve'] :is(.console-face, .console-row, .vs-plate, .vs-bed-side, .console-rail, .vs-legend-bar, .vs-brand-plate) {
+    background-image: none !important;
+  }
+  :root:not([data-skin])[data-perf='leve'] .console-rail:not(.console-legend) {
+    background-image: linear-gradient(180deg, #d9dadd 0%, #bfc1c5 45%, #a4a6ab 100%) !important;
+  }
+  :root:not([data-skin])[data-perf='leve'] :is(.console-readout, .console-glow, .console-lcdname, .vu-lufs-item b, .console-key) {
+    text-shadow: none !important;
+  }
+  :root:not([data-skin])[data-perf='leve'] :is(.segment-display.is-tft, .vs-cap) {
+    filter: none !important;
+  }
 }

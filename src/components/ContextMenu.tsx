@@ -55,8 +55,9 @@ export default function ContextMenu() {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) closeMenu();
     };
+    // Esc com o menu aberto só fecha o menu (o preventDefault avisa o atalho geral para não dar Stop)
     const escHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') closeMenu();
+      if (e.key === 'Escape' && ref.current) { e.preventDefault(); closeMenu(); }
     };
     document.addEventListener('mousedown', handler);
     document.addEventListener('keydown', escHandler);

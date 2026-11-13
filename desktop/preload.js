@@ -38,6 +38,9 @@ contextBridge.exposeInMainWorld('vsLocal', {
 });
 
 contextBridge.exposeInMainWorld('vsDesktop', {
+  // Arquitetura do programa: 'x64' é a versão Intel (num Mac Intel, ou traduzida pelo Rosetta num
+  // Mac com chip Apple). A tela usa para ligar o modo leve, com menos efeitos de desenho.
+  arch: process.arch,
   appReady: () => ipcRenderer.send('app:ready'),
   // Caminho no disco de um arquivo aberto pela janela do navegador (projeto antigo nos recentes):
   // com ele o salvar usa o caminho rápido do app (só o que mudou) em vez de copiar o arquivo inteiro.

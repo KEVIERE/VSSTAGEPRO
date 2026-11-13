@@ -223,6 +223,7 @@ export function Fader({
         className="of-fader relative cursor-ns-resize select-none"
         style={{ width: `${width}px`, height: `${height}px`, touchAction: 'none' }}
         onPointerDown={handleDown}
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
         title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
       >
@@ -241,6 +242,7 @@ export function Fader({
         className="es-fader relative flex cursor-ns-resize select-none"
         style={{ width: `${width + ES_SCALE_W}px`, height: `${height}px`, touchAction: 'none' }}
         onPointerDown={handleDown}
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
         title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
       >
@@ -268,6 +270,7 @@ export function Fader({
         className="gf-fader relative flex cursor-ns-resize select-none"
         style={{ width: `${width + GF_SCALE_W}px`, height: `${height}px`, touchAction: 'none' }}
         onPointerDown={handleDown}
+        onClick={(e) => e.stopPropagation()}
         onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
         title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
       >
@@ -291,6 +294,7 @@ export function Fader({
       className="console-faderbed relative flex cursor-ns-resize select-none"
       style={{ width: `${SCALE_W + width}px`, height: `${height}px`, touchAction: 'none' }}
       onPointerDown={handleDown}
+        onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
       title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
     >
@@ -329,6 +333,8 @@ export function Fader({
 function panKnobProps(trackId: string, pan: number, setPan: (id: string, v: number, absolute?: boolean) => void) {
   return {
     onDoubleClick: (e: React.MouseEvent) => { e.stopPropagation(); setPan(trackId, 0, true); },
+    // o clique que sobra do arrasto não pode trocar a seleção (desfazia o grupo selecionado)
+    onClick: (e: React.MouseEvent) => e.stopPropagation(),
     onMouseDown: (e: React.MouseEvent) => {
       e.stopPropagation();
       const startX = e.clientX;
