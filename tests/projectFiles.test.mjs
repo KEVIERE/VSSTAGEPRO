@@ -268,19 +268,48 @@ test('o salvar do programa tenta: só o fim → só o que mudou → inteiro', ()
   }
 });
 
-test('projeto aberto pela janela do navegador no app do Mac: o salvar descobre o caminho e grava só o que mudou', () => {
+test('projeto aberto pela janela do navegador no app do Mac: o salvar acha o arquivo no disco e grava só o que mudou', () => {
   const saver = fs.readFileSync(new URL('../src/lib/projectSaver.ts', import.meta.url), 'utf8');
   const preload = fs.readFileSync(new URL('../desktop/preload.js', import.meta.url), 'utf8');
+  const main = fs.readFileSync(new URL('../desktop/main.js', import.meta.url), 'utf8');
   const files = fs.readFileSync(new URL('../src/lib/desktopProjectFiles.ts', import.meta.url), 'utf8');
   const quick = fs.readFileSync(new URL('../src/lib/projectQuickSave.ts', import.meta.url), 'utf8');
-  assert.match(preload, /pathForFile: \(file\) => \{\s*try \{ return webUtils\.getPathForFile\(file\) \|\| ''; \}/, 'o app diz onde o arquivo está');
-  assert.match(files, /vsDesktop\?\.pathForFile\?\.\(file\)/, 'áudios desse arquivo contam como já salvos');
+  assert.match(preload, /projectLocate: call\('projectLocate'\),/);
+  assert.match(main, /handle\('projectLocate', \(name, size, lastModified\) => projectFiles\.locate\(name, size, lastModified\)\);/);
+  assert.match(files, /await api\.projectLocate\(file\.name, file\.size, file\.lastModified\)/, 'a janela do navegador não dá o caminho: o app procura');
   // salvar: o caminho do navegador (que copia os 20 GB num .crswap) vira o caminho do disco
   const pkg = saver.slice(saver.indexOf("if (target.kind === 'package') {\n    // App do Mac"));
-  assert.match(pkg, /const asPath = desktopProjects\(\) \? desktopFilePath\(await target\.handle\.getFile\(\)\) : null;/);
+  assert.match(pkg, /const asPath = await locateDesktopPath\(opened\);\s*if \(asPath && await moveSourcesToPath\(state, opened, asPath\)\.catch\(\(\) => false\)\) \{/);
   assert.match(pkg, /return \{ \.\.\.\(await quickSave\(state, pathTarget, onProgress, signal\)\), target: pathTarget \};/);
+  // os áudios que vieram desse arquivo passam a ser lidos pelo caminho, no mesmo lugar do arquivo
+  assert.match(saver, /slice = disk\.slice\(from\.begin, from\.begin \+ from\.size\);\s*packageSlices\.set\(slice, \{ file: disk, begin: from\.begin, size: from\.size \}\);/);
   assert.match(quick, /if \(res\.target\) useStore\.getState\(\)\.setSaveTarget\(res\.target\);/, 'daqui em diante salva pelo caminho do disco');
-  assert.match(quick, /abra este projeto por Arquivo > Abrir Projeto/, 'sem o caminho: avisa como deixar rápido');
+  assert.match(quick, /abra este projeto por Arquivo > Abrir Projeto/, 'sem achar: avisa como deixar rápido');
   // reabrir pelos recentes um projeto antigo: já abre pelo caminho do disco
-  assert.match(saver, /if \(asPath\) return \{ \.\.\.\(await readDesktopPackage\(asPath, onProgress\)\), target: \{ kind: 'path', path: asPath, name: target\.handle\.name \} \};/);
+  assert.match(saver, /const asPath = desktopProjects\(\) \? await locateDesktopPath\(file\) : null;\s*if \(asPath\) return \{ \.\.\.\(await readDesktopPackage\(asPath, onProgress\)\), target: \{ kind: 'path', path: asPath, name: target\.handle\.name \} \};/);
+  // áudio do próprio arquivo, mas de quando ele era outro: não anexa o projeto inteiro de novo
+  assert.match(saver, /if \(staleOwn\) return false;/);
 });
+
+test('achar o projeto no disco: só com nome, tamanho e data iguais, e só se for um arquivo só', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-achar-'));
+  const sub = path.join(root, 'Shows', '2026');
+  fs.mkdirSync(sub, { recursive: true });
+  const file = path.join(sub, 'Show Grande.vsc');
+  fs.writeFileSync(file, Buffer.alloc(4096, 7));
+  const st = fs.statSync(file);
+  const opts = { roots: [root], spotlight: false };
+  assert.equal(await pf.locate('Show Grande.vsc', st.size, Math.floor(st.mtimeMs), opts), file);
+  assert.equal(await pf.locate('Show Grande.vsc', st.size + 1, Math.floor(st.mtimeMs), opts), null, 'tamanho diferente');
+  assert.equal(await pf.locate('Show Grande.vsc', st.size, st.mtimeMs - 5000, opts), null, 'data diferente');
+  assert.equal(await pf.locate('Outro.vsc', st.size, Math.floor(st.mtimeMs), opts), null, 'nome diferente');
+  assert.equal(await pf.locate('../Show Grande.vsc', st.size, Math.floor(st.mtimeMs), opts), null, 'nome com caminho');
+  assert.equal(await pf.locate('Show Grande.txt', st.size, Math.floor(st.mtimeMs), opts), null, 'não é projeto');
+  // uma cópia idêntica em outra pasta: na dúvida, não escolhe
+  const copy = path.join(root, 'Show Grande.vsc');
+  fs.copyFileSync(file, copy);
+  fs.utimesSync(copy, st.atime, st.mtime);
+  assert.equal(await pf.locate('Show Grande.vsc', st.size, Math.floor(st.mtimeMs), opts), null);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+

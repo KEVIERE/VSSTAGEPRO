@@ -12,6 +12,8 @@ interface DesktopProjectApi {
   projectPickOpen: () => Promise<{ name: string; path: string } | null>;
   projectPickSave: (suggestedName: string) => Promise<{ name: string; path: string } | null>;
   projectInfo: (filePath: string) => Promise<DesktopProjectInfo>;
+  /** Acha no disco o projeto aberto pela janela do navegador (apps a partir desta versão). */
+  projectLocate?: (name: string, size: number, lastModified: number) => Promise<string | null>;
   projectWriteTail: (filePath: string, opts: { expectedSize: number; expectedManifestStart: number; manifest: ArrayBuffer }) =>
     Promise<{ ok: true; size: number; mtimeMs: number; manifestStart: number } | { ok: false; reason: string }>;
   projectWriteOpen: (filePath: string) => Promise<string>;
@@ -47,6 +49,19 @@ export function desktopFilePath(file: File): string | null {
     return p;
   }
   return null;
+}
+
+/**
+ * Caminho no disco de um projeto aberto pela janela do navegador. Ela só dá nome, tamanho e data:
+ * o app procura o arquivo com os três iguais (null se não achar ou se houver dúvida).
+ */
+export async function locateDesktopPath(file: File): Promise<string | null> {
+  const known = desktopFilePath(file);
+  if (known) return known;
+  const api = desktopProjects();
+  if (!api?.projectLocate || !/\.(vss|vsc)$/i.test(file.name)) return null;
+  const found = await api.projectLocate(file.name, file.size, file.lastModified).catch(() => null);
+  return typeof found === 'string' && found ? found : null;
 }
 
 /** O arquivo do disco, lido em pedaços direto de lá (nada é copiado para a memória). */

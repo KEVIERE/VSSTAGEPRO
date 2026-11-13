@@ -8,6 +8,8 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
+const os = require('os');
+const { execFile } = require('child_process');
 
 const MAGIC = 'VSSTAGE1';
 const DATA_START = MAGIC.length;
@@ -408,9 +410,59 @@ async function pickSave(win, suggestedName) {
   return { name: path.basename(chosen), path: chosen };
 }
 
+/**
+ * Acha no disco um projeto que o programa só conhece pela janela do navegador (nome, tamanho e
+ * data, sem o caminho). Procura pelo Spotlight e, se ele não achar, nas pastas de costume. Só
+ * devolve quando há um arquivo só com o mesmo nome, o mesmo tamanho e a mesma data: na dúvida,
+ * não devolve nada (o programa continua salvando do jeito lento, mas certo).
+ */
+const LOCATE_DIRS = ['Downloads', 'Desktop', 'Documents', 'Music', 'Movies'];
+const LOCATE_SKIP = new Set(['node_modules', 'Library', '.Trash']);
+
+function spotlight(name) {
+  return new Promise((resolve) => {
+    execFile('mdfind', ['-name', name], { timeout: 5000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
+      resolve(err ? [] : String(stdout).split('\n').filter((p) => p && path.basename(p) === name));
+    });
+  });
+}
+
+async function walkFor(dir, name, depth, out) {
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
+  for (const e of entries) {
+    if (e.name.startsWith('.') || LOCATE_SKIP.has(e.name)) continue;
+    const full = path.join(dir, e.name);
+    if (e.isFile() && e.name === name) out.push(full);
+    else if (e.isDirectory() && depth > 0 && !PROJECT_EXT.test(e.name)) await walkFor(full, name, depth - 1, out);
+  }
+}
+
+// `opts` só nos testes (pastas onde procurar, sem Spotlight); o programa chama com três argumentos.
+async function locate(name, size, lastModified, opts = {}) {
+  if (typeof name !== 'string' || !PROJECT_EXT.test(name) || name.includes('/') || name.includes('\0')) return null;
+  if (!(Number.isFinite(size) && size > 0) || !Number.isFinite(lastModified)) return null;
+  const same = async (candidates) => {
+    const hits = [];
+    for (const c of new Set(candidates)) {
+      const st = await fsp.stat(c).catch(() => null);
+      if (st && st.isFile() && st.size === size && Math.abs(st.mtimeMs - lastModified) < 1000) hits.push(c);
+    }
+    return hits;
+  };
+  let hits = opts.spotlight === false ? [] : await same(await spotlight(name));
+  if (hits.length === 0) {
+    const found = [];
+    const roots = Array.isArray(opts.roots) ? opts.roots : LOCATE_DIRS.map((d) => path.join(os.homedir(), d));
+    for (const d of roots) await walkFor(d, name, 3, found);
+    hits = await same(found);
+  }
+  return hits.length === 1 ? hits[0] : null;
+}
+
 module.exports = {
   MAGIC, TRAILER_SIZE, trailer, readTail, info, writeTail,
   writeOpen, writeData, writeCopy, writeClose, writeAbort,
-  appendOpen, appendData, appendCopy, appendClose, appendAbort, recover,
+  appendOpen, appendData, appendCopy, appendClose, appendAbort, recover, locate,
   giveFile, pickOpen, pickSave,
 };

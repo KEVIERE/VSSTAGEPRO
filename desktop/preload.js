@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   projectPickOpen: call('projectPickOpen'),
   projectPickSave: call('projectPickSave'),
   projectInfo: call('projectInfo'),
+  projectLocate: call('projectLocate'),
   projectWriteTail: call('projectWriteTail'),
   projectWriteOpen: call('projectWriteOpen'),
   projectWriteData: call('projectWriteData'),

@@ -395,6 +395,7 @@ handle('exportStreamAbort', (streamId) => exportFiles.streamAbort(streamId));
 handle('projectPickOpen', () => projectFiles.pickOpen(win));
 handle('projectPickSave', (name) => projectFiles.pickSave(win, name));
 handle('projectInfo', (filePath) => projectFiles.info(filePath));
+handle('projectLocate', (name, size, lastModified) => projectFiles.locate(name, size, lastModified));
 handle('projectWriteTail', (filePath, opts) => projectFiles.writeTail(filePath, opts));
 handle('projectWriteOpen', (filePath) => projectFiles.writeOpen(filePath));
 handle('projectWriteData', (id, data) => projectFiles.writeData(id, data));

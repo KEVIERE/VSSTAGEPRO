@@ -5,7 +5,7 @@ import type { AudioClip, ProjectState, Track } from '@/types';
 import { projectPlaylist, syncedShows } from '@/lib/shows';
 import { withoutLoops } from '@/lib/regions';
 import { keptAssetIndex, packageTrailer, readPackageTail, VSC_MAGIC, writePackageTail, type KeptAsset, type PackageAsset, type PackageTail } from '@/lib/vssPackage';
-import { desktopFile, desktopFilePath, desktopProjects, sameFileVersion } from '@/lib/desktopProjectFiles';
+import { desktopFile, desktopFilePath, desktopProjects, locateDesktopPath, sameFileVersion } from '@/lib/desktopProjectFiles';
 import { extraManifestFields, projectExtras, type ProjectExtraAsset } from '@/lib/projectHooks';
 
 type ProgressFn = (msg: string) => void;
@@ -695,6 +695,14 @@ async function writeAppendToPath(
   const tail: PackageTail = { manifestStart: info.manifestStart, manifestLen: info.manifestLen };
   const split = splitAssets(state, (f) => desktopFilePath(f) === target.path && sameFileVersion(f, info));
   if (split.fresh.length === 0) return false;
+  // áudio deste mesmo arquivo, mas de quando ele era outro no disco: não é áudio novo (anexar
+  // copiaria o projeto inteiro de novo no fim); regrava inteiro
+  const staleOwn = split.fresh.some(({ plan, extra }) => {
+    const src = extra ? extra.current() : getClipSource(plan.clip.id);
+    const from = src ? packageSlices.get(src) : undefined;
+    return !!from && desktopFilePath(from.file) === target.path;
+  });
+  if (staleOwn) return false;
   const keptIndex = keptAssetIndex(split.kept, tail);
   if (!keptIndex) return false;
 
@@ -764,6 +772,44 @@ async function writeAppendToPath(
     await api.projectAppendAbort(open.id).catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * Projeto aberto pela janela do navegador no app do Mac, já achado no disco: os áudios passam a
+ * ser lidos do arquivo pelo caminho (mesmo lugar no arquivo, só a origem muda). Daí em diante o
+ * ⌘S grava só o que mudou. Só troca os que vieram deste arquivo (mesmo nome, tamanho e data);
+ * áudio novo ou trocado depois de abrir continua como está.
+ */
+async function moveSourcesToPath(state: ProjectState, opened: File, filePath: string): Promise<boolean> {
+  const disk = await desktopFile(filePath);
+  if (disk.size !== opened.size) return false;
+  const same = (f: File) => f === opened
+    || (f.name === opened.name && f.size === opened.size && Math.abs(f.lastModified - opened.lastModified) < 1000);
+  const moved = new Map<Blob, Blob>();
+  const move = (src: Blob | null): Blob | null => {
+    const from = src ? packageSlices.get(src) : undefined;
+    if (!src || !from || from.file === disk || !same(from.file)) return null;
+    let slice = moved.get(src);
+    if (!slice) {
+      slice = disk.slice(from.begin, from.begin + from.size);
+      packageSlices.set(slice, { file: disk, begin: from.begin, size: from.size });
+      moved.set(src, slice);
+    }
+    return slice;
+  };
+  for (const c of state.clips) {
+    const slice = move(getClipSource(c.id));
+    if (slice) registerClipSource(c.id, c.songId, slice);
+  }
+  for (const x of projectExtras()) {
+    const map = new Map<string, Blob>();
+    for (const a of x.assets()) {
+      const slice = move(a.current());
+      if (slice) map.set(a.id, slice);
+    }
+    if (map.size > 0) x.rebind(map);
+  }
+  return true;
 }
 
 /** App do Mac: grava o .vss inteiro num arquivo escondido ao lado e troca no fim. */
@@ -857,11 +903,15 @@ export async function quickSave(state: ProjectState, target: SaveTarget, onProgr
   }
   if (target.kind === 'package') {
     // App do Mac com o projeto aberto pela janela do navegador: o navegador copia o arquivo
-    // inteiro a cada gravação (o .crswap de 20 GB). Pelo caminho do disco, grava só o que mudou.
-    const asPath = desktopProjects() ? desktopFilePath(await target.handle.getFile()) : null;
-    if (asPath) {
-      const pathTarget = { kind: 'path' as const, path: asPath, name: target.handle.name };
-      return { ...(await quickSave(state, pathTarget, onProgress, signal)), target: pathTarget };
+    // inteiro a cada gravação (o .crswap de 20 GB). Achando o arquivo no disco, os áudios passam a
+    // ser lidos de lá e o salvar grava só o que mudou (e as próximas aberturas já vão pelo caminho).
+    if (desktopProjects()) {
+      const opened = await target.handle.getFile();
+      const asPath = await locateDesktopPath(opened);
+      if (asPath && await moveSourcesToPath(state, opened, asPath).catch(() => false)) {
+        const pathTarget = { kind: 'path' as const, path: asPath, name: target.handle.name };
+        return { ...(await quickSave(state, pathTarget, onProgress, signal)), target: pathTarget };
+      }
     }
     // no app do Mac sem achar o caminho: avisa como deixar os próximos salvamentos rápidos
     const slowHint = !!desktopProjects();
@@ -952,7 +1002,7 @@ export async function reopenProject(target: SaveTarget, onProgress: ProgressFn):
     if (target.kind === 'package') {
       const file = await target.handle.getFile();
       // no app do Mac, o projeto passa a ser salvo pelo caminho do disco (rápido, só o que mudou)
-      const asPath = desktopProjects() ? desktopFilePath(file) : null;
+      const asPath = desktopProjects() ? await locateDesktopPath(file) : null;
       if (asPath) return { ...(await readDesktopPackage(asPath, onProgress)), target: { kind: 'path', path: asPath, name: target.handle.name } };
       const loaded = await readPackage(file, onProgress);
       return { ...loaded, target };
