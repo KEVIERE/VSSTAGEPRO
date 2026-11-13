@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Magnet, RefreshCw, Loader2, CheckCheck, Scissors } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
-import { barBeatLabel, gridLines, moveTempoChange, SNAP_LABELS, snapTempoChange, tempoChangeIndex, type SnapStep, type SongGrid } from '@/lib/grid';
+import { barBeatLabel, bpmAt, gridLines, moveTempoChange, SNAP_LABELS, snapTempoChange, tempoChangeIndex, type SnapStep, type SongGrid } from '@/lib/grid';
 import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
 import { trimAllSongEnds, trimSongEnd } from '@/lib/songEndTools';
 import type { VisibleRange } from '@/components/ClipWaveform';
@@ -276,6 +276,7 @@ const METERS: Array<{ value: 3 | 4 | 6; label: string }> = [
 const selectCls = 'console-well h-[20px] !rounded-[3px] border border-black text-2xs text-logic-text px-1 hover:border-logic-accent focus:outline-none focus:border-logic-accent transition-colors';
 
 export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onSelectAll: () => void }) {
+  const bpmHere = useStore((s) => (song ? bpmAt(song, s.transport.currentTime) : 0));
   const snapStep = useStore((s) => s.snapStep);
   const setSnapStep = useStore((s) => s.setSnapStep);
   const updateSong = useStore((s) => s.updateSong);
@@ -338,8 +339,9 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
     }
   };
 
-  const bpmText = song?.bpmDetected && song.bpm
-    ? `${Math.round(song.bpm * 10) / 10} BPM`
+  // BPM do trecho onde o cursor está (muda junto com as marcações de andamento da régua)
+  const bpmText = song?.bpmDetected && bpmHere
+    ? `${Math.round(bpmHere * 10) / 10} BPM`
     : song?.bpmMissing ? 'BPM não encontrado' : 'BPM ?';
 
   return (

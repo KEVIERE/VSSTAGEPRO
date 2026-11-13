@@ -86,6 +86,20 @@ export function snapTime(seconds: number, grid: SongGrid | null, step: SnapStep)
 }
 
 /**
+ * BPM que vale em `seconds`: o do trecho de andamento marcado na régua onde ele cai (medleys), ou o
+ * BPM da música quando não há mudanças. Os mostradores de BPM usam este, não só o do começo.
+ */
+export function bpmAt(song: { bpm?: number; tempoSegments?: SongTempoSegment[] }, seconds: number): number {
+  const segs = song.tempoSegments;
+  if (segs && segs.length > 1) {
+    const sorted = [...segs].sort((a, b) => a.startTime - b.startTime);
+    const seg = sorted[segmentIndexAt(sorted, seconds)];
+    if (seg?.bpm > 0) return seg.bpm;
+  }
+  return song.bpm ?? 0;
+}
+
+/**
  * Início do compasso onde `seconds` está (na grade do trecho de andamento onde ele cai). Clicando
  * já colado na linha seguinte (último 15% do compasso), vale a linha seguinte.
  */

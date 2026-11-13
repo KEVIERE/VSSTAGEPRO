@@ -10,6 +10,7 @@ import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import { formatTime, useShowTotals } from '@/components/ShowRundown';
 import { currentAndNextSlice, paramsAt, sliceDuration } from '@/lib/medley';
 import { effectiveBpm } from '@/lib/musicianApi';
+import { bpmAt } from '@/lib/grid';
 import { songKeyLabel } from '@/lib/musicKey';
 import MetaReadout from '@/components/MetaReadout';
 import DiskLagNotice from '@/components/DiskLagNotice';
@@ -274,7 +275,7 @@ function LiveProgressBar({
  */
 function useSongMeta(song: Song | undefined, at: 'live' | number): { key: string; bpm: string } {
   const detected = useStore((s) => (song ? s.songKeys?.[song.id]?.key : undefined));
-  const [params, setParams] = useState<{ bpmAdjust: number; tuner: number } | null>(null);
+  const [params, setParams] = useState<{ bpmAdjust: number; tuner: number; bpm: number } | null>(null);
   useEffect(() => {
     if (!song) { setParams(null); return; }
     const read = () => {
@@ -284,7 +285,9 @@ function useSongMeta(song: Song | undefined, at: 'live' | number): { key: string
         t = st.transport.isPlaying && audioEngine.isRunning() ? audioEngine.getCurrentTime() : st.transport.currentTime;
       }
       const p = paramsAt(song, t);
-      setParams((prev) => (prev && prev.bpmAdjust === p.bpmAdjust && prev.tuner === p.tuner ? prev : { bpmAdjust: p.bpmAdjust, tuner: p.tuner }));
+      // BPM do trecho de andamento da régua onde o ponto cai (medley), não só o do começo
+      const bpm = bpmAt(song, t);
+      setParams((prev) => (prev && prev.bpmAdjust === p.bpmAdjust && prev.tuner === p.tuner && prev.bpm === bpm ? prev : { bpmAdjust: p.bpmAdjust, tuner: p.tuner, bpm }));
     };
     read();
     if (at !== 'live') return;
@@ -292,8 +295,8 @@ function useSongMeta(song: Song | undefined, at: 'live' | number): { key: string
     return () => window.clearInterval(id);
   }, [song, at]);
   if (!song) return { key: '', bpm: '' };
-  const p = params ?? { bpmAdjust: song.bpmAdjust ?? 0, tuner: song.tuner ?? 0 };
-  const bpm = effectiveBpm(song.bpm, song.bpmDetected, p.bpmAdjust);
+  const p = params ?? { bpmAdjust: song.bpmAdjust ?? 0, tuner: song.tuner ?? 0, bpm: song.bpm };
+  const bpm = effectiveBpm(p.bpm || song.bpm, song.bpmDetected, p.bpmAdjust);
   return { key: songKeyLabel({ musicKey: song.musicKey || detected, tuner: p.tuner }), bpm: bpm ? String(bpm) : '' };
 }
 

@@ -5,6 +5,7 @@ import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
 import { effectiveBpm } from '@/lib/musicianApi';
+import { bpmAt } from '@/lib/grid';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { currentAndNextSlice, isMedley, paramsAt } from '@/lib/medley';
 import { getLiveProgressPct } from '@/lib/playProgress';
@@ -181,10 +182,12 @@ export default function TransportBar() {
   const statusKey = isLoading ? 'loading' : transport.isPlaying ? 'playing' : transport.isPaused ? 'paused' : 'stopped';
   const status = STATUS_STYLES[statusKey];
   const showCurrent = !!currentSong && !transport.isStopped;
-  const baseBpm = currentSong?.bpmDetected && currentSong.bpm ? Math.round(currentSong.bpm) : null;
+  // BPM do trecho onde o cursor está (medley com mudança de andamento na régua), não só o do começo
+  const bpmHere = currentSong ? bpmAt(currentSong, transport.currentTime) : 0;
+  const baseBpm = currentSong?.bpmDetected && bpmHere ? Math.round(bpmHere) : null;
   const slice = activeSlices.current;
   const sliceBpmAdjust = currentSong ? paramsAt(currentSong, transport.currentTime).bpmAdjust : 0;
-  const liveBpm = currentSong ? effectiveBpm(currentSong.bpm, currentSong.bpmDetected, sliceBpmAdjust) : null;
+  const liveBpm = currentSong ? effectiveBpm(bpmHere, currentSong.bpmDetected, sliceBpmAdjust) : null;
   const bpmDelta = baseBpm !== null && liveBpm !== null ? liveBpm - baseBpm : 0;
   const secondsLeft = showCurrent && currentSong
     ? Math.max(0, (currentSong.duration - transport.currentTime) * bpmAdjustToAlpha(currentSong.bpmAdjust ?? 0))

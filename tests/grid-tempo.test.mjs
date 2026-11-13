@@ -51,3 +51,12 @@ test('marcador de BPM crava e gruda no início do compasso', async () => {
   assert.match(ruler, /ev\.altKey \? raw : snapTempoChange\(segs, index, raw, grid\.beatsPerBar, 'bar'\)/, 'arrastar gruda no compasso');
   assert.match(panel, /const clickTime = e\.altKey \? rawTime : barStartAt\(rawTime, grid\);/, 'criar crava no compasso onde clicou');
 });
+
+test('mostradores de BPM seguem o trecho onde o cursor está', async () => {
+  const { bpmAt } = await import('../src/lib/grid.ts');
+  const song = { bpm: 120, tempoSegments: [{ startTime: 0, endTime: 8, bpm: 120 }, { startTime: 8, endTime: 40, bpm: 90 }] };
+  assert.equal(bpmAt(song, 3), 120);
+  assert.equal(bpmAt(song, 8), 90);
+  assert.equal(bpmAt(song, 30), 90);
+  assert.equal(bpmAt({ bpm: 100 }, 30), 100);
+});
