@@ -6,6 +6,7 @@ import MixerPanel, { Fader } from '@/components/MixerPanel';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import { GfKnob } from '@/components/GrafitePieces';
 import { EsKnob } from '@/components/EstudioPieces';
+import { OfKnob } from '@/components/OficinaPieces';
 import { useSkin } from '@/lib/useSkin';
 import { faderToGain } from '@/lib/faderScale';
 import {
@@ -430,6 +431,7 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
   const skin = useSkin();
   const grafite = skin === 'grafite';
   const estudio = skin === 'estudio';
+  const oficina = skin === 'oficina';
   const SEG = 21;
   const angle = -135 + pct * 270;
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -487,7 +489,12 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
         })}
       </svg>
       )}
-      {estudio ? (
+      {oficina ? (
+        // Oficina: o knob cinza-claro de risco escuro, o mesmo do pan dos canais (o anel fica)
+        <div className="absolute" style={{ inset: 15 }}>
+          <OfKnob value={pct * 2 - 1} className="w-full h-full" />
+        </div>
+      ) : estudio ? (
         // Estúdio: o knob cinza com o arco azul, o mesmo do pan dos canais
         <div className="absolute" style={{ inset: 8 }}>
           <EsKnob value={pct * 2 - 1} bipolar={false} className="w-full h-full" />

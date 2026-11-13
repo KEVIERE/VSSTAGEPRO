@@ -6,7 +6,8 @@ import { LedMeter } from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
 import { useSkin } from '@/lib/useSkin';
 import { GfCap, GfFaderMeter, GfKey, GfScreen } from '@/components/GrafitePieces';
-import { ES_CAP_H, ES_FADER_H, ES_FADER_W, ES_SCALE_W, GF_CAP_H, GF_FADER_H } from '@/components/MixerPanel';
+import { ES_CAP_H, ES_FADER_H, ES_FADER_W, ES_SCALE_W, GF_CAP_H, GF_FADER_H, OF_CAP_H, OF_FADER_H } from '@/components/MixerPanel';
+import { OfCap, OfKey, OfMeter, OfName } from '@/components/OficinaPieces';
 import { EsCap, EsDbBoxes, EsKey, EsMeter, EsMeterScale, EsName } from '@/components/EstudioPieces';
 
 export default function TimecodeMixerChannel() {
@@ -24,6 +25,68 @@ export default function TimecodeMixerChannel() {
   const db = volumeToDb(track.volume);
   const dbLabel = db === -Infinity ? '-inf' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
   const noOutput = track.outputChannel === NO_OUTPUT;
+
+  if (skin === 'oficina') {
+    // Oficina: em cima tingido de laranja com a saída e o LTC; embaixo o fader, o medidor e TRAVA / M
+    return (
+      <div className="console-strip of-strip is-tc flex flex-col items-center w-[80px] min-w-[80px] relative" style={{ '--ch': '#e6952c' } as React.CSSProperties}>
+        <div className="of-top w-full flex flex-col items-center gap-[4px] px-[4px] pt-[5px] pb-[6px]">
+          <OutputMenu track={track} />
+          <div className="flex items-center justify-center gap-1 h-[24px] text-[#3a2200]" title="Sinal de controle para telões e luzes">
+            <Clock size={13} />
+            <span className="text-[11px] font-bold">LTC</span>
+          </div>
+        </div>
+        <div className="w-full flex items-center px-[5px] pt-[3px] h-[15px]">
+          <span className="of-vol">{dbLabel}</span>
+        </div>
+        <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
+          <div
+            className="of-fader relative w-[22px]"
+            style={{ height: OF_FADER_H }}
+            onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
+            title={locked ? 'Fader travado. Clique no cadeado para destravar.' : 'Duplo clique = -6 dB'}
+          >
+            <div className="of-slot absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: OF_CAP_H / 2 - 6, bottom: OF_CAP_H / 2 - 6 }} />
+            <OfCap
+              tone="tc"
+              className={`absolute left-0 pointer-events-none ${locked ? 'of-cap-locked' : ''}`}
+              style={{ width: '100%', height: OF_CAP_H, bottom: `calc(${capPct} * (100% - ${OF_CAP_H}px))` }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.01}
+              value={track.volume}
+              disabled={locked}
+              onChange={(e) => setVolume(track.id, parseFloat(e.target.value))}
+              className={`absolute inset-0 w-full h-full opacity-0 ${locked ? 'cursor-not-allowed' : 'cursor-ns-resize'}`}
+              style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
+              aria-label="Volume do timecode"
+            />
+          </div>
+          <div style={{ marginTop: 4 }}>
+            <OfMeter id={track.id} height={OF_FADER_H - 8} off={track.mute || noOutput} />
+          </div>
+          <div className="flex flex-col gap-[4px]" style={{ marginTop: 4 }}>
+            <OfKey label={locked ? 'Travado' : 'Livre'} kind="plain" lit={locked} onClick={() => toggleFaderLock(track.id)} title={locked ? 'Destravar o fader' : 'Travar o fader'}>
+              {locked ? <Lock size={9} /> : <LockOpen size={9} />}
+            </OfKey>
+            <OfKey
+              label="M"
+              kind="m"
+              lit={track.mute}
+              pulse={track.mute}
+              onClick={() => toggleMute(track.id)}
+              title={track.mute ? 'Timecode mudo: clique para voltar a enviar o sinal' : 'Silenciar o timecode'}
+            />
+          </div>
+        </div>
+        <OfName name="Timecode" number="TC" color="#e6952c" />
+      </div>
+    );
+  }
 
   if (skin === 'estudio') {
     // Estúdio: LTC no lugar do pan, dB, fader com linha laranja, cadeado e M, nome em laranja

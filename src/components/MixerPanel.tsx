@@ -13,6 +13,7 @@ import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
 import { GfCap, GfFaderMeter, GfKey, GfKnob, GfScreen, GfTag } from '@/components/GrafitePieces';
 import { EsCap, EsDbBoxes, EsKey, EsKnob, EsMeter, EsMeterScale, EsName, esTrackColor } from '@/components/EstudioPieces';
+import { OfCap, OfKey, OfKnob, OfMeter, OfName, OfPeak, ofTrackColor } from '@/components/OficinaPieces';
 
 // Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
 // nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
@@ -132,6 +133,9 @@ export const GF_FADER_H = 128;
 export const ES_CAP_H = 32;
 export const ES_FADER_H = 128;
 export const ES_SCALE_W = 9;
+// Oficina: capa clara de 28 px, sem escala ao lado (as marcas ficam dentro do medidor)
+export const OF_CAP_H = 36;
+export const OF_FADER_H = 150;
 export const ES_FADER_W = 16;
 
 /** Valor do fader em dB, como aparece nos visores. */
@@ -168,7 +172,8 @@ export function Fader({
   const skin = useSkin();
   const grafite = skin === 'grafite';
   const estudio = skin === 'estudio';
-  const capHeight = grafite ? GF_CAP_H : estudio ? ES_CAP_H : 22;
+  const oficina = skin === 'oficina';
+  const capHeight = grafite ? GF_CAP_H : estudio ? ES_CAP_H : oficina ? OF_CAP_H : 22;
   const travel = height - capHeight;
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const bottomPx = pct * travel;
@@ -206,6 +211,22 @@ export function Fader({
 
   const db = volumeToDb(value);
   const dbLabel = db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
+
+  if (oficina) {
+    // Oficina: só a fenda escura e a capa clara de frisos (as marcas de dB ficam no medidor)
+    return (
+      <div
+        className="of-fader relative cursor-ns-resize select-none"
+        style={{ width: `${width}px`, height: `${height}px`, touchAction: 'none' }}
+        onPointerDown={handleDown}
+        onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
+        title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
+      >
+        <div className="of-slot absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: `${capHeight / 2 - 6}px`, bottom: `${capHeight / 2 - 6}px` }} />
+        <OfCap tone={tone} className="absolute left-0 pointer-events-none" style={{ width: '100%', height: `${capHeight}px`, bottom: `${bottomPx}px` }} />
+      </div>
+    );
+  }
 
   if (estudio) {
     // Estúdio: régua de risquinhos à esquerda (o 0 dB num traço branco maior), trilho fino e a
@@ -346,6 +367,78 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
 
   const isSelected = selectedTrackId === track.id;
   const isClipping = track.clipIndicator;
+
+  if (skin === 'oficina') {
+    // Oficina (editor clássico): em cima, a parte tingida na cor do canal com a saída em pílula e o
+    // knob branco; embaixo, escura, o volume, o fader cromado, o medidor e os botões M / S / AC; no
+    // pé, o nome na cor do canal e o número numa faixa colorida.
+    const color = ofTrackColor(track.color, index);
+    return (
+      <div
+        className={`console-strip of-strip flex flex-col items-center w-[72px] min-w-[72px] cursor-pointer relative ${isSelected ? 'is-selected' : ''}`}
+        style={{ '--ch': color } as React.CSSProperties}
+        onClick={() => selectTrack(track.id)}
+      >
+        <div className="of-top w-full flex flex-col items-center gap-[4px] px-[4px] pt-[5px] pb-[6px]">
+          <OutputMenu track={track} />
+          <div className="w-[24px] h-[24px] relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
+            <OfKnob value={track.pan} className="absolute inset-0 w-full h-full pointer-events-none" />
+          </div>
+        </div>
+        <div className="w-full flex items-center justify-between px-[5px] pt-[3px] h-[15px]">
+          <span className="of-vol">{faderDbText(track.volume)}</span>
+          <OfPeak meterId={track.id} title="Pico do sinal agora (dBFS, últimos 1,5 s)" />
+        </div>
+        <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
+          <Fader
+            value={track.volume}
+            onChange={(v) => setVolume(track.id, v)}
+            onDoubleClick={() => setVolume(track.id, 0.8)}
+            width={22}
+            height={OF_FADER_H}
+            tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
+          />
+          <div style={{ marginTop: 4 }}>
+            <OfMeter
+              id={track.id}
+              height={OF_FADER_H - 8}
+              off={track.mute}
+              clipping={isClipping}
+              onClick={(e) => { e.stopPropagation(); if (isClipping) clearClipIndicator(track.id); }}
+            />
+          </div>
+          <div className="flex flex-col gap-[4px]" style={{ marginTop: 4 }}>
+            <OfKey
+              label="M"
+              kind="m"
+              lit={track.mute}
+              onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+              title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
+            />
+            <OfKey
+              label="S"
+              kind="s"
+              lit={track.solo}
+              onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+              title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
+            />
+            <OfKey
+              label="AC"
+              kind="fx"
+              lit={track.antiClip || isClipping}
+              alert={!track.antiClip && isClipping}
+              pulse={!track.antiClip && isClipping}
+              onClick={(e) => { e.stopPropagation(); toggleAntiClip(track.id); }}
+              title={track.antiClip
+                ? 'Anti-Clip ligado: a saída deste canal não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+                : 'Anti-Clip desligado: clique para limitar a saída deste canal em -0,1 dBFS, sem mudar o volume do resto.'}
+            />
+          </div>
+        </div>
+        <OfName name={track.name} number={index + 1} color={color} selected={isSelected} title={track.name} />
+      </div>
+    );
+  }
 
   if (skin === 'estudio') {
     // Estúdio (DAW do Mac): pan, caixinhas de dB, fader com o medidor, M / S / AC e o nome
@@ -661,7 +754,60 @@ export default function MixerPanel() {
             <MixerChannel key={trackId} trackId={trackId} index={i} />
           ))}
 
-          {skin === 'estudio' ? (
+          {skin === 'oficina' ? (
+            // Master da Oficina: em cima, cinza, o IGUALAR e o roteamento mágico; embaixo o fader
+            <div className="console-strip of-strip is-master flex flex-col items-center w-[72px] min-w-[72px]" style={{ '--ch': '#8f8f8f' } as React.CSSProperties}>
+              <div className="of-top w-full flex flex-col items-center gap-[4px] px-[4px] pt-[5px] pb-[6px]">
+                <div className="min-h-[20px] flex items-center justify-center">
+                  <LevelMatchButton />
+                </div>
+                <button
+                  className={`console-key flex items-center justify-center w-[26px] h-[24px] ${magicRoutingActive ? 'is-lit-green animate-pulse' : ''}`}
+                  onClick={() => toggleMagicRouting()}
+                  aria-pressed={magicRoutingActive}
+                  title="Roteamento mágico: Guia/Click/Maestro → L e Banda → R. O timecode não é alterado. Clique novamente para restaurar."
+                >
+                  <Wand2 size={12} />
+                </button>
+              </div>
+              <div className="w-full flex items-center justify-between px-[5px] pt-[3px] h-[15px]">
+                <span className="of-vol">{faderDbText(masterVolume)}</span>
+                <OfPeak meterId="master" title="Pico da saída agora (dBFS, depois do limiter)" />
+              </div>
+              <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
+                <Fader
+                  value={masterVolume}
+                  onChange={(v) => { setMasterVolume(v); audioEngine.setMasterVolume(v); }}
+                  onDoubleClick={() => { setMasterVolume(0.8); audioEngine.setMasterVolume(0.8); }}
+                  width={22}
+                  height={OF_FADER_H}
+                  tone="master"
+                />
+                <div style={{ marginTop: 4 }}>
+                  <OfMeter
+                    id="master"
+                    height={OF_FADER_H - 8}
+                    clipping={masterIsClipping}
+                    onClick={() => { if (masterIsClipping) clearMasterClipIndicator(); }}
+                  />
+                </div>
+                <div className="flex flex-col gap-[4px]" style={{ marginTop: 4 }}>
+                  <OfKey
+                    label="AC"
+                    kind="fx"
+                    lit={masterAntiClip || masterIsClipping}
+                    alert={!masterAntiClip && masterIsClipping}
+                    pulse={!masterAntiClip && masterIsClipping}
+                    onClick={toggleMasterAntiClip}
+                    title={masterAntiClip
+                      ? 'Anti-Clip ligado: a saída do master não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+                      : 'Anti-Clip desligado: clique para limitar a saída do master em -0,1 dBFS, sem mexer no fader.'}
+                  />
+                </div>
+              </div>
+              <OfName name="MASTER" number="M" color="#8f8f8f" />
+            </div>
+          ) : skin === 'estudio' ? (
             // Master da Estúdio: IGUALAR em cima, roteamento mágico, dB, fader, AC e o nome
             <div className="console-strip es-strip is-master flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[4px] gap-[3px]">
               <div className="min-h-[20px] flex items-center justify-center">

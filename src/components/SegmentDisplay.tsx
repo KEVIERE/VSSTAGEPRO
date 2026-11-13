@@ -89,9 +89,9 @@ export default function SegmentDisplay({
           y={17.4}
           textAnchor="middle"
           fontSize={19}
-          fontWeight={600}
           letterSpacing={-0.4}
-          fontFamily={skin === 'estudio' ? "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif" : "'Inter', system-ui, sans-serif"}
+          fontFamily={skin === 'estudio' || skin === 'oficina' ? "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif" : "'Inter', system-ui, sans-serif"}
+          fontWeight={skin === 'oficina' ? 400 : 600}
           style={{ fontVariantNumeric: 'tabular-nums' }}
           fill="currentColor"
         >

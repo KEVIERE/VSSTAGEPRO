@@ -37,6 +37,7 @@ import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { useSkin } from '@/lib/useSkin';
 import { esChannelOrder, esTrackColor, shade } from '@/components/EstudioPieces';
+import { ofTrackColor } from '@/components/OficinaPieces';
 
 /**
  * A coluna dos nomes das faixas e a régua de cima seguem a rolagem da timeline pelo próprio
@@ -275,9 +276,12 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   const headerWidth = useStore((s) => s.trackHeaderWidth);
   const zoomV = useStore((s) => s.zoomV);
   // Estúdio: a cor da faixa no degradê das DAWs do Mac (só nas faixas com a cor de fábrica)
-  const estudio = useSkin() === 'estudio';
-  const esOrder = useStore((s) => (estudio ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, track.id) : -1));
-  const rowColor = estudio ? esTrackColor(groupColor ?? track.color, esOrder) : track.color;
+  const rowSkin = useSkin();
+  const estudio = rowSkin === 'estudio';
+  const oficina = rowSkin === 'oficina';
+  const esOrder = useStore((s) => (estudio || oficina ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, track.id) : -1));
+  const rowColor = estudio ? esTrackColor(groupColor ?? track.color, esOrder)
+    : oficina ? ofTrackColor(groupColor ?? track.color, esOrder) : track.color;
   const childClipCount = useStore((s) => {
     if (!track.isSubgroup) return 0;
     const childIds = new Set(track.children);
@@ -475,7 +479,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
     <div
       data-selectable="track"
       className={`console-row group relative flex items-center gap-1 pl-2 pr-1.5 cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
-      style={{ height: `${trackHeight}px` }}
+      style={{ height: `${trackHeight}px`, '--ch': rowColor } as React.CSSProperties}
       onClick={() => selectTrack(track.id)}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
       onContextMenu={onRowContextMenu}
@@ -484,7 +488,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="top" />}
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="bottom" />}
       {/* Cor da faixa: friso na borda esquerda */}
-      <span className={`absolute left-0 top-0 bottom-0 pointer-events-none ${estudio ? 'w-[5px]' : 'w-[3px]'}`} style={{ backgroundColor: rowColor }} />
+      <span className={`absolute left-0 top-0 bottom-0 pointer-events-none ${estudio || oficina ? 'w-[5px]' : 'w-[3px]'}`} style={{ backgroundColor: rowColor }} />
 
       {isFolder ? (
         <button
@@ -995,7 +999,9 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
 }) {
   const dawMode = useStore((s) => s.dawMode);
   // Estúdio: o clipe é pintado na cor da faixa (viva) e a onda vai escura por cima
-  const estudio = useSkin() === 'estudio';
+  const clipSkin = useSkin();
+  const estudio = clipSkin === 'estudio';
+  const oficina = clipSkin === 'oficina';
   const trimming = !!trim && trim.ids.has(clip.id);
   const isTrimStart = trimming && trim.side === "start";
   const isTrimEnd = trimming && trim.side !== "start";
@@ -1020,9 +1026,11 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
   if (left > visible.end || left + fullWidth < visible.start) return null;
   const isMuted = !!clip.mute;
   const clipTrack = useStore.getState().tracks.find((t) => t.id === clip.trackId);
-  const trackColor = estudio && clipTrack
-    ? esTrackColor(clipTrack.color, esChannelOrder(useStore.getState().tracks, ROUTABLE_TRACKS, clipTrack.id))
+  const trackColor = (estudio || oficina) && clipTrack
+    ? (estudio ? esTrackColor : ofTrackColor)(clipTrack.color, esChannelOrder(useStore.getState().tracks, ROUTABLE_TRACKS, clipTrack.id))
     : clipTrack?.color || routingColorOf(clip);
+  // Estúdio e Oficina: o clipe é pintado na cor da faixa e a onda vai escura por cima
+  const filled = estudio || oficina;
   const routingColor = isMuted ? '#666670' : trackColor;
   const innerHeight = trackHeight - 4;
   const labelLeft = Math.max(0, visible.start - left);
@@ -1077,9 +1085,9 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
           top: '2px',
           width: `${width}px`,
           height: `${innerHeight}px`,
-          borderColor: isSelected ? '#ffffff' : (isMuted ? '#52525b' : estudio ? 'rgba(0, 0, 0, 0.45)' : routingColor),
+          borderColor: isSelected ? '#ffffff' : (isMuted ? '#52525b' : filled ? 'rgba(0, 0, 0, 0.45)' : routingColor),
           borderWidth: isSelected ? '2px' : '1px',
-          ...(estudio && !isMuted ? { backgroundColor: isSelected ? `color-mix(in srgb, ${routingColor} 85%, white)` : routingColor } : {}),
+          ...(filled && !isMuted ? { backgroundColor: isSelected ? `color-mix(in srgb, ${routingColor} 85%, white)` : routingColor } : {}),
           lineHeight: 0,
           ...(leaving ? { opacity: 0.3 } : {}),
         }}
@@ -1123,7 +1131,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
             height: `${innerHeight}px`,
           }}
         >
-          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} color={estudio && !isMuted ? shade(routingColor, 0.62) : routingColor} />
+          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} color={filled && !isMuted ? shade(routingColor, oficina ? 0.68 : 0.62) : routingColor} />
         </div>
         <FadeHandle
           clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}

@@ -1990,3 +1990,407 @@
     box-shadow: inset 3px 0 0 #0a84ff;
   }
 }
+
+/* ================= Skin Oficina (Visualizar > Skins) =================
+   No jeito dos editores de áudio clássicos: cada canal com a parte de cima tingida na cor dele
+   (saída em pílula e knob branco brilhante) e a de baixo escura (capa cromada em dois blocos,
+   medidor que avermelha acima de -6 dB, botões escuros de letra colorida: M vermelho, S amarelo e
+   o verde no estilo FX); embaixo o nome na cor do canal e o número numa faixa colorida. Na
+   timeline, a faixa inteira tingida, o nome numa pílula e os clipes pintados na cor.
+   Só vale com <html data-skin="oficina">. As regras das peças antigas (console-*) usam :where()
+   para pesar o mesmo que as da Analógica; as de fonte e da pílula de saída usam :root[data-skin].
+   As peças of-* só existem na Oficina (src/components/OficinaPieces.tsx). */
+
+@layer base {
+  :root[data-skin='oficina'] {
+    --lg-bg: 51 51 51;
+    --lg-bg-deep: 38 38 38;
+    --lg-bg-panel: 56 56 56;
+    --lg-bg-panel-light: 68 68 68;
+    --lg-bg-elevated: 80 80 80;
+    --lg-border: 30 30 30;
+    --lg-border-light: 92 92 92;
+    --lg-border-dark: 18 18 18;
+    --lg-text: 226 226 226;
+    --lg-text-dim: 176 176 176;
+    --lg-text-muted: 132 132 132;
+    --lg-accent: 47 196 142;
+    --lg-accent-hover: 80 214 166;
+    --lg-accent-dim: 30 150 108;
+    --lg-lcd-bg: 34 34 34;
+    --lg-lcd-text: 214 214 214;
+    --lg-lcd-amber: 240 160 60;
+    --lg-lcd-green: 72 214 128;
+    --lg-lcd-red: 236 74 60;
+    --lg-lcd-yellow: 242 211 60;
+  }
+  :root[data-skin='oficina'] body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  }
+}
+
+@layer components {
+  :root[data-skin='oficina'] :is(.font-stage, .console-key, .console-flatkey, .console-legend, .console-readout, .console-tape, .console-scale) {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  /* ---------- Painéis ---------- */
+  :where([data-skin='oficina']) .console-face {
+    background-color: #333333;
+    background-image: none;
+  }
+  :where([data-skin='oficina']) .console-screws {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  :where([data-skin='oficina']) .console-rail {
+    background-color: #2a2a2a;
+    background-image: none;
+    box-shadow: inset 0 -1px 0 #141414;
+  }
+  :where([data-skin='oficina']) .console-bed {
+    background-color: #1c1c1c;
+  }
+
+  /* ---------- Canal do mixer ---------- */
+  :where([data-skin='oficina']) .console-strip {
+    background-color: #232323;
+    box-shadow: inset -1px 0 0 #121212, inset 1px 0 0 rgba(255, 255, 255, 0.04);
+  }
+  :where([data-skin='oficina']) .console-strip.is-selected {
+    background-color: #2b2b2b;
+  }
+  /* parte de cima tingida na cor do canal */
+  .of-top {
+    background: color-mix(in srgb, var(--ch) 50%, #a3a3a3);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.06));
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.35), inset -1px 0 0 rgba(0, 0, 0, 0.18);
+  }
+  .of-strip.is-selected .of-top {
+    background: color-mix(in srgb, var(--ch) 62%, #c8c8c8);
+  }
+  /* a saída vira uma pílula escura translúcida em cima da cor */
+  :root[data-skin='oficina'] .of-top > button {
+    border: 0;
+    border-radius: 9999px;
+    padding: 2px 6px;
+    background: rgba(0, 0, 0, 0.26);
+    color: #ffffff;
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 500;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  .of-vol,
+  .of-peak {
+    font-size: 9.5px;
+    line-height: 12px;
+    font-variant-numeric: tabular-nums;
+    color: #9a9a9a;
+  }
+  .of-peak {
+    color: #6fcf8e;
+  }
+  .of-peak.is-red {
+    color: #ff6a5a;
+  }
+
+  /* fader: fenda preta comprida e a capa cromada */
+  .of-slot {
+    width: 3px;
+    border-radius: 1px;
+    background: #000;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  .of-cap {
+    filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.7));
+  }
+  .of-cap-locked {
+    outline: 1px solid #e6952c;
+    outline-offset: 1px;
+    border-radius: 4px;
+  }
+  .of-knob {
+    overflow: visible;
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  }
+
+  /* medidor escuro; avermelha quando o som passa de -6 dB */
+  .of-meter {
+    width: 11px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    cursor: default;
+  }
+  .of-meter-clip {
+    flex: 0 0 3px;
+    background: #2a2a2a;
+  }
+  .of-meter-clip.is-on {
+    background: #ff3b30;
+    box-shadow: 0 0 5px rgba(255, 59, 48, 0.8);
+    cursor: pointer;
+  }
+  .of-meter-bar {
+    position: relative;
+    flex: 1;
+    background: #191919;
+    overflow: hidden;
+    transition: background-color 150ms;
+  }
+  .of-meter.is-hot .of-meter-bar {
+    background: #5c2416;
+  }
+  .of-meter-fill {
+    position: absolute;
+    inset: 0 2px;
+    background: linear-gradient(to top, #27c75f 0%, #27c75f 82%, #e8c23a 90%, #ff4d2e 100%);
+  }
+  .of-meter-peak {
+    position: absolute;
+    left: 1px;
+    right: 1px;
+    height: 1px;
+    background: #ffffff;
+  }
+  .of-meter-mark {
+    position: absolute;
+    left: 0;
+    right: 0;
+    transform: translateY(50%);
+    text-align: center;
+    font-size: 6px;
+    line-height: 1;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .of-meter.is-hot .of-meter-mark {
+    color: #ff8a55;
+    text-shadow: 0 0 2px #000;
+  }
+
+  /* ---------- Botões ---------- */
+  :where([data-skin='oficina']) .console-key,
+  :where([data-skin='oficina']) .logic-btn,
+  :where([data-skin='oficina']) .logic-btn-transport {
+    font-weight: 600;
+    color: #d6d6d6;
+    background-color: #2c2c2c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0.18));
+    border: 1px solid #0e0e0e;
+    border-radius: 3px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  :where([data-skin='oficina']) .console-key:hover,
+  :where([data-skin='oficina']) .logic-btn:hover,
+  :where([data-skin='oficina']) .logic-btn-transport:hover {
+    color: #ffffff;
+    background-color: #383838;
+  }
+  :where([data-skin='oficina']) .console-key:active,
+  :where([data-skin='oficina']) .logic-btn-transport:active {
+    transform: none;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-amber {
+    color: #2a2200;
+    background-color: #f2d33c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(0, 0, 0, 0.08));
+    border-color: #6b5a10;
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-red {
+    color: #ffffff;
+    background-color: #d8392b;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(0, 0, 0, 0.12));
+    border-color: #5a120c;
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-green,
+  :where([data-skin='oficina']) .console-key.\!bg-\[\#3a3326\] {
+    color: #ffffff !important;
+    background-color: #2fc48e !important;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(0, 0, 0, 0.1));
+    border-color: #0f5a3e;
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-blue {
+    color: #ffffff;
+    background-color: #2fc48e;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(0, 0, 0, 0.1));
+    border-color: #0f5a3e;
+  }
+  :where([data-skin='oficina']) .console-key.is-big {
+    border-radius: 4px;
+  }
+  /* botões do canal: letra colorida no botão escuro */
+  .of-key {
+    width: 19px;
+    height: 17px;
+    padding: 0;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    line-height: 1;
+  }
+  :where([data-skin='oficina']) .of-key.is-m:not(.is-lit-red) { color: #ff5d4d; }
+  :where([data-skin='oficina']) .of-key.is-s:not(.is-lit-amber) { color: #f2d33c; }
+  :where([data-skin='oficina']) .of-key.is-fx:not(.is-lit-green):not(.is-lit-red) {
+    color: #bff5df;
+    background-color: #1f6b50;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.15));
+    border-color: #0b3a2a;
+    font-size: 8.5px !important;
+  }
+  :where([data-skin='oficina']) .of-key.is-fx { font-size: 8.5px !important; }
+  :where([data-skin='oficina']) .console-flatkey {
+    font-weight: 700;
+    color: #d6d6d6;
+    background-color: #2c2c2c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0.15));
+    border: 1px solid #0e0e0e;
+    border-radius: 3px;
+  }
+  :where([data-skin='oficina']) .console-flatkey.is-lit-amber {
+    color: #2a2200;
+    background-color: #f2d33c;
+    border-color: #6b5a10;
+  }
+  :where([data-skin='oficina']) .console-led.is-on-green {
+    background: #48d680;
+    box-shadow: 0 0 3px rgba(72, 214, 128, 0.7);
+  }
+  :where([data-skin='oficina']) .console-led.is-on-amber {
+    background: #f2d33c;
+    box-shadow: 0 0 3px rgba(242, 211, 60, 0.7);
+  }
+
+  /* nome na cor do canal (fundo claro quando selecionado) e o número numa faixa colorida */
+  .of-name {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .of-name-text {
+    height: 16px;
+    padding: 0 3px;
+    font-size: 10.5px;
+    line-height: 16px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: color-mix(in srgb, var(--ch) 75%, #ffffff);
+    background: #1a1a1a;
+    box-shadow: inset -1px 0 0 #0e0e0e;
+  }
+  .of-name.is-selected .of-name-text {
+    color: #161616;
+    background: #e4e4e4;
+  }
+  .of-name-num {
+    height: 15px;
+    font-size: 10px;
+    line-height: 15px;
+    text-align: center;
+    font-weight: 600;
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+    background: var(--ch);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.3);
+  }
+
+  /* ---------- Visores ---------- */
+  :where([data-skin='oficina']) .logic-lcd,
+  :where([data-skin='oficina']) .console-display {
+    border-color: #161616;
+    border-radius: 2px;
+    background-image: none;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5);
+  }
+  :where([data-skin='oficina']) .console-readout {
+    background-color: #222222;
+    border-radius: 2px;
+  }
+  :where([data-skin='oficina']) .console-bezel {
+    padding: 2px;
+    border-radius: 3px;
+    background: #1e1e1e;
+    box-shadow: none;
+  }
+  :where([data-skin='oficina']) .console-legend {
+    letter-spacing: 0;
+    color: #a8a8a8;
+  }
+  :where([data-skin='oficina']) .console-glow {
+    text-shadow: none;
+  }
+
+  /* ---------- Timeline: faixa inteira tingida, nome numa pílula ---------- */
+  :where([data-skin='oficina']) .console-row {
+    background-color: color-mix(in srgb, var(--ch, #8a8a8a) 48%, #9c9c9c);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(0, 0, 0, 0.05));
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.45);
+  }
+  :where([data-skin='oficina']) .console-row:hover {
+    background-color: color-mix(in srgb, var(--ch, #8a8a8a) 55%, #a6a6a6);
+  }
+  :where([data-skin='oficina']) .console-row.is-selected {
+    background-color: color-mix(in srgb, var(--ch, #8a8a8a) 60%, #b8b8b8);
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+  }
+  :where([data-skin='oficina']) .console-row-child {
+    background-color: #4a4a4a;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.45);
+  }
+  :where([data-skin='oficina']) .console-row-child.is-selected {
+    background-color: #5a5a5a;
+  }
+  :where([data-skin='oficina']) .console-tape {
+    font-weight: 500;
+    font-size: 11px;
+    color: #e8e8e8;
+    background: #262626;
+    clip-path: none;
+    border-radius: 9999px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  :where([data-skin='oficina']) .console-row.is-selected .console-tape {
+    color: #161616;
+    background: #ededed;
+  }
+
+  /* fader de pitch dos pads e o deitado da timeline: capa clara */
+  :where([data-skin='oficina']) .console-slot {
+    background: #000;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+  :where([data-skin='oficina']) .console-cap {
+    border-radius: 3px;
+    background:
+      linear-gradient(to bottom, transparent calc(50% - 1px), #0c0c0c calc(50% - 1px), #0c0c0c calc(50% + 1px), transparent calc(50% + 1px)),
+      linear-gradient(to bottom, #ffffff, #d6d6d6 30%, #8c8c8c 48%, #f4f4f4 52%, #c4c4c4 70%, #5c5c5c);
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.6), 0 0 0 1px #0a0a0a;
+  }
+  :where([data-skin='oficina']) .console-cap.is-horizontal {
+    background:
+      linear-gradient(to right, transparent calc(50% - 1px), #0c0c0c calc(50% - 1px), #0c0c0c calc(50% + 1px), transparent calc(50% + 1px)),
+      linear-gradient(to bottom, #ffffff, #c4c4c4 45%, #6a6a6a);
+  }
+  :where([data-skin='oficina']) .console-well {
+    background-color: #191919;
+  }
+  :where([data-skin='oficina']) .console-meter-segments {
+    background: none;
+  }
+  :where([data-skin='oficina']) .console-pad {
+    border-radius: 3px;
+    border-color: #0e0e0e;
+    background-color: #2c2c2c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.15));
+  }
+  :where([data-skin='oficina']) .console-pad.is-active {
+    background-color: color-mix(in srgb, var(--pad-color) 60%, #2c2c2c);
+  }
+  :where([data-skin='oficina']) .cue-row.is-selected {
+    background-color: rgba(47, 196, 142, 0.16);
+    box-shadow: inset 3px 0 0 #2fc48e;
+  }
+}

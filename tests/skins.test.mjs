@@ -15,7 +15,9 @@ const grafiteAt = css.indexOf('/* ================= Skin Grafite');
 const estudioAt = css.indexOf('/* ================= Skin Estúdio');
 const analogCss = css.slice(0, grafiteAt);
 const grafiteCss = css.slice(grafiteAt, estudioAt);
-const estudioCss = css.slice(estudioAt);
+const oficinaAt = css.indexOf('/* ================= Skin Oficina');
+const estudioCss = css.slice(estudioAt, oficinaAt);
+const oficinaCss = css.slice(oficinaAt);
 
 /** Cada regra da seção começa por um dos prefixos (presa à marca da skin ou peça só dela). */
 function scopedOnly(section, prefixes) {
@@ -35,11 +37,12 @@ function fakePage() {
   return store;
 }
 
-test('três skins: Analógica (padrão), Grafite e Estúdio', () => {
-  assert.deepEqual(SKINS.map((s) => s.id), ['analogica', 'grafite', 'estudio']);
+test('quatro skins: Analógica (padrão), Grafite, Estúdio e Oficina', () => {
+  assert.deepEqual(SKINS.map((s) => s.id), ['analogica', 'grafite', 'estudio', 'oficina']);
   assert.equal(DEFAULT_SKIN, 'analogica');
   assert.ok(isSkin('grafite') && isSkin('estudio') && !isSkin('azul') && !isSkin(null));
-  assert.ok(SKINS.every((s) => !/logic/i.test(s.label)), 'sem nome de marca');
+  assert.ok(SKINS.every((s) => !/logic|reaper/i.test(s.label + s.hint)), 'sem nome de marca');
+  assert.ok(isSkin('oficina'));
 });
 
 test('a escolha fica guardada; sem escolha (ou com lixo guardado) abre na Analógica', () => {
@@ -91,7 +94,9 @@ test('as cores da Analógica são as mesmas de antes (hex antigos do tailwind.co
 test('Grafite e Estúdio só valem com a marca na página: nada delas vaza para a Analógica', () => {
   assert.ok(grafiteAt > 0 && estudioAt > grafiteAt);
   scopedOnly(grafiteCss, [":where([data-skin='grafite'])", ":root[data-skin='grafite']", '.gf-']);
+  assert.ok(oficinaAt > estudioAt);
   scopedOnly(estudioCss, [":where([data-skin='estudio'])", ":root[data-skin='estudio']", '.es-']);
+  scopedOnly(oficinaCss, [":where([data-skin='oficina'])", ":root[data-skin='oficina']", '.of-']);
   // as classes novas que a Analógica também carrega não têm desenho nela
   for (const cls of ['console-faderbed', 'console-bed', 'console-screws']) {
     assert.doesNotMatch(analogCss, new RegExp(`\\.${cls}\\b`), cls);
@@ -132,8 +137,8 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<EsName name="Timecode"/);
   assert.match(read('src', 'components', 'MiniFader.tsx'), /className="es-hslider-fill"/, 'volume da faixa com o verde');
   const tl = read('src', 'components', 'TimelinePanel.tsx');
-  assert.match(tl, /color=\{estudio && !isMuted \? shade\(routingColor, 0\.62\) : routingColor\}/, 'onda escura no clipe colorido');
-  assert.match(tl, /esTrackColor\(clipTrack\.color, esChannelOrder\(useStore\.getState\(\)\.tracks, ROUTABLE_TRACKS, clipTrack\.id\)\)/, 'clipe na mesma cor do canal');
+  assert.match(tl, /color=\{filled && !isMuted \? shade\(routingColor, oficina \? 0\.68 : 0\.62\) : routingColor\}/, 'onda escura no clipe colorido');
+  assert.match(tl, /\(estudio \? esTrackColor : ofTrackColor\)\(clipTrack\.color, esChannelOrder\(useStore\.getState\(\)\.tracks, ROUTABLE_TRACKS, clipTrack\.id\)\)/, 'clipe na mesma cor do canal');
   assert.match(mixer, /const color = esTrackColor\(track\.color, index\);/);
   assert.match(mixer, /\{skin === 'estudio' && <EsRowLabels \/>\}/, 'nomes das linhas na lateral do mixer');
   assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<EsKnob value=\{pct \* 2 - 1\} bipolar=\{false\}/);
@@ -154,4 +159,19 @@ test('Estúdio: os números da escala do medidor não ficam um em cima do outro'
     const gap = (pct(marks[i - 1]) - pct(marks[i])) * meterPx;
     assert.ok(gap >= 9, `${marks[i - 1]} e ${marks[i]} a ${gap.toFixed(1)} px`);
   }
+});
+
+test('Oficina: canal tingido, botões quadrados, medidor com marcas e nome com número', () => {
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.match(mixer, /if \(oficina\) \{\s*\/\/ Oficina: só a fenda escura e a capa clara de frisos/);
+  assert.match(mixer, /const color = ofTrackColor\(track\.color, index\);/);
+  assert.match(mixer, /<OfName name=\{track\.name\} number=\{index \+ 1\} color=\{color\}/);
+  assert.match(mixer, /<OfName name="MASTER" number="M"/);
+  assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<OfName name="Timecode" number="TC"/);
+  const pieces = read('src', 'components', 'OficinaPieces.tsx');
+  assert.match(pieces, /const hot = !off && db > -6;/, 'medidor avermelha acima de -6 dB');
+  assert.match(pieces, /export const OF_METER_MARKS = \[-6, -18, -30, -42, -54\];/);
+  const tl = read('src', 'components', 'TimelinePanel.tsx');
+  assert.match(tl, /style=\{\{ height: `\$\{trackHeight\}px`, '--ch': rowColor \} as React\.CSSProperties\}/, 'faixa tingida na cor');
+  assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<OfKnob value=\{pct \* 2 - 1\}/);
 });
