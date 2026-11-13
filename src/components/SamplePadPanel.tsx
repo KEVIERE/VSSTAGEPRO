@@ -11,11 +11,11 @@ import { useSkin } from '@/lib/useSkin';
 import { VsKnobFace } from '@/components/AnalogPieces';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, fadeAllPads, importPadFile, keepPadsReady, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
+  clearPad, fadeAllPads, importPadFile, keepPadsReady, toggleTrimPad, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
   setPadsFx, setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
-  BANK_COUNT, BANK_LABELS, DEFAULT_PAD_FX, PAD_COLORS, filterLabel, rollLabel, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
+  BANK_COUNT, BANK_LABELS, DEFAULT_PAD_FX, PAD_COLORS, filterLabel, isTrimmed, rollLabel, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
   getPadsState, lastPlaying, padForKey, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchedDuration,
   setPadsState, slotPad, subscribePads, togglePadsPanel, usablePadOutput, type PadInfo, type PadOutput,
 } from '@/lib/samplePads';
@@ -157,11 +157,21 @@ function SamplePadPanel() {
           <PlayingDisplay />
           <DetailsDisplay info={selected} number={slotPad(st.selected) + 1} bank={st.bank} output={st.output} />
           <PitchFader value={selected?.pitch ?? 0} disabled={!selected} onChange={(v) => set({ pitch: v })} />
-          <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Efeitos do pad escolhido">
+          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Efeitos do pad escolhido">
             <FxKey label="REVERB" on={!!selected?.reverb} lit="is-lit-blue" disabled={!selected} onClick={() => set({ reverb: !selected?.reverb })} title="Reverb: sala com cauda de 2 segundos" />
             <FxKey label="DELAY" on={!!selected?.delay} lit="is-lit-blue" disabled={!selected} onClick={() => set({ delay: !selected?.delay })} title="Delay: repete no tempo da música (uma semínima)" />
             <FxKey label="REVERSO" on={!!selected?.reverse} lit="is-lit-amber" disabled={!selected} onClick={() => set({ reverse: !selected?.reverse })} title="Toca o som de trás para frente (vale no próximo toque)" />
             <FxKey label="LOOP" on={!!selected?.loop} lit="is-lit-green" disabled={!selected} onClick={() => set({ loop: !selected?.loop })} title="Repete até apertar o pad de novo" />
+            <FxKey
+              label="CORTAR"
+              on={!!selected && isTrimmed(selected)}
+              lit="is-lit-green"
+              disabled={!selected}
+              onClick={() => { if (selected) void toggleTrimPad(selected.slot); }}
+              title={selected && isTrimmed(selected)
+                ? 'Som cortado: começa bem na cabeça e termina sem o silêncio. Clique para voltar ao som inteiro.'
+                : 'Corta o silêncio do começo e do fim do som, para ele sair bem na cabeça (o arquivo guardado não muda).'}
+            />
           </div>
           <FxKnobs />
           <div className="flex items-center gap-1.5 mt-auto">
@@ -363,7 +373,7 @@ function FxKey({ label, on, lit, disabled, onClick, title }: {
   return (
     <button
       type="button"
-      className={`console-key h-8 text-[10.5px] flex flex-col items-center justify-center gap-0.5 ${on ? lit : ''}`}
+      className={`console-key h-8 text-[9.5px] tracking-tight flex flex-col items-center justify-center gap-0.5 min-w-0 ${on ? lit : ''}`}
       onClick={onClick}
       disabled={disabled}
       aria-pressed={on}
@@ -789,6 +799,14 @@ function PadEditor({ info, anchor, onClose, onReplace, onClear }: {
           ))}
         </div>
       </div>
+      <button
+        type="button"
+        className={`console-key h-7 px-2.5 ${isTrimmed(info) ? 'is-lit-green' : ''}`}
+        onClick={() => void toggleTrimPad(info.slot)}
+        title="Corta o silêncio do começo e do fim do som (o arquivo guardado não muda)"
+      >
+        {isTrimmed(info) ? 'Voltar o som inteiro' : 'Cortar o silêncio (começo e fim)'}
+      </button>
       <div className="flex items-center gap-1.5 pt-2 border-t border-black/60">
         <button type="button" className="console-key h-7 px-2.5 flex-1" onClick={onReplace}>Trocar som...</button>
         <button type="button" className="console-key h-7 px-2.5 hover:!text-logic-lcd-red" onClick={onClear}>Limpar</button>

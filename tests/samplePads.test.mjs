@@ -184,7 +184,8 @@ test('motor dos pads: atraso mínimo, saída escolhida, efeitos e medidor', () =
   assert.match(player, /const merger = o\.ctx\.createChannelMerger\(n\);/, 'liga a soma na saída escolhida da placa');
   assert.match(player, /return faderToGain\(master\) \* \(viaMaster \? faderToGain\(useStore\.getState\(\)\.masterVolume\) : 1\);/, 'o fader master só vale no Master');
   assert.match(player, /src\.playbackRate\.value = pitchRate\(info\.pitch\);/);
-  assert.match(player, /src\.buffer = info\.reverse \? reversedBuffer\(slot, buffer\) : buffer;/);
+  assert.match(player, /src\.buffer = playableBuffer\(slot, info, buffer\);/);
+  assert.match(player, /return info\.reverse \? reversedBuffer\(slot, cut\) : cut;/);
   assert.match(player, /connectSends\(voice, o, info\.reverb, info\.delay\);/);
   assert.match(player, /publishMeters\(new Map\(\[\['pads', meterLevel\]\]\)\);/);
   assert.match(player, /export function triggerPad\(slot: number\): void \{\s*selectPad\(slot\);/, 'apertar o pad escolhe ele');
@@ -244,4 +245,34 @@ test('pads sempre prontos no Modo Show: saída acordada e efeitos na hora', () =
   assert.match(panel, /return \(\) => keepPadsReady\(false\)/);
   assert.match(panel, /<FxKnobs \/>/);
   assert.match(panel, /<MixerPanel fit \/>/, 'o mixer do Modo Show se ajusta ao espaço');
+});
+
+test('cortar o silêncio do começo e do fim: o som sai bem na cabeça', async () => {
+  const m = await import('../src/lib/samplePads.ts');
+  const sr = 1000;
+  const ch = new Float32Array(1200);
+  for (let i = 300; i < 800; i++) ch[i] = 0.5;
+  const b = m.findSoundBounds([ch], sr);
+  assert.ok(b);
+  assert.ok(Math.abs(b.start - 0.299) < 1e-9, '1 ms antes do primeiro som');
+  assert.ok(Math.abs(b.end - 0.83) < 1e-9, '30 ms depois do último som');
+  assert.equal(m.findSoundBounds([new Float32Array(500)], sr), null, 'só silêncio: nada para cortar');
+  const info = { duration: 1.2, pitch: 0, trimStart: b.start, trimEnd: b.end };
+  assert.deepEqual(m.trimRegion(info), { start: b.start, end: b.end });
+  assert.deepEqual(m.trimRegion({ duration: 1.2 }), { start: 0, end: 1.2 }, 'sem corte: o arquivo inteiro');
+  assert.ok(m.isTrimmed(info) && !m.isTrimmed({}));
+  assert.ok(Math.abs(m.pitchedDuration(info) - (b.end - b.start)) < 1e-9, 'o tamanho mostrado já é o cortado');
+});
+
+test('roll preso na grade do pedaço, a partir do começo do som', async () => {
+  const m = await import('../src/lib/samplePads.ts');
+  assert.equal(m.rollSliceStart(0.37, 0.125, 2), 0.25);
+  assert.equal(m.rollSliceStart(0.25, 0.125, 2), 0.25);
+  assert.ok(Math.abs(m.rollSliceStart(1.99, 0.5, 2) - 1.5) < 1e-9, 'nunca passa do fim do som');
+  const player = fs.readFileSync(new URL('../src/lib/padPlayer.ts', import.meta.url), 'utf8');
+  assert.match(player, /applyRoll\(slot, voice, onsetOf\(src\.buffer\)\)/, 'roll ligado antes do toque: começa no primeiro som');
+  assert.match(player, /src\.start\(0, offset\);/);
+  assert.match(player, /export async function toggleTrimPad/);
+  const panel = fs.readFileSync(new URL('../src/components/SamplePadPanel.tsx', import.meta.url), 'utf8');
+  assert.match(panel, /label="CORTAR"/);
 });

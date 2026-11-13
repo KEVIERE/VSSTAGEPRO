@@ -275,8 +275,8 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   const pickTrack = useStore((s) => s.pickTrack);
   // clique escolhe esta faixa; ⌘ soma ou tira; Shift vai da última clicada até esta (ordem da tela)
   const onPick = (e: React.MouseEvent) => pickTrack(track.id, trackPickMode(e), trackOrderOnScreen('data-track-row'));
-  const toggleMute = useStore((s) => s.toggleMute);
-  const toggleSolo = useStore((s) => s.toggleSolo);
+  const toggleMute = useStore((s) => s.toggleMuteLinked);
+  const toggleSolo = useStore((s) => s.toggleSoloLinked);
   const setVolume = useStore((s) => s.setVolumeLinked);
   const headerWidth = useStore((s) => s.trackHeaderWidth);
   const zoomV = useStore((s) => s.zoomV);
@@ -534,7 +534,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
           <AnVolumeKnob
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
-            onReset={() => setVolume(track.id, 0.8)}
+            onReset={() => setVolume(track.id, 0.8, true)}
             size={compact ? 22 : 30}
           />
         </div>
@@ -544,7 +544,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
           <MiniFader
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
-            onReset={() => setVolume(track.id, 0.8)}
+            onReset={() => setVolume(track.id, 0.8, true)}
             width={44}
             height={compact ? 12 : 14}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}

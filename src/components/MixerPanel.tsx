@@ -324,18 +324,21 @@ export function Fader({
   );
 }
 
-// Arrastar o knob de pan para os lados; duplo clique volta ao centro.
-function panKnobProps(trackId: string, pan: number, setPan: (id: string, v: number) => void) {
+// Arrastar o knob de pan para os lados; duplo clique volta ao centro. Com várias faixas
+// selecionadas, todas andam juntas, e o arrasto inteiro é um passo só no Desfazer.
+function panKnobProps(trackId: string, pan: number, setPan: (id: string, v: number, absolute?: boolean) => void) {
   return {
-    onDoubleClick: (e: React.MouseEvent) => { e.stopPropagation(); setPan(trackId, 0); },
+    onDoubleClick: (e: React.MouseEvent) => { e.stopPropagation(); setPan(trackId, 0, true); },
     onMouseDown: (e: React.MouseEvent) => {
       e.stopPropagation();
       const startX = e.clientX;
+      beginHistoryGesture();
       const onMove = (ev: MouseEvent) => {
         const delta = (ev.clientX - startX) / 50;
         setPan(trackId, Math.max(-1, Math.min(1, pan + delta)));
+        historyGestureStep();
       };
-      const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+      const onUp = () => { endHistoryGesture(); window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
     },
@@ -365,10 +368,10 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
 }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === trackId));
   const setVolume = useStore((s) => s.setVolumeLinked);
-  const setPan = useStore((s) => s.setPan);
-  const toggleMute = useStore((s) => s.toggleMute);
-  const toggleSolo = useStore((s) => s.toggleSolo);
-  const toggleAntiClip = useStore((s) => s.toggleAntiClip);
+  const setPan = useStore((s) => s.setPanLinked);
+  const toggleMute = useStore((s) => s.toggleMuteLinked);
+  const toggleSolo = useStore((s) => s.toggleSoloLinked);
+  const toggleAntiClip = useStore((s) => s.toggleAntiClipLinked);
   const clearClipIndicator = useStore((s) => s.clearClipIndicator);
   const isPicked = useStore((s) => s.selectedTrackIds.includes(trackId));
   const pickTrack = useStore((s) => s.pickTrack);
@@ -414,7 +417,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
           <Fader
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
-            onDoubleClick={() => setVolume(track.id, 0.8)}
+            onDoubleClick={() => setVolume(track.id, 0.8, true)}
             width={16}
             height={OF_FADER_H}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
@@ -481,7 +484,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
           <Fader
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
-            onDoubleClick={() => setVolume(track.id, 0.8)}
+            onDoubleClick={() => setVolume(track.id, 0.8, true)}
             width={ES_FADER_W}
             height={ES_FADER_H}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
@@ -587,7 +590,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
           <Fader
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
-            onDoubleClick={() => setVolume(track.id, 0.8)}
+            onDoubleClick={() => setVolume(track.id, 0.8, true)}
             width={24}
             height={GF_FADER_H}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
@@ -631,7 +634,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
         <Fader
           value={track.volume}
           onChange={(v) => setVolume(track.id, v)}
-          onDoubleClick={() => setVolume(track.id, 0.8)}
+          onDoubleClick={() => setVolume(track.id, 0.8, true)}
           width={24}
           height={120}
           tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}

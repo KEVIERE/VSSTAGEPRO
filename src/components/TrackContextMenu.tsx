@@ -76,9 +76,9 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const renameTrack = useStore((s) => s.renameTrack);
   const setTrackColor = useStore((s) => s.setTrackColorLinked);
   const moveTrackToFolder = useStore((s) => s.moveTrackToFolder);
-  const setOutputChannel = useStore((s) => s.setOutputChannel);
-  const toggleMute = useStore((s) => s.toggleMute);
-  const toggleSolo = useStore((s) => s.toggleSolo);
+  const setOutputChannel = useStore((s) => s.setOutputChannelLinked);
+  const toggleMute = useStore((s) => s.toggleMuteLinked);
+  const toggleSolo = useStore((s) => s.toggleSoloLinked);
   const normalizeTrack = useStore((s) => s.normalizeTrack);
   const createTrack = useStore((s) => s.createTrack);
   const deleteTrack = useStore((s) => s.deleteTrack);

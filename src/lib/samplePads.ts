@@ -40,6 +40,12 @@ export interface PadInfo {
   delay: boolean;
   /** Toca de trás para frente. */
   reverse: boolean;
+  /**
+   * Corte do silêncio (segundos do arquivo): o som toca de `trimStart` a `trimEnd`. Sem os dois,
+   * toca o arquivo inteiro. O arquivo guardado nunca muda.
+   */
+  trimStart?: number;
+  trimEnd?: number;
   /** Tipo do arquivo (audio/wav, audio/mpeg...), para guardar e salvar no projeto. */
   type?: string;
 }
@@ -123,9 +129,48 @@ export function pitchRate(semitones: number): number {
   return Math.pow(2, clampPitch(semitones) / 12);
 }
 
-/** Tempo que o som leva com o pitch (mais agudo = mais rápido). */
-export function pitchedDuration(info: Pick<PadInfo, 'duration' | 'pitch'>): number {
-  return info.duration / pitchRate(info.pitch);
+/** Trecho que toca (segundos do arquivo): o corte, se houver, ou o arquivo inteiro. */
+export function trimRegion(info: Pick<PadInfo, 'duration' | 'trimStart' | 'trimEnd'>): { start: number; end: number } {
+  const d = Math.max(0, info.duration);
+  if (info.trimStart === undefined || info.trimEnd === undefined) return { start: 0, end: d };
+  const start = Math.max(0, Math.min(d, info.trimStart));
+  const end = Math.max(start, Math.min(d, info.trimEnd));
+  return end - start > 0.005 ? { start, end } : { start: 0, end: d };
+}
+
+export function isTrimmed(info: Pick<PadInfo, 'trimStart' | 'trimEnd'>): boolean {
+  return info.trimStart !== undefined && info.trimEnd !== undefined;
+}
+
+/** Tempo que o som leva com o pitch (mais agudo = mais rápido), já com o corte. */
+export function pitchedDuration(info: Pick<PadInfo, 'duration' | 'pitch' | 'trimStart' | 'trimEnd'>): number {
+  const r = trimRegion(info);
+  return (r.end - r.start) / pitchRate(info.pitch);
+}
+
+/**
+ * Onde o som começa e termina de verdade (segundos), para cortar o silêncio: o começo é a primeira
+ * amostra acima de -48 dBFS, com 1 ms antes para não comer o ataque ("bem na cabeça"); o fim é a
+ * última acima de -60 dBFS, com 30 ms depois para o final soar natural. Som todo em silêncio: null.
+ */
+export function findSoundBounds(channels: ArrayLike<number>[], sampleRate: number): { start: number; end: number } | null {
+  const len = channels.reduce((m, c) => Math.max(m, c.length), 0);
+  if (!len || sampleRate <= 0) return null;
+  const startThr = Math.pow(10, -48 / 20);
+  const endThr = Math.pow(10, -60 / 20);
+  const peakAt = (i: number) => {
+    let p = 0;
+    for (const c of channels) { const v = Math.abs(c[i] ?? 0); if (v > p) p = v; }
+    return p;
+  };
+  let first = -1;
+  for (let i = 0; i < len; i++) if (peakAt(i) > startThr) { first = i; break; }
+  if (first < 0) return null;
+  let last = first;
+  for (let i = len - 1; i > first; i--) if (peakAt(i) > endThr) { last = i; break; }
+  const start = Math.max(0, first - Math.round(sampleRate * 0.001)) / sampleRate;
+  const end = Math.min(len, last + 1 + Math.round(sampleRate * 0.03)) / sampleRate;
+  return { start, end };
 }
 
 /**
@@ -224,6 +269,16 @@ export interface PadFx {
 }
 
 export const DEFAULT_PAD_FX: PadFx = { reverb: 0.5, delay: 0.5, roll: 0, filter: 0 };
+
+/**
+ * Começo do pedaço do roll: preso na grade do pedaço a partir do começo do som (que, cortado, cai
+ * no tempo), para a repetição soar no ritmo e não num ponto qualquer.
+ */
+export function rollSliceStart(pos: number, len: number, soundLength: number): number {
+  if (len <= 0) return 0;
+  const grid = Math.floor(Math.max(0, pos) / len + 1e-9) * len;
+  return Math.max(0, Math.min(grid, soundLength - len));
+}
 
 /** Tamanho do pedaço repetido em tempos da música; null = sem roll. */
 export const ROLL_STEPS: Array<number | null> = [null, 1, 1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64];

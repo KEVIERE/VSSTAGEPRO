@@ -475,7 +475,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
 
         <div>
           <div className="console-legend mb-1.5">Fluxo do show</div>
-          {/* teclas de escolha única: a do fluxo em uso fica acesa */}
+          {/* teclas de escolha única: a do fluxo em uso fica acesa em laranja */}
           <div className="grid grid-cols-3 gap-1.5">
             {FLOWS.map((f) => {
               const on = playFlow === f.id;
@@ -485,7 +485,7 @@ export default function ShowModePanel({ showName }: { showName: string }) {
                   onClick={() => setPlayFlow(f.id)}
                   title={f.hint}
                   aria-pressed={on}
-                  className={`console-key flex items-center justify-center gap-1.5 h-10 text-[13px] ${on ? 'is-lit-blue' : ''}`}
+                  className={`console-key flex items-center justify-center gap-1.5 h-10 text-[13px] ${on ? 'is-lit-amber' : ''}`}
                 >
                   <f.icon size={14} /> {f.label}
                 </button>

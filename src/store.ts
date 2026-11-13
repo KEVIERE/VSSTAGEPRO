@@ -236,8 +236,19 @@ interface StoreActions {
   setVolume: (trackId: string, volume: number) => void;
   setPan: (trackId: string, pan: number) => void;
   setTrackColor: (trackId: string, color: string) => void;
-  /** Volume pelo fader ou knob da tela: com várias faixas selecionadas, todas andam juntas. */
-  setVolumeLinked: (trackId: string, volume: number) => void;
+  /**
+   * Volume pelo fader ou knob da tela: com várias faixas selecionadas, todas andam juntas (cada uma
+   * do seu ponto). `absolute` (duplo clique): todas vão para o mesmo valor.
+   */
+  setVolumeLinked: (trackId: string, volume: number, absolute?: boolean) => void;
+  /** Balanço pelo knob da tela, com as selecionadas andando juntas; `absolute` põe todas no valor. */
+  setPanLinked: (trackId: string, pan: number, absolute?: boolean) => void;
+  /** Mudo, solo e anti-clip pela tela: as selecionadas ficam todas como a clicada ficou. */
+  toggleMuteLinked: (trackId: string) => void;
+  toggleSoloLinked: (trackId: string) => void;
+  toggleAntiClipLinked: (trackId: string) => void;
+  /** Saída pela tela: as selecionadas vão todas para a mesma saída (cada uma dentro das regras). */
+  setOutputChannelLinked: (trackId: string, channel: number, stereo?: boolean) => void;
   /** Cor pelo menu da faixa: com várias faixas selecionadas, todas mudam juntas. */
   setTrackColorLinked: (trackId: string, color: string) => void;
   renameTrack: (trackId: string, name: string) => void;
@@ -832,11 +843,70 @@ export const useStore = create<Store>()(
       setVolume: (trackId, volume) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked ? { ...t, volume: Math.max(0, Math.min(1.5, volume)) } : t) })),
       setPan: (trackId, pan) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, pan: Math.max(-1, Math.min(1, pan)) } : t) })),
       setTrackColor: (trackId, color) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, color } : t) })),
-      setVolumeLinked: (trackId, volume) => set((s) => {
-        const next = linkedVolumes(s.tracks, linkedTrackIds(s.selectedTrackIds, trackId), trackId, volume);
+      setVolumeLinked: (trackId, volume, absolute = false) => set((s) => {
+        const ids = linkedTrackIds(s.selectedTrackIds, trackId);
+        const next = absolute
+          ? new Map(s.tracks.filter((t) => ids.includes(t.id) && !t.faderLocked).map((t) => [t.id, Math.max(0, Math.min(1.5, volume))]))
+          : linkedVolumes(s.tracks, ids, trackId, volume);
         if (next.size === 0) return {};
         return { tracks: s.tracks.map((t) => next.has(t.id) && next.get(t.id) !== t.volume ? { ...t, volume: next.get(t.id)! } : t) };
       }),
+      setPanLinked: (trackId, pan, absolute = false) => set((s) => {
+        const ids = linkedTrackIds(s.selectedTrackIds, trackId);
+        const clicked = s.tracks.find((t) => t.id === trackId);
+        if (!clicked) return {};
+        const clamp = (v: number) => Math.max(-1, Math.min(1, Math.round(v * 1000) / 1000));
+        const delta = clamp(pan) - clicked.pan;
+        return {
+          tracks: s.tracks.map((t) => ids.includes(t.id) && !isTimecodeTrackId(t.id)
+            ? { ...t, pan: t.id === trackId || absolute ? clamp(pan) : clamp(t.pan + delta) }
+            : t),
+        };
+      }),
+      toggleMuteLinked: (trackId) => set((s) => {
+        const ids = linkedTrackIds(s.selectedTrackIds, trackId);
+        const clicked = s.tracks.find((t) => t.id === trackId);
+        if (!clicked) return {};
+        const mute = !clicked.mute;
+        return { tracks: s.tracks.map((t) => ids.includes(t.id) ? { ...t, mute } : t) };
+      }),
+      toggleSoloLinked: (trackId) => set((s) => {
+        if (isTimecodeTrackId(trackId)) return s;
+        const ids = linkedTrackIds(s.selectedTrackIds, trackId);
+        const clicked = s.tracks.find((t) => t.id === trackId);
+        if (!clicked) return {};
+        const solo = !clicked.solo;
+        return { tracks: s.tracks.map((t) => ids.includes(t.id) && !isTimecodeTrackId(t.id) ? { ...t, solo } : t) };
+      }),
+      toggleAntiClipLinked: (trackId) => set((s) => {
+        if (isTimecodeTrackId(trackId)) return s;
+        const ids = linkedTrackIds(s.selectedTrackIds, trackId);
+        const clicked = s.tracks.find((t) => t.id === trackId);
+        if (!clicked) return {};
+        const on = !clicked.antiClip;
+        return {
+          tracks: s.tracks.map((t) => {
+            if (!ids.includes(t.id) || isTimecodeTrackId(t.id)) return t;
+            return on ? { ...t, antiClip: true, clipIndicator: false, clipPeak: 0 } : { ...t, antiClip: false };
+          }),
+        };
+      }),
+      setOutputChannelLinked: (trackId, channel, stereo = false) => {
+        const ids = linkedTrackIds(get().selectedTrackIds, trackId);
+        // a clicada primeiro; as outras seguem com as mesmas regras de cada uma (o timecode não
+        // entra num grupo de música). Um passo só no Desfazer.
+        get().setOutputChannel(trackId, channel, stereo);
+        if (isTimecodeTrackId(trackId)) return;
+        const others = ids.filter((id) => id !== trackId && !isTimecodeTrackId(id));
+        if (others.length === 0) return;
+        const history = useStore.temporal.getState();
+        history.pause();
+        try {
+          for (const id of others) get().setOutputChannel(id, channel, stereo);
+        } finally {
+          history.resume();
+        }
+      },
       setTrackColorLinked: (trackId, color) => set((s) => {
         const ids = linkedTrackIds(s.selectedTrackIds, trackId);
         return { tracks: s.tracks.map((t) => ids.includes(t.id) ? { ...t, color } : t) };

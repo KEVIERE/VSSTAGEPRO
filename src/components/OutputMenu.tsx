@@ -24,7 +24,7 @@ function placeMenu(btn: DOMRect): Place {
 export default function OutputMenu({ track }: { track: Track }) {
   const tracks = useStore((s) => s.tracks);
   const count = useStore((s) => s.outputChannelCount);
-  const setOutputChannel = useStore((s) => s.setOutputChannel);
+  const setOutputChannel = useStore((s) => s.setOutputChannelLinked);
   const [open, setOpen] = useState(false);
   // Lista mostrada no menu: saídas mono ou pares estéreo
   const [stereoView, setStereoView] = useState(false);

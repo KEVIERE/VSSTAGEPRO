@@ -83,3 +83,21 @@ test('o arrasto inteiro vira um passo só no desfazer; mixer e timeline usam o v
   assert.match(read('src/components/TimelinePanel.tsx'), /s\.setVolumeLinked/);
   assert.match(read('src/components/TrackContextMenu.tsx'), /s\.setTrackColorLinked/);
 });
+
+test('tudo em grupo: mudo, solo, anti-clip, balanço e saída valem para as selecionadas', () => {
+  const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const store = read('src/store.ts');
+  for (const a of ['toggleMuteLinked', 'toggleSoloLinked', 'toggleAntiClipLinked', 'setPanLinked', 'setOutputChannelLinked']) {
+    assert.match(store, new RegExp(`${a}: \\(`), a);
+  }
+  assert.match(store, /const mute = !clicked\.mute;/, 'todas ficam como a clicada ficou');
+  assert.match(store, /if \(isTimecodeTrackId\(trackId\)\) return;\n\s+const others/, 'a saída do timecode não vai para o grupo');
+  const mixer = read('src/components/MixerPanel.tsx');
+  for (const a of ['setPanLinked', 'toggleMuteLinked', 'toggleSoloLinked', 'toggleAntiClipLinked']) assert.match(mixer, new RegExp(`s\\.${a}\\)`), a);
+  assert.match(mixer, /setVolume\(track\.id, 0\.8, true\)/, 'duplo clique põe todas em 0 dB');
+  const timeline = read('src/components/TimelinePanel.tsx');
+  assert.match(timeline, /s\.toggleMuteLinked\)/);
+  assert.match(timeline, /s\.toggleSoloLinked\)/);
+  assert.match(read('src/components/OutputMenu.tsx'), /s\.setOutputChannelLinked\)/);
+  assert.match(read('src/components/TrackContextMenu.tsx'), /s\.setOutputChannelLinked\)/);
+});

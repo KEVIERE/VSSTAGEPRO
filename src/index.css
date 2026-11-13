@@ -2954,11 +2954,21 @@
       linear-gradient(180deg, #d9dadd 0%, #bfc1c5 45%, #a4a6ab 100%);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 #5c5e62, 0 1px 0 #0b0b0c;
   }
-  :root:not([data-skin]) .console-rail :is(.text-logic-text, .text-logic-text-dim, .text-logic-text-muted) {
+  /* texto escuro gravado no alumínio; dentro das teclas e dos visores pretos fica como é */
+  :root:not([data-skin]) .console-rail :is(.text-logic-text, .text-logic-text-dim, .text-logic-text-muted):not(:is(.console-key, .console-display, .console-readout, .console-well, .console-key *, .console-display *, .console-readout *, .console-well *)) {
     color: #232427;
     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
   }
-  :root:not([data-skin]) .console-rail .console-legend { color: #3a3b3f; }
+  /* legendas no trilho (inclusive quando o próprio trilho é a legenda, como a barra de baixo da
+     playlist) e o laranja escurecido, para ler no alumínio */
+  :root:not([data-skin]) :is(.console-rail .console-legend, .console-rail.console-legend) {
+    color: #2c2d31;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  :root:not([data-skin]) .console-rail [class*='text-logic-lcd-amber']:not(:is(.console-key, .console-display, .console-readout, .console-well, .console-key *, .console-display *, .console-readout *, .console-well *)) {
+    color: #9a4a06;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  }
   :where(:root:not([data-skin])) .console-strip {
     box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.45), inset -2px 0 0 rgba(255, 255, 255, 0.04);
   }
@@ -3229,15 +3239,18 @@
   :where(:root:not([data-skin])) .vs-plate-screw.is-bl { bottom: 3px; left: 3px; }
   :where(:root:not([data-skin])) .vs-plate-screw.is-br { bottom: 3px; right: 3px; }
 
-  /* VUs de ponteiro e relógio na sobra da direita: só aparecem quando cabem */
-  :where(:root:not([data-skin])) .vs-bed-side.is-right { container-type: inline-size; }
+  /* VUs de ponteiro e o loudness na sobra da direita: só aparecem quando cabem. Tudo com medida
+     fixa: os números mudando nunca empurram os VUs. */
+  :where(:root:not([data-skin])) .vs-bed-side.is-right { container-type: inline-size; overflow: hidden; }
   :where(:root:not([data-skin])) .vs-side-gear {
     display: none;
+    flex: none;
     flex-direction: column;
     align-items: center;
     gap: 7px;
     padding: 0 14px;
   }
+  :where(:root:not([data-skin])) .vs-side-gear > * { flex: none; }
   :where(:root:not([data-skin])) .vs-side-gear .vu-pair { display: flex; flex-direction: column; gap: 6px; }
   /* estreito: os dois VUs um embaixo do outro; largo: lado a lado */
   @container (min-width: 160px) {
@@ -3262,8 +3275,9 @@
     align-items: stretch;
     gap: 3px;
     width: 128px;
+    height: 24px;
     box-sizing: border-box;
-    padding: 4px 8px;
+    padding: 5px 8px;
     border-radius: 4px;
     background: #141416;
     box-shadow: inset 0 0 0 1px #0a0a0b, inset 0 2px 4px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07);
@@ -3273,12 +3287,15 @@
     letter-spacing: 0.14em;
     color: #8c8c92;
   }
-      :where(:root:not([data-skin])) .vu-lufs { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  :where(:root:not([data-skin])) .vu-lufs { display: flex; align-items: center; justify-content: space-between; gap: 6px; height: 14px; }
   :where(:root:not([data-skin])) .vu-lufs-item {
     font: 600 8px/1 'Montserrat', 'Inter', system-ui, sans-serif;
     color: #8c8c92;
   }
   :where(:root:not([data-skin])) .vu-lufs-item b {
+    display: inline-block;
+    width: 4.6ch;
+    text-align: right;
     font: 600 12px/1 'Inter', system-ui, sans-serif;
     font-variant-numeric: tabular-nums;
     color: #5c5c62;
@@ -3316,11 +3333,12 @@
     background-image: linear-gradient(90deg, rgba(255, 138, 30, 0.12), rgba(255, 138, 30, 0) 70%);
     box-shadow: inset 5px 0 0 #ff8a1e, inset 0 0 0 1px rgba(255, 138, 30, 0.4), 0 0 12px rgba(255, 138, 30, 0.08);
   }
-  /* música selecionada: bem destacada (barra branca grossa, fundo claro e contorno) */
+  /* música selecionada: borda clara em volta da linha inteira, barra branca grossa e fundo claro */
   :where(:root:not([data-skin])) .cue-row.is-selected {
-    background-color: rgba(255, 255, 255, 0.13);
-    background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 70%);
-    box-shadow: inset 5px 0 0 #f2f2f5, inset 0 0 0 1px rgba(255, 255, 255, 0.28), 0 0 12px rgba(255, 255, 255, 0.06);
+    background-color: rgba(255, 255, 255, 0.16);
+    background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0) 75%);
+    /* a barra grossa por cima, a borda de 2 px em volta e um brilho fora */
+    box-shadow: inset 6px 0 0 #ffffff, inset 0 0 0 2px #e9e9ee, 0 0 14px rgba(255, 255, 255, 0.12);
   }
   :where(:root:not([data-skin])) .console-pad {
     border-radius: 8px;

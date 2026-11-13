@@ -16,7 +16,8 @@ import { meterBallistics, peakOf } from '@/lib/maestroInput';
 import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
-  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delayAmount, delaySeconds, djFilter, playheadAt, reverbWet, rollSeconds, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
+  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delayAmount, delaySeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
+  rollSeconds, rollSliceStart, trimRegion, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadFx, type PadInfo, type PadOutput, type SavedPads,
 } from '@/lib/samplePads';
@@ -25,7 +26,11 @@ import { useStore } from '@/store';
 /** O arquivo de cada pad (do computador, do projeto aberto ou do arquivo importado). */
 const sources = new Map<number, Blob>();
 const buffers = new Map<number, AudioBuffer>();
-const reversed = new Map<number, AudioBuffer>();
+/** Cópias prontas para tocar: o trecho cortado e o som de trás para frente (de cada pad). */
+const reversed = new Map<number, { from: AudioBuffer; buf: AudioBuffer }>();
+const trimmed = new Map<number, { key: string; from: AudioBuffer; buf: AudioBuffer }>();
+/** Onde o som começa de verdade em cada arquivo (para o roll não repetir silêncio). */
+const onsets = new WeakMap<AudioBuffer, number>();
 interface Voice {
   src: AudioBufferSourceNode;
   gain: GainNode;
@@ -261,7 +266,7 @@ function headOf(v: Voice, now: number): number {
  * Roll (velocidade do loop): repete um pedaço do som, do ponto onde ele está, do tamanho do knob
  * no tempo da música. Desligado, o som segue de onde estava (em loop só se o pad tem loop).
  */
-function applyRoll(slot: number, v: Voice): void {
+function applyRoll(slot: number, v: Voice, startAt?: number): void {
   const now = v.src.context.currentTime;
   const sec = rollSeconds(getPadsState().fx.roll, songBpm());
   const pos = headOf(v, now);
@@ -277,7 +282,10 @@ function applyRoll(slot: number, v: Voice): void {
   }
   const len = Math.max(0.004, Math.min(v.length, sec * v.rate));
   if (!v.rolling) {
-    v.rollStart = Math.max(0, Math.min(pos, v.length - len));
+    // começa no pedaço da grade onde o som está (ou no primeiro som, num toque novo)
+    v.rollStart = startAt !== undefined
+      ? Math.max(0, Math.min(startAt, v.length - len))
+      : rollSliceStart(pos, len, v.length);
     v.rolling = true;
   }
   const end = v.rollStart + len;
@@ -368,7 +376,7 @@ export async function prepareBank(bank: number): Promise<void> {
   for (const slot of [...buffers.keys()]) {
     if (slotBank(slot) !== bank && !voices.has(slot)) {
       buffers.delete(slot);
-      reversed.delete(slot);
+      forgetCopies(slot);
     }
   }
   const { infos } = getPadsState();
@@ -396,15 +404,57 @@ export function selectPad(slot: number): void {
 
 function reversedBuffer(slot: number, buffer: AudioBuffer): AudioBuffer {
   const have = reversed.get(slot);
-  if (have) return have;
+  if (have && have.from === buffer) return have.buf;
   const rev = new AudioBuffer({ length: buffer.length, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
   for (let c = 0; c < buffer.numberOfChannels; c++) {
     const src = buffer.getChannelData(c);
     const dst = rev.getChannelData(c);
     for (let i = 0, j = src.length - 1; i < src.length; i++, j--) dst[i] = src[j];
   }
-  reversed.set(slot, rev);
+  reversed.set(slot, { from: buffer, buf: rev });
   return rev;
+}
+
+/** O trecho cortado do som (cópia guardada; o arquivo continua inteiro), com 3 ms de saída suave. */
+function trimmedBuffer(slot: number, info: PadInfo, buffer: AudioBuffer): AudioBuffer {
+  const r = trimRegion({ ...info, duration: buffer.duration });
+  if (r.start <= 0 && r.end >= buffer.duration) return buffer;
+  const key = `${r.start}|${r.end}`;
+  const have = trimmed.get(slot);
+  if (have && have.key === key && have.from === buffer) return have.buf;
+  const sr = buffer.sampleRate;
+  const s0 = Math.max(0, Math.floor(r.start * sr));
+  const s1 = Math.min(buffer.length, Math.ceil(r.end * sr));
+  const out = new AudioBuffer({ length: Math.max(1, s1 - s0), numberOfChannels: buffer.numberOfChannels, sampleRate: sr });
+  const fade = Math.min(out.length, Math.round(sr * 0.003));
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const dst = out.getChannelData(c);
+    dst.set(buffer.getChannelData(c).subarray(s0, s1));
+    for (let i = 0; i < fade; i++) dst[dst.length - 1 - i] *= i / fade;
+  }
+  trimmed.set(slot, { key, from: buffer, buf: out });
+  return out;
+}
+
+/** O que o pad toca: o trecho cortado (se houver) e, no reverso, de trás para frente. */
+function playableBuffer(slot: number, info: PadInfo, buffer: AudioBuffer): AudioBuffer {
+  const cut = trimmedBuffer(slot, info, buffer);
+  return info.reverse ? reversedBuffer(slot, cut) : cut;
+}
+
+/** Onde o som começa de verdade no que vai tocar (segundos), guardado por arquivo. */
+function onsetOf(buffer: AudioBuffer): number {
+  const have = onsets.get(buffer);
+  if (have !== undefined) return have;
+  const ch = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  const at = findSoundBounds(ch, buffer.sampleRate)?.start ?? 0;
+  onsets.set(buffer, at);
+  return at;
+}
+
+function forgetCopies(slot: number): void {
+  reversed.delete(slot);
+  trimmed.delete(slot);
 }
 
 function release(slot: number, fade = 0.012) {
@@ -448,7 +498,7 @@ export function triggerPad(slot: number): void {
   const o = padOut();
   if (o.ctx.state !== 'running') void o.ctx.resume();
   const src = o.ctx.createBufferSource();
-  src.buffer = info.reverse ? reversedBuffer(slot, buffer) : buffer;
+  src.buffer = playableBuffer(slot, info, buffer);
   src.loop = info.loop;
   src.playbackRate.value = pitchRate(info.pitch);
   const gain = o.ctx.createGain();
@@ -460,14 +510,18 @@ export function triggerPad(slot: number): void {
     src, gain, reverb: false, delay: false, startedAt: now,
     anchorT: now, anchorPos: 0, rate: src.playbackRate.value, length: src.buffer.duration, rolling: false, rollStart: 0,
   };
-  if (getPadsState().fx.roll > 0) applyRoll(slot, voice);
+  // roll ligado antes do toque: repete a partir do primeiro som (nunca o silêncio do começo)
+  if (getPadsState().fx.roll > 0) applyRoll(slot, voice, onsetOf(src.buffer));
   connectSends(voice, o, info.reverb, info.delay);
   src.onended = () => {
     if (voices.get(slot)?.src !== src) return;
     voices.delete(slot);
     setPadsState({ playing: withPlaying(getPadsState().playing, slot, null) });
   };
-  src.start();
+  // com o roll já ligado, o som começa direto no pedaço que vai repetir
+  const offset = voice.rolling ? voice.rollStart : 0;
+  voice.anchorPos = offset;
+  src.start(0, offset);
   voices.set(slot, voice);
   setPadsState({ playing: withPlaying(getPadsState().playing, slot, o.ctx.currentTime) });
   runMeter();
@@ -549,6 +603,36 @@ export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot
   await savePadInfo(next).catch(() => say(false, 'Não deu para guardar a mudança do pad.'));
 }
 
+/**
+ * Corta o silêncio do começo e do fim do som do pad (o arquivo guardado continua inteiro) ou, se
+ * já está cortado, volta ao som inteiro. Devolve se ficou cortado.
+ */
+export async function toggleTrimPad(slot: number): Promise<boolean> {
+  const info = getPadsState().infos.get(slot);
+  if (!info) return false;
+  if (info.trimStart !== undefined && info.trimEnd !== undefined) {
+    await updatePad(slot, { trimStart: undefined, trimEnd: undefined });
+    return false;
+  }
+  let buffer = buffers.get(slot);
+  if (!buffer) {
+    const blob = await sourceOf(slot);
+    if (!blob) return false;
+    buffer = await decodeBlob(blob);
+    buffers.set(slot, buffer);
+  }
+  const ch = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer!.getChannelData(c));
+  const bounds = findSoundBounds(ch, buffer.sampleRate);
+  if (!bounds) { say(false, 'Esse som está todo em silêncio: não há o que cortar.'); return false; }
+  const cut = bounds.start > 0.002 || bounds.end < buffer.duration - 0.002;
+  if (!cut) { say(true, 'O som já começa e termina na hora: nada para cortar.'); return false; }
+  await updatePad(slot, { trimStart: bounds.start, trimEnd: bounds.end });
+  const head = Math.round(bounds.start * 1000);
+  const tail = Math.round((buffer.duration - bounds.end) * 1000);
+  say(true, `Cortado: ${head} ms no começo e ${tail} ms no fim.`);
+  return true;
+}
+
 /** Põe o arquivo no pad: confere, decodifica, guarda e deixa pronto para tocar. */
 export async function importPadFile(slot: number, file: File): Promise<boolean> {
   const problem = padFileProblem(file);
@@ -582,7 +666,7 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
     }
     sources.set(slot, new Blob([bytes], { type }));
     buffers.set(slot, buffer);
-    reversed.delete(slot);
+    forgetCopies(slot);
     const infos = new Map(getPadsState().infos);
     infos.set(slot, info);
     setPadsState({ infos });
@@ -595,7 +679,7 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
 export async function clearPad(slot: number): Promise<void> {
   release(slot);
   buffers.delete(slot);
-  reversed.delete(slot);
+  forgetCopies(slot);
   sources.delete(slot);
   const infos = new Map(getPadsState().infos);
   infos.delete(slot);
@@ -611,6 +695,7 @@ async function applyProjectPads(saved: SavedPads, files: Map<string, Blob>): Pro
   sources.clear();
   buffers.clear();
   reversed.clear();
+  trimmed.clear();
   const infos = new Map<number, PadInfo>();
   for (const p of saved.pads ?? []) {
     const blob = files.get(padAssetId(p.slot));

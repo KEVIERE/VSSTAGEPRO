@@ -348,3 +348,14 @@ test('placa da marca aparafusada, com desgaste e menor', () => {
   assert.match(css, /width: 140px;\n\s+height: 48px;/, 'plaquinha menor');
 });
 
+
+test('VU parado no lugar, fluxo do show em laranja e texto legível no alumínio', () => {
+  const css = read('src', 'index.css');
+  const def = css.slice(css.indexOf('Skin padrão: VS Stage, equipamento'));
+  assert.match(def, /\.vu-lufs-item b \{\n\s+display: inline-block;\n\s+width: 4\.6ch;/, 'números com largura fixa');
+  assert.match(def, /\.vu-clock \{[\s\S]{0,200}height: 24px;/);
+  assert.match(def, /:is\(\.console-rail \.console-legend, \.console-rail\.console-legend\)/, 'barra de baixo da playlist');
+  const show = read('src', 'components', 'ShowModePanel.tsx');
+  assert.match(show, /\$\{on \? 'is-lit-amber' : ''\}/, 'fluxo aceso em laranja');
+  assert.match(def, /\.cue-row\.is-selected \{[\s\S]{0,400}inset 0 0 0 2px #e9e9ee/, 'música selecionada com borda em volta');
+});

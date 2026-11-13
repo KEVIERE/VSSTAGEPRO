@@ -252,7 +252,7 @@ export default function TransportBar() {
         <span className="text-2xs text-logic-text-muted uppercase tracking-wider">Fluxo</span>
         <ArrowRight size={11} className="text-logic-text-muted" />
         <button
-          className="console-key h-8 px-2 text-[13px] !text-logic-text w-24 lg:w-28 text-center shrink-0"
+          className="console-key h-8 px-2 text-[13px] !text-logic-lcd-amber w-24 lg:w-28 text-center shrink-0"
           onClick={cyclePlayFlow}
           title="Alternar fluxo de reprodução"
         >
