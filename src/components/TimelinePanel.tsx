@@ -493,7 +493,12 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="top" />}
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="bottom" />}
       {/* Cor da faixa: friso na borda esquerda */}
-      <span className={`absolute left-0 top-0 bottom-0 pointer-events-none ${estudio || oficina ? 'w-[5px]' : 'w-[3px]'}`} style={{ backgroundColor: rowColor }} />
+      {oficina ? (
+        // Oficina: a coluna do número da faixa, como nesses editores
+        <span className="of-row-num absolute left-0 top-0 bottom-0 pointer-events-none" style={{ backgroundColor: rowColor }}>{esOrder + 1}</span>
+      ) : (
+        <span className={`absolute left-0 top-0 bottom-0 pointer-events-none ${estudio ? 'w-[5px]' : 'w-[3px]'}`} style={{ backgroundColor: rowColor }} />
+      )}
 
       {isFolder ? (
         <button
