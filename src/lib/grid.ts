@@ -43,8 +43,41 @@ function stepSeconds(grid: SongGrid, step: SnapStep): number | null {
   return null;
 }
 
+/**
+ * Trechos de andamento em ordem (mudanças de BPM marcadas na régua, para medleys). Com menos de
+ * dois trechos a grade é uniforme e vale só o BPM da música.
+ */
+function sortedSegments(grid: SongGrid): SongTempoSegment[] | null {
+  const segs = grid.tempoSegments;
+  if (!segs || segs.length < 2) return null;
+  return [...segs].sort((a, b) => a.startTime - b.startTime);
+}
+
+/** Índice do trecho onde `seconds` cai (antes do primeiro: o primeiro; depois do último: o último). */
+function segmentIndexAt(segs: SongTempoSegment[], seconds: number): number {
+  let idx = 0;
+  for (let i = 0; i < segs.length; i++) if (seconds >= segs[i].startTime - 1e-9) idx = i;
+  return idx;
+}
+
 export function snapTime(seconds: number, grid: SongGrid | null, step: SnapStep): number {
   if (!grid || step === 'off') return Math.max(0, seconds);
+
+  // Medley com mudanças de BPM: encaixa na grade do trecho onde o ponto cai (cursor e áudios
+  // seguem o mesmo andamento que a régua desenha), e o começo de cada trecho também é um ponto
+  // da grade.
+  const segs = sortedSegments(grid);
+  if (segs) {
+    const i = segmentIndexAt(segs, seconds);
+    const seg = segs[i];
+    const beat = 60 / seg.bpm;
+    const size = step === 'bar' ? beat * grid.beatsPerBar : step === 'half' ? beat / 2 : beat;
+    let snapped = seg.startTime + Math.round((seconds - seg.startTime) / size) * size;
+    const next = segs[i + 1];
+    // passou do fim do trecho: o ponto certo é o começo do trecho seguinte
+    if (next && snapped > next.startTime - 1e-6) snapped = next.startTime;
+    return Math.max(0, snapped);
+  }
 
   const size = stepSeconds(grid, step);
   if (!size) return Math.max(0, seconds);
@@ -54,6 +87,21 @@ export function snapTime(seconds: number, grid: SongGrid | null, step: SnapStep)
 
 /** "compasso.tempo", contado a partir do primeiro tempo forte (pode ser negativo antes dele). */
 export function barBeatLabel(seconds: number, grid: SongGrid): string {
+  // Medley: conta os compassos de cada trecho no BPM dele, como a régua
+  const segs = sortedSegments(grid);
+  if (segs) {
+    const i = segmentIndexAt(segs, seconds);
+    let barsBefore = 0;
+    for (let k = 0; k < i; k++) {
+      const b = (60 / segs[k].bpm) * grid.beatsPerBar;
+      barsBefore += Math.max(1, Math.round((segs[k].endTime - segs[k].startTime) / b));
+    }
+    const segBeats = Math.round((seconds - segs[i].startTime) / (60 / segs[i].bpm));
+    const barIn = Math.floor(segBeats / grid.beatsPerBar);
+    const beatIn = segBeats - barIn * grid.beatsPerBar;
+    const bar = barsBefore + barIn;
+    return beatIn === 0 ? `${bar + 1}` : `${bar + 1}.${beatIn + 1}`;
+  }
   const beats = Math.round((seconds - grid.downbeat) / grid.beat);
   const bar = Math.floor(beats / grid.beatsPerBar);
   const beat = beats - bar * grid.beatsPerBar;
