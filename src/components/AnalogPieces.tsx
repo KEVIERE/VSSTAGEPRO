@@ -7,7 +7,23 @@ import { volumeToDb } from '@/lib/audioEngine';
 import { beginHistoryGesture, endHistoryGesture, historyGestureStep } from '@/lib/historyGesture';
 
 const SEG = 21;
-const UNITY = 0.8 / 1.5; // 0 dB no curso do knob (o mesmo do fader)
+// 0 dB no topo do knob, com o ponteiro em pé e alinhado ao LED do meio (em 0,8/1,5 ele ficava
+// um pouco para a direita do LED aceso)
+const UNITY = 0.5;
+const UNITY_VOLUME = 0.8;
+const MAX_VOLUME = 1.5;
+
+/** Volume (0 a 1,5; 0,8 = 0 dB) para a posição do knob (0 a 1; 0 dB = 0,5, no topo). */
+export function volumeToKnob(v: number): number {
+  const x = Math.max(0, Math.min(MAX_VOLUME, v));
+  return x <= UNITY_VOLUME ? (x / UNITY_VOLUME) * UNITY : UNITY + ((x - UNITY_VOLUME) / (MAX_VOLUME - UNITY_VOLUME)) * (1 - UNITY);
+}
+
+/** Posição do knob (0 a 1) para o volume. */
+export function knobToVolume(p: number): number {
+  const x = Math.max(0, Math.min(1, p));
+  return x <= UNITY ? (x / UNITY) * UNITY_VOLUME : UNITY_VOLUME + ((x - UNITY) / (1 - UNITY)) * (MAX_VOLUME - UNITY_VOLUME);
+}
 
 /**
  * Rosto do knob da skin padrão, o mesmo no volume das faixas e no balanço do mixer: anel de LEDs
@@ -100,7 +116,7 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
   size?: number;
   disabled?: boolean;
 }) {
-  const pct = Math.max(0, Math.min(1, value / 1.5));
+  const pct = volumeToKnob(value);
   const db = volumeToDb(value);
   const dbLabel = db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
   const clamp = (v: number) => Math.max(0, Math.min(1.5, Math.round(v * 1000) / 1000));
@@ -112,12 +128,13 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
     let last = e.clientY;
-    let acc = value;
+    // arrasta no curso do knob: 150 px de ponta a ponta, o 0 dB no meio
+    let acc = volumeToKnob(value);
     beginHistoryGesture();
     const move = (ev: PointerEvent) => {
-      acc += ((last - ev.clientY) / 150) * 1.5 * (ev.shiftKey ? 0.1 : 1);
+      acc = Math.max(0, Math.min(1, acc + ((last - ev.clientY) / 150) * (ev.shiftKey ? 0.1 : 1)));
       last = ev.clientY;
-      onChange(clamp(acc));
+      onChange(clamp(knobToVolume(acc)));
       historyGestureStep();
     };
     const up = () => {
@@ -138,7 +155,7 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
       onPointerDown={down}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); if (!disabled) onReset(); }}
-      onWheel={(e) => { if (!disabled) { e.stopPropagation(); onChange(clamp(value - Math.sign(e.deltaY) * 0.02)); } }}
+      onWheel={(e) => { if (!disabled) { e.stopPropagation(); onChange(clamp(knobToVolume(volumeToKnob(value) - Math.sign(e.deltaY) * 0.0133))); } }}
       role="slider"
       aria-label="Volume da faixa"
       aria-valuemin={0}
