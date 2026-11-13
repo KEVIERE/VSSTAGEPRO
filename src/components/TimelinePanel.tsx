@@ -2826,8 +2826,9 @@ export default function TimelinePanel() {
         />
       </div>
 
-      {/* Barra de Ferramentas da Grade e Progresso */}
-      <div className="flex items-center justify-between gap-3 px-3 h-7 bg-[#121318] border-t border-logic-border-dark text-2xs text-logic-text-muted">
+      {/* Barra de Ferramentas da Grade e Progresso (na skin padrão, o mesmo grafite da barra de baixo
+          da playlist: uma faixa só, de ponta a ponta) */}
+      <div className="vs-legend-bar flex items-center justify-between gap-3 px-3 h-7 bg-[#121318] border-t border-logic-border-dark text-2xs text-logic-text-muted">
         <GridToolbar song={song} onSelectAll={selectAllSongClips} />
         <FooterProgress importProgress={importProgress} exportProgress={exportProgress} />
       </div>

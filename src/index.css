@@ -2968,9 +2968,10 @@
     color: #9a4a06;
     text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
   }
-  /* barras secundárias (os nomes das colunas e a barra de baixo da playlist): grafite escuro com
-     letra clara, para o BPM, o tuner e os totais lerem bem; o alumínio fica só nos títulos */
-  :root:not([data-skin]) .console-rail.console-legend {
+  /* barras secundárias (os nomes das colunas, a barra de baixo da playlist e a barra de ferramentas
+     da timeline ao lado dela): grafite escuro com letra clara, numa faixa só de ponta a ponta; o
+     alumínio fica só nos títulos */
+  :root:not([data-skin]) :is(.console-rail.console-legend, .vs-legend-bar) {
     color: #b9b9bf;
     text-shadow: none;
     background-color: #1d1d1f;

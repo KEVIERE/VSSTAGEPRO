@@ -354,7 +354,8 @@ test('VU parado no lugar, fluxo do show em laranja e texto legível no alumínio
   const def = css.slice(css.indexOf('Skin padrão: VS Stage, equipamento'));
   assert.match(def, /\.vu-lufs-item b \{\n\s+display: inline-block;\n\s+width: 4\.6ch;/, 'números com largura fixa');
   assert.match(def, /\.vu-clock \{[\s\S]{0,200}height: 24px;/);
-  assert.match(def, /\.console-rail\.console-legend \{\n\s+color: #b9b9bf;[\s\S]{0,80}background-color: #1d1d1f;/, 'barras secundárias escuras com letra clara (nomes das colunas e barra de baixo)');
+  assert.match(def, /:is\(\.console-rail\.console-legend, \.vs-legend-bar\) \{\n\s+color: #b9b9bf;[\s\S]{0,80}background-color: #1d1d1f;/, 'barras secundárias escuras com letra clara, a da playlist e a da timeline iguais');
+  assert.match(read('src', 'components', 'TimelinePanel.tsx'), /className="vs-legend-bar /, 'barra de ferramentas da timeline no mesmo grafite');
   assert.match(def, /\.console-rail:not\(\.console-legend\) \[class\*='text-logic-lcd-amber'\]/, 'o laranja só escurece no alumínio');
   const show = read('src', 'components', 'ShowModePanel.tsx');
   assert.match(show, /\$\{on \? 'is-lit-amber' : ''\}/, 'fluxo aceso em laranja');

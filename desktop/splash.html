@@ -5,114 +5,68 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; font-src 'self' file:; img-src data:" />
 <title>VS Stage Pro</title>
 <!--
-  Abertura do programa, no visual da mesa de som: um módulo de aço pintado com trilho em cima e
-  embaixo e, como na abertura do site, a onda da logo se desenha
-  enquanto o visor conta 1, 2, 3, 4 (cada número é uma etapa do carregamento). Na saída a cena avança
-  na direção de quem está vendo. A fonte Barlow vem de build/fonts (incluída no pacote).
+  Abertura do VS Stage Pro: o logo oficial com a onda desenhada a laser, o nome, o "Live Performance
+  Engine" e a barra de progresso com o que está carregando. Cartão grafite com a textura de pintura
+  eletrostática e o filete de alumínio em cima, como o resto do programa; a barra em verde-limão.
+  Leve até nos Macs Intel: os brilhos desfocados não são redesenhados a cada quadro (o traço da onda
+  anda sem filtro e os brilhos só aparecem por opacidade); nada anima filtro nem desfoque do fundo.
+  A contagem cabe no tempo do app (main.js: "Pronto" em 1460 ms e saída em 1550 ms).
 -->
 <style>
-  @font-face { font-family: 'Barlow Semi Condensed'; font-weight: 600; src: url('build/fonts/BarlowSemiCondensed-SemiBold.ttf') format('truetype'); }
-  @font-face { font-family: 'Barlow Semi Condensed'; font-weight: 700; src: url('build/fonts/BarlowSemiCondensed-Bold.ttf') format('truetype'); }
-  /* Nome do programa: Outfit, a mesma do programa e do site */
   @font-face { font-family: 'Outfit'; font-weight: 600; src: url('build/fonts/Outfit-SemiBold.ttf') format('truetype'); }
-  :root {
-    --cream: #e7e2d6; --cream-dim: #a7a297; --muted: #77736b; --legend: #8f8b81;
-    --amber: #ffab1f; --green: #3ee26e; --lcd: #0c0e0d;
-    --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.055 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; cursor: default; }
-  body { font-family: 'Barlow Semi Condensed', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; color: var(--cream); -webkit-font-smoothing: antialiased; }
+  /* textos na fonte do sistema (já está no Mac, nada a carregar); o nome em Outfit, a da marca */
+  body { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 
-  /* Módulo da mesa: trilho, palco e rodapé */
+  /* Cartão: grafite com o grão da pintura eletrostática, borda fina e o filete de alumínio em cima */
   .card {
-    position: absolute; inset: 0; display: flex; flex-direction: column; overflow: hidden;
-    border-radius: 14px; background: #24282d;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
-    animation: cardIn 290ms cubic-bezier(0.22, 1, 0.36, 1) both;
-    transition: opacity 260ms ease 70ms;
+    position: absolute; inset: 0; border-radius: 22px; overflow: hidden;
+    background-color: #1c1c1e;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.14 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 70% 55% at 50% 28%, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0) 70%),
+      linear-gradient(180deg, #252528 0%, #1a1a1c 55%, #121213 100%);
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.75), inset 0 0 0 1px rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.6);
+    animation: cardIn 400ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    transition: opacity 380ms ease, transform 380ms ease;
   }
-  .leaving .card { opacity: 0; }
-  .rail, .foot {
-    position: relative; z-index: 2; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 14px;
-    background-color: #171a1d;
+  .card::before {
+    content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: linear-gradient(90deg, rgba(200, 202, 206, 0) 0%, rgba(214, 216, 220, 0.75) 22%, rgba(236, 237, 240, 0.9) 50%, rgba(214, 216, 220, 0.75) 78%, rgba(200, 202, 206, 0) 100%);
   }
-  .rail {
-    height: 28px;
-    background-image: var(--noise), linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.2));
-    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.04);
-  }
-  .foot {
-    height: 26px;
-    background-image: var(--noise), linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.02));
-    box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.8), inset 0 2px 0 rgba(255, 255, 255, 0.03);
-  }
-  .legend { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 11px; line-height: 1; letter-spacing: 0.14em; text-transform: uppercase; color: var(--legend); }
-  .copy { font-weight: 600; font-size: 10.5px; letter-spacing: 0.02em; color: var(--muted); }
-  .version { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 11.5px; letter-spacing: 0.03em; color: var(--amber); }
+  .leaving .card { opacity: 0; transform: scale(1.03); }
+  .card > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-  /* LEDs */
-  .led { flex: none; width: 6px; height: 6px; border-radius: 50%; background: #2b2e33; box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.8); transition: background-color 0.15s ease, box-shadow 0.15s ease; }
-  .led.amber { background: var(--amber); box-shadow: 0 0 6px 1px rgba(255, 171, 31, 0.75), inset 0 0 2px rgba(255, 255, 255, 0.6); }
-  .led.green { background: var(--green); box-shadow: 0 0 6px 1px rgba(62, 226, 110, 0.75), inset 0 0 2px rgba(255, 255, 255, 0.6); }
-  .led.blink { animation: blink 0.9s steps(2, start) infinite; }
+  .logo-pop { transform-box: fill-box; transform-origin: center; animation: logoPop 600ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+  /* aura atrás do logo: só opacidade e escala (nada de filtro animado) */
+  .stage-aura { transform-box: fill-box; transform-origin: center; will-change: opacity, transform; animation: auraIn 700ms ease-out 150ms both, auraBreath 2600ms ease-in-out 850ms infinite alternate; }
+  /* o traço da onda anda sem filtro; os brilhos desfocados ficam parados e só acendem */
+  .wave-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 750ms cubic-bezier(0.22, 1, 0.36, 1) 250ms both; }
+  .wave-spec-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 750ms cubic-bezier(0.22, 1, 0.36, 1) 270ms both; }
+  .glow-in { will-change: opacity; animation: fadeIn 600ms ease-out 500ms both; }
+  .tip-left { animation: fadeIn 260ms ease-out 200ms both; }
+  .tip-right { animation: fadeIn 260ms ease-out 980ms both; }
+  .play-pop { transform-box: fill-box; transform-origin: 48% 50%; animation: playSpring 520ms cubic-bezier(0.34, 1.5, 0.64, 1) 800ms both; }
+  /* reflexo que passa no vidro do play (opacidade, sem filtro) */
+  .play-gleam { will-change: opacity; animation: gleam 2400ms ease-in-out 1350ms infinite alternate; opacity: 0; }
 
-  /* Painel de aço pintado, igual ao console-face do programa: textura fina de tinta a pó e luz de cima */
-  .stage {
-    position: relative; flex: 1; overflow: hidden;
-    background-color: #24282d;
-    background-image: var(--noise), linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.14));
-  }
+  .title { font-family: 'Outfit', -apple-system, sans-serif; font-weight: 600; animation: titleIn 560ms cubic-bezier(0.16, 1, 0.3, 1) 650ms both; }
+  .subtitle { animation: rise 420ms ease-out 900ms both; }
+  .fade { animation: fadeIn 380ms ease-out both; }
+  #bar { transform-box: fill-box; transform-origin: left center; transform: scaleX(0.04); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1); }
+  #status { transition: opacity 120ms ease; }
 
-  .scene {
-    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px;
-    transition: transform 380ms cubic-bezier(0.6, 0, 0.2, 1), opacity 280ms ease 60ms;
-  }
-  .leaving .scene { transform: scale(1.8); opacity: 0; }
-
-  /* Logo oficial se desenhando */
-  .logo-wrap { position: relative; width: 98px; height: 98px; }
-  .logo { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .logo-pop { transform-box: fill-box; transform-origin: center; animation: logoPop 470ms cubic-bezier(0.16, 1, 0.3, 1) both; }
-  .wave-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 630ms cubic-bezier(0.65, 0, 0.35, 1) 140ms both; }
-  .wave-spec-draw { stroke-dasharray: 1205; stroke-dashoffset: 1205; animation: waveDraw 630ms cubic-bezier(0.65, 0, 0.35, 1) 150ms both; }
-  .tip-left { animation: tipFade 220ms ease-out 140ms both; }
-  .tip-right { animation: tipFade 220ms ease-out 740ms both; }
-  .play-pop { transform-box: fill-box; transform-origin: 48% 50%; animation: playSpring 470ms cubic-bezier(0.34, 1.5, 0.64, 1) 630ms both; }
-  .ring { position: absolute; inset: -7%; border-radius: 27%; border: 2px solid rgba(255, 171, 31, 0.45); pointer-events: none; animation: ring 300ms ease-out forwards; }
-  .ring.go { border-color: rgba(62, 226, 110, 0.5); }
-
-  /* Visor da contagem: LEDs 1-4, display de 7 segmentos e a etapa do carregamento */
-  .count {
-    display: flex; align-items: center; gap: 12px; width: 346px; height: 38px; box-sizing: border-box; padding: 0 14px 0 13px;
-    border-radius: 8px; background-color: var(--lcd);
-    background-image: repeating-linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px);
-    box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.9), 0 0 0 1px #2d3238, 0 1px 0 rgba(255, 255, 255, 0.05);
-    animation: fadeIn 190ms ease-out 80ms both;
-  }
-  .leds { display: flex; gap: 7px; }
-  .leds .led { width: 8px; height: 8px; }
-  .sep { align-self: stretch; width: 1px; margin: 9px 0; background: rgba(255, 255, 255, 0.07); }
-  .digit { flex: none; height: 23px; width: auto; overflow: visible; color: var(--amber); fill: currentColor; }
-  .digit .ghost { opacity: 0.075; }
-  .digit .lit { filter: drop-shadow(0 0 1.2px currentColor) drop-shadow(0 0 4px color-mix(in srgb, currentColor 45%, transparent)); }
-  .digit .lit polygon { display: none; }
-  .digit .lit polygon.on { display: inline; }
-  .status { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; font-size: 12.5px; letter-spacing: 0.02em; color: var(--amber); text-shadow: 0 0 8px rgba(255, 171, 31, 0.45); }
-  .is-go .digit, .is-go .status { color: var(--green); }
-  .is-go .status { text-shadow: 0 0 8px rgba(62, 226, 110, 0.45); }
-
-  .word { margin: 2px 0 0; font-family: 'Outfit', 'Barlow Semi Condensed', sans-serif; font-weight: 600; font-size: 19px; line-height: 1; letter-spacing: -0.01em; color: var(--cream); animation: word 330ms ease-out 720ms both; }
-
-  @keyframes cardIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: none; } }
-  @keyframes logoPop { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
-  @keyframes waveDraw { to { stroke-dashoffset: 0; } }
-  @keyframes tipFade { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes playSpring { 0% { opacity: 0; transform: scale(0.25); } 70% { opacity: 1; transform: scale(1.08); } 100% { opacity: 1; transform: none; } }
-  @keyframes ring { from { transform: scale(0.94); opacity: 0.9; } to { transform: scale(1.25); opacity: 0; } }
+  @keyframes cardIn { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  @keyframes logoPop { from { opacity: 0; transform: scale(0.82); } to { opacity: 1; transform: scale(1); } }
+  @keyframes auraIn { from { opacity: 0; transform: scale(0.85); } to { opacity: 0.75; transform: scale(1); } }
+  @keyframes auraBreath { from { opacity: 0.75; transform: scale(1); } to { opacity: 0.45; transform: scale(1.06); } }
+  @keyframes waveDraw { from { stroke-dashoffset: 1205; } to { stroke-dashoffset: 0; } }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes word { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-  @keyframes blink { to { visibility: hidden; } }
-  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  @keyframes playSpring { 0% { opacity: 0; transform: scale(0.25); } 70% { opacity: 1; transform: scale(1.08); } 100% { opacity: 1; transform: scale(1); } }
+  @keyframes gleam { from { opacity: 0; } to { opacity: 0.55; } }
+  @keyframes titleIn { from { opacity: 0; letter-spacing: 6px; transform: translateY(6px); } to { opacity: 1; letter-spacing: 0.5px; transform: translateY(0); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } .wave-draw, .wave-spec-draw { stroke-dashoffset: 0; } }
   /* A janela nasce escondida e só aparece depois do primeiro desenho: até lá a animação fica
      parada no primeiro quadro, senão ela já teria passado quando a abertura surge na tela. */
   body:not(.go) *, body:not(.go) *::before, body:not(.go) *::after { animation-play-state: paused !important; }
@@ -120,369 +74,246 @@
 </head>
 <body>
 <div class="card">
-  <div class="rail">
-    <span class="legend">VS Stage Pro</span>
-    <span class="legend"><span id="railText">Ligando</span><span id="railLed" class="led amber blink"></span></span>
-  </div>
+  <svg viewBox="0 0 560 380" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <!-- Filtros do logo oficial (aplicados em camadas paradas: o desfoque é calculado uma vez) -->
+      <filter id="squircle-shadow" x="-12%" y="-10%" width="124%" height="124%">
+        <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.58" />
+        <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000000" flood-opacity="0.35" />
+      </filter>
+      <filter id="neon-glow-wide" x="-35%" y="-35%" width="170%" height="170%"><feGaussianBlur stdDeviation="38" /></filter>
+      <filter id="neon-glow-mid" x="-25%" y="-25%" width="150%" height="150%"><feGaussianBlur stdDeviation="14" /></filter>
+      <filter id="tube-drop-shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="11" /></filter>
+      <filter id="frost-refraction" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="6.5" /></filter>
+      <filter id="glass-drop-shadow" x="-25%" y="-25%" width="155%" height="155%">
+        <feDropShadow dx="4" dy="24" stdDeviation="19" flood-color="#000000" flood-opacity="0.68" />
+        <feDropShadow dx="2" dy="8" stdDeviation="7" flood-color="#000000" flood-opacity="0.45" />
+      </filter>
 
-  <div class="stage">
-    <div class="scene">
-      <div class="logo-wrap" id="logoWrap">
-        <svg class="logo" viewBox="0 0 1000 1000" aria-hidden="true">
-          <defs>
-            <!-- ===================================================== -->
-            <!-- FILTROS DE SOMBRA, BRILHO E REFRAÇÃO (LOGO OFICIAL)  -->
-            <!-- ===================================================== -->
-            <filter id="squircle-shadow" x="-12%" y="-10%" width="124%" height="124%">
-              <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.58" />
-              <feDropShadow dx="0" dy="6" stdDeviation="7" flood-color="#000000" flood-opacity="0.35" />
-            </filter>
+      <!-- Base squircle 3D -->
+      <linearGradient id="squircle-rim-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#4e515c" />
+        <stop offset="8%" stop-color="#383a43" />
+        <stop offset="90%" stop-color="#1b1c21" />
+        <stop offset="100%" stop-color="#131418" />
+      </linearGradient>
+      <linearGradient id="squircle-face-grad" x1="20%" y1="5%" x2="80%" y2="95%">
+        <stop offset="0%" stop-color="#2d2f37" />
+        <stop offset="50%" stop-color="#24252c" />
+        <stop offset="100%" stop-color="#1b1c21" />
+      </linearGradient>
+      <radialGradient id="ambient-cyan" cx="27%" cy="43%" r="34%">
+        <stop offset="0%" stop-color="#00d9ff" stop-opacity="0.28" />
+        <stop offset="55%" stop-color="#008cff" stop-opacity="0.09" />
+        <stop offset="100%" stop-color="#008cff" stop-opacity="0" />
+      </radialGradient>
+      <radialGradient id="ambient-blue" cx="56%" cy="63%" r="30%">
+        <stop offset="0%" stop-color="#1c56ff" stop-opacity="0.22" />
+        <stop offset="65%" stop-color="#1c56ff" stop-opacity="0.05" />
+        <stop offset="100%" stop-color="#1c56ff" stop-opacity="0" />
+      </radialGradient>
+      <radialGradient id="ambient-orange" cx="78%" cy="55%" r="28%">
+        <stop offset="0%" stop-color="#ff7816" stop-opacity="0.27" />
+        <stop offset="55%" stop-color="#ff5100" stop-opacity="0.08" />
+        <stop offset="100%" stop-color="#ff5100" stop-opacity="0" />
+      </radialGradient>
 
-            <filter id="neon-glow-wide" x="-35%" y="-35%" width="170%" height="170%">
-              <feGaussianBlur stdDeviation="38" />
-            </filter>
+      <!-- Tubo neon (oficial: ciano, azul, âmbar) -->
+      <linearGradient id="tube-wall-grad" x1="140" y1="450" x2="860" y2="550" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#76f7ff" />
+        <stop offset="12%" stop-color="#1ae0ff" />
+        <stop offset="26%" stop-color="#22a6ff" />
+        <stop offset="40%" stop-color="#2578ed" />
+        <stop offset="54%" stop-color="#1d56d4" />
+        <stop offset="66%" stop-color="#2d60db" />
+        <stop offset="75%" stop-color="#6b56aa" />
+        <stop offset="84%" stop-color="#cf5e4c" />
+        <stop offset="92%" stop-color="#ff7e24" />
+        <stop offset="100%" stop-color="#ffa02c" />
+      </linearGradient>
+      <linearGradient id="tube-core-grad" x1="140" y1="450" x2="860" y2="550" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#b8fcff" />
+        <stop offset="9%" stop-color="#22cbf0" />
+        <stop offset="22%" stop-color="#0d7ec4" />
+        <stop offset="36%" stop-color="#10448a" />
+        <stop offset="50%" stop-color="#0c2663" />
+        <stop offset="64%" stop-color="#112b6e" />
+        <stop offset="74%" stop-color="#352659" />
+        <stop offset="84%" stop-color="#873323" />
+        <stop offset="94%" stop-color="#cc4e10" />
+        <stop offset="100%" stop-color="#b83c08" />
+      </linearGradient>
+      <radialGradient id="tip-cyan-glow" cx="158" cy="496" r="46" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+        <stop offset="40%" stop-color="#8cfaff" stop-opacity="0.75" />
+        <stop offset="100%" stop-color="#00d5ff" stop-opacity="0" />
+      </radialGradient>
+      <radialGradient id="tip-orange-glow" cx="836" cy="490" r="42" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#fff0bd" stop-opacity="0.9" />
+        <stop offset="45%" stop-color="#ff9e2c" stop-opacity="0.65" />
+        <stop offset="100%" stop-color="#eb5a0f" stop-opacity="0" />
+      </radialGradient>
 
-            <filter id="neon-glow-mid" x="-25%" y="-25%" width="150%" height="150%">
-              <feGaussianBlur stdDeviation="14" />
-            </filter>
+      <!-- Play em vidro fosco -->
+      <linearGradient id="glass-base-grad" x1="347" y1="300" x2="690" y2="630" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#edf4fc" stop-opacity="0.58" />
+        <stop offset="40%" stop-color="#cad5e2" stop-opacity="0.44" />
+        <stop offset="75%" stop-color="#949eab" stop-opacity="0.36" />
+        <stop offset="100%" stop-color="#bd968d" stop-opacity="0.44" />
+      </linearGradient>
+      <linearGradient id="glass-upper-sheen" x1="347" y1="295" x2="565" y2="490" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.56" />
+        <stop offset="55%" stop-color="#e4ecf7" stop-opacity="0.40" />
+        <stop offset="100%" stop-color="#c8d4e3" stop-opacity="0.26" />
+      </linearGradient>
+      <linearGradient id="glass-lower-smoky" x1="347" y1="510" x2="695" y2="660" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#525a66" stop-opacity="0.38" />
+        <stop offset="55%" stop-color="#696f7a" stop-opacity="0.28" />
+        <stop offset="100%" stop-color="#c48a78" stop-opacity="0.36" />
+      </linearGradient>
+      <radialGradient id="glass-right-warmth" cx="695" cy="498" r="170" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ff944d" stop-opacity="0.40" />
+        <stop offset="50%" stop-color="#d97a64" stop-opacity="0.16" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </radialGradient>
+      <linearGradient id="inner-bevel-grad" x1="389" y1="360" x2="625" y2="610" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55" />
+        <stop offset="35%" stop-color="#6e7b8f" stop-opacity="0.42" />
+        <stop offset="70%" stop-color="#9ab4d6" stop-opacity="0.48" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.65" />
+      </linearGradient>
+      <linearGradient id="inner-rim-stroke" x1="396" y1="365" x2="624" y2="590" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.82" />
+        <stop offset="45%" stop-color="#96a5ba" stop-opacity="0.45" />
+        <stop offset="80%" stop-color="#b8d8ff" stop-opacity="0.75" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.88" />
+      </linearGradient>
+      <linearGradient id="outer-rim-stroke" x1="347" y1="295" x2="706" y2="700" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
+        <stop offset="35%" stop-color="#ffffff" stop-opacity="0.75" />
+        <stop offset="70%" stop-color="#e0c5bc" stop-opacity="0.58" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0.85" />
+      </linearGradient>
+      <linearGradient id="gleam-grad" x1="347" y1="300" x2="560" y2="500" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </linearGradient>
 
-            <filter id="tube-drop-shadow" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="11" />
-            </filter>
+      <!-- Geometrias oficiais (viewBox 0 0 1000 1000) -->
+      <path id="wave-path" fill="none" d="M 154, 496 C 176, 502, 206, 464, 248, 390 C 290, 316, 326, 268, 366, 268 C 408, 268, 435, 336, 468, 444 C 501, 552, 528, 636, 560, 688 C 576, 714, 590, 726, 606, 726 C 638, 726, 676, 672, 724, 598 C 766, 534, 804, 484, 842, 498" />
+      <path id="outer-triangle" d="M 347, 318.44 A 24, 24 0 0, 1 383, 297.66 L 694, 477.22 A 24, 24 0 0, 1 694, 518.78 L 383, 698.34 A 24, 24 0 0, 1 347, 677.56 Z" />
+      <path id="inner-bevel-ridge" d="M 389, 368.67 A 11, 11 0 0, 1 405.5, 359.14 L 629.5, 488.47 A 11, 11 0 0, 1 629.5, 507.53 L 405.5, 636.86 A 11, 11 0 0, 1 389, 627.33 Z" />
+      <path id="inner-hole" d="M 396, 375.60 A 8, 8 0 0, 1 408, 368.67 L 620, 491.07 A 8, 8 0 0, 1 620, 504.93 L 408, 627.33 A 8, 8 0 0, 1 396, 620.40 Z" />
+      <path id="glass-ring-shape" fill-rule="evenodd" clip-rule="evenodd" d="M 347, 318.44 A 24, 24 0 0, 1 383, 297.66 L 694, 477.22 A 24, 24 0 0, 1 694, 518.78 L 383, 698.34 A 24, 24 0 0, 1 347, 677.56 Z M 396, 375.60 L 396, 620.40 A 8, 8 0 0, 0 408, 627.33 L 620, 504.93 A 8, 8 0 0, 0 620, 491.07 L 408, 368.67 A 8, 8 0 0, 0 396, 375.60 Z" />
+      <path id="inner-bevel-band" fill-rule="evenodd" d="M 389, 368.67 A 11, 11 0 0, 1 405.5, 359.14 L 629.5, 488.47 A 11, 11 0 0, 1 629.5, 507.53 L 405.5, 636.86 A 11, 11 0 0, 1 389, 627.33 Z M 396, 375.60 L 396, 620.40 A 8, 8 0 0, 0 408, 627.33 L 620, 504.93 A 8, 8 0 0, 0 620, 491.07 L 408, 368.67 A 8, 8 0 0, 0 396, 375.60 Z" />
+      <clipPath id="squircle-face-clip"><rect x="62" y="73" width="876" height="855" rx="214" ry="214" /></clipPath>
+      <clipPath id="glass-clip"><use href="#glass-ring-shape" /></clipPath>
 
-            <filter id="core-soft" x="-15%" y="-15%" width="130%" height="130%">
-              <feGaussianBlur stdDeviation="4.2" />
-            </filter>
+      <!-- Aura de palco atrás do logo e a barra de progresso -->
+      <radialGradient id="stageAura" cx="50%" cy="50%" r="50%">
+        <stop offset="0%" stop-color="#ff9f0a" stop-opacity="0.32" />
+        <stop offset="40%" stop-color="#b8e85c" stop-opacity="0.14" />
+        <stop offset="72%" stop-color="#2a6cff" stop-opacity="0.06" />
+        <stop offset="100%" stop-color="#2a6cff" stop-opacity="0" />
+      </radialGradient>
+      <linearGradient id="barFill" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0%" stop-color="#8fc43c" />
+        <stop offset="100%" stop-color="#cdf27a" />
+      </linearGradient>
+    </defs>
 
-            <filter id="spec-soft" x="-15%" y="-15%" width="130%" height="130%">
-              <feGaussianBlur stdDeviation="2" />
-            </filter>
+    <!-- Aura atrás do logo -->
+    <circle cx="280" cy="104" r="120" fill="url(#stageAura)" class="stage-aura" />
 
-            <filter id="frost-refraction" x="-20%" y="-20%" width="140%" height="140%">
-              <feGaussianBlur stdDeviation="6.5" />
-            </filter>
+    <!-- Logo oficial centralizado (160x160 em 560x380) -->
+    <svg x="200" y="24" width="160" height="160" viewBox="0 0 1000 1000" class="logo-pop" overflow="visible">
+      <g>
+        <rect x="60" y="60" width="880" height="880" rx="218" ry="218" fill="url(#squircle-rim-grad)" filter="url(#squircle-shadow)" />
+        <rect x="61" y="61" width="878" height="878" rx="217" ry="217" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1.2" />
+        <g clip-path="url(#squircle-face-clip)">
+          <rect x="62" y="73" width="876" height="855" fill="url(#squircle-face-grad)" />
+          <rect x="62" y="73" width="876" height="855" fill="url(#ambient-cyan)" />
+          <rect x="62" y="73" width="876" height="855" fill="url(#ambient-blue)" />
+          <rect x="62" y="73" width="876" height="855" fill="url(#ambient-orange)" />
+        </g>
+      </g>
 
-            <filter id="glass-drop-shadow" x="-25%" y="-25%" width="155%" height="155%">
-              <feDropShadow dx="4" dy="24" stdDeviation="19" flood-color="#000000" flood-opacity="0.68" />
-              <feDropShadow dx="2" dy="8" stdDeviation="7" flood-color="#000000" flood-opacity="0.45" />
-            </filter>
+      <!-- ponta ciano acende no começo do traço -->
+      <circle class="tip-left" cx="158" cy="496" r="46" fill="url(#tip-cyan-glow)" />
 
-            <!-- ===================================================== -->
-            <!-- GRADIENTES DA BASE SQUIRCLE 3D                        -->
-            <!-- ===================================================== -->
-            <linearGradient id="squircle-rim-grad" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#4e515c" />
-              <stop offset="8%" stop-color="#383a43" />
-              <stop offset="90%" stop-color="#1b1c21" />
-              <stop offset="100%" stop-color="#131418" />
-            </linearGradient>
+      <!-- brilhos desfocados: parados, só acendem (o desfoque é calculado uma vez) -->
+      <g class="glow-in">
+        <use href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="72" stroke-linecap="round" opacity="0.42" filter="url(#neon-glow-wide)" />
+        <use href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="48" stroke-linecap="round" opacity="0.65" filter="url(#neon-glow-mid)" />
+        <use href="#wave-path" transform="translate(8, 18)" stroke="#000000" stroke-width="42" stroke-linecap="round" opacity="0.55" filter="url(#tube-drop-shadow)" />
+      </g>
 
-            <linearGradient id="squircle-face-grad" x1="20%" y1="5%" x2="80%" y2="95%">
-              <stop offset="0%" stop-color="#2d2f37" />
-              <stop offset="50%" stop-color="#24252c" />
-              <stop offset="100%" stop-color="#1b1c21" />
-            </linearGradient>
+      <!-- o tubo e o núcleo se desenham a laser, da esquerda para a direita (sem filtro) -->
+      <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="44" stroke-linecap="round" />
+      <use class="wave-draw" href="#wave-path" transform="translate(0, 1.5)" stroke="url(#tube-core-grad)" stroke-width="25" stroke-linecap="round" opacity="0.92" />
+      <use class="wave-spec-draw" href="#wave-path" transform="translate(-1.5, -12)" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.6" />
 
-            <radialGradient id="ambient-cyan" cx="27%" cy="43%" r="34%">
-              <stop offset="0%" stop-color="#00d9ff" stop-opacity="0.28" />
-              <stop offset="55%" stop-color="#008cff" stop-opacity="0.09" />
-              <stop offset="100%" stop-color="#008cff" stop-opacity="0" />
-            </radialGradient>
+      <!-- ponta âmbar quando a onda termina -->
+      <circle class="tip-right" cx="836" cy="490" r="44" fill="url(#tip-orange-glow)" />
 
-            <radialGradient id="ambient-blue" cx="56%" cy="63%" r="30%">
-              <stop offset="0%" stop-color="#1c56ff" stop-opacity="0.22" />
-              <stop offset="65%" stop-color="#1c56ff" stop-opacity="0.05" />
-              <stop offset="100%" stop-color="#1c56ff" stop-opacity="0" />
-            </radialGradient>
-
-            <radialGradient id="ambient-orange" cx="78%" cy="55%" r="28%">
-              <stop offset="0%" stop-color="#ff7816" stop-opacity="0.27" />
-              <stop offset="55%" stop-color="#ff5100" stop-opacity="0.08" />
-              <stop offset="100%" stop-color="#ff5100" stop-opacity="0" />
-            </radialGradient>
-
-            <!-- ===================================================== -->
-            <!-- GRADIENTES DO TUBO NEON 3D (OFICIAL: CIANO->AZUL->ÂMBAR)-->
-            <!-- ===================================================== -->
-            <linearGradient id="tube-wall-grad" x1="140" y1="450" x2="860" y2="550" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#76f7ff" />
-              <stop offset="12%" stop-color="#1ae0ff" />
-              <stop offset="26%" stop-color="#22a6ff" />
-              <stop offset="40%" stop-color="#2578ed" />
-              <stop offset="54%" stop-color="#1d56d4" />
-              <stop offset="66%" stop-color="#2d60db" />
-              <stop offset="75%" stop-color="#6b56aa" />
-              <stop offset="84%" stop-color="#cf5e4c" />
-              <stop offset="92%" stop-color="#ff7e24" />
-              <stop offset="100%" stop-color="#ffa02c" />
-            </linearGradient>
-
-            <linearGradient id="tube-core-grad" x1="140" y1="450" x2="860" y2="550" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#b8fcff" />
-              <stop offset="9%" stop-color="#22cbf0" />
-              <stop offset="22%" stop-color="#0d7ec4" />
-              <stop offset="36%" stop-color="#10448a" />
-              <stop offset="50%" stop-color="#0c2663" />
-              <stop offset="64%" stop-color="#112b6e" />
-              <stop offset="74%" stop-color="#352659" />
-              <stop offset="84%" stop-color="#873323" />
-              <stop offset="94%" stop-color="#cc4e10" />
-              <stop offset="100%" stop-color="#b83c08" />
-            </linearGradient>
-
-            <radialGradient id="tip-cyan-glow" cx="158" cy="496" r="46" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
-              <stop offset="40%" stop-color="#8cfaff" stop-opacity="0.75" />
-              <stop offset="100%" stop-color="#00d5ff" stop-opacity="0" />
-            </radialGradient>
-
-            <radialGradient id="tip-orange-glow" cx="836" cy="490" r="42" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#fff0bd" stop-opacity="0.9" />
-              <stop offset="45%" stop-color="#ff9e2c" stop-opacity="0.65" />
-              <stop offset="100%" stop-color="#eb5a0f" stop-opacity="0" />
-            </radialGradient>
-
-            <!-- ===================================================== -->
-            <!-- GRADIENTES DO BOTÃO PLAY EM VIDRO FOSCO               -->
-            <!-- ===================================================== -->
-            <linearGradient id="glass-base-grad" x1="347" y1="300" x2="690" y2="630" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#edf4fc" stop-opacity="0.58" />
-              <stop offset="40%" stop-color="#cad5e2" stop-opacity="0.44" />
-              <stop offset="75%" stop-color="#949eab" stop-opacity="0.36" />
-              <stop offset="100%" stop-color="#bd968d" stop-opacity="0.44" />
-            </linearGradient>
-
-            <linearGradient id="glass-upper-sheen" x1="347" y1="295" x2="565" y2="490" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.56" />
-              <stop offset="55%" stop-color="#e4ecf7" stop-opacity="0.40" />
-              <stop offset="100%" stop-color="#c8d4e3" stop-opacity="0.26" />
-            </linearGradient>
-
-            <linearGradient id="glass-lower-smoky" x1="347" y1="510" x2="695" y2="660" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#525a66" stop-opacity="0.38" />
-              <stop offset="55%" stop-color="#696f7a" stop-opacity="0.28" />
-              <stop offset="100%" stop-color="#c48a78" stop-opacity="0.36" />
-            </linearGradient>
-
-            <radialGradient id="glass-right-warmth" cx="695" cy="498" r="170" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ff944d" stop-opacity="0.40" />
-              <stop offset="50%" stop-color="#d97a64" stop-opacity="0.16" />
-              <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
-            </radialGradient>
-
-            <linearGradient id="inner-bevel-grad" x1="389" y1="360" x2="625" y2="610" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55" />
-              <stop offset="35%" stop-color="#6e7b8f" stop-opacity="0.42" />
-              <stop offset="70%" stop-color="#9ab4d6" stop-opacity="0.48" />
-              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.65" />
-            </linearGradient>
-
-            <linearGradient id="inner-rim-stroke" x1="396" y1="365" x2="624" y2="590" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.82" />
-              <stop offset="45%" stop-color="#96a5ba" stop-opacity="0.45" />
-              <stop offset="80%" stop-color="#b8d8ff" stop-opacity="0.75" />
-              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.88" />
-            </linearGradient>
-
-            <linearGradient id="outer-rim-stroke" x1="347" y1="295" x2="706" y2="700" gradientUnits="userSpaceOnUse">
-              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.95" />
-              <stop offset="35%" stop-color="#ffffff" stop-opacity="0.75" />
-              <stop offset="70%" stop-color="#e0c5bc" stop-opacity="0.58" />
-              <stop offset="100%" stop-color="#ffffff" stop-opacity="0.85" />
-            </linearGradient>
-
-            <!-- ===================================================== -->
-            <!-- GEOMETRIAS OFICIAIS EXATAS (VIEWBOX 0 0 1000 1000)    -->
-            <!-- ===================================================== -->
-            <path
-              id="wave-path"
-              fill="none"
-              d="M 154, 496 C 176, 502, 206, 464, 248, 390 C 290, 316, 326, 268, 366, 268 C 408, 268, 435, 336, 468, 444 C 501, 552, 528, 636, 560, 688 C 576, 714, 590, 726, 606, 726 C 638, 726, 676, 672, 724, 598 C 766, 534, 804, 484, 842, 498"
-            />
-
-            <mask id="tube-mask" maskUnits="userSpaceOnUse" x="100" y="200" width="800" height="600">
-              <use href="#wave-path" stroke="#ffffff" stroke-width="44" stroke-linecap="round" />
-            </mask>
-
-            <path
-              id="outer-triangle"
-              d="M 347, 318.44 A 24, 24 0 0, 1 383, 297.66 L 694, 477.22 A 24, 24 0 0, 1 694, 518.78 L 383, 698.34 A 24, 24 0 0, 1 347, 677.56 Z"
-            />
-
-            <path
-              id="inner-bevel-ridge"
-              d="M 389, 368.67 A 11, 11 0 0, 1 405.5, 359.14 L 629.5, 488.47 A 11, 11 0 0, 1 629.5, 507.53 L 405.5, 636.86 A 11, 11 0 0, 1 389, 627.33 Z"
-            />
-
-            <path
-              id="inner-hole"
-              d="M 396, 375.60 A 8, 8 0 0, 1 408, 368.67 L 620, 491.07 A 8, 8 0 0, 1 620, 504.93 L 408, 627.33 A 8, 8 0 0, 1 396, 620.40 Z"
-            />
-
-            <path
-              id="glass-ring-shape"
-              fill-rule="evenodd"
-              clip-rule="evenodd"
-              d="M 347, 318.44 A 24, 24 0 0, 1 383, 297.66 L 694, 477.22 A 24, 24 0 0, 1 694, 518.78 L 383, 698.34 A 24, 24 0 0, 1 347, 677.56 Z M 396, 375.60 L 396, 620.40 A 8, 8 0 0, 0 408, 627.33 L 620, 504.93 A 8, 8 0 0, 0 620, 491.07 L 408, 368.67 A 8, 8 0 0, 0 396, 375.60 Z"
-            />
-
-            <path
-              id="inner-bevel-band"
-              fill-rule="evenodd"
-              d="M 389, 368.67 A 11, 11 0 0, 1 405.5, 359.14 L 629.5, 488.47 A 11, 11 0 0, 1 629.5, 507.53 L 405.5, 636.86 A 11, 11 0 0, 1 389, 627.33 Z M 396, 375.60 L 396, 620.40 A 8, 8 0 0, 0 408, 627.33 L 620, 504.93 A 8, 8 0 0, 0 620, 491.07 L 408, 368.67 A 8, 8 0 0, 0 396, 375.60 Z"
-            />
-
-            <clipPath id="squircle-face-clip">
-              <rect x="62" y="73" width="876" height="855" rx="214" ry="214" />
-            </clipPath>
-
-            <clipPath id="glass-clip">
-              <use href="#glass-ring-shape" />
-            </clipPath>
-          </defs>
-          <g class="logo-pop">
-            <!-- Base Squircle Grafite 3D -->
-            <g>
-              <rect x="60" y="60" width="880" height="880" rx="218" ry="218" fill="url(#squircle-rim-grad)" filter="url(#squircle-shadow)" />
-              <rect x="61" y="61" width="878" height="878" rx="217" ry="217" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="1.2" />
-              <g clip-path="url(#squircle-face-clip)">
-                <rect x="62" y="73" width="876" height="855" fill="url(#squircle-face-grad)" />
-                <rect x="62" y="73" width="876" height="855" fill="url(#ambient-cyan)" />
-                <rect x="62" y="73" width="876" height="855" fill="url(#ambient-blue)" />
-                <rect x="62" y="73" width="876" height="855" fill="url(#ambient-orange)" />
-              </g>
-            </g>
-
-            <!-- Onda Sonora Neon 3D Completa Desenhada Dinamicamente da Esquerda para a Direita -->
-            <!-- Ponta inicial (ciano) acende no início do traçado -->
-            <circle class="tip-left" cx="158" cy="496" r="46" fill="url(#tip-cyan-glow)" />
-
-            <!-- Brilho atmosférico amplo: desenha dinamicamente com a onda -->
-            <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="72" stroke-linecap="round" opacity="0.42" filter="url(#neon-glow-wide)" />
-
-            <!-- Brilho médio volumétrico: desenha dinamicamente com a onda -->
-            <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="48" stroke-linecap="round" opacity="0.65" filter="url(#neon-glow-mid)" />
-
-            <!-- Sombra do tubo: desenha dinamicamente com a onda -->
-            <use class="wave-draw" href="#wave-path" transform="translate(8, 18)" stroke="#000000" stroke-width="42" stroke-linecap="round" opacity="0.55" filter="url(#tube-drop-shadow)" />
-
-            <!-- Tubo neon principal: desenha dinamicamente com o gradiente oficial -->
-            <use class="wave-draw" href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="44" stroke-linecap="round" />
-
-            <!-- Núcleo 3D cilíndrico interno translúcido: desenha dinamicamente -->
-            <use class="wave-draw" href="#wave-path" transform="translate(0, 1.5)" stroke="url(#tube-core-grad)" stroke-width="25" stroke-linecap="round" filter="url(#core-soft)" />
-
-            <!-- Destaque especular branco superior fino -->
-            <use class="wave-spec-draw" href="#wave-path" transform="translate(-1.5, -12)" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" opacity="0.75" filter="url(#spec-soft)" />
-
-            <!-- Ponta final (âmbar): surge quando a onda completa o desenho -->
-            <circle class="tip-right" cx="836" cy="490" r="44" fill="url(#tip-orange-glow)" />
-
-            <!-- Botão Play em Vidro Fosco (Glassmorphism) com salto elástico -->
-            <g class="play-pop" filter="url(#glass-drop-shadow)">
-              <g clip-path="url(#glass-clip)">
-                <rect x="335" y="285" width="380" height="430" fill="url(#glass-base-grad)" />
-                <g filter="url(#frost-refraction)" opacity="0.84">
-                  <use href="#wave-path" stroke="#09235c" stroke-width="50" stroke-linecap="round" />
-                  <use href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="34" stroke-linecap="round" />
-                </g>
-                <rect x="335" y="285" width="380" height="430" fill="url(#glass-right-warmth)" />
-                <polygon points="340,549.7 396,512 546,444 584,412 720,412 720,715 340,715" fill="url(#glass-lower-smoky)" />
-                <polygon points="340,285 720,285 584,412 546,444 396,512 340,549.7" fill="url(#glass-upper-sheen)" />
-                <use href="#inner-bevel-band" fill="url(#inner-bevel-grad)" />
-                <use href="#outer-triangle" fill="none" stroke="#ffffff" stroke-width="10" stroke-opacity="0.18" filter="url(#spec-soft)" />
-              </g>
-              <use href="#inner-bevel-ridge" fill="none" stroke="#ffffff" stroke-opacity="0.34" stroke-width="1.2" />
-              <use href="#inner-hole" fill="none" stroke="url(#inner-rim-stroke)" stroke-width="2.2" />
-              <use href="#outer-triangle" fill="none" stroke="url(#outer-rim-stroke)" stroke-width="2.4" />
-            </g>
+      <!-- play em vidro fosco, com salto elástico -->
+      <g class="play-pop" filter="url(#glass-drop-shadow)">
+        <g clip-path="url(#glass-clip)">
+          <rect x="335" y="285" width="380" height="430" fill="url(#glass-base-grad)" />
+          <g filter="url(#frost-refraction)" opacity="0.84">
+            <use href="#wave-path" stroke="#09235c" stroke-width="50" stroke-linecap="round" />
+            <use href="#wave-path" stroke="url(#tube-wall-grad)" stroke-width="34" stroke-linecap="round" />
           </g>
-        </svg>
-      </div>
+          <rect x="335" y="285" width="380" height="430" fill="url(#glass-right-warmth)" />
+          <polygon points="340,549.7 396,512 546,444 584,412 720,412 720,715 340,715" fill="url(#glass-lower-smoky)" />
+          <polygon points="340,285 720,285 584,412 546,444 396,512 340,549.7" fill="url(#glass-upper-sheen)" />
+          <use href="#inner-bevel-band" fill="url(#inner-bevel-grad)" />
+          <polygon class="play-gleam" points="340,285 720,285 584,412 546,444 396,512 340,549.7" fill="url(#gleam-grad)" />
+        </g>
+        <use href="#inner-bevel-ridge" fill="none" stroke="#ffffff" stroke-opacity="0.34" stroke-width="1.2" />
+        <use href="#inner-hole" fill="none" stroke="url(#inner-rim-stroke)" stroke-width="2.2" />
+        <use href="#outer-triangle" fill="none" stroke="url(#outer-rim-stroke)" stroke-width="2.4" />
+      </g>
+    </svg>
 
-      <div class="count" id="count">
-        <div class="leds"><span class="led"></span><span class="led"></span><span class="led"></span><span class="led"></span></div>
-        <svg class="digit" id="digit" aria-hidden="true"></svg>
-        <span class="sep"></span>
-        <span class="status" id="status">Ligando a mesa...</span>
-      </div>
+    <!-- Nome (Outfit, a fonte da marca) e a assinatura -->
+    <text class="title" x="280" y="216" text-anchor="middle" font-size="27" fill="#f4f4f6">VS Stage Pro</text>
+    <text class="subtitle" x="280" y="237" text-anchor="middle" font-size="9.5" font-weight="600" fill="#9a9aa2" letter-spacing="4">LIVE PERFORMANCE ENGINE</text>
 
-      <p class="word">VS Stage Pro</p>
-    </div>
-  </div>
+    <!-- O que está carregando e a barra em verde-limão -->
+    <g class="fade" style="animation-delay: 300ms">
+      <text id="status" x="280" y="272" text-anchor="middle" font-size="11" font-weight="500" fill="#a7a7ae">Carregando motor de áudio...</text>
+      <g transform="translate(150, 286)">
+        <rect width="260" height="7" rx="3.5" fill="#0d0d0e" stroke="rgba(255,255,255,0.08)" stroke-width="1" />
+        <rect id="bar" x="1.5" y="1.5" width="257" height="4" rx="2" fill="url(#barFill)" />
+        <rect x="1.5" y="1.5" width="257" height="1.4" rx="0.7" fill="#ffffff" opacity="0.18" />
+      </g>
+    </g>
 
-  <div class="foot">
-    <span class="copy">© 2026 VS Stage Pro</span>
-    <span class="version"><span id="version"></span><span class="led amber"></span></span>
-  </div>
+    <g class="fade" style="animation-delay: 450ms">
+      <text x="24" y="356" font-size="10" font-weight="500" fill="#6e6e76">© 2026 VS Stage Pro</text>
+      <text x="536" y="356" text-anchor="end" font-size="10" font-weight="600" fill="#ff9a2e" id="version"></text>
+    </g>
+  </svg>
 </div>
 <script>
-  const NS = 'http://www.w3.org/2000/svg';
-
-  // Display de 7 segmentos (mesma geometria do SegmentDisplay do programa)
-  const SEGMENTS = { '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc' };
-  const L = 1.4, R = 10.6, T = 1.4, M = 10, B = 18.6, GAP = 0.55, H = 1.1;
-  const hz = (y, x0, x1) => `${x0},${y} ${x0 + H},${y - H} ${x1 - H},${y - H} ${x1},${y} ${x1 - H},${y + H} ${x0 + H},${y + H}`;
-  const vt = (x, y0, y1) => `${x},${y0} ${x + H},${y0 + H} ${x + H},${y1 - H} ${x},${y1} ${x - H},${y1 - H} ${x - H},${y0 + H}`;
-  const POINTS = {
-    a: hz(T, L + GAP, R - GAP), g: hz(M, L + GAP, R - GAP), d: hz(B, L + GAP, R - GAP),
-    f: vt(L, T + GAP, M - GAP), b: vt(R, T + GAP, M - GAP), e: vt(L, M + GAP, B - GAP), c: vt(R, M + GAP, B - GAP),
-  };
-  const PAD = 20 * Math.tan((6 * Math.PI) / 180);
-  const digit = document.getElementById('digit');
-  digit.setAttribute('viewBox', `${-PAD - 0.5} -0.5 ${12 + PAD + 1} 21`);
-  const skew = document.createElementNS(NS, 'g');
-  skew.setAttribute('transform', 'skewX(-6)');
-  const ghost = document.createElementNS(NS, 'g');
-  ghost.setAttribute('class', 'ghost');
-  const lit = document.createElementNS(NS, 'g');
-  lit.setAttribute('class', 'lit');
-  const litSeg = {};
-  for (const s of 'abcdefg') {
-    const p = document.createElementNS(NS, 'polygon');
-    p.setAttribute('points', POINTS[s]);
-    ghost.appendChild(p);
-    const q = p.cloneNode();
-    lit.appendChild(q);
-    litSeg[s] = q;
-  }
-  skew.append(ghost, lit);
-  digit.appendChild(skew);
-  const showDigit = (n) => {
-    const on = SEGMENTS[String(n)] || '';
-    for (const s of 'abcdefg') litSeg[s].classList.toggle('on', on.includes(s));
-  };
-
   const version = new URLSearchParams(location.search).get('v');
   if (version) document.getElementById('version').textContent = 'v' + version + ' PRO';
-
-  // Cada batida da contagem é uma etapa do carregamento
-  const STEPS = [
-    { at: 300, text: 'Carregando motor de áudio...' },
-    { at: 690, text: 'Preparando timecode e periféricos...' },
-    { at: 1070, text: 'Abrindo o show...' },
-    { at: 1460, text: 'Pronto' },
-  ];
-  const leds = [...document.querySelectorAll('.leds .led')];
-  const count = document.getElementById('count');
   const status = document.getElementById('status');
-  const logoWrap = document.getElementById('logoWrap');
-  const railText = document.getElementById('railText');
-  const railLed = document.getElementById('railLed');
-  const beat = (n) => {
-    const last = n === 4;
-    leds.forEach((led, i) => { led.className = 'led' + (i < n ? (i === 3 ? ' green' : ' amber') : ''); });
-    showDigit(n);
-    status.textContent = STEPS[n - 1].text;
-    count.classList.toggle('is-go', last);
-    logoWrap.querySelectorAll('.ring').forEach((r) => r.remove());
-    const ring = document.createElement('span');
-    ring.className = 'ring' + (last ? ' go' : '');
-    logoWrap.appendChild(ring);
-    if (last) { railText.textContent = 'Pronto'; railLed.className = 'led green'; }
-  };
-  const startSteps = () => STEPS.forEach((s, i) => setTimeout(() => beat(i + 1), s.at));
-
+  const bar = document.getElementById('bar');
+  // as etapas caem nos mesmos tempos que o app espera ("Pronto" em 1460 ms; ver main.js)
+  const STEPS = [
+    { at: 300, progress: 0.24, text: 'Carregando motor de áudio...' },
+    { at: 690, progress: 0.55, text: 'Preparando timecode e periféricos...' },
+    { at: 1070, progress: 0.84, text: 'Abrindo o show...' },
+    { at: 1460, progress: 1, text: 'Pronto' },
+  ];
+  const startSteps = () => STEPS.forEach((s) => {
+    setTimeout(() => {
+      if (status) status.textContent = s.text;
+      if (bar) bar.style.transform = 'scaleX(' + s.progress + ')';
+    }, s.at);
+  });
   let started = false;
   const go = () => {
     if (started) return;
