@@ -2609,6 +2609,15 @@ class AudioEngine {
     return peak;
   }
 
+  /** Média do sinal agora (RMS, linear) de um analisador: o que um VU de verdade mede. */
+  private rmsOf(analyser: AnalyserNode): number {
+    const data = this.meterScratch;
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    return Math.sqrt(sum / data.length);
+  }
+
   /** Queda de 24 dB/s, como os medidores de mesa: sobe na hora, desce devagar. */
   private smoothMeter(key: string, peak: number): number {
     const now = performance.now();
@@ -2632,6 +2641,12 @@ class AudioEngine {
   getMasterMeterLevelsLR(): [number, number] | null {
     if (!this.masterMeterL || !this.masterMeterR) return null;
     return [this.smoothMeter('master:L', this.peakOf(this.masterMeterL)), this.smoothMeter('master:R', this.peakOf(this.masterMeterR))];
+  }
+
+  /** Média (RMS) do master, L e R, para os VUs de ponteiro (a balística fica no VU). */
+  getMasterRmsLR(): [number, number] | null {
+    if (!this.masterMeterL || !this.masterMeterR) return null;
+    return [this.rmsOf(this.masterMeterL), this.rmsOf(this.masterMeterR)];
   }
 
   private startMetering() {
@@ -2658,6 +2673,9 @@ class AudioEngine {
         levels.set('master', masterLevel);
         const masterLR = this.getMasterMeterLevelsLR();
         if (masterLR) { levels.set('master:L', masterLR[0]); levels.set('master:R', masterLR[1]); }
+        // VUs de ponteiro: a média do sinal, não o pico
+        const masterRms = this.getMasterRmsLR();
+        if (masterRms) { levels.set('master-rms:L', masterRms[0]); levels.set('master-rms:R', masterRms[1]); }
         // com o anti-clip do master ligado a saída não passa do teto: o indicador de clip fica apagado
         const masterPre = store.masterAntiClip ? 0 : this.getMasterPrePeak();
         if (masterPre >= 1 && store.masterClipPeak < masterPre) store.updateMasterMeter(masterPre);

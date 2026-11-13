@@ -2888,8 +2888,9 @@
 
 /* ================= Skin padrão: VS Stage, equipamento de estúdio =================
    Painéis em grafite com textura de pintura eletrostática (o pó granulado dos equipamentos de
-   rack), peças em preto (teclas, visores, knobs) e duas cores de destaque: verde-limão nas luzes
-   e nos LEDs, roxo nos valores e leitores. Capa do fader em alumínio prateado.
+   rack), peças em preto (teclas, visores, knobs) e o verde-limão de destaque nas luzes, nos LEDs,
+   nos valores e nos botões principais (a próxima música fica em laranja). Capa do fader em
+   alumínio prateado.
    Vale só sem skin escolhida (:root sem data-skin). As regras usam :where() para pesar o mesmo
    que as da base: vencem as dela e perdem para as classes do Tailwind. */
 @layer base {
@@ -2905,9 +2906,9 @@
     --lg-text: 234 234 236;
     --lg-text-dim: 172 172 178;
     --lg-text-muted: 122 122 128;
-    --lg-accent: 168 104 232;
-    --lg-accent-hover: 190 136 245;
-    --lg-accent-dim: 120 74 168;
+    --lg-accent: 168 216 72;
+    --lg-accent-hover: 190 236 100;
+    --lg-accent-dim: 112 150 50;
     --lg-lcd-bg: 22 22 24;
     --lg-lcd-text: 236 236 240;
     --lg-lcd-amber: 255 150 50;
@@ -2915,7 +2916,6 @@
     --lg-lcd-red: 255 76 76;
     --lg-lcd-yellow: 240 222 90;
     --vs-lime: #b8e85c;
-    --vs-purple: #bd84ff;
   }
 }
 
@@ -3000,10 +3000,10 @@
     background: linear-gradient(180deg, #4a4a4f, #1a1a1c 50%, #0c0c0d);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
-  /* leitores de valor: caixinha preta com o número em roxo (o verde, o laranja e o vermelho
-     do nível continuam valendo quando a tela pede) */
+  /* leitores de valor: caixinha preta com o número em verde-limão (o laranja e o vermelho do
+     nível continuam valendo quando a tela pede) */
   :where(:root:not([data-skin])) .console-readout {
-    color: var(--vs-purple);
+    color: var(--vs-lime);
     background-color: #1a1a1c;
     border-radius: 3px;
     box-shadow: inset 0 0 0 1px #0d0d0e, inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.06);
@@ -3016,6 +3016,12 @@
     font-weight: 600;
     letter-spacing: 0.1em;
     color: #c9c9ce;
+  }
+
+  /* botões no verde cheio (cor de destaque): texto escuro, o branco some no verde-limão */
+  :root:not([data-skin]) [class~='bg-logic-accent'][class~='text-white'],
+  :root:not([data-skin]) [class~='hover:bg-logic-accent-hover'][class~='text-white']:hover {
+    color: #121314;
   }
 
   /* ---------- teclas pretas; acesas em verde-limão, laranja ou vermelho ---------- */
@@ -3039,37 +3045,24 @@
     background-color: #242426;
     border-color: #0f0f10;
   }
-  :where(:root:not([data-skin])) .console-key.is-lit-amber {
-    color: #ffc58a;
-    background-color: rgba(255, 138, 30, 0.16);
-    background-image: none;
-    border-color: #ff8a1e;
-    box-shadow: 0 0 12px rgba(255, 138, 30, 0.45), inset 0 0 8px rgba(255, 138, 30, 0.25);
-    text-shadow: 0 0 6px rgba(255, 138, 30, 0.8);
-  }
-  :where(:root:not([data-skin])) .console-key.is-lit-green {
-    color: #e2f8b8;
-    background-color: rgba(184, 232, 92, 0.14);
-    background-image: none;
-    border-color: var(--vs-lime);
-    box-shadow: 0 0 12px rgba(184, 232, 92, 0.4), inset 0 0 8px rgba(184, 232, 92, 0.2);
-    text-shadow: 0 0 6px rgba(184, 232, 92, 0.8);
-  }
-  :where(:root:not([data-skin])) .console-key.is-lit-red {
-    color: #ffb1b1;
-    background-color: rgba(255, 72, 72, 0.16);
-    background-image: none;
-    border-color: #ff4848;
-    box-shadow: 0 0 12px rgba(255, 72, 72, 0.45), inset 0 0 8px rgba(255, 72, 72, 0.25);
-    text-shadow: 0 0 6px rgba(255, 72, 72, 0.8);
-  }
-  :where(:root:not([data-skin])) .console-key.is-lit-blue {
-    color: #ead6ff;
-    background-color: rgba(189, 132, 255, 0.16);
-    background-image: none;
-    border-color: var(--vs-purple);
-    box-shadow: 0 0 12px rgba(189, 132, 255, 0.4), inset 0 0 8px rgba(189, 132, 255, 0.2);
-    text-shadow: 0 0 6px rgba(189, 132, 255, 0.8);
+  :where(:root:not([data-skin])) .console-key.is-lit-amber { --lit: #ff8a1e; --lit-text: #ffc58a; }
+  :where(:root:not([data-skin])) .console-key.is-lit-green { --lit: var(--vs-lime); --lit-text: #e2f8b8; }
+  :where(:root:not([data-skin])) .console-key.is-lit-red { --lit: #ff4848; --lit-text: #ffb1b1; }
+  :where(:root:not([data-skin])) .console-key.is-lit-blue { --lit: var(--vs-lime); --lit-text: #e2f8b8; }
+  /* tecla acesa: a mesma tecla (corpo preto opaco, brilho em cima e espessura embaixo), só com
+     a borda, o texto e o brilho em volta na cor; em qualquer fundo fica igual às apagadas */
+  :where(:root:not([data-skin])) .console-key:is(.is-lit-amber, .is-lit-green, .is-lit-red, .is-lit-blue) {
+    color: var(--lit-text);
+    background-color: color-mix(in srgb, var(--lit) 18%, #1c1c1e);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0.22) 100%);
+    border-color: var(--lit);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 1px 0 #0a0a0b,
+      0 2px 0 #050505,
+      0 0 10px color-mix(in srgb, var(--lit) 45%, transparent),
+      inset 0 0 7px color-mix(in srgb, var(--lit) 22%, transparent);
+    text-shadow: 0 0 6px color-mix(in srgb, var(--lit) 80%, transparent);
   }
   :where(:root:not([data-skin])) .console-key:active {
     transform: translateY(1px);
@@ -3077,7 +3070,7 @@
   }
   :where(:root:not([data-skin])) .console-key.is-big { border-radius: 10px; }
   :where(:root:not([data-skin])) .console-key.is-big.is-lit-green {
-    box-shadow: 0 0 22px rgba(184, 232, 92, 0.45), inset 0 0 12px rgba(184, 232, 92, 0.25);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 0 #0a0a0b, 0 2px 0 #050505, 0 0 22px rgba(184, 232, 92, 0.45), inset 0 0 12px rgba(184, 232, 92, 0.25);
   }
   :where(:root:not([data-skin])) .console-flatkey {
     font-family: 'Inter', system-ui, sans-serif;
@@ -3089,26 +3082,19 @@
   }
   :where(:root:not([data-skin])) .console-flatkey.is-lit-amber {
     color: #ffc58a;
-    background-color: rgba(255, 138, 30, 0.16);
+    background-color: color-mix(in srgb, #ff8a1e 18%, #1c1c1e);
     border-color: #ff8a1e;
     box-shadow: 0 0 8px rgba(255, 138, 30, 0.4);
   }
   :where(:root:not([data-skin])) .console-led.is-on-green { background: var(--vs-lime); box-shadow: 0 0 6px 1px rgba(184, 232, 92, 0.8); }
   :where(:root:not([data-skin])) .console-led.is-on-amber { background: #ff8a1e; box-shadow: 0 0 6px 1px rgba(255, 138, 30, 0.8); }
 
-  /* ---------- fader: fenda preta e o rastro de luz verde-limão ---------- */
+  /* ---------- fader: fenda preta (sem rastro de luz) ---------- */
   :where(:root:not([data-skin])) .console-slot {
     background: #0b0b0c;
     box-shadow: inset 0 0 0 1px #050505, 0 1px 0 rgba(255, 255, 255, 0.08);
   }
-  :where(:root:not([data-skin])) .console-faderfill {
-    display: block;
-    width: 2px;
-    border-radius: 1px;
-    background: linear-gradient(to top, rgba(184, 232, 92, 0.05), var(--vs-lime));
-    box-shadow: 0 0 6px rgba(184, 232, 92, 0.6);
-  }
-  :where(:root:not([data-skin])) .console-cap {
+    :where(:root:not([data-skin])) .console-cap {
     border-radius: 4px;
     background:
       linear-gradient(to bottom, transparent calc(50% - 1px), var(--vs-line, #d9d9de) calc(50% - 1px), var(--vs-line, #d9d9de) calc(50% + 1px), transparent calc(50% + 1px)),
@@ -3176,7 +3162,7 @@
       inset 15px 0 0 #18181a,
       inset 16px 0 0 rgba(0, 0, 0, 0.6);
   }
-  /* Placa da marca na sobra da esquerda: alumínio escovado rebitado, marca gravada a laser.
+  /* Placa da marca na sobra da esquerda: alumínio escovado aparafusado, marca gravada a laser.
      Com pouco espaço, só a onda e o play gravados direto no chassi; bem estreito, nada. */
   :where(:root:not([data-skin])) .vs-bed-side.is-left { container-type: inline-size; }
   :where(:root:not([data-skin])) .vs-brand-side { display: none; }
@@ -3186,18 +3172,19 @@
     :where(:root:not([data-skin])) .vs-brand-side { display: flex; align-items: center; justify-content: center; padding-right: 16px; }
     :where(:root:not([data-skin])) .vs-brand-etched { display: block; width: 40px; height: 28px; }
   }
-  @container (min-width: 196px) {
+  @container (min-width: 168px) {
     :where(:root:not([data-skin])) .vs-brand-plate { display: flex; }
     :where(:root:not([data-skin])) .vs-brand-etched { display: none; }
   }
   :where(:root:not([data-skin])) .vs-brand-plate {
     position: relative;
     align-items: center;
-    gap: 9px;
-    width: 168px;
-    height: 58px;
+    gap: 7px;
+    width: 140px;
+    height: 48px;
     box-sizing: border-box;
-    padding: 0 14px 0 16px;
+    padding: 0 12px 0 14px;
+    overflow: hidden;
     border-radius: 3px;
     background-color: #b9bbbf;
     background-image:
@@ -3211,9 +3198,10 @@
       0 0 0 1px #0d0d0e,
       0 3px 6px rgba(0, 0, 0, 0.55);
   }
-  :where(:root:not([data-skin])) .vs-brand-plate .vs-brand-mark { width: 40px; height: 28px; flex: none; }
+  :where(:root:not([data-skin])) .vs-brand-plate .vs-brand-mark { position: relative; width: 32px; height: 22px; flex: none; }
   :where(:root:not([data-skin])) .vs-brand-name {
-    font-size: 15px;
+    position: relative;
+    font-size: 13px;
     line-height: 1;
     white-space: nowrap;
     color: #55575c;
@@ -3227,19 +3215,19 @@
   :where(:root:not([data-skin])) .vs-brand-etched .is-cut { stroke: rgba(255, 255, 255, 0.16); }
   :where(:root:not([data-skin])) .vs-brand-etched .is-shadow { stroke: rgba(0, 0, 0, 0.6); }
   :where(:root:not([data-skin])) .vs-brand-etched .is-light { stroke: rgba(255, 255, 255, 0.06); }
-  /* rebites: cabeça abaulada, luz em cima e sombra embaixo */
-  :where(:root:not([data-skin])) .vs-rivet {
+  /* desgaste por cima da chapa (grão, bordas, sujeira e o arranhão) e os parafusos */
+  :where(:root:not([data-skin])) .vs-plate-wear {
     position: absolute;
-    width: 6px;
-    height: 6px;
-    border-radius: 9999px;
-    background: radial-gradient(circle at 40% 35%, #ffffff 0, #d8dadd 30%, #8d9095 70%, #4d4f53 100%);
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(0, 0, 0, 0.35);
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
   }
-  :where(:root:not([data-skin])) .vs-rivet.is-tl { top: 4px; left: 4px; }
-  :where(:root:not([data-skin])) .vs-rivet.is-tr { top: 4px; right: 4px; }
-  :where(:root:not([data-skin])) .vs-rivet.is-bl { bottom: 4px; left: 4px; }
-  :where(:root:not([data-skin])) .vs-rivet.is-br { bottom: 4px; right: 4px; }
+  :where(:root:not([data-skin])) .vs-plate-screw { position: absolute; width: 9px; height: 9px; }
+  :where(:root:not([data-skin])) .vs-plate-screw.is-tl { top: 3px; left: 3px; }
+  :where(:root:not([data-skin])) .vs-plate-screw.is-tr { top: 3px; right: 3px; }
+  :where(:root:not([data-skin])) .vs-plate-screw.is-bl { bottom: 3px; left: 3px; }
+  :where(:root:not([data-skin])) .vs-plate-screw.is-br { bottom: 3px; right: 3px; }
 
   /* VUs de ponteiro e relógio na sobra da direita: só aparecem quando cabem */
   :where(:root:not([data-skin])) .vs-bed-side.is-right { container-type: inline-size; }
@@ -3285,15 +3273,7 @@
     letter-spacing: 0.14em;
     color: #8c8c92;
   }
-  :where(:root:not([data-skin])) .vu-clock-time {
-    font: 600 15px/1 'Inter', system-ui, sans-serif;
-    font-variant-numeric: tabular-nums;
-    letter-spacing: 0.04em;
-    color: var(--vs-lime, #b8e85c);
-    text-shadow: 0 0 8px rgba(184, 232, 92, 0.45);
-  }
-  :where(:root:not([data-skin])) .vu-clock-time small { font-size: 11px; opacity: 0.75; }
-  :where(:root:not([data-skin])) .vu-lufs, :where(:root:not([data-skin])) .vu-time { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+      :where(:root:not([data-skin])) .vu-lufs { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
   :where(:root:not([data-skin])) .vu-lufs-item {
     font: 600 8px/1 'Montserrat', 'Inter', system-ui, sans-serif;
     color: #8c8c92;
@@ -3303,7 +3283,7 @@
     font-variant-numeric: tabular-nums;
     color: #5c5c62;
   }
-  :where(:root:not([data-skin])) .vu-lufs-item b.is-ok { color: var(--vs-purple, #bd84ff); text-shadow: 0 0 6px rgba(189, 132, 255, 0.45); }
+  :where(:root:not([data-skin])) .vu-lufs-item b.is-ok { color: var(--vs-lime, #b8e85c); text-shadow: 0 0 6px rgba(184, 232, 92, 0.45); }
   :where(:root:not([data-skin])) .vu-lufs-item b.is-hot { color: #ff9a2e; text-shadow: 0 0 6px rgba(255, 154, 46, 0.5); }
   :where(:root:not([data-skin])) .vu-lufs-item b.is-over { color: #ff4c4c; text-shadow: 0 0 6px rgba(255, 76, 76, 0.5); }
 
@@ -3330,9 +3310,11 @@
     background-color: rgba(184, 232, 92, 0.09);
     box-shadow: inset 3px 0 0 var(--vs-lime);
   }
+  /* próxima música: laranja, no mesmo destaque reforçado da selecionada */
   :where(:root:not([data-skin])) .cue-row.is-next {
-    background-color: rgba(189, 132, 255, 0.1);
-    box-shadow: inset 3px 0 0 var(--vs-purple);
+    background-color: rgba(255, 138, 30, 0.13);
+    background-image: linear-gradient(90deg, rgba(255, 138, 30, 0.12), rgba(255, 138, 30, 0) 70%);
+    box-shadow: inset 5px 0 0 #ff8a1e, inset 0 0 0 1px rgba(255, 138, 30, 0.4), 0 0 12px rgba(255, 138, 30, 0.08);
   }
   /* música selecionada: bem destacada (barra branca grossa, fundo claro e contorno) */
   :where(:root:not([data-skin])) .cue-row.is-selected {

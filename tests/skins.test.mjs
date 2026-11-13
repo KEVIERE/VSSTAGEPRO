@@ -277,7 +277,7 @@ test('skin padrão com cara de equipamento: chassi, placa saltada, trilho de alu
   assert.match(def, /\.console-rail \{\n\s+color: #1f2023;/, 'trilho de alumínio com letra escura');
   assert.match(def, /\.vs-bed-side\.is-left/);
   assert.match(def, /--vs-lime: #b8e85c;/);
-  assert.match(def, /--vs-purple: #bd84ff;/);
+  assert.doesNotMatch(def, /vs-purple|189, 132, 255|168 104 232/, 'sem lilás: o destaque é o verde');
   const mixer = read('src', 'components', 'MixerPanel.tsx');
   assert.match(mixer, /\{skin === 'analogica' && <MasterVuPanel \/>\}/, 'VU só na skin padrão');
   const { vuPosition, levelToVu, vuStep } = await import('../src/components/VuMeter.tsx').catch(() => ({}));
@@ -285,7 +285,7 @@ test('skin padrão com cara de equipamento: chassi, placa saltada, trilho de alu
     assert.equal(vuPosition(-20), 0);
     assert.ok(Math.abs(vuPosition(3) - 1) < 1e-9);
     assert.ok(vuPosition(0) > 0.6 && vuPosition(0) < 0.75, '0 VU perto de 70% da escala, como nos VUs de verdade');
-    assert.ok(Math.abs(levelToVu(Math.pow(10, -18 / 20))) < 1e-9, '0 VU = -18 dBFS');
+    assert.ok(Math.abs(levelToVu(Math.pow(10, -12 / 20))) < 1e-9, '0 VU = -12 dBFS RMS');
     assert.ok(vuStep(0, 1, 0.09) > 0.6 && vuStep(0, 1, 0.09) < 0.65, 'balística: ~63% em 90 ms');
   }
 });
@@ -302,7 +302,7 @@ test('loudness do master, sem masterização no master', async () => {
   assert.match(engine, /this\.masterGain\.connect\(this\.masterLimiter\);/, 'o master vai direto ao limiter');
   assert.doesNotMatch(engine, /MasteringInsert|liveMastering/);
   const vu = read('src', 'components', 'VuMeter.tsx');
-  assert.match(vu, /<LoudnessClock \/>/);
+  assert.match(vu, /<LoudnessReadout \/>/);
   assert.doesNotMatch(vu, /MasteringKey/);
 });
 
@@ -318,3 +318,33 @@ test('placa de alumínio com a marca na sobra esquerda (sem o ícone quadrado)',
   assert.match(plate, /className="vs-brand vs-brand-name">VS Stage Pro</);
   assert.match(mixer, /\{skin === 'analogica' && <BrandPlate \/>\}/, 'só na skin padrão');
 });
+
+test('VU pela média (RMS), sem a hora; próxima em laranja; fader sem rastro; teclas acesas iguais', () => {
+  const engine = read('src', 'lib', 'audioEngine.ts');
+  const vu = read('src', 'components', 'VuMeter.tsx');
+  assert.match(engine, /private rmsOf\(analyser: AnalyserNode\)/);
+  assert.match(engine, /levels\.set\('master-rms:L', masterRms\[0\]\)/, 'o motor publica a média do master');
+  assert.match(vu, /meterLevel\(`master-rms:\$\{side\}`\)/, 'o ponteiro lê a média, não o pico');
+  assert.match(vu, /export const VU_REF_DBFS = -12;/);
+  assert.doesNotMatch(vu, /HORA|vu-clock-time|getHours/, 'sem a hora');
+  const css = read('src', 'index.css');
+  const def = css.slice(css.indexOf('Skin padrão: VS Stage, equipamento'));
+  assert.match(def, /\.cue-row\.is-next \{\n\s+background-color: rgba\(255, 138, 30, 0\.13\);[\s\S]{0,200}inset 5px 0 0 #ff8a1e/, 'próxima em laranja');
+  assert.doesNotMatch(def, /\.console-faderfill \{\n\s+display: block/, 'sem o rastro verde no fader');
+  const lit = def.slice(def.indexOf('.console-key:is(.is-lit-amber'), def.indexOf('.console-key:active'));
+  assert.ok(lit.length > 0);
+  assert.doesNotMatch(lit, /background-image: none/, 'a tecla acesa mantém o brilho da tecla');
+  assert.match(lit, /background-color: color-mix\(in srgb, var\(--lit\) 18%, #1c1c1e\);/, 'corpo opaco');
+  assert.match(def, /\[class~='bg-logic-accent'\]\[class~='text-white'\][\s\S]{0,140}color: #121314;/, 'texto escuro no verde cheio');
+});
+
+test('placa da marca aparafusada, com desgaste e menor', () => {
+  const plate = read('src', 'components', 'BrandPlate.tsx');
+  const css = read('src', 'index.css');
+  assert.match(plate, /export function PlateScrew/);
+  assert.equal((plate.match(/<PlateScrew angle=/g) ?? []).length, 4, 'quatro parafusos');
+  assert.match(plate, /<PlateWear \/>/);
+  assert.doesNotMatch(plate + css, /vs-rivet/);
+  assert.match(css, /width: 140px;\n\s+height: 48px;/, 'plaquinha menor');
+});
+

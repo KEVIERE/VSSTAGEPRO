@@ -1,12 +1,14 @@
 // VU de ponteiro do master (skin padrão), na sobra da direita do mixer: mostrador iluminado por
 // trás, escala de -20 a +3 VU com a zona vermelha, ponteiro preto com a balística de VU (sobe e
-// desce em ~300 ms) e o vidro por cima. 0 VU = -18 dBFS, o alinhamento comum do áudio digital.
-// Embaixo, o loudness do master (LUFS) e a hora certa.
+// desce em ~300 ms) e o vidro por cima. Como os VUs de verdade, o ponteiro mostra a média do sinal
+// (RMS), não o pico: 0 VU = -12 dBFS RMS, o alinhamento de música masterizada (um master em -13
+// LUFS fica dançando em volta do 0). O LED de pico acende pelo pico real, acima de -1 dBFS.
+// Embaixo, o loudness do master (LUFS).
 import { useEffect, useId, useRef, useState } from 'react';
 import { meterLevel } from '@/lib/meterBus';
 import { audioEngine } from '@/lib/audioEngine';
 
-export const VU_REF_DBFS = -18;
+export const VU_REF_DBFS = -12;
 const VU_MIN = -20;
 const VU_MAX = 3;
 const SWEEP = 50; // graus para cada lado do centro
@@ -19,7 +21,7 @@ export function vuPosition(vu: number): number {
   return Math.max(0, Math.min(1.04, (Math.pow(10, v / 20) - lo) / (hi - lo)));
 }
 
-/** Nível em VU a partir do nível do medidor (0 a 1, pico em amplitude). */
+/** Nível em VU a partir da média do sinal (RMS linear, 0 a 1). */
 export function levelToVu(level: number): number {
   return level > 1e-6 ? 20 * Math.log10(level) - VU_REF_DBFS : -60;
 }
@@ -47,7 +49,10 @@ function polar(angleDeg: number, r: number): [number, number] {
   return [PX + Math.cos(a) * r, PY + Math.sin(a) * r];
 }
 
-function VuFace({ meterId, label }: { meterId: string; label: string }) {
+/** Pico real acima de -1 dBFS: acende o LED de pico. */
+const PEAK_LED = Math.pow(10, -1 / 20);
+
+function VuFace({ side, label }: { side: 'L' | 'R'; label: string }) {
   const uid = useId().replace(/:/g, '');
   const needleRef = useRef<SVGGElement>(null);
   const peakRef = useRef<SVGCircleElement>(null);
@@ -58,18 +63,18 @@ function VuFace({ meterId, label }: { meterId: string; label: string }) {
     let needle = 0;
     let peakUntil = 0;
     const tick = (now: number) => {
-      const target = vuPosition(levelToVu(meterLevel(meterId)));
+      const target = vuPosition(levelToVu(meterLevel(`master-rms:${side}`)));
       needle = vuStep(needle, target, (now - last) / 1000);
       last = now;
       needleRef.current?.setAttribute('transform', `rotate(${-SWEEP + needle * SWEEP * 2} ${PX} ${PY})`);
-      // LED de pico: acende acima de +3 VU e segura 1 s
-      if (target >= 1) peakUntil = now + 1000;
+      // LED de pico: o pico real passou de -1 dBFS; segura 1 s
+      if (meterLevel(`master:${side}`) >= PEAK_LED) peakUntil = now + 1000;
       peakRef.current?.setAttribute('opacity', now < peakUntil ? '1' : '0.15');
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [meterId]);
+  }, [side]);
 
   const zeroPos = vuPosition(0);
   const arc = (from: number, to: number, r: number) => {
@@ -79,7 +84,7 @@ function VuFace({ meterId, label }: { meterId: string; label: string }) {
   };
 
   return (
-    <div className="vu-bezel" title={`VU do master (${label}): 0 VU = ${VU_REF_DBFS} dBFS`}>
+    <div className="vu-bezel" title={`VU do master (${label}): média do sinal, 0 VU = ${VU_REF_DBFS} dBFS RMS. O LED vermelho acende quando o pico passa de -1 dBFS.`}>
       <svg viewBox={`0 0 ${W} ${H}`} className="block w-full h-full" aria-label={`VU do master, canal ${label}`} role="img">
         <defs>
           {/* mostrador iluminado por trás: mais claro no meio */}
@@ -155,45 +160,36 @@ export function lufsTone(lufs: number): 'ok' | 'hot' | 'over' | 'off' {
   return lufs > -6 ? 'over' : lufs > -9 ? 'hot' : 'ok';
 }
 
-/** Visor do loudness (momentâneo e curto, em LUFS) com a hora embaixo. */
-function LoudnessClock() {
+/** Visor do loudness do master (momentâneo e curto, em LUFS). */
+function LoudnessReadout() {
   const [lu, setLu] = useState({ momentary: -Infinity, shortTerm: -Infinity });
-  const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = window.setInterval(() => {
       const next = audioEngine.getMasterLoudness();
       setLu((prev) => (lufsText(prev.momentary) === lufsText(next.momentary) && lufsText(prev.shortTerm) === lufsText(next.shortTerm) ? prev : next));
-      setNow(new Date());
     }, 100);
     return () => window.clearInterval(id);
   }, []);
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const ss = String(now.getSeconds()).padStart(2, '0');
   return (
-    <div className="vu-clock" title="Loudness do master em LUFS (M: últimos 400 ms; S: últimos 3 s), medido na saída 1-2 como as plataformas medem. Embaixo, a hora agora.">
+    <div className="vu-clock" title="Loudness do master em LUFS (M: últimos 400 ms; S: últimos 3 s), medido na saída 1-2 como as plataformas medem.">
       <div className="vu-lufs">
         <span className="vu-clock-label">LUFS</span>
         <span className="vu-lufs-item">M <b className={`is-${lufsTone(lu.momentary)}`}>{lufsText(lu.momentary)}</b></span>
         <span className="vu-lufs-item">S <b className={`is-${lufsTone(lu.shortTerm)}`}>{lufsText(lu.shortTerm)}</b></span>
       </div>
-      <div className="vu-time">
-        <span className="vu-clock-label">HORA</span>
-        <span className="vu-clock-time">{hh}:{mm}<small>:{ss}</small></span>
-      </div>
     </div>
   );
 }
 
-/** VUs do master (L e R), loudness e hora, para a sobra da direita do mixer. */
+/** VUs do master (L e R) e o loudness, para a sobra da direita do mixer. */
 export default function MasterVuPanel() {
   return (
     <div className="vs-side-gear" aria-label="VU e loudness do master">
       <div className="vu-pair">
-        <VuFace meterId="master:L" label="LEFT" />
-        <VuFace meterId="master:R" label="RIGHT" />
+        <VuFace side="L" label="LEFT" />
+        <VuFace side="R" label="RIGHT" />
       </div>
-      <LoudnessClock />
+      <LoudnessReadout />
     </div>
   );
 }
