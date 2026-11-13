@@ -32,13 +32,13 @@ export default function TimecodeMixerChannel() {
       <div className="console-strip of-strip is-tc flex flex-col items-center w-[80px] min-w-[80px] relative" style={{ '--ch': '#e6952c' } as React.CSSProperties}>
         <div className="of-top w-full flex flex-col items-center gap-[4px] px-[4px] pt-[5px] pb-[6px]">
           <OutputMenu track={track} />
-          <div className="flex items-center justify-center gap-1 h-[24px] text-[#3a2200]" title="Sinal de controle para telões e luzes">
+          <div className="flex items-center justify-center gap-1 h-[24px] text-[#e6952c]" title="Sinal de controle para telões e luzes">
             <Clock size={13} />
             <span className="text-[11px] font-bold">LTC</span>
           </div>
         </div>
-        <div className="w-full flex items-center px-[5px] pt-[3px] h-[15px]">
-          <span className="of-vol">{dbLabel}</span>
+        <div className="w-full flex items-center justify-center pt-[3px] h-[15px]">
+          <span className="of-vol">{dbLabel} dB</span>
         </div>
         <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
           <div

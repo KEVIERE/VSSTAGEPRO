@@ -137,7 +137,8 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<EsName name="Timecode"/);
   assert.match(read('src', 'components', 'MiniFader.tsx'), /className="es-hslider-fill"/, 'volume da faixa com o verde');
   const tl = read('src', 'components', 'TimelinePanel.tsx');
-  assert.match(tl, /color=\{filled && !isMuted \? shade\(routingColor, oficina \? 0\.68 : 0\.62\) : routingColor\}/, 'onda escura no clipe colorido');
+  assert.match(tl, /color=\{estudio && !isMuted \? shade\(routingColor, 0\.62\) : routingColor\}/, 'onda escura no clipe colorido (Estúdio)');
+  assert.match(tl, /color-mix\(in srgb, \$\{routingColor\} \$\{isSelected \? 42 : 30\}%, #232427\)/, 'Oficina: clipe sóbrio, onda na cor da faixa');
   assert.match(tl, /\(estudio \? esTrackColor : ofTrackColor\)\(clipTrack\.color, esChannelOrder\(useStore\.getState\(\)\.tracks, ROUTABLE_TRACKS, clipTrack\.id\)\)/, 'clipe na mesma cor do canal');
   assert.match(mixer, /const color = esTrackColor\(track\.color, index\);/);
   assert.match(mixer, /\{skin === 'estudio' && <EsRowLabels \/>\}/, 'nomes das linhas na lateral do mixer');

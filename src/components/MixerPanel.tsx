@@ -13,7 +13,7 @@ import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
 import { GfCap, GfFaderMeter, GfKey, GfKnob, GfScreen, GfTag } from '@/components/GrafitePieces';
 import { EsCap, EsDbBoxes, EsKey, EsKnob, EsMeter, EsMeterScale, EsName, esTrackColor } from '@/components/EstudioPieces';
-import { OfCap, OfKey, OfKnob, OfMeter, OfName, OfPeak, ofTrackColor } from '@/components/OficinaPieces';
+import { OfCap, OfKey, OfKnob, OfMeter, OfName, ofTrackColor } from '@/components/OficinaPieces';
 
 // Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
 // nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
@@ -385,9 +385,8 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
             <OfKnob value={track.pan} className="absolute inset-0 w-full h-full pointer-events-none" />
           </div>
         </div>
-        <div className="w-full flex items-center justify-between px-[5px] pt-[3px] h-[15px]">
-          <span className="of-vol">{faderDbText(track.volume)}</span>
-          <OfPeak meterId={track.id} title="Pico do sinal agora (dBFS, últimos 1,5 s)" />
+        <div className="w-full flex items-center justify-center pt-[3px] h-[15px]">
+          <span className="of-vol" title="Volume do fader">{faderDbText(track.volume)} dB</span>
         </div>
         <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
           <Fader
@@ -770,9 +769,8 @@ export default function MixerPanel() {
                   <Wand2 size={12} />
                 </button>
               </div>
-              <div className="w-full flex items-center justify-between px-[5px] pt-[3px] h-[15px]">
-                <span className="of-vol">{faderDbText(masterVolume)}</span>
-                <OfPeak meterId="master" title="Pico da saída agora (dBFS, depois do limiter)" />
+              <div className="w-full flex items-center justify-center pt-[3px] h-[15px]">
+                <span className="of-vol" title="Volume do master">{faderDbText(masterVolume)} dB</span>
               </div>
               <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
                 <Fader

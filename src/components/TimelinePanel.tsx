@@ -1094,7 +1094,11 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
           height: `${innerHeight}px`,
           borderColor: isSelected ? '#ffffff' : (isMuted ? '#52525b' : filled ? 'rgba(0, 0, 0, 0.45)' : routingColor),
           borderWidth: isSelected ? '2px' : '1px',
-          ...(filled && !isMuted ? { backgroundColor: isSelected ? `color-mix(in srgb, ${routingColor} 85%, white)` : routingColor } : {}),
+          ...(filled && !isMuted ? {
+            backgroundColor: oficina
+              ? `color-mix(in srgb, ${routingColor} ${isSelected ? 42 : 30}%, #232427)`
+              : isSelected ? `color-mix(in srgb, ${routingColor} 85%, white)` : routingColor,
+          } : {}),
           lineHeight: 0,
           ...(leaving ? { opacity: 0.3 } : {}),
         }}
@@ -1138,7 +1142,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
             height: `${innerHeight}px`,
           }}
         >
-          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} color={filled && !isMuted ? shade(routingColor, oficina ? 0.68 : 0.62) : routingColor} />
+          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} color={estudio && !isMuted ? shade(routingColor, 0.62) : routingColor} />
         </div>
         <FadeHandle
           clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}
