@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDownWideNarrow, ImagePlus, Loader2, Maximize, Minus, MoveHorizontal, PenLine, Plus, Rabbit, Share2, Turtle } from 'lucide-react';
+import { ArrowDownWideNarrow, ImagePlus, Loader2, Maximize, Minus, MonitorPlay, MoveHorizontal, PenLine, Plus, Rabbit, Share2, Turtle } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetBackend, SheetInfo, ShowLive } from '@/lib/musicianTypes';
 import { currentPart, liveSheetKey } from '@/lib/medleySheets';
 import { docIsImageOnly, type NotebookLine } from '@/lib/notebook';
@@ -10,6 +10,7 @@ import {
 import { useNotebook } from './notebook/useNotebook';
 import { useImageImport } from './notebook/useImageImport';
 import NotebookPage from './notebook/NotebookPage';
+import type { NoteBrush } from './notebook/NotebookDocks';
 import SharePane from './notebook/SharePane';
 import SaveButton from './notebook/SaveButton';
 import { NowNextDisplays, SignalBanner } from './LivePanel';
@@ -32,6 +33,13 @@ const MANUAL_PAUSE_MS = 2000;
 type ImageLine = Extract<NotebookLine, { kind: 'image' }>;
 
 const noop = () => {};
+// o mesmo objeto sempre: a cifra (NotebookPage, com memo) não redesenha a cada tique do relógio
+const READ_BRUSH: NoteBrush = { dur: 'q', rest: false, dot: false, acc: null };
+// celular deitado: o entalhe do iPhone não cobre a primeira tecla nem o começo da cifra
+const SAFE_SIDES: React.CSSProperties = {
+  paddingLeft: 'max(12px, env(safe-area-inset-left))',
+  paddingRight: 'max(12px, env(safe-area-inset-right))',
+};
 
 function readLs<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -75,7 +83,7 @@ function ImageFill({ lines, boxRef, onManual }: {
 }
 
 export default function StageView({
-  lv, live, currentSong, nextSong, backend, sheets, onSheetsChanged, onEdit,
+  lv, live, currentSong, nextSong, backend, sheets, onSheetsChanged, onEdit, compact = false, onExit, signalHint,
 }: {
   lv: LiveView;
   live: ShowLive | null;
@@ -86,6 +94,12 @@ export default function StageView({
   onSheetsChanged: () => Promise<void>;
   /** Abre o caderno desta música para escrever. */
   onEdit: (songId: string) => void;
+  /** Tela baixa (celular deitado): cabeçalho enxuto numa linha só, para sobrar espaço para a cifra */
+  compact?: boolean;
+  /** Sair do Modo show (no compacto a tecla fica na própria barra, porque o trilho de cima some) */
+  onExit?: () => void;
+  /** Motivo do "Sem sinal do diretor", quando se sabe */
+  signalHint?: string;
 }) {
   const [fit, setFit] = useState<Fit>(() => readLs(FIT_LS, ['scroll', 'page'] as const, 'scroll'));
   const [imgFit, setImgFit] = useState<ImgFit>(() => readLs(IMG_FIT_LS, ['fill', 'width'] as const, 'fill'));
@@ -271,28 +285,31 @@ export default function StageView({
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-logic-bg-deep">
-      <div className="console-face px-3 pt-2 pb-2 border-b border-black">
-        <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} />
-        <div className="mt-2">
-          <NowNextDisplays lv={lv} live={live} currentSong={currentSong} nextSong={nextSong} big />
+      <div className={`console-face px-3 ${compact ? 'py-1.5' : 'pt-2 pb-2'} border-b border-black`} style={compact ? SAFE_SIDES : undefined}>
+        {/* no compacto o aviso "Ao vivo" sai (o LED do Tocando já diz); "Sem sinal" e "encerrou" continuam */}
+        {(!compact || lv.status !== 'live') && (
+          <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} hint={signalHint} />
+        )}
+        <div className={compact ? (lv.status === 'live' ? '' : 'mt-1.5') : 'mt-2'}>
+          <NowNextDisplays lv={lv} live={live} currentSong={currentSong} nextSong={nextSong} big compact={compact} />
         </div>
-        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+        <div className={compact ? 'mt-1 py-1 flex items-center gap-1.5 flex-nowrap overflow-x-auto' : 'mt-2 flex items-center gap-1.5 flex-wrap'}>
           {imageOnly ? (
             <>
               <button className={key(imgFit === 'fill')} onClick={() => saveImgFit('fill')} title="A foto inteira cabe na tela, abaixo dos displays">
-                <Maximize size={14} /> Tela inteira
+                <Maximize size={14} /> <span className={compact ? 'hidden' : ''}>Tela inteira</span>
               </button>
               <button className={key(imgFit === 'width')} onClick={() => saveImgFit('width')} title="A foto ocupa a largura toda e rola sozinha acompanhando a música">
-                <MoveHorizontal size={14} /> Largura toda
+                <MoveHorizontal size={14} /> <span className={compact ? 'hidden' : ''}>Largura toda</span>
               </button>
             </>
           ) : (
             <>
               <button className={key(fit === 'scroll')} onClick={() => saveFit('scroll')} title="A cifra rola sozinha acompanhando a música">
-                <ArrowDownWideNarrow size={14} /> Rolar sozinho
+                <ArrowDownWideNarrow size={14} /> <span className={compact ? 'hidden' : ''}>Rolar sozinho</span>
               </button>
               <button className={key(fit === 'page')} onClick={() => saveFit('page')} title="A cifra inteira cabe na tela">
-                <Maximize size={14} /> Página inteira
+                <Maximize size={14} /> <span className={compact ? 'hidden' : ''}>Página inteira</span>
               </button>
               <div className="flex items-center gap-1 ml-1">
                 <button className="console-key w-8 h-8 flex items-center justify-center" onClick={() => saveZoom(zoom - 0.1)} aria-label="Letra menor"><Minus size={13} /></button>
@@ -306,7 +323,7 @@ export default function StageView({
               className="flex items-center gap-1 ml-1"
               title={`Velocidade da rolagem. 1x: a cifra inteira passa ao longo da música. Ela rola enquanto o diretor está tocando.${isPlaying ? '' : ' Agora está parada: começa com o play do diretor.'}`}
             >
-              <span className="console-legend hidden sm:inline">Velocidade</span>
+              <span className={`console-legend ${compact ? 'hidden' : 'hidden sm:inline'}`}>Velocidade</span>
               <button
                 className="console-key w-8 h-8 flex items-center justify-center"
                 onClick={() => saveSpeed(stepScrollSpeed(speed, -1))}
@@ -323,7 +340,7 @@ export default function StageView({
                 aria-label="Rolar mais rápido"
               ><Rabbit size={14} /></button>
               <span className={`console-led ml-0.5 ${isPlaying ? 'is-on-green' : ''}`} aria-hidden />
-              {!isPlaying && <span className="console-legend hidden md:inline">Rola com o play</span>}
+              {!isPlaying && !compact && <span className="console-legend hidden md:inline">Rola com o play</span>}
             </div>
           )}
           {songId && (
@@ -336,7 +353,7 @@ export default function StageView({
               />
               <button className={key(false)} onClick={images.open} disabled={images.adding} title="Importar a foto da sua partitura ou cifra para esta música">
                 {images.adding ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
-                <span className="hidden sm:inline">Importar imagem</span>
+                <span className={compact ? 'hidden' : 'hidden sm:inline'}>Importar imagem</span>
               </button>
               <button
                 className={key(false)}
@@ -344,17 +361,27 @@ export default function StageView({
                 onClick={async () => { await nb.flush(); setSharing(true); }}
                 title={nb.sheetId ? 'Enviar a partitura desta música para outro músico' : 'Escreva algo ou importe uma imagem para poder enviar'}
               >
-                <Share2 size={13} /> <span className="hidden sm:inline">Enviar</span>
+                <Share2 size={13} /> <span className={compact ? 'hidden' : 'hidden sm:inline'}>Enviar</span>
               </button>
               <button className={key(false)} onClick={() => onEdit(songId)} title="Abrir o caderno desta música para escrever">
-                <PenLine size={13} /> <span className="hidden sm:inline">Editar</span>
+                <PenLine size={13} /> <span className={compact ? 'hidden' : 'hidden sm:inline'}>Editar</span>
               </button>
             </div>
+          )}
+          {compact && onExit && (
+            <button
+              onClick={onExit}
+              className={`console-key is-lit-green flex items-center h-8 px-2.5 flex-shrink-0 ${songId ? '' : 'ml-auto'}`}
+              title="Voltar para playlist e caderno"
+              aria-label="Sair do Modo show"
+            >
+              <MonitorPlay size={14} />
+            </button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0" style={compact ? SAFE_SIDES : undefined}>
         {!songId ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-6">
             <p className="text-sm text-logic-text-dim">Aguardando o diretor dar o play</p>
@@ -412,7 +439,7 @@ export default function StageView({
                   activeChord={null}
                   selectedNote={null}
                   onSelectNote={noop}
-                  brush={{ dur: 'q', rest: false, dot: false, acc: null }}
+                  brush={READ_BRUSH}
                   onAdd={noop}
                   readOnly
                   centered={doc.strokes.length === 0}

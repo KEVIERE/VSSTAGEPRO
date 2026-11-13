@@ -14,6 +14,8 @@ const INFO_POLL_MS = 2000;
 const HEARTBEAT_PLAYING_MS = 500;
 const HEARTBEAT_IDLE_MS = 3000;
 const REMOTE_METERS_MS = 80;
+/** mixer, M/S, torres, erro, parte engatilhada: envio no máximo a cada 120 ms (igual ao Show Online) */
+const REMOTE_GAP_MS = 120;
 
 export interface LocalBroadcast {
   /** O app de Mac está rodando e pode criar a rede local. */
@@ -66,12 +68,14 @@ export function useLocalBroadcast(): LocalBroadcast {
     if (!bridge || !active) return;
     let sending = false;
     let again = false;
+    let lastPub = 0;
     const publish = async () => {
       if (sending) { again = true; return; }
       sending = true;
       try {
         do {
           again = false;
+          lastPub = Date.now();
           const snap = snapshot(true, true);
           await bridge.publish({ name: snap.name, setlist: snap.setlist, live: snap.live, lyrics: useStore.getState().lyricMaps, remote: buildRemoteState() });
         } while (again);
@@ -86,6 +90,14 @@ export function useLocalBroadcast(): LocalBroadcast {
     let prev = useStore.getState();
     let prevRemote = remoteSignature(prev);
     let cursorTimer: number | null = null;
+    let remoteTimer: number | null = null;
+    // A primeira mudança vai na hora; com o fader andando (no Mac ou no celular), sai no máximo um
+    // envio a cada 120 ms. O timer não é reiniciado, então o estado continua saindo durante o arrasto.
+    const publishSoon = () => {
+      if (remoteTimer !== null) return;
+      const wait = Math.max(0, REMOTE_GAP_MS - (Date.now() - lastPub));
+      remoteTimer = window.setTimeout(() => { remoteTimer = null; publish(); }, wait);
+    };
     // cronômetro "Falta no show" mexido (no Mac ou pelo Remote)
     const unsubClock = subscribeShowClock(() => publish());
     // resposta do Mac a um pedido do Remote (seleção recusada não muda mais nada no programa)
@@ -104,9 +116,12 @@ export function useLocalBroadcast(): LocalBroadcast {
       const remote = remoteSignature(s);
       const remoteChanged = remote !== prevRemote;
       prevRemote = remote;
-      if (immediate || remoteChanged) {
+      if (immediate) {
         if (cursorTimer !== null) { window.clearTimeout(cursorTimer); cursorTimer = null; }
+        if (remoteTimer !== null) { window.clearTimeout(remoteTimer); remoteTimer = null; }
         publish();
+      } else if (remoteChanged) {
+        publishSoon();
       } else if (cursorMovedWhileStopped) {
         // Scrub na timeline com o som parado: debounda o envio para a rede local em 120ms
         // para não disparar dezenas de mensagens pesadas com IPC por segundo enquanto o usuário arrasta o cursor.
@@ -129,6 +144,7 @@ export function useLocalBroadcast(): LocalBroadcast {
       unsubClock();
       unsubReply();
       if (cursorTimer !== null) window.clearTimeout(cursorTimer);
+      if (remoteTimer !== null) window.clearTimeout(remoteTimer);
       window.clearInterval(beat);
     };
   }, [bridge, active]);

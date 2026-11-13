@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload, Play, Pause, Flag, Plus, Trash2, ChevronUp, ChevronDown, ClipboardPaste, Check, Loader2,
   AlertTriangle, Radio, Eye, X, RotateCcw, Undo2, Redo2, Sparkles,
@@ -10,13 +10,52 @@ import { LYRIC_COLORS, PAGE_KINDS, PAGE_SIZE_MAX, PAGE_SIZE_MIN, kindInfo } from
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { computeLiveView } from '@/lib/liveClock';
 import { autoPageIndex, formatClock, newId } from '@/lib/prompterView';
-import { addMarker, buildPages, clampMarker, moveMarker, normalizeWords, removeMarker, type RawSegment, type TimedWord } from '@/lib/lyricsAutoSync';
+import {
+  addMarker, buildPages, clampMarker, isIdentityMap, moveMarker, normalizeWords, refTimeMap, refToSongTime, removeMarker,
+  songToRefTime, toSongWords, warpPeaks, type RawSegment, type RefMap, type TimedWord,
+} from '@/lib/lyricsAutoSync';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 export interface LyricsHistory { canUndo: boolean; canRedo: boolean; undo: () => void; redo: () => void }
 
 const MAX_PAGES = 400;
 const MAX_PAGE_TEXT = 600;
+
+/*
+ * Áudio do show já baixado e lido, por música e versão (updatedAt): trocar de música e voltar não
+ * baixa nem decodifica tudo de novo. O limite é em bytes, porque diretor com versão antiga ainda
+ * manda WAV. Guarda o Blob, nunca o endereço blob: (ele é revogado quando o editor fecha).
+ */
+type RefAudio = { blob: Blob; peaks: Float32Array; duration: number };
+const REF_CACHE_BYTES = 24 * 1024 * 1024;
+const REF_CACHE_MAX = 6;
+const refCache = new Map<string, RefAudio>();
+function cachePut(key: string, v: RefAudio) {
+  if (v.blob.size > REF_CACHE_BYTES / 2) return;
+  refCache.delete(key);
+  refCache.set(key, v);
+  let total = 0;
+  refCache.forEach((e) => { total += e.blob.size; });
+  for (const [k, e] of refCache) {
+    if (total <= REF_CACHE_BYTES && refCache.size <= REF_CACHE_MAX) break;
+    refCache.delete(k);
+    total -= e.blob.size;
+  }
+}
+
+/*
+ * Marcações de antes desta versão, feitas ouvindo aqui o áudio do show com outro BPM (ou pela
+ * letra automática), ficaram no tempo desse áudio. O editor pergunta uma vez por música, neste
+ * aparelho, se elas devem ser ajustadas ao tempo da música (o relógio do diretor e da TV).
+ */
+const REF_FIX_LS = 'vs_lyrics_reftime_ok:';
+function refFixDone(songId: string): boolean {
+  try { return localStorage.getItem(REF_FIX_LS + songId) === '1'; } catch { return false; }
+}
+/** As marcações desta música já estão no tempo da música (ajustadas, conferidas ou geradas agora). */
+export function markRefTimesOk(songId: string) {
+  try { localStorage.setItem(REF_FIX_LS + songId, '1'); } catch { /* sem espaço: volta a perguntar */ }
+}
 
 function parseTime(v: string): number | null {
   const s = v.trim();
@@ -38,11 +77,13 @@ function splitLyrics(raw: string): LyricPage[] {
     .map((text) => ({ id: newId(), time: null, text: text.slice(0, MAX_PAGE_TEXT), kind: 'verso' as PageKind }));
 }
 
-export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
+export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, audioKey, autoPlay, pages, setPages, history, status, snap, sync, now, words, onWords }: {
   /** Letra lida pelo Mac do diretor (palavras com tempo), quando já chegou. */
   wordsUrl: string | null;
   song: SetlistSong;
   cloudUrl: string | null;
+  /** Versão do áudio do show (updatedAt): só baixa de novo quando ela muda. O link muda sozinho. */
+  audioKey: string | null;
   autoPlay: boolean;
   pages: LyricPage[];
   setPages: (fn: (p: LyricPage[]) => LyricPage[]) => void;
@@ -74,15 +115,32 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [rehearsal, setRehearsal] = useState(false);
+  // O player está com o áudio do show (BPM do show, só as partes marcadas do medley) e não com
+  // um arquivo do computador (esse costuma ser a gravação no tempo original e marca 1:1).
+  const [fromShow, setFromShow] = useState(false);
+
+  // Tempo do áudio do show x tempo da música. A página guarda sempre o tempo da música, que é o
+  // relógio do diretor e da TV; senão, com o BPM mudado, a letra saía adiantada ou atrasada.
+  const partsKey = JSON.stringify(song.parts ?? null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const songMap = useMemo(() => refTimeMap(song), [song.bpmAdjust, partsKey]);
+  const map: RefMap | null = fromShow ? songMap : null;
 
   const live = snap.show.live;
   const liveOnSong = live?.currentSongId === song.id;
   const lv = computeLiveView(live, song.duration, sync.lagMs, sync.receivedAt, now);
   const useLive = followLive && liveOnSong;
   const t = useLive ? lv.currentTime : localT;
-  const duration = audioDur || song.duration || 0;
+  const duration = map && song.duration > 0 ? song.duration : (audioDur || song.duration || 0);
   const activeIdx = autoPageIndex(pages, t);
   const armedIdx = pages.length ? Math.min(markIdx, pages.length - 1) : 0;
+  // A onda é medida no áudio do show: com o mapa, ela é redesenhada no tempo da música.
+  const shownPeaks = useMemo(
+    () => (peaks && map && audioDur > 0 ? warpPeaks(peaks, audioDur, map, duration) : peaks),
+    [peaks, map, audioDur, duration],
+  );
+  // Palavras da Guia (tempo do áudio do show) no tempo da música, para a nova marcação cortar certo.
+  const songWords = useMemo(() => toSongWords(words, songMap), [words, songMap]);
 
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
 
@@ -90,48 +148,95 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
     if (!playing) return;
     let raf = 0;
     const tick = () => {
-      if (audioRef.current) setLocalT(audioRef.current.currentTime);
+      const a = audioRef.current;
+      if (a) setLocalT(map ? refToSongTime(map, a.currentTime) : a.currentTime);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing]);
+  }, [playing, map]);
 
-  const loadFile = async (file: File) => {
+  // Cada carga ganha um número: a resposta de uma carga antiga (outro arquivo escolhido no meio,
+  // áudio novo da mesma música, editor fechado) não fica por cima da nova.
+  const loadSeq = useRef(0);
+  useEffect(() => () => { loadSeq.current++; }, []);
+  // O último download do áudio do show falhou: o próximo link novo tenta de novo.
+  const dlFailed = useRef(false);
+
+  const loadFile = async (file: File, show: boolean, cacheKey: string | null = null) => {
+    const my = ++loadSeq.current;
+    dlFailed.current = false;
     setAudioError(null);
     setDecoding(true);
     setPlaying(false);
     audioRef.current?.pause();
     setAudioUrl(URL.createObjectURL(file));
     setAudioName(file.name);
+    setFromShow(show);
+    setPeaks(null);
+    setAudioDur(0);
     setLocalT(0);
     setFollowLive(false);
     try {
       const { peaks: pk, duration: d } = await decodePeaks(file);
+      if (cacheKey) cachePut(cacheKey, { blob: file, peaks: pk, duration: d });
+      if (my !== loadSeq.current) return;
       setPeaks(pk);
       setAudioDur(d);
     } catch {
-      setPeaks(null);
-      setAudioError('Não foi possível ler este arquivo de áudio. Use WAV, MP3, AAC ou M4A.');
+      if (my === loadSeq.current) {
+        setPeaks(null);
+        setAudioError('Não foi possível ler este arquivo de áudio. Use WAV, MP3, AAC ou M4A.');
+      }
     } finally {
-      setDecoding(false);
+      if (my === loadSeq.current) setDecoding(false);
     }
   };
 
+  // O link assinado vence em 3 h (e, na Rede Local, muda a cada envio do diretor): a lista traz
+  // sempre o link novo, mas o áudio só é baixado de novo quando a versão dele muda.
+  const urlRef = useRef(cloudUrl);
+  urlRef.current = cloudUrl;
+  const [dlTry, setDlTry] = useState(0);
+  const hasCloud = !!cloudUrl;
   useEffect(() => {
-    if (!cloudUrl) return;
+    const url = urlRef.current;
+    if (!url) return;
+    dlFailed.current = false;
+    const key = audioKey ? `${song.id}:${audioKey}` : null;
+    const hit = key ? refCache.get(key) : undefined;
+    if (key && hit) {
+      loadSeq.current++;
+      refCache.delete(key);
+      refCache.set(key, hit);
+      setAudioError(null);
+      setPlaying(false);
+      audioRef.current?.pause();
+      setAudioUrl(URL.createObjectURL(hit.blob));
+      setAudioName(`${song.name} (do show)`);
+      setFromShow(true);
+      setPeaks(hit.peaks);
+      setAudioDur(hit.duration);
+      setLocalT(0);
+      setFollowLive(false);
+      setDecoding(false);
+      return;
+    }
     let cancelled = false;
+    const seq0 = loadSeq.current;
     setDecoding(true);
     setAudioError(null);
     (async () => {
       try {
-        const res = await fetch(cloudUrl);
+        const res = await fetch(url);
         if (!res.ok) throw new Error('fetch');
         const blob = await res.blob();
-        if (cancelled) return;
-        await loadFile(new File([blob], `${song.name} (do show)`, { type: blob.type || 'audio/mpeg' }));
+        // arquivo escolhido à mão durante o download: o do show não passa por cima
+        if (cancelled || loadSeq.current !== seq0) return;
+        await loadFile(new File([blob], `${song.name} (do show)`, { type: blob.type || 'audio/mpeg' }), true, key);
       } catch {
-        if (!cancelled) {
+        if (!cancelled && loadSeq.current === seq0) {
+          dlFailed.current = true;
           setDecoding(false);
           setAudioError('Não foi possível baixar o áudio do show. Atualize a lista de músicas ou carregue um arquivo.');
         }
@@ -139,7 +244,11 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudUrl]);
+  }, [hasCloud, audioKey, dlTry]);
+  // Download que falhou (link vencido, chave trocada na Rede Local, queda de rede): o próximo link
+  // novo tenta de novo, uma vez por link. Ele chega pela lista a cada 30 s, pelo foco ou pelo
+  // botão de atualizar. Fica depois do efeito do download, senão baixaria duas vezes.
+  useEffect(() => { if (dlFailed.current && cloudUrl) setDlTry((n) => n + 1); }, [cloudUrl]);
 
   const autoPlayPending = useRef(autoPlay);
   useEffect(() => { if (autoPlay) autoPlayPending.current = true; }, [autoPlay]);
@@ -160,17 +269,29 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   }, [audioUrl]);
 
   const seek = (time: number) => {
-    setLocalT(time);
-    if (audioRef.current) audioRef.current.currentTime = time;
+    // dentro de parte pulada do medley o cursor vai para o começo da próxima parte
+    const r = map ? songToRefTime(map, time) : time;
+    setLocalT(map ? refToSongTime(map, r) : time);
+    if (audioRef.current) audioRef.current.currentTime = r;
     if (pages.length) setMarkIdx(Math.min(pages.length - 1, Math.max(0, autoPageIndex(pages, time) + 1)));
   };
 
+  const latest = useRef({ t, useLive, seek, map, duration });
+  latest.current = { t, useLive, seek, map, duration };
+  // Hora do toque lida no próprio player: o estado `t` pode estar um quadro (ou vários) atrás.
+  const timeNow = useCallback(() => {
+    const L = latest.current;
+    const a = audioRef.current;
+    if (L.useLive || !a) return L.t;
+    return L.map ? refToSongTime(L.map, a.currentTime) : a.currentTime;
+  }, []);
+
   const mark = useCallback(() => {
     if (pages.length === 0) return;
-    const time = Math.round(t * 10) / 10;
+    const time = Math.round(timeNow() * 10) / 10;
     setPages((ps) => ps.map((p, i) => (i === armedIdx ? { ...p, time } : p)));
     setMarkIdx(Math.min(pages.length - 1, armedIdx + 1));
-  }, [pages.length, armedIdx, t, setPages]);
+  }, [pages.length, armedIdx, setPages, timeNow]);
 
   // Marcações na onda: escolher, arrastar, apagar e criar (a lógica fica em lyricsAutoSync).
   const selected = pages.find((p) => p.id === selectedId && p.time !== null) ?? null;
@@ -180,9 +301,9 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
   const deleteMarker = useCallback((id: string) => { setPages((ps) => removeMarker(ps, id)); setSelectedId(null); }, [setPages]);
   const createMarker = useCallback((time: number) => {
     let created: string | null = null;
-    setPages((ps) => addMarker(ps, time, words, duration, () => (created = newId())));
+    setPages((ps) => addMarker(ps, time, songWords, duration, () => (created = newId())));
     if (created) setSelectedId(created);
-  }, [setPages, words, duration]);
+  }, [setPages, songWords, duration]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -215,13 +336,16 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
       if (!res.ok) throw new Error('fetch');
       const body = await res.json() as { segments?: RawSegment[] };
       const heard = normalizeWords(body.segments ?? []);
-      const built = buildPages(heard);
+      // a Guia sai no BPM do show: as páginas guardam o tempo da música
+      const built = buildPages(toSongWords(heard, songMap));
       if (built.length === 0) {
         setGenMsg({ ok: false, text: 'O leitor de letra não encontrou voz cantada nesta música.' });
         return;
       }
       setPages(() => built);
       onWords(heard);
+      markRefTimesOk(song.id);
+      setRefFixAsk(false);
       setSelectedId(null);
       setMarkIdx(0);
       setGenMsg({ ok: true, text: `Letra gerada: ${built.length} trechos já marcados na onda. Confira o texto, porque a IA pode errar alguma palavra. Para voltar ao que era antes, use Desfazer.` });
@@ -232,14 +356,31 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
     }
   };
 
-  const update = (id: string, patch: Partial<LyricPage>) => setPages((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)));
-  const move = (i: number, d: number) => setPages((ps) => {
-    const j = i + d;
-    if (j < 0 || j >= ps.length) return ps;
-    const copy = [...ps];
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-    return copy;
-  });
+  // Marcações de antes desta versão no tempo do áudio do show (ver REF_FIX_LS): pergunta uma vez.
+  const [refFixAsk, setRefFixAsk] = useState(() => !refFixDone(song.id) && pages.some((p) => p.time !== null));
+  const needsRefFix = refFixAsk && !isIdentityMap(songMap) && pages.some((p) => p.time !== null);
+  const otherBpm = songMap.some((x) => Math.abs(x.a - 1) > 1e-9);
+  const skipsPart = (song.parts ?? []).some((p) => p.enabled === false);
+  const refFixReason = otherBpm && skipsPart ? 'com outro BPM e com parte pulada' : otherBpm ? 'com outro BPM' : 'com parte pulada';
+  const applyRefFix = () => {
+    setPages((ps) => ps.map((p) => (p.time === null ? p : { ...p, time: Math.round(refToSongTime(songMap, p.time) * 10) / 10 })));
+    markRefTimesOk(song.id);
+    setRefFixAsk(false);
+  };
+  const keepRefTimes = () => { markRefTimesOk(song.id); setRefFixAsk(false); };
+
+  // Página com tempo menor ou igual ao de uma de cima: a TV pula uma delas. Marca as duas.
+  const outOfOrder = useMemo(() => {
+    const out: boolean[] = new Array(pages.length).fill(false);
+    let last = -1;
+    pages.forEach((p, i) => {
+      if (p.time === null) return;
+      if (last >= 0 && p.time <= (pages[last].time as number)) { out[i] = true; out[last] = true; }
+      last = i;
+    });
+    return out;
+  }, [pages]);
+  const outCount = outOfOrder.filter(Boolean).length;
 
   const rehearsalSnap: PrompterSnapshot = {
     ...snap,
@@ -261,6 +402,47 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
 
   // Clicar numa marcação leva a página dela para o topo da lista (debaixo da prévia, no celular).
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
+
+  // Ações das linhas, todas estáveis: tocando, o editor redesenha a cada quadro e as linhas
+  // (memo) só redesenham quando a página delas muda.
+  const registerRow = useCallback((id: string, el: HTMLLIElement | null) => {
+    if (el) rowRefs.current.set(id, el); else rowRefs.current.delete(id);
+  }, []);
+  const changePage = useCallback((id: string, patch: Partial<LyricPage>) => (
+    setPages((ps) => ps.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+  ), [setPages]);
+  const markPageNow = useCallback((id: string) => changePage(id, { time: Math.round(timeNow() * 10) / 10 }), [changePage, timeNow]);
+  const seekPage = useCallback((time: number) => { if (!latest.current.useLive) latest.current.seek(time); }, []);
+  // Subir/Descer troca as páginas; com as duas marcadas, os tempos ficam em ordem (o texto anda e
+  // cada lugar mantém o seu tempo). Assim a TV não pula página por tempo invertido.
+  const movePage = useCallback((i: number, d: number) => setPages((ps) => {
+    const j = i + d;
+    if (j < 0 || j >= ps.length) return ps;
+    const a = ps[i];
+    const b = ps[j];
+    const copy = [...ps];
+    copy[i] = b;
+    copy[j] = a;
+    if (a.time !== null && b.time !== null) {
+      const top = Math.min(i, j);
+      const bottom = Math.max(i, j);
+      copy[top] = { ...copy[top], time: Math.min(a.time, b.time) };
+      copy[bottom] = { ...copy[bottom], time: Math.max(a.time, b.time) };
+    }
+    return copy;
+  }), [setPages]);
+  const deletePage = useCallback((id: string) => setPages((ps) => ps.filter((x) => x.id !== id)), [setPages]);
+  // Ajuste fino de 0,1 s: não passa por cima das vizinhas nem anda para o lado contrário.
+  const nudgePage = useCallback((id: string, d: number) => setPages((ps) => {
+    const cur = ps.find((x) => x.id === id);
+    if (!cur || cur.time === null) return ps;
+    const want = cur.time + d;
+    const dur = latest.current.duration;
+    const to = clampMarker(ps, id, want, dur);
+    const lo = Math.min(cur.time, want) - 1e-6;
+    const hi = Math.max(cur.time, want) + 1e-6;
+    return to === null || to < lo || to > hi ? ps : moveMarker(ps, id, to, dur);
+  }), [setPages]);
   const scrollToPage = useCallback((id: string) => {
     const el = rowRefs.current.get(id);
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -293,7 +475,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
         <div className="console-face border-2 border-black rounded-lg p-2 shadow-lg lg:min-h-0 lg:flex lg:flex-col">
           <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-7 rounded-t flex items-center gap-2 border-b-2 border-black shrink-0">
             <span className={`console-led ${previewPlaying ? 'is-on-green animate-pulse' : ''}`} />
-            <p className="console-legend flex-1 !text-logic-text">{previewPlaying ? 'Na TV agora' : 'Prévia da TV'}</p>
+            <p className="console-legend flex-1 text-logic-text">{previewPlaying ? 'Na TV agora' : 'Prévia da TV'}</p>
             <button onClick={() => setRehearsal(true)} disabled={pages.length === 0} className="console-key flex items-center gap-1 px-2 h-5 text-[10px] disabled:opacity-40" title="Tela inteira, do jeito que os artistas veem">
               <Eye size={11} /> Ensaiar
             </button>
@@ -324,19 +506,22 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
       </section>
 
       {/* PÁGINAS: a letra, trecho por trecho (rola sozinha). */}
-      <section className="order-4 lg:order-none lg:col-start-1 lg:row-start-1 lg:min-h-0 flex flex-col bg-logic-bg-panel border border-logic-border rounded-xl">
-        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-logic-border shrink-0">
+      <section className="order-4 lg:order-none lg:col-start-1 lg:row-start-1 lg:min-h-0 flex flex-col console-face border-2 border-black rounded-lg shadow-lg">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b-2 border-black shrink-0">
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-logic-text truncate">{song.name}</h2>
-            <p className="text-[11px] text-logic-text-dim">{formatClock(song.duration)}{song.bpm ? ` · ${song.bpm} BPM` : ''} · {pages.length} {pages.length === 1 ? 'página' : 'páginas'}</p>
+            <h2 className="font-stage text-base font-semibold tracking-wide text-logic-text truncate">{song.name}</h2>
+            <p className="text-[11px] text-logic-text-dim">
+              {formatClock(song.duration)}{song.bpm ? ` · ${song.bpm} BPM` : ''} · {pages.length} {pages.length === 1 ? 'página' : 'páginas'}
+              {outCount > 0 && <span className="text-logic-lcd-red"> · {outCount} fora de ordem</span>}
+            </p>
           </div>
           <SaveBadge status={status} />
-          <div className="flex items-center rounded-lg bg-logic-bg-elevated">
-            <button onClick={history.undo} disabled={!history.canUndo} className="p-2 rounded-l-lg hover:bg-logic-border-light disabled:opacity-30 transition-colors" title="Desfazer (Ctrl/Cmd+Z)" aria-label="Desfazer">
-              <Undo2 size={15} />
+          <div className="flex items-center gap-1">
+            <button onClick={history.undo} disabled={!history.canUndo} className="console-key flex items-center justify-center w-8 h-8 disabled:opacity-40" title="Desfazer (Ctrl/Cmd+Z)" aria-label="Desfazer">
+              <Undo2 size={14} />
             </button>
-            <button onClick={history.redo} disabled={!history.canRedo} className="p-2 rounded-r-lg hover:bg-logic-border-light disabled:opacity-30 transition-colors" title="Refazer (Ctrl/Cmd+Shift+Z)" aria-label="Refazer">
-              <Redo2 size={15} />
+            <button onClick={history.redo} disabled={!history.canRedo} className="console-key flex items-center justify-center w-8 h-8 disabled:opacity-40" title="Refazer (Ctrl/Cmd+Shift+Z)" aria-label="Refazer">
+              <Redo2 size={14} />
             </button>
           </div>
           <button
@@ -349,10 +534,25 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
           >
             {gen ? <Loader2 size={13} className="animate-spin text-logic-lcd-amber" /> : <Sparkles size={13} className="text-logic-lcd-amber" />} Letra automática
           </button>
-          <button onClick={() => setPasteOpen((v) => !v)} className="flex items-center gap-1.5 text-xs text-logic-accent hover:text-logic-accent-hover transition-colors">
-            <ClipboardPaste size={14} /> Colar letra inteira
+          <button onClick={() => setPasteOpen((v) => !v)} className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px]">
+            <ClipboardPaste size={13} /> Colar letra inteira
           </button>
         </div>
+        {needsRefFix && (
+          <div className="px-4 py-2 border-b border-black/60 shrink-0">
+            <div className="rounded-md border border-logic-lcd-amber/40 bg-logic-lcd-amber/10 px-3 py-2 text-xs">
+              <p className="text-logic-text leading-relaxed">
+                Esta música toca no show {refFixReason}. Marcações feitas antes desta versão,
+                ouvindo aqui o áudio do show ou pela Letra automática, ficaram no tempo desse áudio e saem fora de hora na TV.
+                As feitas com Seguir o diretor já estão certas. Dá para voltar com Desfazer.
+              </p>
+              <div className="flex flex-wrap justify-end gap-2 mt-2">
+                <button onClick={keepRefTimes} className="console-key px-3 h-7 text-[11px]">Já estão certas</button>
+                <button onClick={applyRefFix} className="console-key px-3 h-7 text-[11px]">Ajustar marcações ao BPM do show</button>
+              </div>
+            </div>
+          </div>
+        )}
         {(confirmGen || (genMsg && !gen) || (!wordsUrl && pages.length === 0)) && (
           <div className="px-4 py-2 border-b border-logic-border shrink-0 space-y-2">
             {!wordsUrl && pages.length === 0 && !confirmGen && !genMsg && (
@@ -413,7 +613,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
             {pages.map((p, i) => (
               <PageRow
                 key={p.id}
-                rowRef={(el) => { if (el) rowRefs.current.set(p.id, el); else rowRefs.current.delete(p.id); }}
+                rowRef={registerRow}
                 selected={p.id === selectedId}
                 defaultColor={snap.prompter.lyricColor}
                 page={p}
@@ -421,12 +621,14 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
                 total={pages.length}
                 active={i === activeIdx}
                 armed={i === armedIdx}
-                onArm={() => setMarkIdx(i)}
-                onChange={(patch) => update(p.id, patch)}
-                onMarkNow={() => update(p.id, { time: Math.round(t * 10) / 10 })}
-                onSeek={() => { if (p.time !== null && !useLive) seek(p.time); }}
-                onMove={(d) => move(i, d)}
-                onDelete={() => setPages((ps) => ps.filter((x) => x.id !== p.id))}
+                outOfOrder={outOfOrder[i]}
+                onArm={setMarkIdx}
+                onChange={changePage}
+                onMarkNow={markPageNow}
+                onNudge={nudgePage}
+                onSeek={seekPage}
+                onMove={movePage}
+                onDelete={deletePage}
               />
             ))}
           </ol>
@@ -441,17 +643,17 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
       </section>
 
       {/* LINHA DO TEMPO: play, onda e marcações, de ponta a ponta embaixo. */}
-      <section className="order-2 lg:order-none lg:col-span-2 lg:row-start-2 console-face border-2 border-black rounded-xl px-3 py-2.5 shadow-lg">
+      <section className="order-2 lg:order-none lg:col-span-2 lg:row-start-2 console-face border-2 border-black rounded-lg px-3 py-2.5 shadow-lg">
         <div className="flex flex-wrap items-center gap-2">
           <label className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] cursor-pointer" title={audioName || 'Carregar áudio do computador'}>
             {decoding ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
             <span className="hidden sm:inline">{decoding ? 'Carregando...' : audioName ? 'Outro arquivo' : 'Carregar áudio'}</span>
-            <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) loadFile(f); e.target.value = ''; }} />
+            <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void loadFile(f, false); e.target.value = ''; }} />
           </label>
           <button onClick={() => skip(-5)} disabled={!audioUrl || useLive} className="console-key flex items-center justify-center w-8 h-8 disabled:opacity-40" title="Voltar 5 segundos">
             <RotateCcw size={14} />
           </button>
-          <button onClick={togglePlay} disabled={!audioUrl || useLive} className="flex items-center gap-1.5 px-4 h-8 rounded-md bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-medium disabled:opacity-40 transition-colors" title="Espaço">
+          <button onClick={togglePlay} disabled={!audioUrl || useLive} className={`console-key flex items-center gap-1.5 px-4 h-8 text-[12px] disabled:opacity-40 ${playing ? 'is-lit-green' : '!text-logic-lcd-green'}`} title="Espaço">
             {playing ? <Pause size={14} /> : <Play size={14} />} {playing ? 'Pausar' : 'Tocar'}
           </button>
           <span className="font-stage text-sm tabular-nums text-logic-lcd-amber min-w-[92px] px-2 h-8 flex items-center rounded bg-black/50 border border-black">{formatClock(t)} / {formatClock(duration)}</span>
@@ -472,7 +674,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
             <Flag size={14} /> Marcar página {pages.length ? armedIdx + 1 : ''}
           </button>
           <button
-            onClick={() => createMarker(t)}
+            onClick={() => createMarker(timeNow())}
             disabled={!duration}
             className="console-key flex items-center gap-1.5 px-2.5 h-8 text-[11px] disabled:opacity-40"
             title="Cria uma marcação no ponto em que a música está, dividindo o trecho ali"
@@ -486,7 +688,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
 
         <div className="mt-2">
           <LyricsWaveform
-            peaks={peaks}
+            peaks={shownPeaks}
             duration={duration}
             t={t}
             pages={pages}
@@ -555,10 +757,10 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, autoPlay, p
             <div className="flex items-center justify-between mb-3 gap-3">
               <p className="text-sm text-white/80">Ensaio: assim os artistas vão ver. Espaço toca e pausa.</p>
               <div className="flex gap-2">
-                <button onClick={togglePlay} disabled={!audioUrl || useLive} className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-logic-accent text-white text-sm disabled:opacity-40">
+                <button onClick={togglePlay} disabled={!audioUrl || useLive} className={`console-key flex items-center justify-center w-10 h-9 disabled:opacity-40 ${playing ? 'is-lit-green' : '!text-logic-lcd-green'}`} aria-label={playing ? 'Pausar' : 'Tocar'}>
                   {playing ? <Pause size={15} /> : <Play size={15} />}
                 </button>
-                <button onClick={() => setRehearsal(false)} className="p-2 rounded-lg bg-white/10 text-white hover:bg-white/20"><X size={16} /></button>
+                <button onClick={() => setRehearsal(false)} className="console-key flex items-center justify-center w-9 h-9" aria-label="Fechar o ensaio"><X size={16} /></button>
               </div>
             </div>
             <div className="aspect-video rounded-xl overflow-hidden ring-1 ring-white/10">
@@ -620,33 +822,36 @@ function PageStyle({ page, defaultColor, onChange }: { page: LyricPage; defaultC
   );
 }
 
-function PageRow({ rowRef, selected, defaultColor, page, index, total, active, armed, onArm, onChange, onMarkNow, onSeek, onMove, onDelete }: {
-  rowRef: (el: HTMLLIElement | null) => void; selected: boolean; defaultColor: string;
-  page: LyricPage; index: number; total: number; active: boolean; armed: boolean;
-  onArm: () => void; onChange: (patch: Partial<LyricPage>) => void; onMarkNow: () => void;
-  onSeek: () => void; onMove: (d: number) => void; onDelete: () => void;
+const PageRow = memo(function PageRow({ rowRef, selected, defaultColor, page, index, total, active, armed, outOfOrder, onArm, onChange, onMarkNow, onNudge, onSeek, onMove, onDelete }: {
+  rowRef: (id: string, el: HTMLLIElement | null) => void; selected: boolean; defaultColor: string;
+  page: LyricPage; index: number; total: number; active: boolean; armed: boolean; outOfOrder: boolean;
+  onArm: (index: number) => void; onChange: (id: string, patch: Partial<LyricPage>) => void; onMarkNow: (id: string) => void;
+  onNudge: (id: string, d: number) => void; onSeek: (time: number) => void; onMove: (index: number, d: number) => void; onDelete: (id: string) => void;
 }) {
   const [timeText, setTimeText] = useState(fmtPrecise(page.time));
   useEffect(() => setTimeText(fmtPrecise(page.time)), [page.time]);
+  const change = useCallback((patch: Partial<LyricPage>) => onChange(page.id, patch), [onChange, page.id]);
+  const setRef = useCallback((el: HTMLLIElement | null) => rowRef(page.id, el), [rowRef, page.id]);
   const kind = kindInfo(page.kind);
   return (
     <li
-      ref={rowRef}
-      onClick={onArm}
+      ref={setRef}
+      // índice, não o evento: onArm é o setMarkIdx do editor
+      onClick={() => onArm(index)}
       // no celular o monitor fica preso no topo: a página escolhida para logo abaixo dele
       className={`scroll-mt-[200px] lg:scroll-mt-2 flex gap-3 p-3 rounded-lg border transition-colors ${selected ? 'ring-2 ring-logic-lcd-amber/70' : ''} ${active ? 'border-logic-lcd-green/70 bg-logic-lcd-green/5' : armed ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep'}`}
       style={{ borderLeft: `4px solid ${kind.color}` }}
     >
       <div className="flex flex-col items-center gap-1 w-8 flex-shrink-0">
         <span className="text-sm font-bold tabular-nums text-logic-text">{index + 1}</span>
-        <button disabled={index === 0} onClick={(e) => { e.stopPropagation(); onMove(-1); }} className="p-0.5 text-logic-text-muted hover:text-logic-text disabled:opacity-20" title="Subir"><ChevronUp size={15} /></button>
-        <button disabled={index === total - 1} onClick={(e) => { e.stopPropagation(); onMove(1); }} className="p-0.5 text-logic-text-muted hover:text-logic-text disabled:opacity-20" title="Descer"><ChevronDown size={15} /></button>
+        <button disabled={index === 0} onClick={(e) => { e.stopPropagation(); onMove(index, -1); }} className="p-0.5 text-logic-text-muted hover:text-logic-text disabled:opacity-20" title="Subir"><ChevronUp size={15} /></button>
+        <button disabled={index === total - 1} onClick={(e) => { e.stopPropagation(); onMove(index, 1); }} className="p-0.5 text-logic-text-muted hover:text-logic-text disabled:opacity-20" title="Descer"><ChevronDown size={15} /></button>
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-2 mb-2">
           <select
             value={page.kind}
-            onChange={(e) => onChange({ kind: e.target.value as PageKind })}
+            onChange={(e) => change({ kind: e.target.value as PageKind })}
             className="px-2 py-1.5 rounded-md bg-logic-bg-panel border border-logic-border text-xs font-semibold outline-none focus:border-logic-accent"
             style={{ color: kind.color }}
           >
@@ -655,7 +860,14 @@ function PageRow({ rowRef, selected, defaultColor, page, index, total, active, a
           <input
             value={timeText}
             onChange={(e) => setTimeText(e.target.value)}
-            onBlur={() => { const v = parseTime(timeText); onChange({ time: v }); setTimeText(fmtPrecise(v)); }}
+            onBlur={() => {
+              const v = parseTime(timeText);
+              // texto que não é tempo (letra digitada sem querer): volta ao que era, sem apagar a marcação
+              if (timeText.trim() && v === null) { setTimeText(fmtPrecise(page.time)); return; }
+              const r = v === null ? null : Math.round(v * 10) / 10;
+              if (r !== page.time) change({ time: r });
+              setTimeText(fmtPrecise(r));
+            }}
             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
             placeholder="sem tempo"
             className="w-24 px-2 py-1.5 rounded-md bg-logic-bg-panel border border-logic-border text-xs tabular-nums text-logic-text outline-none focus:border-logic-accent placeholder:text-logic-lcd-amber/70"
@@ -666,7 +878,7 @@ function PageRow({ rowRef, selected, defaultColor, page, index, total, active, a
               {[-0.1, 0.1].map((d) => (
                 <button
                   key={d}
-                  onClick={(e) => { e.stopPropagation(); onChange({ time: Math.max(0, Math.round(((page.time ?? 0) + d) * 10) / 10) }); }}
+                  onClick={(e) => { e.stopPropagation(); onNudge(page.id, d); }}
                   className="px-1.5 py-1.5 text-2xs font-mono text-logic-text-dim hover:text-logic-text hover:bg-logic-bg-elevated transition-colors"
                   aria-label={d < 0 ? 'Entrar 0,1 s antes' : 'Entrar 0,1 s depois'}
                 >
@@ -675,31 +887,36 @@ function PageRow({ rowRef, selected, defaultColor, page, index, total, active, a
               ))}
             </span>
           )}
-          <button onClick={(e) => { e.stopPropagation(); onMarkNow(); }} className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-logic-bg-elevated hover:bg-logic-border-light text-xs transition-colors" title="Usar o tempo atual">
+          {outOfOrder && (
+            <span className="flex items-center gap-1 text-[11px] text-logic-lcd-red" title="O tempo desta página não está depois do da página de cima: a TV pula uma delas">
+              <AlertTriangle size={12} /> fora de ordem
+            </span>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); onMarkNow(page.id); }} className="flex items-center gap-1 px-2 py-1.5 rounded-md bg-logic-bg-elevated hover:bg-logic-border-light text-xs transition-colors" title="Usar o tempo atual">
             <Flag size={12} /> Marcar aqui
           </button>
           {page.time !== null && (
-            <button onClick={(e) => { e.stopPropagation(); onSeek(); }} className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-logic-text-dim hover:text-logic-text transition-colors" title="Ir para este tempo">
+            <button onClick={(e) => { e.stopPropagation(); if (page.time !== null) onSeek(page.time); }} className="flex items-center gap-1 px-2 py-1.5 rounded-md text-xs text-logic-text-dim hover:text-logic-text transition-colors" title="Ir para este tempo">
               <Play size={12} /> Ouvir
             </button>
           )}
-          <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="ml-auto p-1.5 text-logic-text-muted hover:text-logic-lcd-red transition-colors" title="Apagar página">
+          <button onClick={(e) => { e.stopPropagation(); onDelete(page.id); }} className="ml-auto p-1.5 text-logic-text-muted hover:text-logic-lcd-red transition-colors" title="Apagar página">
             <Trash2 size={14} />
           </button>
         </div>
         <textarea
           value={page.text}
-          onChange={(e) => onChange({ text: e.target.value.slice(0, MAX_PAGE_TEXT) })}
+          onChange={(e) => change({ text: e.target.value.slice(0, MAX_PAGE_TEXT) })}
           rows={Math.min(6, Math.max(2, page.text.split('\n').length))}
           placeholder="Texto deste trecho"
           className="w-full px-3 py-2 rounded-md bg-logic-bg-panel border border-logic-border text-base leading-relaxed outline-none focus:border-logic-accent resize-y"
           style={{ color: page.color ?? undefined }}
         />
-        <PageStyle page={page} defaultColor={defaultColor} onChange={onChange} />
+        <PageStyle page={page} defaultColor={defaultColor} onChange={change} />
       </div>
     </li>
   );
-}
+});
 
 function SaveBadge({ status }: { status: SaveStatus }) {
   if (status === 'saving') return <span className="flex items-center gap-1.5 text-xs text-logic-text-dim"><Loader2 size={13} className="animate-spin" /> Salvando</span>;

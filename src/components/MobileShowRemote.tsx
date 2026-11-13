@@ -1,7 +1,7 @@
 // VS Stage Remote: o Modo Show do programa no celular, em pé. Abre igual pela Rede Local (página
 // servida pelo Mac, com o PIN do Remote) e pelo Show Online (link com a chave do Mac).
 import { useEffect, useRef, useState } from 'react';
-import { KeyRound, ListMusic, MonitorPlay, Play, SlidersVertical, Square } from 'lucide-react';
+import { AlertTriangle, KeyRound, ListMusic, MonitorPlay, Play, SlidersVertical, Square } from 'lucide-react';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import VsLogo from '@/components/VsLogo';
 import { AccessCard, AccessNotice, AccessStage, AccessTitle } from '@/components/access/AccessChrome';
@@ -118,11 +118,25 @@ function Transport({ state, link }: { state: RemoteState; link: RemoteLink }) {
       >
         <Play size={22} fill="currentColor" /> Tocar
       </button>
-      <button className={`${bigKey} !text-logic-text`} onClick={() => link.send({ action: 'stop' })} aria-label="Parar">
+      {/* wasActive: com o Mac já parado (toque duplo), o segundo Parar não volta mais uma parte */}
+      <button className={`${bigKey} !text-logic-text`} onClick={() => link.send({ action: 'stop', wasActive: state.active })} aria-label="Parar">
         <Square size={18} fill="currentColor" /> Parar
       </button>
     </div>
   );
+}
+
+/** Rede Local sem sinal por tanto tempo: o aviso orienta a escanear o QR de novo (o Mac pode ter trocado de rede). */
+const LOST_LONG_MS = 15000;
+
+function useLostLong(link: RemoteLink): boolean {
+  const [lostLong, setLostLong] = useState(false);
+  useEffect(() => {
+    if (link.status !== 'lost' || link.via !== 'local') return;
+    const t = window.setTimeout(() => setLostLong(true), LOST_LONG_MS);
+    return () => { window.clearTimeout(t); setLostLong(false); };
+  }, [link.status, link.via]);
+  return lostLong;
 }
 
 const TABS: { id: Tab; label: string; icon: typeof Play }[] = [
@@ -134,6 +148,7 @@ const TABS: { id: Tab; label: string; icon: typeof Play }[] = [
 export default function MobileShowRemote() {
   const link = useRemoteLink();
   useWakeLock();
+  const lostLong = useLostLong(link);
   const [tab, setTab] = useState<Tab>(() => {
     try {
       const saved = localStorage.getItem(TAB_LS);
@@ -169,15 +184,28 @@ export default function MobileShowRemote() {
       {link.status === 'lost' && (
         <div role="alert" className="flex items-center gap-2 px-4 py-2 bg-logic-lcd-amber/10 border-b border-logic-lcd-amber/40 text-sm text-logic-lcd-amber">
           <span className="console-led is-on-amber animate-pulse shrink-0" />
-          Sem sinal do Mac. Mostrando o último estado recebido.
+          <span className="min-w-0">
+            Sem sinal do Mac. Mostrando o último estado recebido.
+            {lostLong && <span className="block">Se o Mac trocou de rede, escaneie de novo o QR do VS Stage Remote na tela Rede Local do Mac.</span>}
+          </span>
         </div>
       )}
       <Transport state={state} link={link} />
-      <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto logic-scroll overscroll-contain">
-        {tab === 'show' && <RemoteShowTab state={state} macNow={link.macNow} send={link.send} />}
-        {tab === 'lista' && <RemoteSetlist state={state} send={link.send} />}
-        {tab === 'mixer' && <RemoteMixer state={state} send={link.send} watchMeters={link.watchMeters} />}
-      </main>
+      <div className="relative flex-1 min-h-0 flex flex-col">
+        {/* por cima do conteúdo, para as teclas não mudarem de lugar quando o aviso aparece */}
+        {link.notice && (
+          <div role="alert" className="absolute inset-x-0 top-0 z-20 flex items-center gap-2.5 px-4 py-2.5 bg-logic-bg-deep border-b border-logic-lcd-red/60 shadow-[0_6px_16px_rgba(0,0,0,0.45)]">
+            <AlertTriangle size={16} className="text-logic-lcd-red shrink-0" />
+            <span className="flex-1 min-w-0 text-[13px] leading-snug text-logic-text">{link.notice}</span>
+            <button className="console-key h-9 px-3 text-[13px] shrink-0" onClick={link.dismissNotice}>OK</button>
+          </div>
+        )}
+        <main ref={mainRef} className="flex-1 min-h-0 overflow-y-auto logic-scroll overscroll-contain">
+          {tab === 'show' && <RemoteShowTab state={state} macNow={link.macNow} send={link.send} />}
+          {tab === 'lista' && <RemoteSetlist state={state} send={link.send} />}
+          {tab === 'mixer' && <RemoteMixer state={state} send={link.send} watchMeters={link.watchMeters} />}
+        </main>
+      </div>
       <nav className="console-rail grid grid-cols-3 gap-1.5 px-3 pt-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
         {TABS.map((t) => (
           <button

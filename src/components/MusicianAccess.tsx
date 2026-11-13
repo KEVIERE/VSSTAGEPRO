@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import {
   Music, Mail, Lock, User, Guitar, KeyRound, LogOut, Loader2, CheckCircle2,
-  Clock, Ban, ChevronLeft, Ticket, ArrowRight, Settings, ClipboardPaste,
+  Clock, Ban, ChevronLeft, Ticket, ArrowRight, Settings, ClipboardPaste, WifiOff,
 } from 'lucide-react';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { authRedirect } from '@/lib/authRedirect';
@@ -11,6 +11,9 @@ import type { Membership } from '@/lib/musicianTypes';
 
 const MEMBER_LS = 'vs_member_id';
 const PENDING_POLL_MS = 5000;
+// lista de shows da conta que não carregou (sem internet): tenta de novo sozinha
+const RETRY_MIN_MS = 3000;
+const RETRY_MAX_MS = 15000;
 
 type AuthView = 'signin' | 'signup' | 'forgot' | 'recovery' | 'code';
 type AccountView = 'home' | 'profile';
@@ -32,7 +35,8 @@ function friendlyError(msg: string): string {
   if (m.includes('already_member')) return 'Sua conta já faz parte deste show.';
   if (m.includes('name_required')) return 'Informe seu nome.';
   if (m.includes('limit')) return 'Este show atingiu o limite de músicos.';
-  if (m.includes('fetch') || m.includes('network')) return 'Sem conexão. Verifique a internet.';
+  // Safari do iPhone: "TypeError: Load failed"; Chrome: "Failed to fetch"
+  if (m.includes('fetch') || m.includes('network') || m.includes('load failed')) return 'Sem conexão. Verifique a internet.';
   return 'Algo deu errado. Tente novamente.';
 }
 
@@ -65,12 +69,16 @@ function PrimaryButton({ busy, children, ...props }: { busy?: boolean } & React.
 }
 
 export default function MusicianAccess({
-  invite, claimCode, autoEnter, initialView, onEnterAccount, onEnterCode,
+  invite, claimCode, autoEnter, initialView, initialCode = null, initialError = null, onEnterAccount, onEnterCode,
 }: {
   invite: string | null;
   claimCode: string | null;
   autoEnter: boolean;
   initialView: AuthView;
+  /** Código pessoal guardado neste aparelho, quando a entrada automática não deu: já vem preenchido */
+  initialCode?: string | null;
+  /** Por que a entrada automática não deu */
+  initialError?: string | null;
   onEnterAccount: (memberId: string) => void;
   onEnterCode: (code: string) => Promise<string | null>;
 }) {
@@ -78,7 +86,7 @@ export default function MusicianAccess({
   const [ready, setReady] = useState(false);
   const [authView, setAuthView] = useState<AuthView>(() => {
     const h = window.location.hash;
-    return h === '#musico' || h.startsWith('#m=') ? 'code' : initialView;
+    return initialCode || h === '#musico' || h.startsWith('#m=') ? 'code' : initialView;
   });
 
   // supabase.auth.signOut() só atualiza a tela quando o servidor responde ao
@@ -122,24 +130,28 @@ export default function MusicianAccess({
             onEnter={onEnterAccount} onSignOut={doSignOut}
           />
         ) : (
-          <AuthForms view={authView} setView={setAuthView} invite={invite} claimCode={claimCode} onEnterCode={onEnterCode} />
+          <AuthForms
+            view={authView} setView={setAuthView} invite={invite} claimCode={claimCode} onEnterCode={onEnterCode}
+            initialCode={initialCode} initialError={initialError}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function AuthForms({ view, setView, invite, claimCode, onEnterCode }: {
+function AuthForms({ view, setView, invite, claimCode, onEnterCode, initialCode, initialError }: {
   view: AuthView; setView: (v: AuthView) => void; invite: string | null; claimCode: string | null;
   onEnterCode: (code: string) => Promise<string | null>;
+  initialCode: string | null; initialError: string | null;
 }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [instrument, setInstrument] = useState('');
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(initialCode ?? '');
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [info, setInfo] = useState<string | null>(null);
   // e-mail da conta criada que ainda falta confirmar (mostra o botão de reenviar)
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
@@ -358,6 +370,22 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
   const autoJoinRef = useRef(false);
   const [autoJoining, setAutoJoining] = useState(false);
   const autoRef = useRef(autoEnter);
+  // A lista de shows ainda não carregou nenhuma vez (sem internet ao abrir): tenta de novo
+  // sozinha. Refs porque o refresh nasce uma vez só e veria sempre o estado do começo.
+  const loadedRef = useRef(false);
+  const aliveRef = useRef(true);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryDelay = useRef(RETRY_MIN_MS);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  // separado de `error`: o aviso some quando a lista chega, sem apagar outro erro da tela
+  const [offline, setOffline] = useState(false);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      if (retryRef.current) { clearTimeout(retryRef.current); retryRef.current = null; }
+    };
+  }, []);
 
   const enter = useCallback((id: string) => {
     localStorage.setItem(MEMBER_LS, id);
@@ -367,6 +395,9 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
   const refresh = useCallback(async () => {
     try {
       const list = await memberMemberships();
+      loadedRef.current = true;
+      retryDelay.current = RETRY_MIN_MS;
+      setOffline(false);
       const prev = prevRef.current;
       const wasPending = (id: string) => prev.get(id)?.status === 'pending';
       const approvedNow = list.find((m) => m.status === 'approved' && wasPending(m.id));
@@ -389,9 +420,18 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
         if (target) enter(target.id);
       }
     } catch (e) {
+      if (!loadedRef.current) {
+        if (!aliveRef.current) return;
+        setOffline(true);
+        if (retryRef.current) clearTimeout(retryRef.current);
+        retryRef.current = setTimeout(() => { retryRef.current = null; void refreshRef.current(); }, retryDelay.current);
+        retryDelay.current = Math.min(retryDelay.current * 2, RETRY_MAX_MS);
+        return;
+      }
       setError(friendlyError((e as Error).message));
     }
   }, [invite, enter]);
+  refreshRef.current = refresh;
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -493,7 +533,14 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
       )}
 
       {memberships === null ? (
-        <div className="flex justify-center py-6"><Loader2 className="animate-spin text-logic-text-muted" /></div>
+        <div className="flex flex-col items-center gap-2 py-6">
+          <Loader2 className="animate-spin text-logic-text-muted" />
+          {offline && (
+            <p className="flex items-center justify-center gap-2 text-xs text-logic-text-dim">
+              <WifiOff size={14} className="flex-shrink-0" /> Sem internet. Tentando de novo...
+            </p>
+          )}
+        </div>
       ) : (
         <div className="space-y-2">
           {(autoJoining || memberships.some((m) => m.status === 'pending')) && <WaitingCard />}

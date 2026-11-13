@@ -56,8 +56,9 @@ function Strip({ meterId, name, volume, mute, solo, locked, tone, height, onVolu
   const fader = useHeldFader(volume, onVolume);
   return (
     <div className={`console-strip flex flex-col items-center w-[84px] min-w-[84px] border-r border-logic-border-dark py-2 px-1 gap-1.5 ${tone === 'master' ? 'is-selected' : ''}`}>
-      <div className="console-tape w-full h-[26px] flex items-center justify-center px-1" title={name}>
-        <span className="line-clamp-2 break-words text-center">{name}</span>
+      {/* visor preto com o nome, igual ao mixer do Mac (a fita creme é só da skin Analógica) */}
+      <div className="console-tape console-lcdname w-full h-[26px] flex items-center justify-center px-1" title={name}>
+        <div className="line-clamp-2 break-words text-center">{name}</div>
       </div>
       <span className="console-readout font-stage text-[12px] tabular-nums text-logic-lcd-text">{dbText(fader.value)}</span>
       <div className="flex gap-[3px] items-end">
@@ -140,8 +141,9 @@ export default function RemoteMixer({ state, send, watchMeters }: {
               tone={t.tone}
               height={faderH}
               onVolume={(v) => send({ action: 'volume', trackId: t.id, value: v })}
-              onMute={() => send({ action: 'mute', trackId: t.id })}
-              onSolo={() => send({ action: 'solo', trackId: t.id })}
+              // vai o valor que o operador quer: o toque duplo não desfaz
+              onMute={() => send({ action: 'mute', trackId: t.id, on: !t.mute })}
+              onSolo={() => send({ action: 'solo', trackId: t.id, on: !t.solo })}
             />
           ))}
           <Strip meterId="master" name="Master" volume={state.master} tone="master" height={faderH} onVolume={(v) => send({ action: 'master', value: v })} />

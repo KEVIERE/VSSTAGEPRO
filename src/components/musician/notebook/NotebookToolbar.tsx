@@ -16,6 +16,7 @@ const iconBtn = 'p-1.5 rounded-md text-logic-text-muted hover:text-logic-text ho
 function StatusBadge({ status }: { status: SaveStatus }) {
   if (status === 'saved') return <span className="text-2xs text-logic-text-muted hidden sm:flex items-center gap-1"><Check size={12} className="text-logic-lcd-green" /> Salvo</span>;
   if (status === 'offline') return <span title="Sem conexão. Fica guardado neste aparelho e é enviado sozinho quando a internet voltar." className="text-2xs text-logic-lcd-amber flex items-center gap-1"><CloudOff size={12} /> Guardado aqui</span>;
+  if (status === 'not_kept') return <span title="Sem conexão e sem espaço neste aparelho. Não feche nem recarregue a página: o caderno vai sozinho quando a conexão voltar." className="text-2xs text-logic-lcd-red flex items-center gap-1"><CloudOff size={12} /> Não guardado</span>;
   if (status === 'too_big') return <span title="Apague alguns desenhos para poder salvar." className="text-2xs text-logic-lcd-red flex items-center gap-1"><CloudOff size={12} /> Muito cheio</span>;
   return <span className="text-2xs text-logic-text-dim flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Salvando</span>;
 }

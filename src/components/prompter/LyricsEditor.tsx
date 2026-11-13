@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Music2, Play, RefreshCw } from 'lucide-react';
-import SongLyricsEditor, { type SaveStatus } from '@/components/prompter/SongLyricsEditor';
+import SongLyricsEditor, { markRefTimesOk, type SaveStatus } from '@/components/prompter/SongLyricsEditor';
 import LyricsProjectBar from '@/components/prompter/LyricsProjectBar';
 import { LyricStyleButton } from '@/components/prompter/LyricsStyleControls';
 import LyricLeadControl from '@/components/prompter/LyricLeadControl';
 import RepertoireRequest from '@/components/prompter/RepertoireRequest';
 import type { LyricPage, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
+import { normalizePages } from '@/lib/prompterTypes';
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { producerRequestLyricsSave, producerSaveLyrics } from '@/lib/prompterApi';
 import { producerReferenceList, type ProducerReference } from '@/lib/prompterAudio';
-import { buildPages, normalizeWords, type RawSegment, type TimedWord } from '@/lib/lyricsAutoSync';
+import { buildPages, normalizeWords, refTimeMap, toSongWords, type RawSegment, type TimedWord } from '@/lib/lyricsAutoSync';
 
 // Palavras da letra automática, por música: sobrevivem a recarregar a página neste aparelho.
 const WORDS_LS = 'vs_lyrics_words:';
@@ -28,6 +29,19 @@ const SAVE_DEBOUNCE_MS = 800;
 const AUDIO_REFRESH_MS = 30_000;
 const HISTORY_COALESCE_MS = 700;
 const HISTORY_LIMIT = 200;
+// Uma consulta que saiu antes do nosso envio pode chegar depois dele, com a versão anterior
+// (a mesma ideia do ECHO_GUARD_MS de usePrompterControl).
+const REMOTE_GUARD_MS = 2500;
+const KNOWN_LIMIT = 50;
+const NO_PAGES: LyricPage[] = [];
+
+const pagesSig = (ps: LyricPage[]) => JSON.stringify(normalizePages(ps));
+/** Guarda uma versão que este aparelho usou de base ou enviou (para não confundir eco com mudança de outro aparelho). */
+function remember(known: Record<string, Set<string>>, id: string, ps: LyricPage[]) {
+  const k = (known[id] ??= new Set());
+  k.add(pagesSig(ps));
+  while (k.size > KNOWN_LIMIT) k.delete(k.values().next().value as string);
+}
 
 export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   code: string;
@@ -60,17 +74,9 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
     if (!quiet) setAudioState('loading');
     try {
       const fresh = await producerReferenceList(code);
-      // Signed links change on every fetch; keep the old one unless the audio itself changed, so playback isn't reset.
-      setAudioRefs((prev) => {
-        const next = new Map<string, ProducerReference>();
-        fresh.forEach((ref, id) => {
-          const old = prev.get(id);
-          // Mesmo áudio: mantém o link antigo (não reinicia o player); a letra lida pelo Mac vem sempre
-          // do link novo (o assinado vence em 3 h e ela pode chegar depois do áudio).
-          next.set(id, old && old.updatedAt === ref.updatedAt ? { ...old, wordsUrl: ref.wordsUrl } : ref);
-        });
-        return next;
-      });
+      // Link sempre novo: o assinado vence em 3 h e, na Rede Local, a chave muda a cada envio do
+      // diretor. O player não reinicia, porque o editor só baixa de novo quando o áudio muda (updatedAt).
+      setAudioRefs(fresh);
       setAudioState('ready');
     } catch {
       if (!quiet) setAudioState('error');
@@ -89,19 +95,56 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
     if (!songId && songs[0]) setSongId(songs[0].id);
   }, [songs, songId]);
 
-  const serverPages = useCallback((id: string) => snap.lyrics.find((l) => l.song_id === id)?.pages ?? [], [snap.lyrics]);
+  // Cada consulta (1 s na nuvem, 250 ms na Rede Local) traz páginas novas. Reaproveita a página
+  // que não mudou, para a lista do editor não redesenhar tudo a cada consulta.
+  const stableLyrics = useRef(new Map<string, LyricPage[]>());
+  const serverLyrics = useMemo(() => {
+    const next = new Map<string, LyricPage[]>();
+    for (const l of snap.lyrics) {
+      const prev = stableLyrics.current.get(l.song_id) ?? NO_PAGES;
+      const old = new Map(prev.map((p) => [p.id, p]));
+      const pages = l.pages.map((p) => {
+        const o = old.get(p.id);
+        return o && o.time === p.time && o.text === p.text && o.kind === p.kind && o.color === p.color && o.size === p.size ? o : p;
+      });
+      next.set(l.song_id, pages.length === prev.length && pages.every((p, i) => p === prev[i]) ? prev : pages);
+    }
+    stableLyrics.current = next;
+    return next;
+  }, [snap.lyrics]);
+  const serverPages = useCallback((id: string) => serverLyrics.get(id) ?? NO_PAGES, [serverLyrics]);
+  const serverPagesRef = useRef(serverPages);
+  serverPagesRef.current = serverPages;
   const pagesOf = useCallback((id: string) => drafts[id] ?? serverPages(id), [drafts, serverPages]);
 
-  const save = useCallback(async (id: string, pages: LyricPage[]): Promise<boolean> => {
-    try {
-      await producerSaveLyrics(code, id, pages);
-      if (unsaved.current[id] === pages) delete unsaved.current[id];
-      setStatus((s) => ({ ...s, [id]: 'saved' }));
-      return true;
-    } catch {
-      setStatus((s) => ({ ...s, [id]: 'error' }));
-      return false;
-    }
+  // Versões desta música que este aparelho usou de base ou enviou, e quando terminou o último envio.
+  const known = useRef<Record<string, Set<string>>>({});
+  const lastSavedAt = useRef<Record<string, number>>({});
+  // Uma gravação por música de cada vez: o servidor grava sem versão, então a ordem sai daqui.
+  // Cada ida leva a versão mais nova que estiver pendente quando ela sai.
+  const saveQueue = useRef<Record<string, Promise<boolean>>>({});
+  const save = useCallback((id: string): Promise<boolean> => {
+    const send = async (): Promise<boolean> => {
+      const pages = unsaved.current[id];
+      if (!pages) return true; // a ida anterior já levou a versão mais nova
+      remember(known.current, id, pages);
+      try {
+        await producerSaveLyrics(code, id, pages);
+        lastSavedAt.current[id] = Date.now();
+        // Só marca Salvo se nada mais novo entrou enquanto ia; senão a próxima ida cuida do selo.
+        if (unsaved.current[id] === pages) {
+          delete unsaved.current[id];
+          setStatus((s) => ({ ...s, [id]: 'saved' }));
+        }
+        return true;
+      } catch {
+        if (unsaved.current[id] === pages) setStatus((s) => ({ ...s, [id]: 'error' }));
+        return false;
+      }
+    };
+    const next = (saveQueue.current[id] ?? Promise.resolve(true)).then(send, send);
+    saveQueue.current[id] = next;
+    return next;
   }, [code]);
 
   const draftsRef = useRef(drafts);
@@ -110,16 +153,18 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   const [, setHistoryTick] = useState(0);
 
   const commit = useCallback((id: string, next: LyricPage[]) => {
+    // primeira edição: a versão do servidor em que o rascunho se baseou
+    if (!draftsRef.current[id]) remember(known.current, id, serverPagesRef.current(id));
     draftsRef.current = { ...draftsRef.current, [id]: next };
     setDrafts(draftsRef.current);
     window.clearTimeout(saveTimers.current[id]);
     unsaved.current[id] = next;
-    saveTimers.current[id] = window.setTimeout(() => save(id, next), SAVE_DEBOUNCE_MS);
+    saveTimers.current[id] = window.setTimeout(() => { void save(id); }, SAVE_DEBOUNCE_MS);
     setStatus((s) => ({ ...s, [id]: 'saving' }));
   }, [save]);
 
   const setPages = useCallback((id: string, fn: (p: LyricPage[]) => LyricPage[]) => {
-    const cur = draftsRef.current[id] ?? serverPages(id);
+    const cur = draftsRef.current[id] ?? serverPagesRef.current(id);
     const next = fn(cur);
     if (next === cur) return;
     const h = (history.current[id] ??= { past: [], future: [], lastAt: 0 });
@@ -133,7 +178,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
     h.future = [];
     commit(id, next);
     setHistoryTick((t) => t + 1);
-  }, [commit, serverPages]);
+  }, [commit]);
 
   // A letra que o Mac do diretor leu entra sozinha nas músicas ainda sem letra, já com as marcações.
   // Música que já tem texto (correção do produtor) não é trocada: lá fica o botão "Letra automática".
@@ -153,11 +198,15 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           if (!res.ok) throw new Error('fetch');
           const body = await res.json() as { segments?: RawSegment[] };
           const heard = normalizeWords(body.segments ?? []);
-          const built = buildPages(heard);
+          // a Guia sai no BPM do show (e, no medley, só com as partes marcadas): as páginas
+          // guardam o tempo da música, que é o do diretor e o da TV
+          const song = songs.find((x) => x.id === id);
+          const built = buildPages(song ? toSongWords(heard, refTimeMap(song)) : heard);
           // enquanto buscava, o produtor pode ter começado a escrever: aí não mexe
           if (!alive.current || built.length === 0 || hasText(draftsRef.current[id] ?? serverPages(id))) continue;
           setPages(id, () => built);
           saveWords(id, heard);
+          markRefTimesOk(id);
         } catch {
           autoFilled.current.delete(id); // tenta de novo na próxima atualização da lista
         }
@@ -166,6 +215,40 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioRefs, songs, serverPages, setPages]);
 
+  // Outro aparelho do produtor (ou um assistente) mudou uma música que aqui tem rascunho: sem nada
+  // por enviar, a tela passa a mostrar a versão do servidor, que é a da TV. Senão a próxima tecla
+  // gravava a lista velha inteira por cima da correção do outro. Com envio pendente fica como
+  // antes: vale quem gravar por último.
+  // Última versão do servidor já conferida por música (as páginas que não mudam mantêm a mesma
+  // lista): assim a conferência não refaz a comparação a cada consulta.
+  const checkedRow = useRef<Record<string, LyricPage[]>>({});
+  useEffect(() => {
+    const ids = Object.keys(draftsRef.current);
+    if (!ids.length) return;
+    const t = Date.now();
+    let next: Record<string, LyricPage[]> | null = null;
+    for (const id of ids) {
+      // envio na fila, indo ou com erro, ou consulta que ainda pode ser de antes do envio
+      if (unsaved.current[id] || t - (lastSavedAt.current[id] ?? 0) < REMOTE_GUARD_MS) continue;
+      const row = serverLyrics.get(id);
+      if (!row || checkedRow.current[id] === row) continue;
+      checkedRow.current[id] = row;
+      const sig = pagesSig(row);
+      // igual ao rascunho, ou uma versão antiga deste próprio aparelho
+      if (sig === pagesSig(draftsRef.current[id]) || known.current[id]?.has(sig)) continue;
+      next ??= { ...draftsRef.current };
+      delete next[id];
+      delete history.current[id]; // o Ctrl+Z não regrava a lista velha por cima
+      delete known.current[id];
+      delete checkedRow.current[id];
+    }
+    if (next) {
+      draftsRef.current = next;
+      setDrafts(next);
+      setHistoryTick((n) => n + 1);
+    }
+  }, [serverLyrics]);
+
   const stepHistory = useCallback((id: string, dir: 'undo' | 'redo') => {
     const h = history.current[id];
     if (!h) return;
@@ -173,11 +256,11 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
     const to = dir === 'undo' ? h.future : h.past;
     const target = from.pop();
     if (!target) return;
-    to.push(draftsRef.current[id] ?? serverPages(id));
+    to.push(draftsRef.current[id] ?? serverPagesRef.current(id));
     h.lastAt = 0;
     commit(id, target);
     setHistoryTick((t) => t + 1);
-  }, [commit, serverPages]);
+  }, [commit]);
 
   useEffect(() => {
     if (!songId) return;
@@ -197,14 +280,20 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
   }, []);
 
   const saveToProject = useCallback(async () => {
-    const pending = Object.entries(unsaved.current);
-    pending.forEach(([id]) => window.clearTimeout(saveTimers.current[id]));
-    const results = await Promise.all(pending.map(([id, pages]) => save(id, pages)));
+    const ids = Object.keys(unsaved.current);
+    ids.forEach((id) => window.clearTimeout(saveTimers.current[id]));
+    const results = await Promise.all(ids.map((id) => save(id)));
     if (results.includes(false)) throw new Error('save_failed');
     await producerRequestLyricsSave(code);
   }, [code, save]);
 
   const song = songs.find((s) => s.id === songId) ?? null;
+  // Estável por música: com as linhas do editor em memo, uma função nova a cada consulta
+  // redesenharia todas elas.
+  const songKey = song?.id ?? null;
+  const setSongPages = useCallback((fn: (p: LyricPage[]) => LyricPage[]) => {
+    if (songKey) setPages(songKey, fn);
+  }, [songKey, setPages]);
   const songWords = useMemo(() => (songId ? words[songId] ?? readWords(songId) : []), [words, songId]);
   const liveSnap = useMemo(() => ({ ...snap, prompter: state }), [snap, state]);
 
@@ -229,7 +318,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
     <div className="grid gap-3 md:grid-cols-[230px_minmax(0,1fr)] items-start lg:items-stretch lg:flex-1 lg:min-h-0">
       <aside className="console-face border-2 border-black rounded-lg p-2 md:sticky md:top-0 md:max-h-[calc(100vh-104px)] lg:static lg:max-h-none lg:h-full lg:min-h-0 md:overflow-y-auto logic-scroll shadow-lg">
         <div className="console-rail -mx-2 -mt-2 mb-2 px-3 h-8 rounded-t flex items-center gap-2 border-b-2 border-black">
-          <p className="console-legend flex-1 !text-logic-text">Músicas do show</p>
+          <p className="console-legend flex-1 text-logic-text">Músicas do show</p>
           <button onClick={() => loadAudio()} className="console-key flex items-center justify-center w-6 h-6" title="Buscar áudios enviados pelo diretor">
             <RefreshCw size={12} className={audioState === 'loading' ? 'animate-spin' : ''} />
           </button>
@@ -293,9 +382,10 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           words={songWords}
           onWords={(list) => saveWords(song.id, list)}
           cloudUrl={audioRefs.get(song.id)?.url ?? null}
+          audioKey={audioRefs.get(song.id)?.updatedAt ?? null}
           autoPlay={autoPlayId === song.id}
           pages={pagesOf(song.id)}
-          setPages={(fn) => setPages(song.id, fn)}
+          setPages={setSongPages}
           history={{
             canUndo: (history.current[song.id]?.past.length ?? 0) > 0,
             canRedo: (history.current[song.id]?.future.length ?? 0) > 0,
@@ -308,7 +398,7 @@ export default function LyricsEditor({ code, snap, sync, now, state, update }: {
           now={now}
         />
       ) : (
-        <div className="bg-logic-bg-panel border border-logic-border rounded-xl p-10 text-center text-logic-text-dim">
+        <div className="console-face border-2 border-black rounded-lg shadow-lg p-10 text-center text-logic-text-dim">
           <Music2 size={28} className="mx-auto mb-3 text-logic-text-muted" />
           Escolha uma música para escrever a letra.
         </div>

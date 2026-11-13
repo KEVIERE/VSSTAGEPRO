@@ -31,9 +31,13 @@ const LOGO_FILE = 'logo-local';
 // arquivo (o diretor salva a primeira vez); falhou; programa sem a função.
 const PROJECT_SAVE_STATUS = new Set(['saved', 'later', 'no_file', 'error', 'unavailable']);
 
-function newPin(other) {
+// Papéis com PIN próprio (a tela do palco entra com o código fixo).
+const PIN_ROLES = ['musician', 'producer', 'remote'];
+
+/** PIN novo de 6 números, diferente de todos os PINs passados (os dos outros papéis). */
+function newPin(...taken) {
   let pin;
-  do { pin = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0'); } while (pin === other);
+  do { pin = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0'); } while (taken.includes(pin));
   return pin;
 }
 
@@ -157,22 +161,25 @@ class LocalServer {
       const data = JSON.parse(fs.readFileSync(this.storePath, 'utf8'));
       const ok = (p) => typeof p === 'string' && /^\d{6}$/.test(p);
       if (ok(data?.pins?.musician) && ok(data?.pins?.producer) && data.pins.musician !== data.pins.producer) {
-        const pins = {
-          ...data.pins,
-          remote: ok(data?.pins?.remote) ? data.pins.remote : data.pins.producer,
-        };
+        const prompter = data.prompter && typeof data.prompter === 'object' ? data.prompter : null;
+        const { musician, producer } = data.pins;
+        // Antes o Remote usava o PIN do produtor (instalações de antes do Remote, ou já gravado
+        // igual): quem tinha esse PIN tocava e parava o show, e trocar o PIN do produtor não
+        // tirava o Remote. Sem PIN próprio, o Remote ganha um aqui, gravado na hora.
+        const own = ok(data.pins.remote) && data.pins.remote !== musician && data.pins.remote !== producer;
+        const pins = { ...data.pins, remote: own ? data.pins.remote : newPin(musician, producer) };
+        // load() roda no construtor, antes de this.pins e this.prompter existirem: persist() sem
+        // argumento gravaria "{}" no arquivo e os PINs mudariam no próximo início.
+        if (!own) this.persist({ pins, prompter });
         // A lista `banned` (bloqueio por IP) das versões anteriores é ignorada e some no próximo
         // salvamento: ela barrava com "PIN incorreto" quem recebia do roteador o IP de um
         // aparelho desconectado antes, até em outro show.
-        return {
-          pins,
-          prompter: data.prompter && typeof data.prompter === 'object' ? data.prompter : null,
-        };
+        return { pins, prompter };
       }
     } catch { /* primeira vez: cria PINs novos */ }
     const musician = newPin();
     const producer = newPin(musician);
-    const remote = newPin(producer);
+    const remote = newPin(musician, producer);
     const pins = { musician, producer, remote };
     this.persist({ pins, prompter: null });
     return { pins, prompter: null };
@@ -406,9 +413,10 @@ class LocalServer {
   }
 
   regeneratePin(role) {
-    if (role !== 'musician' && role !== 'producer') return;
-    const other = role === 'musician' ? this.pins.producer : this.pins.musician;
-    this.pins = { ...this.pins, [role]: newPin(other) };
+    // "Trocar PIN" vale também para o Remote (antes saía aqui e o PIN do Remote nunca mudava).
+    if (!PIN_ROLES.includes(role)) return;
+    // Diferente dos três PINs atuais: nunca igual ao de outro papel nem ao que está saindo.
+    this.pins = { ...this.pins, [role]: newPin(...PIN_ROLES.map((r) => this.pins[r])) };
     for (const [token, s] of this.sessions) if (s.role === role) this.sessions.delete(token);
     // PIN novo tira todo mundo daquele papel: quem não souber o PIN novo não entra mais.
     this.failures.clear();
@@ -759,6 +767,12 @@ class LocalServer {
       result = this.accounts.signup({ username: body.username, password: body.password, name: body.name, instrument: body.instrument });
       if (result.account && !result.error) result = { account: result.account, error: 'pending' };
     } else if (mode === 'resume') {
+      // Programa reaberto: o servidor liga antes de o projeto mandar o livro de contas. Sem o
+      // livro não dá para dizer que o aparelho não vale (antes respondia `wrong_login` e o celular
+      // esquecia o aparelho, mandando a banda inteira para o login no meio do show); o celular
+      // guarda o aparelho, espera e tenta de novo. Só no `resume`: o `signup` sem livro cria o
+      // primeiro do show, e no `login` livro vazio é projeto sem contas ("Criar conta").
+      if (!this.accounts.book) return this.json(res, 503, { error: 'not_ready' });
       result = this.accounts.resume(body.remember);
     } else {
       if (body.newPassword && !pinOk) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
@@ -808,8 +822,9 @@ class LocalServer {
       return this.json(res, 200, { ok: true });
     }
     if (route === 'sheet-share') {
-      const count = this.accounts.share(key, String(body.sheetId ?? ''), body.targets);
-      return count === null ? this.json(res, 400, { error: 'bad_request' }) : this.json(res, 200, { count });
+      // `skipped`: colegas que já tinham caderno desta música e ficaram com o deles.
+      const r = this.accounts.shareSheet(key, String(body.sheetId ?? ''), body.targets);
+      return r === null ? this.json(res, 400, { error: 'bad_request' }) : this.json(res, 200, { count: r.count, skipped: r.skipped });
     }
     // Botão "Salvar" da Área do Músico: o caderno já chegou (sheet-save); aqui a cópia de
     // segurança vai para o disco na hora e o programa grava o arquivo do projeto.

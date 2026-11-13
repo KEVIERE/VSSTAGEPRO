@@ -23,17 +23,20 @@ function luminance(hex: string): number {
 }
 const blockInk = (hex: string) => (luminance(hex) > 0.18 ? '#111111' : '#ffffff');
 
-/** Teclas - e + com o visor do ajuste no meio (igual às torres do Modo Show, maiores para o dedo). */
+/**
+ * Teclas - e + com o visor do ajuste no meio (igual às torres do Modo Show, maiores para o dedo).
+ * Teclas de 40 px e visor de 36 px: BPM e Tom cabem numa linha num celular de 375 px.
+ */
 function Adjuster({ label, value, inherited = false, onBump }: { label: string; value: number; inherited?: boolean; onBump: (d: 1 | -1) => void }) {
   const tone = inherited ? 'text-logic-text-muted/60' : value === 0 ? 'text-logic-text-muted' : value > 0 ? 'text-logic-lcd-green' : 'text-logic-lcd-amber';
   return (
     <div className="flex items-center gap-1">
       <span className="console-legend w-8 text-right pr-0.5">{label}</span>
-      <button className="console-key w-9 h-9 flex items-center justify-center !text-logic-text" onClick={() => onBump(-1)} aria-label={`Diminuir ${label}`}><Minus size={13} /></button>
-      <span className={`console-display font-stage font-semibold text-[14px] leading-[34px] tabular-nums w-10 text-center ${tone}`}>
+      <button className="console-key w-10 h-10 flex items-center justify-center !text-logic-text" onClick={() => onBump(-1)} aria-label={`Diminuir ${label}`}><Minus size={14} /></button>
+      <span className={`console-display font-stage font-semibold text-[14px] h-10 leading-[38px] tabular-nums w-9 text-center ${tone}`}>
         {value > 0 ? '+' : ''}{value}
       </span>
-      <button className="console-key w-9 h-9 flex items-center justify-center !text-logic-text" onClick={() => onBump(1)} aria-label={`Aumentar ${label}`}><Plus size={13} /></button>
+      <button className="console-key w-10 h-10 flex items-center justify-center !text-logic-text" onClick={() => onBump(1)} aria-label={`Aumentar ${label}`}><Plus size={14} /></button>
     </div>
   );
 }
@@ -112,7 +115,7 @@ function MedleyParts({ song, number, state, send }: { song: RemoteSong; number: 
             <div className="flex items-center gap-2">
               <button
                 className={`w-9 h-9 shrink-0 rounded flex items-center justify-center border ${p.enabled ? 'bg-logic-lcd-green/20 border-logic-lcd-green/70 text-logic-lcd-green' : 'border-logic-border-light text-transparent'} ${locked ? 'opacity-60' : ''}`}
-                onClick={() => { if (!locked) send({ action: 'sliceToggle', songId: song.id, partId: p.id }); }}
+                onClick={() => { if (!locked) send({ action: 'sliceToggle', songId: song.id, partId: p.id, on: !p.enabled }); }}
                 aria-pressed={p.enabled}
                 aria-label={p.enabled ? `Não tocar ${p.name}` : `Tocar ${p.name}`}
               >
@@ -167,7 +170,8 @@ function SongRow({ song, index, state, send, open, selected, onTap, isLast }: {
           <span className="flex items-center gap-2.5 mt-0.5 font-stage text-[13px] tabular-nums text-logic-text-dim">
             {isCurrent && <span className="console-display px-1.5 text-[11px] font-semibold text-logic-lcd-green">No ar</span>}
             {isNext && <span className="console-display px-1.5 text-[11px] font-semibold text-logic-lcd-amber">Próxima</span>}
-            {isSelected && !isCurrent && <span className="console-display px-1.5 text-[11px] font-semibold text-logic-accent-hover">Selecionada</span>}
+            {/* branco como a barra da seleção: o verde-limão fica só para o "No ar" */}
+            {isSelected && !isCurrent && <span className="console-display px-1.5 text-[11px] font-semibold text-white">Selecionada</span>}
             <span>{song.bpm} BPM</span>
             <span className={song.tuner !== 0 ? 'text-logic-lcd-amber' : ''}>{song.tone}</span>
             <span className="text-logic-text">{formatTime(song.duration)}</span>

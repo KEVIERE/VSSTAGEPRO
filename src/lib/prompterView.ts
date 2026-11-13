@@ -85,14 +85,20 @@ export function newId(): string {
 const MAX_NOTICE_TEXT = 200;
 const MAX_HISTORY = 20;
 
-/** Coloca um aviso na tela e guarda no histórico. Devolve null se o texto estiver vazio. */
+/**
+ * Coloca um aviso na tela e guarda no histórico. Devolve null se o texto estiver vazio.
+ *
+ * `at` é o instante do envio. Quem manda deve passar a hora do servidor
+ * (`Date.now() + feed.sync.clockOffsetMs`): a TV compara o tempo do aviso com a hora do servidor,
+ * e não com o relógio do próprio aparelho, que pode estar adiantado ou atrasado.
+ */
 export function withNotice(
   s: PrompterState, text: string, opts: { level: NoticeLevel; layout: NoticeLayout; durationSec: number },
+  at: number = Date.now(),
 ): PrompterState | null {
   const t = text.trim().slice(0, MAX_NOTICE_TEXT);
   if (!t) return null;
   const id = newId();
-  const at = Date.now();
   return {
     ...s,
     notice: { id, text: t, level: opts.level, layout: opts.layout, sentAt: at, durationSec: opts.durationSec },

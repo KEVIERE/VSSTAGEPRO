@@ -11,7 +11,11 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
-/** Foto do músico em círculo; sem foto, mostra as iniciais do nome. */
+/**
+ * Foto do músico em círculo; sem foto, mostra as iniciais do nome. A letra é a clara dos visores
+ * (text-logic-lcd-text): no trilho de alumínio as cores de texto comuns viram escuras e as
+ * iniciais sumiam no círculo escuro.
+ */
 export function Avatar({ src, name, size = 28, className = '' }: {
   src: string | null | undefined; name: string; size?: number; className?: string;
 }) {
@@ -29,7 +33,7 @@ export function Avatar({ src, name, size = 28, className = '' }: {
   return (
     <span
       style={style}
-      className={`shrink-0 inline-flex items-center justify-center rounded-full bg-logic-bg-elevated border border-black/60 font-stage font-semibold text-logic-text-dim ${className}`}
+      className={`shrink-0 inline-flex items-center justify-center rounded-full bg-logic-bg-elevated border border-black/60 font-stage font-semibold text-logic-lcd-text ${className}`}
       aria-hidden
     >
       {initials(name)}
@@ -39,7 +43,7 @@ export function Avatar({ src, name, size = 28, className = '' }: {
 
 /**
  * Foto de perfil na barra de cima da Área do Músico. Tocar abre "Escolher foto" / "Remover foto".
- * Na Rede Local (sem conta no servidor) não há foto: mostra só o ícone.
+ * Na Rede Local não há foto: mostra as iniciais e o menu tem só Sair.
  */
 export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
   backend: SheetBackend; name: string; onMessage?: (text: string) => void;
@@ -71,9 +75,10 @@ export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
   if (!supported && !onLogout) return <Music size={16} className="text-logic-lcd-green flex-shrink-0" />;
 
   const save = async (next: string | null) => {
+    if (!backend.setAvatar) return;
     setBusy(true);
     try {
-      await backend.setAvatar!(next);
+      await backend.setAvatar(next);
       setPhoto(next);
       onMessage?.(next ? 'Foto salva. O diretor musical vê a sua foto no programa.' : 'Foto removida.');
     } catch {
@@ -97,13 +102,13 @@ export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
       <button
         className={`relative block rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-logic-lcd-green ${busy ? 'opacity-60' : ''}`}
         onClick={() => setOpen((v) => !v)}
-        title={photo ? 'Trocar ou remover sua foto' : 'Colocar sua foto de perfil'}
-        aria-label="Foto de perfil"
+        title={!supported ? 'Sair da conta' : photo ? 'Trocar ou remover sua foto' : 'Colocar sua foto de perfil'}
+        aria-label={supported ? 'Foto de perfil' : 'Perfil'}
         aria-expanded={open}
         disabled={busy}
       >
         <Avatar src={photo} name={name} size={30} />
-        {!photo && (
+        {supported && !photo && (
           <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-logic-lcd-green text-black flex items-center justify-center border border-black">
             <Camera size={8} strokeWidth={2.5} />
           </span>
@@ -111,13 +116,15 @@ export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
       </button>
       {open && (
         <div className="absolute left-0 top-[calc(100%+6px)] z-50 w-48 console-face rounded-lg border border-black p-1.5 shadow-xl animate-[fadeIn_120ms_ease-out]">
-          <button
-            className="console-key w-full flex items-center gap-2 h-9 px-2.5 text-[13px]"
-            onClick={() => { setOpen(false); input.current?.click(); }}
-          >
-            <Camera size={14} /> {photo ? 'Trocar foto' : 'Escolher foto'}
-          </button>
-          {photo && (
+          {supported && (
+            <button
+              className="console-key w-full flex items-center gap-2 h-9 px-2.5 text-[13px]"
+              onClick={() => { setOpen(false); input.current?.click(); }}
+            >
+              <Camera size={14} /> {photo ? 'Trocar foto' : 'Escolher foto'}
+            </button>
+          )}
+          {supported && photo && (
             <button
               className="console-key w-full flex items-center gap-2 h-9 px-2.5 mt-1 text-[13px] hover:!text-logic-lcd-red"
               onClick={() => { setOpen(false); void save(null); }}
@@ -127,7 +134,7 @@ export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
           )}
           {onLogout && (
             <>
-              <div className="my-1 h-px bg-logic-border" />
+              {supported && <div className="my-1 h-px bg-logic-border" />}
               <button
                 className="console-key w-full flex items-center gap-2 h-9 px-2.5 text-[13px] hover:!text-logic-lcd-red"
                 onClick={() => { setOpen(false); onLogout(); }}
@@ -138,13 +145,15 @@ export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
           )}
         </div>
       )}
-      <input
-        ref={input}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }}
-      />
+      {supported && (
+        <input
+          ref={input}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ''; }}
+        />
+      )}
     </div>
   );
 }

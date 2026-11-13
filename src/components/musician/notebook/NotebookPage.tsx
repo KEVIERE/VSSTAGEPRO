@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { AlignLeft, Bookmark, Music2, Music4, Type } from 'lucide-react';
 import {
   SECTION_LABELS, fontCss, newId,
@@ -75,7 +76,7 @@ function SectionLine({ label, selected, onChange, centered = false }: { label: s
   );
 }
 
-export default function NotebookPage({
+function NotebookPage({
   doc, update, tool, inkColor, inkWidth, markerColor,
   selectedId, onSelect, editingId, onEditing,
   activeChord, selectedNote, onSelectNote, brush, onAdd, readOnly = false, centered = false,
@@ -245,3 +246,6 @@ export default function NotebookPage({
     </div>
   );
 }
+
+// memo: no Modo show a tela redesenha 4 vezes por segundo (o relógio) e a cifra inteira não precisa
+export default memo(NotebookPage);

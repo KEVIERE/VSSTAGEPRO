@@ -330,29 +330,50 @@ class LocalAccounts {
       .sort((x, y) => x.name.localeCompare(y.name));
   }
 
-  share(accountId, sheetId, targetIds) {
+  /**
+   * Envia o caderno para colegas aprovados. Só grava por cima do que não é trabalho do colega:
+   * nada, caderno apagado ou cópia recebida em que ele não mexeu. Antes trocava o caderno inteiro
+   * e as cifras, desenhos e fotos que o colega fez naquela música sumiam sem aviso.
+   * @returns {{ count: number, skipped: string[] } | null} `skipped`: quem ficou com o caderno dele
+   */
+  shareSheet(accountId, sheetId, targetIds) {
     const from = this.find(accountId);
     const sheet = from && Object.values(from.sheets || {}).find((s) => s.id === sheetId && !s.deleted);
     if (!sheet || !Array.isArray(targetIds)) return null;
     const wanted = new Set(targetIds.filter((t) => typeof t === 'string'));
     let count = 0;
+    const skipped = [];
     for (const acc of this.accounts) {
       if (acc.id === accountId || !wanted.has(acc.id) || acc.status !== 'approved') continue;
+      const cur = acc.sheets?.[sheet.song_id];
+      // Cópia recebida e nunca editada: `received_at` igual a `updated_at`. O save() monta o
+      // caderno sem `received_at`, então qualquer edição do colega na cópia protege o caderno dele.
+      // Cópias de antes desta regra (sem `received_at`) também ficam protegidas.
+      const free = !cur || cur.deleted || (!!cur.shared_from && !!cur.received_at && cur.received_at === cur.updated_at);
+      if (!free) { skipped.push(acc.id); continue; }
+      const at = nowIso();
       acc.sheets = {
         ...(acc.sheets || {}),
         [sheet.song_id]: {
-          id: acc.sheets?.[sheet.song_id]?.id ?? crypto.randomUUID(),
+          id: cur?.id ?? crypto.randomUUID(),
           song_id: sheet.song_id,
           title: sheet.title,
           content: sheet.content,
           shared_from: from.name,
-          updated_at: nowIso(),
+          received_at: at,
+          updated_at: at,
         },
       };
       this.changed(acc);
       count += 1;
     }
-    return count;
+    return { count, skipped };
+  }
+
+  /** Mesmo envio de shareSheet, devolvendo só quantos receberam (null para pedido inválido). */
+  share(accountId, sheetId, targetIds) {
+    const r = this.shareSheet(accountId, sheetId, targetIds);
+    return r ? r.count : null;
   }
 }
 

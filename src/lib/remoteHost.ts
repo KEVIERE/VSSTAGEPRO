@@ -3,7 +3,7 @@
 
 import { useStore, ROUTABLE_TRACKS, BLOCK_COLORS } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
-import { startPlayback, stopPlayback, seekToPosition } from '@/lib/transportControl';
+import { startPlayback, stopPlayback, pausePlayback, seekToPosition } from '@/lib/transportControl';
 import {
   currentAndNextSlice, isSliceEnabled, medleySlices, paramsAt, playedDuration, sliceDuration, sliceParams,
 } from '@/lib/medley';
@@ -12,11 +12,11 @@ import { songKeyLabel } from '@/lib/musicKey';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { durationFor, getShowClock, resetShowClock, setShowDuration, showKeyOf, startShowClock } from '@/lib/showClock';
 import { getDiskLag } from '@/lib/diskLag';
-import { nextRepeat, sortedRegions } from '@/lib/regions';
+import { nextRepeat, regionAt, sortedRegions } from '@/lib/regions';
 import { activeShowName } from '@/lib/shows';
 import { bpmLabel, toneLabel } from '@/components/ShowRundown';
 import { bumpAdjust, shownAdjust } from '@/components/AdjustmentsTower';
-import { pickSection, skipSection } from '@/components/SectionPads';
+import { followingRegion, pickSection, skipSection } from '@/components/SectionPads';
 import { interfaceName } from '@/components/ShowModePanel';
 import {
   REMOTE_VERSION, packMeters, parseRemoteCommand,
@@ -198,6 +198,35 @@ export function buildRemoteState(): RemoteState {
   };
 }
 
+// Fader do celular no Desfazer: um arrasto vira um passo só, como o fader do Mac. O primeiro valor
+// entra no histórico. Os seguintes do mesmo fader, a menos de 800 ms um do outro e sem nada novo no
+// Desfazer no meio, mudam o volume com o histórico pausado só naquele instante. Não sobra pausa
+// ligada, então nada atrapalha o arrasto do Mac (historyGesture) nem o clique (undoGestures).
+const REMOTE_DRAG_GAP_MS = 800;
+let remoteDrag: { key: string; at: number; top: unknown } | null = null;
+
+function historyTop(): unknown {
+  const past = useStore.temporal.getState().pastStates;
+  return past[past.length - 1];
+}
+
+function remoteFader(key: string, apply: () => void): void {
+  const history = useStore.temporal.getState();
+  const now = Date.now();
+  const d = remoteDrag;
+  if (d && d.key === key && now - d.at < REMOTE_DRAG_GAP_MS && d.top === historyTop() && history.isTracking) {
+    history.pause();
+    try { apply(); } finally { history.resume(); }
+    d.at = now;
+    return;
+  }
+  const before = historyTop();
+  apply();
+  const after = historyTop();
+  // o arrasto só começa se este valor entrou no Desfazer (fader travado, valor igual ou outro gesto em curso: não entra)
+  remoteDrag = after !== before ? { key, at: now, top: after } : null;
+}
+
 /** Executa um comando do celular. Comando fora do formato é ignorado. Nenhum comando exclui música. */
 export function applyRemoteCommand(raw: unknown): void {
   const cmd = parseRemoteCommand(raw);
@@ -208,8 +237,15 @@ export function applyRemoteCommand(raw: unknown): void {
 
   switch (cmd.action) {
     case 'play': startPlayback(); return;
-    case 'stop': stopPlayback(); return;
-    case 'pause': st.pause(audioEngine.getCurrentTime()); return;
+    case 'stop':
+      // O celular ainda via o show no ar e o Mac já está parado: o Parar já foi feito (toque duplo,
+      // Parar no Mac ou fim da música). Parar de novo voltaria mais uma parte. Com o Mac tocando,
+      // o Parar sempre para; com o celular já mostrando parado, cada toque volta uma parte, como no Mac.
+      if (cmd.wasActive === true && t.isStopped && !t.isPlaying) return;
+      stopPlayback();
+      return;
+    // pausa de verdade (para o som), igual à barra de espaço do Mac; parado, não faz nada
+    case 'pause': if (t.isPlaying) pausePlayback(); return;
     case 'next': {
       if (t.nextSongId) { st.selectSong(t.nextSongId); startPlayback(); }
       return;
@@ -240,28 +276,44 @@ export function applyRemoteCommand(raw: unknown): void {
       st.setNextSong(cmd.songId);
       return;
     case 'flow': st.setPlayFlow(cmd.flow); return;
-    case 'towerBpm': st.toggleBpmTower(); return;
-    case 'towerTuner': st.toggleTunerTower(); return;
+    case 'towerBpm': if (cmd.on === undefined || st.showBpmTower !== cmd.on) st.toggleBpmTower(); return;
+    case 'towerTuner': if (cmd.on === undefined || st.showTunerTower !== cmd.on) st.toggleTunerTower(); return;
     case 'adjust': bumpAdjust(cmd.songId, cmd.kind, cmd.delta, cmd.partId); return;
     case 'section': {
       const song = songOf(cmd.songId);
       const region = song?.regions?.find((r) => r.id === cmd.regionId);
-      if (song && region) pickSection(song, region);
+      if (!song || !region) return;
+      // mesma conta do pickSection: no ar, o pad liga/desliga o loop; fora do ar, engatilha a parte
+      const onAir = t.isPlaying && regionAt(song.regions, t.currentTime)?.id === region.id;
+      const queued = st.queuedRegion?.songId === song.id && st.queuedRegion.regionId === region.id;
+      if (onAir ? cmd.loop !== undefined && !!region.loop === cmd.loop : cmd.queue !== undefined && queued === cmd.queue) return;
+      pickSection(song, region);
       return;
     }
     case 'skipSection': {
       const song = songOf(cmd.songId);
-      if (song) skipSection(song);
+      if (!song) return;
+      if (cmd.on !== undefined) {
+        const next = followingRegion(sortedRegions(song.regions), t.currentTime);
+        const queued = !!next && st.queuedRegion?.songId === song.id && st.queuedRegion.regionId === next.id;
+        if (queued === cmd.on) return;
+      }
+      skipSection(song);
       return;
     }
     case 'regionLoop': {
       const region = songOf(cmd.songId)?.regions?.find((r) => r.id === cmd.regionId);
-      if (region) st.updateSongRegion(cmd.songId, region.id, { loop: !region.loop });
+      if (!region) return;
+      const want = cmd.on ?? !region.loop;
+      if (!!region.loop !== want) st.updateSongRegion(cmd.songId, region.id, { loop: want });
       return;
     }
     case 'regionRepeat': {
       const region = songOf(cmd.songId)?.regions?.find((r) => r.id === cmd.regionId);
-      if (region?.loop) st.updateSongRegion(cmd.songId, region.id, { repeat: nextRepeat(region.repeat) });
+      if (!region?.loop) return;
+      // o primeiro toque já mudou as repetições que o celular via: o segundo não pula mais um valor
+      if (cmd.from !== undefined && (region.repeat ?? null) !== cmd.from) return;
+      st.updateSongRegion(cmd.songId, region.id, { repeat: nextRepeat(region.repeat) });
       return;
     }
     // Música do medley: no ar, vai para ela; fora do ar, seleciona a música
@@ -279,9 +331,11 @@ export function applyRemoteCommand(raw: unknown): void {
       const part = slices.find((s) => s.id === cmd.partId);
       if (!song || !part) return;
       const enabled = isSliceEnabled(part);
+      const want = cmd.on ?? !enabled;
+      if (want === enabled) return;
       // pelo menos uma música do medley precisa tocar
-      if (enabled && slices.filter(isSliceEnabled).length <= 1) return;
-      st.updateMedleyPart(song.id, part.id, { enabled: !enabled });
+      if (!want && slices.filter(isSliceEnabled).length <= 1) return;
+      st.updateMedleyPart(song.id, part.id, { enabled: want });
       return;
     }
     case 'clockStart': {
@@ -293,10 +347,19 @@ export function applyRemoteCommand(raw: unknown): void {
     case 'clockDuration': setShowDuration(showKeyOf(st.activeShowId), cmd.sec, showTotal(st)); return;
     case 'dismissError': st.setPlaybackError(null); return;
 
-    case 'volume': st.setVolume(cmd.trackId, cmd.value); return;
-    case 'master': st.setMasterVolume(cmd.value); return;
-    case 'mute': if (st.tracks.some((tr) => tr.id === cmd.trackId)) st.toggleMute(cmd.trackId); return;
-    case 'solo': if (st.tracks.some((tr) => tr.id === cmd.trackId)) st.toggleSolo(cmd.trackId); return;
+    case 'volume': remoteFader(`v:${cmd.trackId}`, () => st.setVolume(cmd.trackId, cmd.value)); return;
+    case 'master': remoteFader('master', () => st.setMasterVolume(cmd.value)); return;
+    // um canal por vez (o mixer em grupo do Mac fica só no Mac); com `on`, o segundo toque não desfaz
+    case 'mute': {
+      const tr = st.tracks.find((x) => x.id === cmd.trackId);
+      if (tr && (cmd.on === undefined || !!tr.mute !== cmd.on)) st.toggleMute(tr.id);
+      return;
+    }
+    case 'solo': {
+      const tr = st.tracks.find((x) => x.id === cmd.trackId);
+      if (tr && (cmd.on === undefined || !!tr.solo !== cmd.on)) st.toggleSolo(tr.id);
+      return;
+    }
 
     case 'rename': if (songOf(cmd.songId)) st.renameSong(cmd.songId, cmd.name); return;
     case 'duplicate': if (st.playlist.some((p) => p.songId === cmd.songId)) st.duplicatePlaylistEntry(cmd.songId); return;

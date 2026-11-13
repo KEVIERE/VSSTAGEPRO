@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   MonitorOff, FlipHorizontal, Image as ImageIcon, ChevronLeft, ChevronRight, RotateCcw, FileText, Clock, Timer,
   ListMusic, Megaphone, PlayCircle, QrCode, AlertTriangle,
@@ -30,14 +30,16 @@ function toLocalInput(iso: string | null): string {
   return new Date(d.getTime() - off).toISOString().slice(0, 16);
 }
 
+/** Painel da mesa: chassi grafite com o título gravado no trilho de alumínio. */
 export function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
   return (
-    <section className="bg-logic-bg-panel border border-logic-border rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <h3 className="text-xs font-semibold tracking-wider uppercase text-logic-text-dim">{title}</h3>
+    <section className="console-face border-2 border-black rounded-lg shadow-lg overflow-hidden">
+      {/* min-h e não h fixa: o aviso relâmpago do trilho quebra em duas linhas no celular */}
+      <div className="console-rail min-h-8 px-3 py-1 flex items-center justify-between gap-2 border-b-2 border-black">
+        <h3 className="console-legend leading-tight truncate">{title}</h3>
         {aside}
       </div>
-      {children}
+      <div className="p-4">{children}</div>
     </section>
   );
 }
@@ -79,7 +81,41 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
   };
 
   const statusText = lv.status === 'live' ? (lv.isPlaying ? 'Diretor tocando' : 'Diretor parado') : lv.status === 'nosignal' ? 'Sem sinal do diretor' : 'Show fora do ar';
-  const statusColor = lv.status === 'live' ? (lv.isPlaying ? 'bg-logic-lcd-green' : 'bg-logic-text-dim') : 'bg-logic-lcd-amber';
+  // LED da mesa: apagado ele é escuro e aparece no alumínio; aceso, brilha
+  const statusLed = lv.status === 'live' ? (lv.isPlaying ? 'is-on-green' : '') : 'is-on-amber';
+
+  // Duração e início: o campo é um rascunho e só vai para a TV ao terminar (sair do campo ou
+  // Enter). Antes cada tecla ia ao vivo: apagar "120" para digitar "90" passava por 1 minuto e a
+  // TV mostrava "Passou do horário" em vermelho para a banda.
+  const durFocus = useRef(false);
+  const durSkip = useRef(false);
+  const [durDraft, setDurDraft] = useState(String(state.showDurationMin));
+  useEffect(() => { if (!durFocus.current) setDurDraft(String(state.showDurationMin)); }, [state.showDurationMin]);
+  const commitDur = () => {
+    durFocus.current = false;
+    if (durSkip.current) { durSkip.current = false; return; }
+    const n = Math.round(Number(durDraft.replace(',', '.')));
+    if (!durDraft.trim() || !Number.isFinite(n)) { setDurDraft(String(state.showDurationMin)); return; }
+    const v = Math.min(600, Math.max(1, n));
+    setDurDraft(String(v));
+    if (v !== state.showDurationMin) update((s) => ({ ...s, showDurationMin: v }));
+  };
+
+  const startFocus = useRef(false);
+  const startSkip = useRef(false);
+  const [startDraft, setStartDraft] = useState(toLocalInput(state.showStartAt));
+  useEffect(() => { if (!startFocus.current) setStartDraft(toLocalInput(state.showStartAt)); }, [state.showStartAt]);
+  const commitStart = () => {
+    startFocus.current = false;
+    if (startSkip.current) { startSkip.current = false; return; }
+    const d = startDraft ? new Date(startDraft) : null;
+    // no Chrome o campo dispara valores válidos enquanto se digita o ano (0002, 0020...)
+    if (d && (Number.isNaN(d.getTime()) || d.getFullYear() < 2000)) { setStartDraft(toLocalInput(state.showStartAt)); return; }
+    const iso = d ? d.toISOString() : null;
+    if (iso === state.showStartAt) return;
+    if (d && state.showStartAt && toLocalInput(state.showStartAt) === startDraft) return; // mesmo minuto
+    update((s) => ({ ...s, showStartAt: iso }));
+  };
 
   const bigToggles = [
     { on: state.blackout, label: 'Tela preta', icon: MonitorOff, set: () => update((s) => ({ ...s, blackout: !s.blackout })), color: 'border-logic-lcd-red text-logic-lcd-red bg-logic-lcd-red/10' },
@@ -91,7 +127,7 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
       <div className="space-y-4">
         <Section
           title="Na TV agora"
-          aside={<span className="flex items-center gap-1.5 text-xs text-logic-text-dim"><span className={`w-2 h-2 rounded-full ${statusColor}`} />{statusText}</span>}
+          aside={<span className="flex items-center gap-1.5 text-xs text-logic-text-dim"><span className={`console-led shrink-0 ${statusLed}`} />{statusText}</span>}
         >
           <div className="aspect-video rounded-lg overflow-hidden ring-1 ring-logic-border-light">
             <StageScreen snap={{ ...snap, prompter: state }} sync={sync} now={now} logoUrl={logoUrl} />
@@ -159,7 +195,7 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
 
         <Section
           title="Avisos prontos"
-          aside={<button onClick={onManageNotices} className="text-xs text-logic-text-muted hover:text-logic-text transition-colors">Gerenciar</button>}
+          aside={<button onClick={onManageNotices} className="console-key h-6 px-2 text-[11px]">Gerenciar</button>}
         >
           <QuickNotices state={state} update={update} now={now} onManage={onManageNotices} />
         </Section>
@@ -177,17 +213,29 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
               Início
               <input
                 type="datetime-local"
-                value={toLocalInput(state.showStartAt)}
-                onChange={(e) => { const v = e.target.value; update((s) => ({ ...s, showStartAt: v ? new Date(v).toISOString() : null })); }}
-                className="mt-1 w-full px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text outline-none focus:border-logic-accent [color-scheme:dark]"
+                value={startDraft}
+                onFocus={() => { startFocus.current = true; }}
+                onChange={(e) => setStartDraft(e.target.value)}
+                onBlur={commitStart}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') { startSkip.current = true; setStartDraft(toLocalInput(state.showStartAt)); e.currentTarget.blur(); }
+                }}
+                className="console-well mt-1 w-full px-3 py-2.5 rounded-lg border border-black text-sm text-logic-text outline-none focus:border-logic-accent [color-scheme:dark]"
               />
             </label>
             <label className="text-xs text-logic-text-dim">
               Duração (min)
               <input
-                type="number" min={1} max={600} value={state.showDurationMin}
-                onChange={(e) => { const v = Math.min(600, Math.max(1, Number(e.target.value) || 1)); update((s) => ({ ...s, showDurationMin: v })); }}
-                className="mt-1 w-full px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text tabular-nums outline-none focus:border-logic-accent"
+                type="number" min={1} max={600} inputMode="numeric" value={durDraft}
+                onFocus={() => { durFocus.current = true; }}
+                onChange={(e) => setDurDraft(e.target.value)}
+                onBlur={commitDur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  if (e.key === 'Escape') { durSkip.current = true; setDurDraft(String(state.showDurationMin)); e.currentTarget.blur(); }
+                }}
+                className="console-well mt-1 w-full px-3 py-2.5 rounded-lg border border-black text-sm text-logic-text tabular-nums outline-none focus:border-logic-accent"
               />
             </label>
           </div>

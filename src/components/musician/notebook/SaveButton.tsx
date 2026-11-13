@@ -50,7 +50,7 @@ export default function SaveButton({ saveNow, status, backend, onResult, classNa
     onResult(outcome);
   };
 
-  const dirty = status === 'pending' || status === 'saving' || status === 'offline';
+  const dirty = status === 'pending' || status === 'saving' || status === 'offline' || status === 'not_kept';
   const lit = phase === 'ok' ? 'is-lit-green'
     : phase === 'fail' ? 'is-lit-red'
       : phase === 'warn' || (phase === 'idle' && dirty) ? 'is-lit-amber' : '';

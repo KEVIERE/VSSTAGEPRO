@@ -4,6 +4,7 @@ import { useStore } from '@/store';
 import { buildRemoteState, applyRemoteCommand, onRemoteReply, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
 import { subscribeShowClock } from '@/lib/showClock';
 import { remoteChannelName, setOnlineRemotePhones, useOnlineRemoteConfig } from '@/lib/onlineRemote';
+import { listRevision, liteRemoteState, remoteListKey } from '@/lib/remoteProtocol';
 
 const PLAYING_MS = 1000;
 const IDLE_MS = 3000;
@@ -28,13 +29,25 @@ export function useOnlineRemote(enabled: boolean): void {
     let lastSent = 0;
     let timer: number | null = null;
     let metersUntil = 0;
+    // A lista (músicas, blocos, cores) é a parte grande do estado: vai inteira só quando muda, quando
+    // um celular pede ('hello') ou quando há no canal uma página antiga, que não sabe juntar o estado
+    // leve. Nas outras mensagens vai só o resto, com a revisão da lista.
+    let lastListKey = '';
+    let listRev = '';
+    let forceFull = true;
+    let liteOk = false;
     const channel = supabase.channel(remoteChannelName(key), { config: { broadcast: { self: false } } });
 
     const send = () => {
       if (!alive) return;
       timer = null;
       lastSent = Date.now();
-      channel.send({ type: 'broadcast', event: 'state', payload: buildRemoteState() }).catch(() => {});
+      const full = buildRemoteState();
+      const listKey = remoteListKey(full);
+      if (listKey !== lastListKey) { lastListKey = listKey; listRev = listRevision(listKey); forceFull = true; }
+      const payload = liteOk && !forceFull ? liteRemoteState(full, listRev) : { ...full, rev: listRev };
+      forceFull = false;
+      channel.send({ type: 'broadcast', event: 'state', payload }).catch(() => {});
     };
     // junta mudanças seguidas (fader arrastado, cursor) num envio a cada 120 ms
     const sendSoon = () => {
@@ -52,12 +65,19 @@ export function useOnlineRemote(enabled: boolean): void {
       .on('broadcast', { event: 'meters-on' }, () => {
         metersUntil = Date.now() + METERS_HOLD_MS;
       })
+      // celular entrou ou ficou com a lista velha: manda o estado completo
       .on('broadcast', { event: 'hello' }, () => {
         listeners = Math.max(listeners, 1);
+        forceFull = true;
         sendSoon();
       })
       .on('presence', { event: 'sync' }, () => {
-        listeners = Object.keys(channel.presenceState()).length;
+        const phones = channel.presenceState<{ lite?: unknown }>();
+        listeners = Object.keys(phones).length;
+        // estado leve só se todos os celulares do canal sabem juntar (página nova anuncia lite: 1)
+        const metas = Object.values(phones).flat();
+        liteOk = metas.length > 0 && metas.every((m) => m.lite === 1);
+        forceFull = true;
         if (alive) setOnlineRemotePhones(listeners);
         sendSoon();
       })

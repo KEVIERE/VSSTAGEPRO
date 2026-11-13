@@ -35,7 +35,7 @@ export default function LyricLeadControl({ lead, onLead, scale, onScale, childre
   const setScale = (v: number) => onScale(Math.round(Math.min(MAX_SCALE, Math.max(MIN_SCALE, v)) * 100) / 100);
   const leadText = lead.toFixed(1).replace('.', ',');
   return (
-    <div className="rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-2">
+    <div className="console-face border-2 border-black rounded-lg shadow-lg px-3 py-2">
       <p className="console-legend !text-[10px] mb-1.5">Toda a letra · vale para todas as músicas</p>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="flex items-center gap-2" title="Tamanho geral da letra na TV. Página com tamanho próprio aplica o dela por cima deste.">

@@ -189,6 +189,34 @@ export async function musicianSheets(code: string): Promise<SheetInfo[]> {
   return (obj.sheets as SheetInfo[]) ?? [];
 }
 
+/** Banco ainda sem `musician_sheets_stamp` (o upgrade do banco não rodou): não confere mais. */
+let stampMissing = false;
+
+/** Marca da lista de cadernos (quantos e o mais recente), no mesmo formato de `musicianSheetsStamp`. */
+export function sheetsListStamp(list: SheetInfo[]): string {
+  // a lista vem do servidor do mais recente para o mais antigo
+  return `${list.length}|${list[0]?.updated_at ?? ''}`;
+}
+
+/**
+ * Consulta leve (poucos bytes) que diz se a lista de cadernos mudou: caderno enviado por colega,
+ * feito no outro aparelho ou apagado. A lista inteira (com as fotos) só é baixada quando muda.
+ * null: o banco ainda não tem a consulta; segue como antes, sem conferir.
+ */
+export async function musicianSheetsStamp(code: string): Promise<string | null> {
+  if (stampMissing) return null;
+  const { data, error } = await supabase.rpc('musician_sheets_stamp', { p_code: code });
+  if (error) {
+    if (error.code === 'PGRST202' || /musician_sheets_stamp/.test(error.message)) {
+      stampMissing = true;
+      return null;
+    }
+    throw error;
+  }
+  const obj = assertOk(data, 'invalid_code');
+  return `${Number(obj.n) || 0}|${typeof obj.at === 'string' ? obj.at : ''}`;
+}
+
 export async function musicianSaveSheet(
   code: string, sheetId: string | null, songId: string, title: string, content: string,
 ): Promise<string> {

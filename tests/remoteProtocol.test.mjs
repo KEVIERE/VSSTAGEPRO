@@ -129,3 +129,40 @@ test('medidores: valor estranho vira silêncio e pacote quebrado é recusado', (
   assert.equal(isRemoteMeters({ ...m, master: 'x' }), false);
   assert.equal(packMeters(Array.from({ length: 100 }, (_, i) => `t${i}`), () => 0, 1).ids.length, 64);
 });
+
+test('valor desejado: o toque duplo não desfaz (mudo, solo, torres, loop, medley)', () => {
+  assert.deepEqual(parseRemoteCommand({ action: 'mute', trackId: 't', on: true }), { action: 'mute', trackId: 't', on: true });
+  assert.deepEqual(parseRemoteCommand({ action: 'solo', trackId: 't', on: false }), { action: 'solo', trackId: 't', on: false });
+  assert.deepEqual(parseRemoteCommand({ action: 'towerBpm', on: false }), { action: 'towerBpm', on: false });
+  assert.deepEqual(parseRemoteCommand({ action: 'regionLoop', songId: 's', regionId: 'r', on: true }), { action: 'regionLoop', songId: 's', regionId: 'r', on: true });
+  assert.deepEqual(parseRemoteCommand({ action: 'sliceToggle', songId: 's', partId: 'p', on: false }), { action: 'sliceToggle', songId: 's', partId: 'p', on: false });
+  assert.deepEqual(parseRemoteCommand({ action: 'skipSection', songId: 's', on: true }), { action: 'skipSection', songId: 's', on: true });
+  assert.deepEqual(
+    parseRemoteCommand({ action: 'section', songId: 's', regionId: 'r', queue: true, loop: false }),
+    { action: 'section', songId: 's', regionId: 'r', queue: true, loop: false },
+  );
+});
+
+test('valor desejado: sem o campo (página antiga) a chave não aparece e o comando inverte como antes', () => {
+  assert.deepEqual(parseRemoteCommand({ action: 'mute', trackId: 't' }), { action: 'mute', trackId: 't' });
+  assert.deepEqual(parseRemoteCommand({ action: 'towerTuner' }), { action: 'towerTuner' });
+  assert.deepEqual(parseRemoteCommand({ action: 'stop' }), { action: 'stop' });
+  assert.deepEqual(parseRemoteCommand({ action: 'stop', wasActive: null }), { action: 'stop' });
+  assert.deepEqual(parseRemoteCommand({ action: 'section', songId: 's', regionId: 'r' }), { action: 'section', songId: 's', regionId: 'r' });
+  assert.deepEqual(parseRemoteCommand({ action: 'regionRepeat', songId: 's', regionId: 'r' }), { action: 'regionRepeat', songId: 's', regionId: 'r' });
+});
+
+test('valor desejado: Parar leva o que o celular via e a repetição leva o valor de onde parte', () => {
+  assert.deepEqual(parseRemoteCommand({ action: 'stop', wasActive: true }), { action: 'stop', wasActive: true });
+  assert.deepEqual(parseRemoteCommand({ action: 'regionRepeat', songId: 's', regionId: 'r', from: null }), { action: 'regionRepeat', songId: 's', regionId: 'r', from: null });
+  assert.deepEqual(parseRemoteCommand({ action: 'regionRepeat', songId: 's', regionId: 'r', from: 4 }), { action: 'regionRepeat', songId: 's', regionId: 'r', from: 4 });
+});
+
+test('valor desejado fora de sim/não recusa o comando inteiro', () => {
+  assert.equal(parseRemoteCommand({ action: 'mute', trackId: 't', on: 'x' }), null);
+  assert.equal(parseRemoteCommand({ action: 'stop', wasActive: 1 }), null);
+  assert.equal(parseRemoteCommand({ action: 'section', songId: 's', regionId: 'r', queue: 'sim' }), null);
+  assert.equal(parseRemoteCommand({ action: 'regionRepeat', songId: 's', regionId: 'r', from: 2.5 }), null);
+  assert.equal(parseRemoteCommand({ action: 'regionRepeat', songId: 's', regionId: 'r', from: 'x' }), null);
+  assert.equal(parseRemoteCommand({ action: 'regionRepeat', songId: 's', regionId: 'r', from: 0 }), null);
+});

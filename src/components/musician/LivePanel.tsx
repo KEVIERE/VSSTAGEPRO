@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { PenLine, WifiOff, UserPlus } from 'lucide-react';
 import type { LiveView, SetlistSong, SheetInfo, ShowLive, SignalStatus } from '@/lib/musicianTypes';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { songKeyLabel } from '@/lib/musicKey';
 import { isMedleySong, partKey } from '@/lib/medleySheets';
+import { isLocalClient } from '@/lib/localNetwork';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import MetaReadout from '@/components/MetaReadout';
 
@@ -39,13 +41,15 @@ function liveMeta(song: SetlistSong | null | undefined, live: ShowLive | null, p
  * Os dois displays da Área do Músico, iguais aos do programa: Tocando (verde) e Próxima (âmbar),
  * com tom e BPM, o tempo que falta em 7 segmentos e a barra de LEDs.
  */
-export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false }: {
+export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false, compact = false }: {
   lv: LiveView;
   live: ShowLive | null;
   currentSong: SetlistSong | null | undefined;
   nextSong: SetlistSong | null | undefined;
   /** Modo show: letras maiores e os dois displays lado a lado (na coluna da playlist, um embaixo do outro) */
   big?: boolean;
+  /** Modo show com a tela baixa (celular deitado): os mesmos displays lado a lado, mais baixos */
+  compact?: boolean;
 }) {
   const isPlaying = lv.isPlaying && !!currentSong;
   const nextName = isPlaying && live?.nextSliceName ? live.nextSliceName : nextSong?.name;
@@ -57,12 +61,13 @@ export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false }
   const progress = isPlaying ? Math.max(0, Math.min(1, lv.songProgress)) : 0;
   const now = liveMeta(currentSong, live, isPlaying);
   const next = liveMeta(nextSong, null, false);
-  const name = big ? 'text-2xl sm:text-3xl' : 'text-lg';
-  const seg = big ? 'h-7 sm:h-8' : 'h-5';
+  const name = big ? (compact ? 'text-xl' : 'text-2xl sm:text-3xl') : 'text-lg';
+  const seg = big ? (compact ? 'h-6' : 'h-7 sm:h-8') : 'h-5';
+  const pad = compact ? 'py-1.5' : 'py-2.5';
 
   return (
     <div className={`grid grid-cols-1 gap-2 ${big ? 'sm:grid-cols-2' : ''}`}>
-      <div className={`console-display px-3 py-2.5 flex flex-col gap-1.5 min-w-0 ${finalCountdown !== null ? '!border-logic-lcd-red/70' : ''}`}>
+      <div className={`console-display px-3 ${pad} flex flex-col gap-1.5 min-w-0 ${finalCountdown !== null ? '!border-logic-lcd-red/70' : ''}`}>
         <div className="flex items-center justify-between gap-2">
           <span className={`console-legend flex items-center gap-2 ${isPlaying ? '!text-logic-lcd-green' : ''}`}>
             <span className={`console-led ${isPlaying ? 'is-on-green' : ''}`} />
@@ -98,7 +103,7 @@ export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false }
         {finalCountdown !== null && <span className="sr-only" role="timer" aria-live="polite">Restam {finalCountdown}s</span>}
       </div>
 
-      <div className="console-display px-3 py-2.5 flex flex-col gap-1.5 min-w-0">
+      <div className={`console-display px-3 ${pad} flex flex-col gap-1.5 min-w-0`}>
         <div className="flex items-center justify-between gap-2">
           <span className={`console-legend flex items-center gap-2 ${hasNext ? '!text-logic-lcd-amber' : ''}`}>
             <span className={`console-led ${hasNext ? 'is-on-amber' : ''}`} />
@@ -127,7 +132,7 @@ export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false }
 
 export default function LivePanel({
   lv, live, currentSong, nextSong, orderedSongs, sheets, selectedSongId, livePartId,
-  onSelectSong, onCreateAccount,
+  onSelectSong, onCreateAccount, signalHint,
 }: {
   lv: LiveView;
   live: ShowLive | null;
@@ -140,8 +145,12 @@ export default function LivePanel({
   livePartId?: string | null;
   onSelectSong: (id: string) => void;
   onCreateAccount: (() => void) | null;
+  /** Motivo do "Sem sinal do diretor", quando se sabe (ex.: o diretor fechou o repertório) */
+  signalHint?: string;
 }) {
   const isPlaying = lv.isPlaying;
+  // músicas com caderno: um conjunto só por lista, em vez de procurar na lista a cada linha
+  const sheetKeys = useMemo(() => new Set(sheets.map((s) => s.song_id)), [sheets]);
   const hasNext = isPlaying && !!live?.nextSongId && !!nextSong;
 
   const starts: number[] = [];
@@ -151,7 +160,7 @@ export default function LivePanel({
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <div className="console-face flex flex-col gap-2 p-3 border-b border-black">
-        <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} />
+        <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} hint={signalHint} />
 
         {onCreateAccount && (
           <button
@@ -182,7 +191,7 @@ export default function LivePanel({
           const isCurrent = isPlaying && live?.currentSongId === song.id;
           const isNext = isPlaying && live?.nextSongId === song.id;
           const isSelected = selectedSongId === song.id;
-          const hasSheet = sheets.some((s) => s.song_id === song.id);
+          const hasSheet = sheetKeys.has(song.id);
           const medley = isMedleySong(song);
           return (
             <div key={song.id}>
@@ -225,7 +234,7 @@ export default function LivePanel({
                     {partNow && <span className="console-led is-on-green flex-shrink-0" />}
                     <span className={`text-xs truncate ${partNow ? 'text-logic-lcd-green font-semibold console-glow' : 'text-logic-text-dim'}`}>{part.name}</span>
                     {skipped && <span className="text-[10px] text-logic-text-muted flex-shrink-0">pulada</span>}
-                    {sheets.some((s) => s.song_id === key) && <PenLine size={11} className="text-logic-accent flex-shrink-0" />}
+                    {sheetKeys.has(key) && <PenLine size={11} className="text-logic-accent flex-shrink-0" />}
                   </span>
                   <span className="font-stage text-[12px] text-right text-logic-text-muted tabular-nums">{formatTime(part.end - part.start)}</span>
                   <span className="font-stage text-[12px] text-right text-logic-text-muted tabular-nums">{formatTime(starts[i] + part.start)}</span>
@@ -243,7 +252,16 @@ export default function LivePanel({
   );
 }
 
-export function SignalBanner({ status, isPlaying, paused }: { status: SignalStatus; isPlaying: boolean; paused: boolean }) {
+/** O que fazer quando cai o sinal: na Rede Local não há internet no caminho, é o Wi-Fi do palco. */
+export const defaultSignalHint = (): string => (isLocalClient()
+  ? 'Tentando reconectar... Confira se este aparelho está no Wi-Fi do palco.'
+  : 'Tentando reconectar... Verifique a internet.');
+
+export function SignalBanner({ status, isPlaying, paused, hint }: {
+  status: SignalStatus; isPlaying: boolean; paused: boolean;
+  /** Motivo do "Sem sinal", quando se sabe; sem ele vai a orientação de cada modo */
+  hint?: string;
+}) {
   if (status === 'ended') {
     return (
       <div className="console-display flex items-center gap-3 px-3 py-2">
@@ -255,13 +273,14 @@ export function SignalBanner({ status, isPlaying, paused }: { status: SignalStat
       </div>
     );
   }
+  // queda de conexão em âmbar, como no Remote (o vermelho da lâmpada quer dizer "no ar")
   if (status === 'nosignal') {
     return (
-      <div className="console-display flex items-center gap-3 px-3 py-2 !border-logic-lcd-red/60">
-        <WifiOff size={16} className="text-logic-lcd-red flex-shrink-0" />
+      <div role="alert" className="console-display flex items-center gap-3 px-3 py-2 !border-logic-lcd-amber/60">
+        <span className="console-led is-lg is-on-amber animate-pulse flex-shrink-0" />
         <div className="min-w-0">
-          <p className="text-xs font-medium text-logic-lcd-red">Sem sinal do diretor</p>
-          <p className="text-2xs text-logic-text-muted">Tentando reconectar... Verifique a internet.</p>
+          <p className="text-sm font-semibold text-logic-lcd-amber">Sem sinal do diretor</p>
+          <p className="text-xs text-logic-text-dim">{hint ?? defaultSignalHint()}</p>
         </div>
       </div>
     );

@@ -1,4 +1,5 @@
 import type { LyricPage, PageKind } from '@/lib/prompterTypes';
+import type { SetlistSong } from '@/lib/musicianTypes';
 
 /**
  * Letra automática do teleprompter: transforma o que a IA ouviu (palavras com o tempo de cada
@@ -435,5 +436,90 @@ export function addMarker(
   }
   const out = pages.map((p, i) => (i === idx ? updated : p));
   out.splice(idx + 1, 0, added);
+  return out;
+}
+
+/*
+ * Tempo do áudio do show x tempo da música.
+ *
+ * O áudio que o produtor ouve (e a Guia que o Mac lê para a letra automática) sai com o BPM do
+ * show e, num medley, só com as partes marcadas, emendadas. O diretor publica o tempo original
+ * da música, e a TV compara `page.time` com ele. Por isso a página guarda sempre o tempo da
+ * música: o que vem do áudio do show é convertido antes de virar marcação.
+ */
+
+/** Um trecho do áudio do show: [s0, s1) da música começa em r0 no áudio, esticado por `a`. */
+export type RefMap = { s0: number; s1: number; r0: number; a: number }[];
+
+/** Igual a bpmAdjustToAlpha (timeStretch.ts): aqui de novo para este arquivo continuar puro. */
+const alphaOf = (adj: number | undefined | null) => {
+  const v = Number.isFinite(adj) ? (adj as number) : 0;
+  return 120 / (120 + v);
+};
+
+/** Mapa do áudio do show desta música (BPM do show e partes puladas do medley). */
+export function refTimeMap(song: Pick<SetlistSong, 'bpmAdjust' | 'parts'>): RefMap {
+  const on = (song.parts ?? [])
+    .filter((p) => p.enabled !== false && Number.isFinite(p.start) && Number.isFinite(p.end) && p.end > p.start)
+    .sort((x, y) => x.start - y.start);
+  if (!on.length) return [{ s0: 0, s1: Infinity, r0: 0, a: alphaOf(song.bpmAdjust) }];
+  let r0 = 0;
+  return on.map((p) => {
+    // parte com BPM próprio (campo opcional: setlist antiga não manda e vale o da música)
+    const own = (p as { bpmAdjust?: number }).bpmAdjust;
+    const a = alphaOf(own ?? song.bpmAdjust);
+    const seg = { s0: p.start, s1: p.end, r0, a };
+    r0 += (p.end - p.start) * a;
+    return seg;
+  });
+}
+
+/** O áudio do show toca igual à música (sem BPM mudado e sem parte pulada). */
+export function isIdentityMap(m: RefMap): boolean {
+  return m.every((x) => Math.abs(x.a - 1) < 1e-9 && Math.abs(x.r0 - x.s0) < 1e-6);
+}
+
+/** Tempo no áudio do show -> tempo da música (o relógio do diretor). */
+export function refToSongTime(m: RefMap, r: number): number {
+  let g = m[0];
+  for (const x of m) if (r >= x.r0) g = x;
+  return Math.min(g.s1, g.s0 + Math.max(0, r - g.r0) / g.a);
+}
+
+/** Tempo da música -> tempo no áudio do show. Dentro de parte pulada, vai para o começo da próxima. */
+export function songToRefTime(m: RefMap, t: number): number {
+  for (const x of m) {
+    if (t < x.s0) return x.r0;
+    if (t < x.s1) return x.r0 + (t - x.s0) * x.a;
+  }
+  const z = m[m.length - 1];
+  return z.r0 + (z.s1 - z.s0) * z.a;
+}
+
+/** Palavras da Guia (tempo do áudio do show) no tempo da música. */
+export function toSongWords(words: TimedWord[], m: RefMap): TimedWord[] {
+  if (isIdentityMap(m)) return words;
+  return words.map((w) => ({ ...w, s: refToSongTime(m, w.s), e: refToSongTime(m, w.e) }));
+}
+
+/**
+ * Picos da onda (medidos no áudio do show, de duração `refDur`) redistribuídos no tempo da música
+ * (de duração `songDur`). Cada coluna pega o maior pico do trecho de áudio que ela cobre; parte
+ * pulada do medley fica reta.
+ */
+export function warpPeaks(peaks: Float32Array, refDur: number, m: RefMap, songDur: number, buckets = peaks.length): Float32Array {
+  const out = new Float32Array(buckets);
+  const n = peaks.length;
+  if (!(refDur > 0) || !(songDur > 0) || !n || !buckets) return out;
+  for (let j = 0; j < buckets; j++) {
+    const r0 = songToRefTime(m, (j / buckets) * songDur);
+    const r1 = songToRefTime(m, ((j + 1) / buckets) * songDur);
+    if (r1 - r0 < 1e-9) continue; // trecho que o áudio do show não tem
+    const a = Math.floor((r0 / refDur) * n);
+    const b = Math.max(a + 1, Math.ceil((r1 / refDur) * n));
+    let v = 0;
+    for (let i = Math.max(0, a); i < b && i < n; i++) if (peaks[i] > v) v = peaks[i];
+    out[j] = v;
+  }
   return out;
 }

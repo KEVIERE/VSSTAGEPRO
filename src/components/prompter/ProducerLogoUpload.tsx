@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { ImagePlus, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import { LOGO_MAX_BYTES, LOGO_TYPES, producerRemoveShowLogo, producerUploadShowLogo } from '@/lib/showLogo';
+import { isLocalClient } from '@/lib/localNetwork';
 
 /**
  * Troca da logo pelo próprio produtor técnico, na aba "Tela". Ele está no show, com a TV à
@@ -19,7 +20,10 @@ export default function ProducerLogoUpload({ code, logoUrl }: { code: string; lo
     try {
       await producerUploadShowLogo(code, file);
     } catch {
-      setError('Não foi possível enviar a logo. Confira a internet e tente de novo.');
+      // Na Rede Local não há internet no caminho: a logo vai direto para o Mac do diretor.
+      setError(isLocalClient()
+        ? 'Não foi possível enviar a logo para o Mac do diretor. Tente de novo.'
+        : 'Não foi possível enviar a logo. Confira a internet e tente de novo.');
     } finally {
       setBusy(false);
     }

@@ -72,7 +72,7 @@ export default function LyricsProjectBar({ snap, onSave }: {
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-2">
+    <div className="flex items-center gap-3 console-face border-2 border-black rounded-lg shadow-lg px-3 py-2">
       <div className="flex-1 min-w-0">
         <p className="text-xs font-semibold text-logic-text">Mapa de letras do show</p>
         <p className={`flex items-center gap-1.5 text-[11px] leading-snug truncate ${tone}`} title={statusText}>

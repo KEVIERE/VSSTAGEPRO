@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, AtSign, Guitar, Hourglass, KeyRound, Loader2, Lock, Music, User, Wifi, WifiOff } from 'lucide-react';
+import { ArrowRight, AtSign, Guitar, KeyRound, Loader2, Lock, User, Wifi, WifiOff } from 'lucide-react';
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
+import { AccessCard, AccessNotice, AccessStage, AccessTitle } from '@/components/access/AccessChrome';
 import { serverLagMs } from '@/lib/liveClock';
 import {
   LOCAL_NOTICE, forgetMusician, localAccountBackend, localAccountSheets, localAccountState, localMusicianLogin,
@@ -28,6 +29,7 @@ function errorText(msg: string): string {
     case 'weak_password': return 'A senha precisa ter pelo menos 6 caracteres.';
     case 'logged_out': return 'Entre de novo com seu usuário e senha.';
     case 'disconnected': return 'O diretor musical desconectou este aparelho. Entre de novo com seu usuário e senha.';
+    case 'not_ready': return LOCAL_NOTICE.notReady;
     default: return 'Não encontrei o Mac do diretor. Confira se você está no mesmo Wi-Fi do palco.';
   }
 }
@@ -60,12 +62,18 @@ export default function LocalMusicianArea() {
     if (phase !== 'checking') return;
     let alive = true;
     localMusicianResume()
-      .then((r) => { if (!alive) return; setOffline(false); setPendingName(r.name); setPhase(r.pending ? 'pending' : 'in'); })
+      .then((r) => { if (!alive) return; setOffline(false); setNotReady(false); setPendingName(r.name); setPhase(r.pending ? 'pending' : 'in'); })
       .catch((e) => {
         if (!alive) return;
         const msg = (e as Error).message;
-        // sem achar o Mac: continua tentando, sem pedir login de novo
-        if (msg === 'offline') { setOffline(true); window.setTimeout(() => { if (alive) setRetry((n) => n + 1); }, 2000); return; }
+        // Sem achar o Mac, ou o programa reaberto ainda abrindo o projeto: continua tentando, sem
+        // pedir login de novo (o aparelho continua lembrado).
+        if (msg === 'offline' || msg === 'not_ready') {
+          setOffline(msg === 'offline');
+          setNotReady(msg === 'not_ready');
+          window.setTimeout(() => { if (alive) setRetry((n) => n + 1); }, 2000);
+          return;
+        }
         toForm(msg === 'blocked' || msg === 'disconnected' ? errorText(msg) : null);
       });
     return () => { alive = false; };
@@ -74,12 +82,17 @@ export default function LocalMusicianArea() {
   // Esperando o diretor aprovar: pergunta de tempos em tempos.
   useEffect(() => {
     if (phase !== 'pending') return;
+    let alive = true;
     const id = window.setInterval(() => {
       localMusicianResume()
-        .then((r) => { if (!r.pending) setPhase('in'); })
-        .catch((e) => { const msg = (e as Error).message; if (msg !== 'offline') toForm(errorText(msg)); });
+        .then((r) => { if (alive && !r.pending) setPhase('in'); })
+        .catch((e) => {
+          const msg = (e as Error).message;
+          // Mac fora do ar ou ainda abrindo o projeto: a espera continua
+          if (alive && msg !== 'offline' && msg !== 'not_ready') toForm(errorText(msg));
+        });
     }, PENDING_POLL_MS);
-    return () => window.clearInterval(id);
+    return () => { alive = false; window.clearInterval(id); };
   }, [phase, toForm]);
 
   // Dentro: o show ao vivo e os cadernos.
@@ -114,11 +127,19 @@ export default function LocalMusicianArea() {
     try { setSheets(await localAccountSheets()); } catch { /* tenta de novo no próximo ciclo */ }
   }, []);
 
+  // Laço encadeado: a próxima busca só sai quando a anterior terminou. Com setInterval, listas
+  // presas (prazo de até 60 s) se empilhavam e ocupavam as conexões do navegador com o Mac,
+  // travando a consulta do show.
   useEffect(() => {
     if (phase !== 'in') return;
-    void reloadSheets();
-    const id = window.setInterval(() => { void reloadSheets(); }, SHEETS_POLL_MS);
-    return () => window.clearInterval(id);
+    let alive = true;
+    let timer = 0;
+    const loop = async () => {
+      await reloadSheets();
+      if (alive) timer = window.setTimeout(loop, SHEETS_POLL_MS);
+    };
+    void loop();
+    return () => { alive = false; window.clearTimeout(timer); };
   }, [phase, reloadSheets]);
 
   const username = (state?.musician as { username?: string } | undefined)?.username ?? '';
@@ -135,10 +156,26 @@ export default function LocalMusicianArea() {
     toForm(null);
   };
 
-  if (phase === 'checking') return <Centered>{offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}</Centered>;
+  // Esperando o projeto abrir: dá para sair (projeto novo sem contas nunca manda o livro, e o
+  // músico precisa chegar em "Criar conta").
+  if (phase === 'checking') {
+    return (
+      <Centered>
+        {notReady ? <NotReady onLeave={() => { forgetMusician(); toForm(null); }} />
+          : offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}
+      </Centered>
+    );
+  }
   if (phase === 'form') return <LocalAuthForm onDone={entered} initialError={error} />;
   if (phase === 'pending') return <PendingCard name={pendingName} onLeave={() => { forgetMusician(); toForm(null); }} />;
-  if (!state) return <Centered>{notReady ? <NotReady /> : offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}</Centered>;
+  if (!state) {
+    return (
+      <Centered>
+        {notReady ? <NotReady onLeave={() => { void leave(); }} />
+          : offline ? <Offline /> : <Loader2 size={28} className="text-logic-lcd-green animate-spin" />}
+      </Centered>
+    );
+  }
 
   return (
     <MusicianWorkspace
@@ -156,54 +193,60 @@ export default function LocalMusicianArea() {
   );
 }
 
+// Fundo da entrada (palco escuro), para o carregamento não aparecer em cinza liso antes do cartão.
 function Centered({ children }: { children: React.ReactNode }) {
-  return <div className="h-full min-h-screen flex items-center justify-center bg-logic-bg-deep px-6">{children}</div>;
+  return <AccessStage>{children}</AccessStage>;
 }
 
 function Offline() {
   return <p className="flex items-center gap-2 text-sm text-logic-text-dim text-center"><WifiOff size={18} /> Procurando o Mac do diretor...</p>;
 }
 
-function NotReady() {
-  return <p className="flex items-center gap-2 text-sm text-logic-text-dim text-center"><Loader2 size={18} className="animate-spin shrink-0" /> {LOCAL_NOTICE.notReady}</p>;
-}
-
-function Card({ children, onSubmit }: { children: React.ReactNode; onSubmit?: (e: React.FormEvent) => void }) {
+function NotReady({ onLeave }: { onLeave?: () => void }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-logic-bg-deep px-4 py-8">
-      <form onSubmit={onSubmit} className="w-full max-w-sm bg-logic-bg-panel border border-logic-border rounded-2xl p-8 shadow-2xl animate-[fadeIn_200ms_ease-out]">
-        {children}
-      </form>
+    <div className="flex flex-col items-center gap-6">
+      <p className="flex items-center gap-2 text-sm text-logic-text-dim text-center"><Loader2 size={18} className="animate-spin shrink-0" /> {LOCAL_NOTICE.notReady}</p>
+      {onLeave && <button type="button" onClick={onLeave} className="access-link">Entrar com outra conta</button>}
     </div>
   );
 }
 
-const inputCls = 'w-full pl-9 pr-3 py-3 rounded-lg bg-logic-bg-deep border border-logic-border-light text-logic-text outline-none focus:border-logic-lcd-green transition-colors placeholder:text-logic-text-muted';
+/** Cartão da entrada no padrão do programa: palco, logo e título, módulo com trilho prateado. */
+function Card({ label, status, children, onSubmit }: { label: React.ReactNode; status?: React.ReactNode; children: React.ReactNode; onSubmit?: (e: React.FormEvent) => void }) {
+  return (
+    <AccessStage>
+      <div className="w-full max-w-[380px] flex flex-col items-stretch">
+        <AccessTitle title="Área do Músico" subtitle="Rede local do palco. Funciona sem internet, só precisa estar no mesmo Wi-Fi do Mac do diretor." />
+        <AccessCard label={label} status={status} width={380}>
+          <form onSubmit={onSubmit} className="p-5 space-y-3">{children}</form>
+        </AccessCard>
+      </div>
+    </AccessStage>
+  );
+}
 
+// Campo rebaixado no painel (acende âmbar ao digitar). O rótulo fica visível: os textos dentro
+// do campo são só exemplos.
 function Field({ id, label, icon: Icon, ...props }: { id: string; label: string; icon: typeof User } & React.InputHTMLAttributes<HTMLInputElement>) {
   return (
-    <>
-      <label htmlFor={id} className="block text-xs font-medium text-logic-text-dim mt-4 mb-2">{label}</label>
-      <div className="relative">
-        <Icon size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-logic-text-muted" />
-        <input id={id} className={inputCls} {...props} />
+    <div>
+      <label htmlFor={id} className="console-legend block mb-1.5">{label}</label>
+      <div className="access-input relative">
+        <Icon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input id={id} className="access-field" {...props} />
       </div>
-    </>
+    </div>
   );
 }
 
 function PendingCard({ name, onLeave }: { name: string; onLeave: () => void }) {
   return (
-    <Card>
-      <div className="w-12 h-12 rounded-xl bg-logic-lcd-amber/15 text-logic-lcd-amber flex items-center justify-center mb-5">
-        <Hourglass size={22} />
-      </div>
-      <h1 className="text-xl font-semibold text-logic-text">Aguardando o diretor</h1>
-      <p className="text-sm text-logic-text-dim mt-2 leading-relaxed">
+    <Card label="Aguardando o diretor" status={<span className="console-led is-on-amber animate-pulse" />}>
+      <p className="text-sm text-logic-text-dim leading-relaxed">
         {name ? `${name}, sua` : 'Sua'} conta foi criada. Assim que o diretor musical aprovar no programa, você entra sozinho por aqui.
       </p>
-      <p className="flex items-center gap-2 text-xs text-logic-text-muted mt-5"><Loader2 size={14} className="animate-spin" /> Esperando a aprovação...</p>
-      <button type="button" onClick={onLeave} className="mt-6 text-xs text-logic-text-muted hover:text-logic-text transition-colors">
+      <p className="flex items-center gap-2 text-xs text-logic-text-muted"><Loader2 size={14} className="animate-spin" /> Esperando a aprovação...</p>
+      <button type="button" onClick={onLeave} className="access-link">
         Entrar com outra conta
       </button>
     </Card>
@@ -251,20 +294,12 @@ function LocalAuthForm({ onDone, initialError }: { onDone: (r: { pending: boolea
   const switchTab = (t: 'login' | 'signup') => { setTab(t); setError(null); setNeedsNew(false); };
 
   return (
-    <Card onSubmit={submit}>
-      <div className="w-12 h-12 rounded-xl bg-logic-lcd-green/15 text-logic-lcd-green flex items-center justify-center mb-5">
-        <Music size={22} />
-      </div>
-      <h1 className="text-xl font-semibold text-logic-text">Área do Músico</h1>
-      <p className="text-sm text-logic-text-dim mt-2 leading-relaxed">
-        Rede local do palco. Funciona sem internet, só precisa estar no mesmo Wi-Fi do Mac do diretor.
-      </p>
-
-      <div className="grid grid-cols-2 gap-2 mt-6">
+    <Card label={<><Wifi size={12} /> Rede local</>} onSubmit={submit}>
+      <div className="console-well grid grid-cols-2 gap-1 p-1 rounded-md" role="tablist" aria-label="Entrar ou criar conta">
         {(['login', 'signup'] as const).map((t) => (
           <button
-            key={t} type="button" onClick={() => switchTab(t)}
-            className={`console-key h-9 text-[13px] ${tab === t ? 'is-lit-blue' : ''}`}
+            key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => switchTab(t)}
+            className={`console-key h-9 text-[0.98rem] ${tab === t ? 'is-lit-amber' : ''}`}
           >
             {t === 'login' ? 'Entrar' : 'Criar conta'}
           </button>
@@ -293,19 +328,17 @@ function LocalAuthForm({ onDone, initialError }: { onDone: (r: { pending: boolea
         />
       )}
 
-      {error && <p className="text-sm text-logic-lcd-red mt-3" role="alert">{error}</p>}
-      <button
-        type="submit" disabled={!ready || busy}
-        className="mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-logic-lcd-green text-black font-semibold hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition"
-      >
+      {/* o aviso fica logo acima da tecla: no cadastro com o teclado aberto, um aviso no topo sai da tela */}
+      {error && <AccessNotice tone="red"><p>{error}</p></AccessNotice>}
+      <button type="submit" disabled={!ready || busy} className="access-key">
         {busy ? <Loader2 size={16} className="animate-spin" /> : <>{tab === 'signup' ? 'Criar conta' : 'Entrar'} <ArrowRight size={16} /></>}
       </button>
-      <p className="text-xs text-logic-text-muted mt-5 leading-relaxed">
+      <p className="text-xs text-logic-text-muted leading-relaxed">
         {tab === 'signup'
           ? 'O PIN aparece no programa do diretor, em Rede Local. Depois de criar, o diretor aprova e você entra só com usuário e senha.'
           : 'Suas cifras, partituras e anotações ficam na sua conta, guardadas no projeto do show.'}
       </p>
-      {VERSION && <p className="text-2xs text-logic-text-muted/70 mt-3">VS Stage {VERSION}</p>}
+      {VERSION && <p className="text-2xs text-logic-text-muted/70 text-center"><span className="vs-brand">VS Stage</span> {VERSION}</p>}
     </Card>
   );
 }

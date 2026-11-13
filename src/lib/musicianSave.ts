@@ -3,8 +3,11 @@
 
 import type { ProjectSaveStatus } from './musicianTypes';
 
-/** Como ficou o caderno da música aberta (useNotebook.saveNow). */
-export type SheetSaveResult = 'saved' | 'offline' | 'too_big' | 'empty';
+/**
+ * Como ficou o caderno da música aberta (useNotebook.saveNow).
+ * not_kept: sem conexão e sem espaço neste aparelho; o caderno só está na memória da página.
+ */
+export type SheetSaveResult = 'saved' | 'offline' | 'too_big' | 'empty' | 'not_kept';
 
 /** ok: tudo gravado. warn: o caderno está a salvo, mas falta algo do lado do diretor. fail: não salvou. */
 export type SaveTone = 'ok' | 'warn' | 'fail';
@@ -23,6 +26,14 @@ export function saveOutcome(sheet: SheetSaveResult, project: ProjectSaveStatus |
   if (sheet === 'empty') return { tone: 'warn', text: 'Escolha uma música para salvar o caderno dela.' };
   if (sheet === 'too_big') {
     return { tone: 'fail', text: 'O caderno desta música está cheio demais para salvar. Apague alguns desenhos ou fotos e aperte Salvar de novo.' };
+  }
+  if (sheet === 'not_kept') {
+    return {
+      tone: 'fail',
+      text: local
+        ? 'Sem conexão com o Mac do diretor e sem espaço neste aparelho para guardar o caderno. Não feche esta página: ele vai sozinho quando a conexão voltar.'
+        : 'Sem internet e sem espaço neste aparelho para guardar o caderno. Não feche esta página: ele vai sozinho quando a internet voltar.',
+    };
   }
   if (sheet === 'offline') {
     return {

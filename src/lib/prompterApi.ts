@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabaseClient';
-import type { LyricPage, LyricStyle, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
+import type { LyricPage, LyricStyle, PrompterSnapshot, PrompterState, ScreenToggles } from '@/lib/prompterTypes';
 import { lyricStyleOf, normalizePages, normalizePrompter, sameLyricStyle } from '@/lib/prompterTypes';
 import { isLocalClient } from '@/lib/localNetwork';
 import { localProducerPost, localPrompterState } from '@/lib/localClientApi';
@@ -135,20 +135,53 @@ export async function directorLyricStyleGet(showId: string, directorKey: string)
   return lyricStyleOf(snap.prompter);
 }
 
-/** Projeto aberto: o show volta a ter o estilo de letra gravado no projeto (o resto da tela fica). */
+/**
+ * Projeto aberto: o show volta a ter o estilo de letra gravado no projeto (o resto da tela fica).
+ * Manda só as chaves do estilo: entre ler e gravar, o produtor pode ter mudado a tela, e gravar
+ * a cópia inteira desfazia isso.
+ */
 export async function directorLyricStyleRestore(showId: string, directorKey: string, style: LyricStyle): Promise<boolean> {
   const { producerCode } = await directorPrompterCodes(showId, directorKey);
   const snap = await producerState(producerCode);
   if (sameLyricStyle(lyricStyleOf(snap.prompter), style)) return false;
-  await producerSetPrompter(producerCode, { ...snap.prompter, ...style });
+  await producerPatchPrompter(producerCode, { ...style }, { ...snap.prompter, ...style });
   return true;
 }
 
-export async function producerSetPrompter(code: string, state: PrompterState): Promise<void> {
+export async function producerSetPrompter(code: string, state: PrompterState, signal?: AbortSignal): Promise<void> {
   if (isLocalClient()) { await localProducerPost(code, 'prompter', { prompter: state }); return; }
-  const { data, error } = await supabase.rpc('producer_set_prompter', { p_code: code, p_prompter: state });
+  let q = supabase.rpc('producer_set_prompter', { p_code: code, p_prompter: state });
+  if (signal) q = q.abortSignal(signal);
+  const { data, error } = await q;
   if (error) throw rpcError(error);
   assertOk(data, 'set_prompter failed');
+}
+
+/** Só o que mudou na tela, chave por chave (as chaves da tela, `toggles`, uma por uma). */
+export type PrompterPatch = Partial<Omit<PrompterState, 'toggles'>> & { toggles?: Partial<ScreenToggles> };
+
+/** O banco ainda não tem `producer_patch_prompter` (a migração não rodou): manda o estado inteiro. */
+let patchMissing = false;
+
+/**
+ * Grava só as chaves que este aparelho mudou: o servidor mescla com o que está lá. Antes cada
+ * envio gravava a cópia inteira, e dois aparelhos do produtor (ou o diretor abrindo o projeto)
+ * desfaziam o que o outro tinha acabado de mandar. `full` é a cópia inteira, usada quando o
+ * servidor ainda não sabe mesclar (banco sem a migração; Rede Local, que recebe a cópia inteira).
+ */
+export async function producerPatchPrompter(
+  code: string, patch: PrompterPatch, full: PrompterState, signal?: AbortSignal,
+): Promise<void> {
+  if (isLocalClient() || patchMissing) return producerSetPrompter(code, full, signal);
+  let q = supabase.rpc('producer_patch_prompter', { p_code: code, p_patch: patch });
+  if (signal) q = q.abortSignal(signal);
+  const { data, error } = await q;
+  if (error && (error.code === 'PGRST202' || /producer_patch_prompter/.test(error.message))) {
+    patchMissing = true;
+    return producerSetPrompter(code, full, signal);
+  }
+  if (error) throw rpcError(error);
+  assertOk(data, 'patch_prompter failed');
 }
 
 // Os links nunca levam o código: quem abre precisa digitá-lo ou colá-lo.

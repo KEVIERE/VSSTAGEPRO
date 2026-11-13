@@ -13,29 +13,47 @@ function tokenKey(role: LocalRole, pin: string) {
   return `${TOKEN_SS}${role}_${pin}`;
 }
 
+// Prazo de cada pedido ao Mac. Os laços só pedem de novo quando o pedido anterior termina; sem
+// prazo, um pedido que não volta (Wi-Fi do palco associado mas sem passar pacote, Mac que sumiu
+// da rede) segurava a tela em "Sem sinal do diretor" até o navegador desistir, mesmo com a rede
+// de volta. Estourou o prazo: vira `offline` e a próxima consulta sai.
+const ANSWER_MS = 4000;          // consulta e comando: na rede local a resposta leva dezenas de ms
+const PROMPTER_STATE_MS = 8000;  // estado do produtor e da tela: traz as letras do show e o QR
+const AUTH_MS = 10_000;          // entrar e criar conta: o Mac confere a senha
+const TRANSFER_MS = 60_000;      // logo, caderno com foto, lista de cadernos (vários MB)
+const PROJECT_SAVE_MS = 125_000; // o Mac espera até 120 s pelo salvar do projeto (desktop/main.js)
+
 /**
  * Pedido ao Mac do diretor. Cada motivo vira um erro próprio, para a tela não confundir:
  * - `invalid_code`: o PIN está errado (só isso mostra "PIN incorreto");
  * - `disconnected`: o diretor apertou "Desconectar" neste aparelho;
  * - `no_session`: a sessão caiu (programa reaberto); quem chama entra de novo sozinho;
  * - `not_ready`: o Mac respondeu, mas o projeto aberto não tem músicas;
- * - `offline`: o Mac não respondeu.
+ * - `offline`: o Mac não respondeu (ou não respondeu dentro de `ms`).
  * Antes todo 401/403 virava "PIN incorreto" e o projeto vazio virava "Sem conexão".
  */
-async function call(path: string, init: RequestInit = {}, token?: string): Promise<Record<string, unknown>> {
+async function call(path: string, init: RequestInit = {}, token?: string, ms = ANSWER_MS): Promise<Record<string, unknown>> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
   let res: Response;
+  let data: unknown = null;
   try {
     res = await fetch(`/api/local/${path}`, {
       ...init,
+      signal: ctrl.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
+    data = await res.json().catch(() => null);
   } catch {
     throw new Error('offline');
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await res.json().catch(() => null);
+  // Corpo cortado pelo prazo não pode virar "PIN incorreto" (401 sem código) e apagar o PIN.
+  if (ctrl.signal.aborted) throw new Error('offline');
   const code = data && typeof data === 'object' && typeof (data as { error?: unknown }).error === 'string'
     ? (data as { error: string }).error
     : null;
@@ -72,11 +90,12 @@ export function localForget(role: LocalRole, pin: string) {
 }
 
 export function localPrompterState(role: 'producer' | 'screen', pin: string) {
-  return withSession(role, pin, role === 'screen' ? 'Tela do palco' : 'Produtor', (t) => call('state', {}, t));
+  return withSession(role, pin, role === 'screen' ? 'Tela do palco' : 'Produtor', (t) => call('state', {}, t, PROMPTER_STATE_MS));
 }
 
 export function localProducerPost(pin: string, path: 'prompter' | 'lyrics' | 'lyrics-save' | 'logo' | 'logo-remove' | 'references' | 'repertoire-request', body: unknown) {
-  return withSession('producer', pin, 'Produtor', (t) => call(path, { method: 'POST', body: JSON.stringify(body) }, t));
+  // a logo vai em base64 (até 4 MB): prazo de envio grande
+  return withSession('producer', pin, 'Produtor', (t) => call(path, { method: 'POST', body: JSON.stringify(body) }, t, path === 'logo' ? TRANSFER_MS : ANSWER_MS));
 }
 
 /** VS Stage Remote: o Modo Show inteiro do Mac. */
@@ -123,17 +142,28 @@ export function forgetMusician() {
 }
 
 async function musicianAuth(body: Record<string, unknown>): Promise<MusicianAuth> {
+  // Voltar pelo aparelho lembrado é consulta (sai sozinho); entrar e criar conta são toque do
+  // músico e o Mac confere a senha: prazo maior, para uma resposta só atrasada não ser cortada e
+  // virar "Esse usuário já existe" na segunda tentativa.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), body.mode === 'resume' ? ANSWER_MS : AUTH_MS);
   let res: Response;
+  let data: Record<string, unknown> | null = null;
   try {
     res = await fetch('/api/local/login', {
       method: 'POST',
+      signal: ctrl.signal,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role: 'musician', ...body }),
     });
+    data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   } catch {
     throw new Error('offline');
+  } finally {
+    clearTimeout(timer);
   }
-  const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  // corpo cortado pelo prazo não pode virar "Usuário ou senha incorretos" e esquecer o aparelho
+  if (ctrl.signal.aborted) throw new Error('offline');
   if (res.status === 200 && typeof data?.token === 'string') {
     musicianToken = data.token;
     keepRemember(data.remember);
@@ -164,19 +194,22 @@ export async function localMusicianResume(): Promise<MusicianAuth> {
     return await musicianAuth({ mode: 'resume', remember });
   } catch (e) {
     const msg = (e as Error).message;
-    if (msg !== 'offline') forgetMusician();
-    throw new Error(msg === 'offline' || msg === 'blocked' || msg === 'disconnected' ? msg : 'logged_out');
+    // Mac fora do ar, ou programa reaberto ainda abrindo o projeto (sem o livro de contas):
+    // guarda o aparelho e quem chama tenta de novo. Antes `not_ready` também apagava o aparelho.
+    if (msg === 'offline' || msg === 'not_ready') throw new Error(msg);
+    if (msg === 'wrong_login' || msg === 'blocked' || msg === 'disconnected') forgetMusician();
+    throw new Error(msg === 'blocked' || msg === 'disconnected' ? msg : 'logged_out');
   }
 }
 
 /** Chamada com a sessão do músico; se ela caiu (programa reaberto), volta pelo aparelho lembrado. */
-async function withMusician(path: string, init: RequestInit = {}): Promise<Record<string, unknown>> {
+async function withMusician(path: string, init: RequestInit = {}, ms?: number): Promise<Record<string, unknown>> {
   if (!musicianToken) {
     const r = await localMusicianResume();
     if (r.pending) throw new Error('pending');
   }
   try {
-    return await call(path, init, musicianToken!);
+    return await call(path, init, musicianToken!, ms);
   } catch (e) {
     const msg = (e as Error).message;
     // Desconectado pelo diretor: esquece o aparelho e pede usuário e senha de novo.
@@ -185,7 +218,7 @@ async function withMusician(path: string, init: RequestInit = {}): Promise<Recor
     musicianToken = null;
     const r = await localMusicianResume();
     if (r.pending) throw new Error('pending');
-    return call(path, init, musicianToken!);
+    return call(path, init, musicianToken!, ms);
   }
 }
 
@@ -197,7 +230,8 @@ export async function localAccountState(): Promise<MusicianState> {
 }
 
 export async function localAccountSheets(): Promise<SheetInfo[]> {
-  const data = await withMusician('sheets');
+  // a lista traz o conteúdo inteiro de cada caderno, com fotos: prazo de envio grande
+  const data = await withMusician('sheets', {}, TRANSFER_MS);
   return Array.isArray(data.sheets) ? (data.sheets as SheetInfo[]) : [];
 }
 
@@ -208,17 +242,18 @@ export async function localMusicianLogout() {
 }
 
 export function localAccountBackend(username: string): SheetBackend {
-  const post = (path: string, body: unknown) => withMusician(path, { method: 'POST', body: JSON.stringify(body) });
+  const post = (path: string, body: unknown, ms?: number) => withMusician(path, { method: 'POST', body: JSON.stringify(body) }, ms);
   return {
     key: `local:${username}`,
     storedIn: 'na sua conta do show',
     async save(sheetId, songId, title, content) {
-      const data = await post('sheet-save', { sheetId, songId, title, content });
+      const data = await post('sheet-save', { sheetId, songId, title, content }, TRANSFER_MS);
       if (typeof data.id !== 'string') throw new Error('offline');
       return data.id;
     },
     async saveProject() {
-      const data = await post('project-save', {});
+      // o Mac grava o projeto antes de responder (pode esperar a música parar)
+      const data = await post('project-save', {}, PROJECT_SAVE_MS);
       const status = PROJECT_SAVE_STATUSES.find((s) => s === data.status);
       return status ?? 'error';
     },

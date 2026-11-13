@@ -5,10 +5,12 @@ import type { NoticeLayout, NoticeLevel, PrompterState } from '@/lib/prompterTyp
 import type { SetlistSong } from '@/lib/musicianTypes';
 import { newId, withNotice } from '@/lib/prompterView';
 
+// A cor de cada tipo é a da TV. Com ! para não sumir no hover da tecla (que fica grudado depois
+// do toque no celular).
 const LEVELS: { id: NoticeLevel; label: string; cls: string; dot: string }[] = [
-  { id: 'info', label: 'Aviso', cls: 'border-[#64d2ff] text-[#64d2ff] bg-[#64d2ff]/10', dot: '#64d2ff' },
-  { id: 'warn', label: 'Atenção', cls: 'border-logic-lcd-amber text-logic-lcd-amber bg-logic-lcd-amber/10', dot: '#ffab1f' },
-  { id: 'urgent', label: 'Urgente', cls: 'border-logic-lcd-red text-logic-lcd-red bg-logic-lcd-red/10', dot: '#ff4136' },
+  { id: 'info', label: 'Aviso', cls: '!border-[#64d2ff] !text-[#64d2ff] !bg-[#64d2ff]/15', dot: '#64d2ff' },
+  { id: 'warn', label: 'Atenção', cls: '!border-logic-lcd-amber !text-logic-lcd-amber !bg-logic-lcd-amber/15', dot: '#ffab1f' },
+  { id: 'urgent', label: 'Urgente', cls: '!border-logic-lcd-red !text-logic-lcd-red !bg-logic-lcd-red/15', dot: '#ff4136' },
 ];
 
 const LAYOUTS: { id: NoticeLayout; label: string }[] = [
@@ -35,7 +37,7 @@ function Chips<T extends string | number>({ items, value, onChange, activeCls }:
           key={String(it.id)}
           onClick={() => onChange(it.id)}
           aria-pressed={value === it.id}
-          className={`px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${value === it.id ? (it.cls ?? activeCls ?? 'border-logic-accent text-logic-accent bg-logic-accent/10') : 'border-logic-border text-logic-text-dim hover:text-logic-text'}`}
+          className={`console-key h-8 px-3 text-xs ${value === it.id ? (it.cls ?? activeCls ?? 'is-lit-blue') : ''}`}
         >
           {it.label}
         </button>
@@ -156,7 +158,7 @@ export default function NoticeControl({ state, update, songs, now }: {
             rows={4}
             maxLength={MAX_TEXT}
             placeholder="Ex.: O prefeito chegou, mandar um alô"
-            className="w-full px-3 py-3 rounded-lg bg-logic-bg-deep border border-logic-border text-base text-logic-text leading-relaxed outline-none focus:border-logic-accent resize-none"
+            className="console-well w-full px-3 py-3 rounded-lg border border-black text-base text-logic-text leading-relaxed outline-none focus:border-logic-accent resize-none placeholder:text-logic-text-muted"
           />
           <div className="flex items-center justify-between mt-1.5 text-2xs text-logic-text-muted">
             <span>⌘↵ manda sem tirar a mão do teclado</span>
@@ -173,7 +175,7 @@ export default function NoticeControl({ state, update, songs, now }: {
             <button
               onClick={() => addPreset(text)}
               disabled={!text.trim()}
-              className="px-4 rounded-lg border border-logic-border text-logic-text-dim hover:text-logic-text disabled:opacity-40 transition-colors flex items-center gap-2 text-xs font-medium"
+              className="console-key px-4 flex items-center gap-2 text-xs disabled:opacity-40"
               title="Guardar como aviso pronto"
             >
               <Bookmark size={15} /> <span className="hidden sm:inline">Guardar</span>
@@ -230,7 +232,7 @@ export default function NoticeControl({ state, update, songs, now }: {
             onChange={(e) => setDraft(e.target.value.slice(0, MAX_TEXT))}
             onKeyDown={(e) => { if (e.key === 'Enter') addPreset(draft); }}
             placeholder="Criar aviso pronto. Ex.: Agradecer a produção"
-            className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text outline-none focus:border-logic-accent transition-colors"
+            className="console-well flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-black text-sm text-logic-text outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted"
           />
           <button
             onClick={() => addPreset(draft)}
@@ -287,7 +289,7 @@ export default function NoticeControl({ state, update, songs, now }: {
             <select
               value={schedSong}
               onChange={(e) => setSchedSong(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text outline-none focus:border-logic-accent"
+              className="console-well w-full px-3 py-2.5 rounded-lg border border-black text-sm text-logic-text outline-none focus:border-logic-accent"
             >
               <option value="">Escolha a música</option>
               {songs.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -303,7 +305,7 @@ export default function NoticeControl({ state, update, songs, now }: {
                   setSchedText('');
                 }}
                 placeholder="Ex.: Chamar o público para cantar"
-                className="flex-1 min-w-0 px-3 py-2.5 rounded-lg bg-logic-bg-deep border border-logic-border text-sm text-logic-text outline-none focus:border-logic-accent"
+                className="console-well flex-1 min-w-0 px-3 py-2.5 rounded-lg border border-black text-sm text-logic-text outline-none focus:border-logic-accent placeholder:text-logic-text-muted"
               />
               <button
                 disabled={!schedSong || !schedText.trim()}
@@ -312,7 +314,7 @@ export default function NoticeControl({ state, update, songs, now }: {
                   update((s) => ({ ...s, scheduled: [...s.scheduled, { id: newId(), songId: schedSong, text: t, level, layout, durationSec: duration || 15 }].slice(0, 100) }));
                   setSchedText('');
                 }}
-                className="px-3 rounded-lg bg-logic-bg-elevated hover:bg-logic-border-light disabled:opacity-40 transition-colors"
+                className="console-key px-3 flex items-center justify-center disabled:opacity-40"
                 title="Programar"
               >
                 <Plus size={16} />
@@ -343,7 +345,7 @@ export default function NoticeControl({ state, update, songs, now }: {
           title="Histórico"
           aside={
             state.history.length > 0 ? (
-              <button onClick={() => update((s) => ({ ...s, history: [] }))} className="text-xs text-logic-text-muted hover:text-logic-text">Limpar</button>
+              <button onClick={() => update((s) => ({ ...s, history: [] }))} className="console-key h-6 px-2 text-[11px]">Limpar</button>
             ) : (
               <span className="text-2xs text-logic-text-muted tabular-nums">{state.history.length}/20</span>
             )

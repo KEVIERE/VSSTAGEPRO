@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Maximize2, Minimize2, MonitorPlay, PenLine, Radio, X } from 'lucide-react';
-import LivePanel from '@/components/musician/LivePanel';
+import LivePanel, { defaultSignalHint } from '@/components/musician/LivePanel';
 import SheetPanel from '@/components/musician/SheetPanel';
 import StageView from '@/components/musician/StageView';
 import { ProfilePhotoButton } from '@/components/musician/MusicianAvatar';
 import { currentPart, liveSheetKey, resolveKey } from '@/lib/medleySheets';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
+import { isLocalClient } from '@/lib/localNetwork';
 import type { MusicianState, SetlistSong, SheetBackend, SheetInfo } from '@/lib/musicianTypes';
 
 const SPLIT_LS = 'vs_musician_split';
@@ -13,20 +14,23 @@ const STAGE_LS = 'vs_musician_stage';
 const HINT_LS = 'vs_musician_notebook_hint';
 const TICK_MS = 250;
 const WIDE_QUERY = '(min-width: 768px)';
+// celular deitado: o Modo show fica compacto para sobrar altura para a cifra
+const SHORT_QUERY = '(max-height: 500px)';
 
 type Panel = 'live' | 'sheet';
 
 const PANEL_LABELS: Record<Panel, string> = { live: 'Playlist do show', sheet: 'Partitura / Cifra' };
 
-function useIsWide(): boolean {
-  const [wide, setWide] = useState(() => window.matchMedia(WIDE_QUERY).matches);
+function useMedia(query: string): boolean {
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches);
   useEffect(() => {
-    const mq = window.matchMedia(WIDE_QUERY);
-    const onChange = () => setWide(mq.matches);
+    const mq = window.matchMedia(query);
+    const onChange = () => setMatch(mq.matches);
+    onChange();
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
-  }, []);
-  return wide;
+  }, [query]);
+  return match;
 }
 
 function usePanelFocus() {
@@ -59,7 +63,7 @@ function usePanelFocus() {
 }
 
 export default function MusicianWorkspace({
-  state, sync, sheets, backend, onSheetsChanged, onCreateAccount, status, onLogout,
+  state, sync, sheets, backend, onSheetsChanged, onCreateAccount, status, onLogout, signalHint,
 }: {
   state: MusicianState;
   sync: { lagMs: number; receivedAt: number };
@@ -70,6 +74,8 @@ export default function MusicianWorkspace({
   /** Shown in the middle of the top bar, e.g. the show name or the connection state. */
   status: ReactNode;
   onLogout: () => void;
+  /** Motivo do "Sem sinal do diretor", quando se sabe (Rede Local: o diretor fechou o repertório) */
+  signalHint?: string;
 }) {
   const [now, setNow] = useState(Date.now());
   const [photoMsg, setPhotoMsg] = useState<string | null>(null);
@@ -88,7 +94,8 @@ export default function MusicianWorkspace({
     return v >= 0.25 && v <= 0.7 ? v : 0.38;
   });
   const splitRef = useRef<HTMLDivElement>(null);
-  const wide = useIsWide();
+  const wide = useMedia(WIDE_QUERY);
+  const short = useMedia(SHORT_QUERY);
   // Modo Show: só os displays Tocando/Próxima em cima e a partitura (ou foto dela) da música no ar embaixo
   const [stage, setStage] = useState(() => { try { return localStorage.getItem(STAGE_LS) === '1'; } catch { return false; } });
   const saveStage = (on: boolean) => { setStage(on); try { localStorage.setItem(STAGE_LS, on ? '1' : '0'); } catch { /* conveniência */ } };
@@ -152,16 +159,17 @@ export default function MusicianWorkspace({
     if (focus === 'live') enterFocus('sheet');
   };
 
-  const toggleFollow = () => {
+  // estável entre os tiques do relógio: o caderno (SheetPanel, com memo) não redesenha à toa
+  const toggleFollow = useCallback(() => {
     if (follow) setPinnedSongId(sheetSongId);
     setFollow(!follow);
-  };
+  }, [follow, sheetSongId]);
 
   const livePanel = (
     <LivePanel
       lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
       orderedSongs={orderedSongs} sheets={sheets} selectedSongId={sheetSongId} livePartId={livePart?.id ?? null}
-      onSelectSong={selectSong} onCreateAccount={onCreateAccount}
+      onSelectSong={selectSong} onCreateAccount={onCreateAccount} signalHint={signalHint}
     />
   );
   const sheetPanel = (
@@ -172,6 +180,12 @@ export default function MusicianWorkspace({
       liveSongId={liveKey} liveSongName={livePart ? `${livePart.name} (${currentSong?.name ?? 'medley'})` : currentSong?.name ?? null}
     />
   );
+
+  // O aviso "Sem sinal do diretor" já aparece na playlist e no Modo show; na Partitura (aba do
+  // celular ou tela inteira) vai numa faixa logo abaixo do trilho.
+  const bannerOnScreen = stage || focus === 'live' || (!focus && (wide || mobileTab === 'live'));
+  // Modo show no celular deitado: sem o trilho de cima (a tecla de sair vai na barra do Modo show)
+  const compactStage = stage && short;
 
   // Altura exata da tela (como no VS Stage Remote). Com "100%" a página do músico crescia do
   // tamanho da cifra, porque nada acima dela tem altura fixa: a área da cifra nunca tinha o que
@@ -186,54 +200,72 @@ export default function MusicianWorkspace({
           {photoMsg}
         </div>
       )}
-      <div className="console-rail flex items-center justify-between gap-3 px-3 py-1.5">
-        <div className="flex items-center gap-2 min-w-0">
-          {/* foto de perfil: o diretor musical vê a mesma foto no programa */}
-          <ProfilePhotoButton backend={backend} name={state.musician.name} onMessage={setPhotoMsg} onLogout={onLogout} />
-          {/* nome do músico na fita crepe, como o nome do canal na mesa */}
-          <div className="min-w-0 flex items-center gap-2">
-            <span className="console-tape px-2 py-1 !text-[12px] truncate max-w-[160px]">{state.musician.name}</span>
-            {state.musician.instrument && <span className="console-legend truncate hidden sm:block">{state.musician.instrument}</span>}
+      {!compactStage && (
+        <div className="console-rail flex items-center justify-between gap-3 px-3 py-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* foto de perfil: o diretor musical vê a mesma foto no programa */}
+            <ProfilePhotoButton backend={backend} name={state.musician.name} onMessage={setPhotoMsg} onLogout={onLogout} />
+            {/* nome do músico na fita crepe, como o nome do canal na mesa */}
+            <div className="min-w-0 flex items-center gap-2">
+              <span className="console-tape px-2 py-1 !text-[12px] truncate max-w-[160px]">{state.musician.name}</span>
+              {state.musician.instrument && <span className="console-legend truncate hidden sm:block">{state.musician.instrument}</span>}
+            </div>
+          </div>
+          <div className="min-w-0 hidden lg:block">{status}</div>
+          {/* abaixo de 1024 px o status não cabe: fica o LED da ligação com o diretor, como no Remote */}
+          <span
+            className="lg:hidden flex items-center gap-1.5 shrink-0 console-legend"
+            title={lv.status === 'nosignal' ? 'Sem sinal do diretor' : lv.status === 'live' ? 'Ligado ao diretor' : 'Show fora do ar'}
+          >
+            <span className={`console-led ${lv.status === 'live' ? 'is-on-green' : lv.status === 'nosignal' ? 'is-on-amber animate-pulse' : ''}`} />
+            {isLocalClient() ? 'Rede local' : 'Online'}
+          </span>
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <button
+              onClick={() => { if (focus) exitFocus(); saveStage(!stage); }}
+              className={`console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px] ${stage ? 'is-lit-green' : ''}`}
+              title={stage ? 'Voltar para playlist e caderno' : 'Modo show: os displays Tocando e Próxima em cima e a sua partitura da música no ar embaixo'}
+              aria-pressed={stage}
+            >
+              <MonitorPlay size={14} /> <span className="hidden sm:inline">Modo show</span>
+            </button>
+            {stage ? null : focus ? (
+              <button
+                onClick={exitFocus}
+                className="console-key is-lit-blue flex items-center gap-1.5 h-8 px-3 text-[13px]"
+                title="Voltar ao normal (Esc)"
+              >
+                <Minimize2 size={14} /> <span className="hidden sm:inline">Recolher</span>
+              </button>
+            ) : (
+              (wide ? (['live', 'sheet'] as const) : [mobileTab]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => enterFocus(p)}
+                  className="console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px]"
+                  title={`Expandir ${PANEL_LABELS[p]} para tela inteira`}
+                >
+                  <Maximize2 size={13} /> <span className="hidden sm:inline">{wide ? (p === 'live' ? 'Playlist' : 'Partitura') : 'Tela inteira'}</span>
+                </button>
+              ))
+            )}
           </div>
         </div>
-        <div className="min-w-0 hidden lg:block">{status}</div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
-          <button
-            onClick={() => { if (focus) exitFocus(); saveStage(!stage); }}
-            className={`console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px] ${stage ? 'is-lit-green' : ''}`}
-            title={stage ? 'Voltar para playlist e caderno' : 'Modo show: os displays Tocando e Próxima em cima e a sua partitura da música no ar embaixo'}
-            aria-pressed={stage}
-          >
-            <MonitorPlay size={14} /> <span className="hidden sm:inline">Modo show</span>
-          </button>
-          {stage ? null : focus ? (
-            <button
-              onClick={exitFocus}
-              className="console-key is-lit-blue flex items-center gap-1.5 h-8 px-3 text-[13px]"
-              title="Voltar ao normal (Esc)"
-            >
-              <Minimize2 size={14} /> <span className="hidden sm:inline">Recolher</span>
-            </button>
-          ) : (
-            (wide ? (['live', 'sheet'] as const) : [mobileTab]).map((p) => (
-              <button
-                key={p}
-                onClick={() => enterFocus(p)}
-                className="console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px]"
-                title={`Expandir ${PANEL_LABELS[p]} para tela inteira`}
-              >
-                <Maximize2 size={13} /> <span className="hidden sm:inline">{wide ? (p === 'live' ? 'Playlist' : 'Partitura') : 'Tela inteira'}</span>
-              </button>
-            ))
-          )}
+      )}
+
+      {lv.status === 'nosignal' && !bannerOnScreen && (
+        <div role="alert" className="flex items-center gap-2 px-4 py-2 bg-logic-lcd-amber/10 border-b border-logic-lcd-amber/40 text-sm text-logic-lcd-amber">
+          <span className="console-led is-on-amber animate-pulse shrink-0" />
+          <span className="min-w-0">Sem sinal do diretor. {signalHint ?? defaultSignalHint()}</span>
         </div>
-      </div>
+      )}
 
       {stage ? (
         <StageView
           lv={lv} live={live} currentSong={currentSong} nextSong={nextSong}
           backend={backend} sheets={sheets} onSheetsChanged={onSheetsChanged}
           onEdit={(id) => { saveStage(false); setPinnedSongId(id); setFollow(id === liveKey); openTab('sheet'); }}
+          compact={short} onExit={() => saveStage(false)} signalHint={signalHint}
         />
       ) : focus ? (
         <div key={focus} className="flex-1 min-h-0 flex flex-col overflow-hidden animate-[fadeIn_200ms_ease-out]">

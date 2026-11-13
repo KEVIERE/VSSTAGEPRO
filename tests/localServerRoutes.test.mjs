@@ -168,3 +168,50 @@ test('Excluir: sai da lista e precisa do PIN dos músicos para voltar', async ()
     assert.equal(comPin.status, 202, 'com o PIN cria a conta de novo e espera a aprovação');
   } finally { await ctx.close(); }
 });
+
+// Programa reaberto no meio do show: o servidor liga antes de o projeto mandar o livro de contas.
+// O aparelho lembrado não pode virar "usuário ou senha incorretos" nessa janela (o celular apagava
+// o aparelho e a banda inteira ia para o login).
+test('programa reaberto: resume sem o livro de contas responde not_ready e volta quando o livro chega', async () => {
+  const ctx = await setup();
+  try {
+    const login = await ctx.post('login', { role: 'musician', mode: 'signup', pin: ctx.srv.pins.musician, username: 'ana.voz', password: 'segredo1', name: 'Ana', instrument: 'Voz' });
+    const { remember } = await login.json();
+    asDirector(ctx, (b) => { b.accounts[0].status = 'approved'; b.accounts[0].updatedAt = new Date(Date.now() + 1).toISOString(); return b; });
+    const book = JSON.parse(JSON.stringify(ctx.srv.accounts.book));
+    ctx.srv.setMusicianBook(null);
+    const waiting = await ctx.post('login', { role: 'musician', mode: 'resume', remember });
+    assert.equal(waiting.status, 503);
+    assert.deepEqual(await waiting.json(), { error: 'not_ready' });
+    ctx.srv.setMusicianBook(book);
+    const back = await ctx.post('login', { role: 'musician', mode: 'resume', remember });
+    assert.equal(back.status, 200);
+    assert.equal(typeof (await back.json()).token, 'string');
+  } finally { await ctx.close(); }
+});
+
+test('sem livro de contas: criar conta continua valendo e login errado continua "wrong_login"', async () => {
+  const ctx = await setup();
+  try {
+    assert.equal(ctx.srv.accounts.book, null);
+    const wrong = await ctx.post('login', { role: 'musician', mode: 'login', username: 'ninguem', password: 'segredo1' });
+    assert.equal(wrong.status, 401);
+    assert.equal((await wrong.json()).error, 'wrong_login');
+    const signup = await ctx.post('login', { role: 'musician', mode: 'signup', pin: ctx.srv.pins.musician, username: 'ana.voz', password: 'segredo1', name: 'Ana', instrument: 'Voz' });
+    assert.equal(signup.status, 202);
+  } finally { await ctx.close(); }
+});
+
+test('enviar partitura: a rota diz quantos receberam e quem ficou com o caderno dele', async () => {
+  const ctx = await setup();
+  try {
+    const token = await musicianToken(ctx);
+    const fabi = ctx.srv.accounts.signup({ username: 'fabi', password: 'segredo1', name: 'Fabi' }).account;
+    fabi.status = 'approved';
+    ctx.srv.accounts.save(fabi.id, { songId: 's1', title: 'Minha', content: 'da Fabi' });
+    const saved = await (await ctx.post('sheet-save', { songId: 's1', title: 'Intro', content: 'G C D' }, token)).json();
+    const r = await ctx.post('sheet-share', { sheetId: saved.id, targets: [fabi.id] }, token);
+    assert.deepEqual(await r.json(), { count: 0, skipped: [fabi.id] });
+    assert.equal(ctx.srv.accounts.list(fabi.id)[0].content, 'da Fabi');
+  } finally { await ctx.close(); }
+});

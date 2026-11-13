@@ -124,38 +124,41 @@ function SectionPads({ state, macNow, send }: { state: RemoteState; macNow: () =
               <span className="w-1.5 shrink-0" style={{ backgroundColor: r.color, boxShadow: isActive ? `0 0 8px ${r.color}` : undefined }} />
               <button
                 className="flex-1 min-w-0 flex flex-col justify-center items-start pl-2.5 pr-1 text-left"
-                onClick={() => send({ action: 'section', songId: song.id, regionId: r.id })}
+                onClick={() => send({ action: 'section', songId: song.id, regionId: r.id, queue: !isQueued, loop: !r.loop })}
               >
                 <span className="text-sm font-semibold truncate max-w-full text-logic-text">{r.name}</span>
-                <span className="text-2xs font-medium uppercase tracking-[0.12em] h-3.5">
+                <span className="text-2xs font-medium uppercase tracking-[0.12em] h-3.5 truncate max-w-full">
                   {isQueued && <span className="text-logic-lcd-amber animate-[sectionQueued_900ms_ease-in-out_infinite]">Próxima</span>}
                   {isActive && !isQueued && <span className="text-logic-lcd-green">No ar</span>}
                 </span>
               </button>
-              <div className="flex flex-col items-center justify-center gap-0.5 pr-1.5">
-                <button
-                  className={`console-key w-9 h-7 flex items-center justify-center ${r.loop ? 'is-lit-green' : ''}`}
-                  onClick={() => send({ action: 'regionLoop', songId: song.id, regionId: r.id })}
-                  aria-pressed={r.loop}
-                  aria-label={r.loop ? 'Desligar loop' : 'Ligar loop'}
-                >
-                  <Repeat size={14} strokeWidth={2.5} />
-                </button>
+              {/* repetição antes do loop: a tecla de loop fica sempre no canto direito, e a de
+                  repetição não aparece debaixo do dedo de quem toca de novo no loop */}
+              <div className="flex items-center gap-1 pr-1.5">
                 {r.loop && (
                   <button
-                    className="w-9 h-4 rounded text-2xs font-semibold leading-none text-logic-lcd-green"
-                    onClick={() => send({ action: 'regionRepeat', songId: song.id, regionId: r.id })}
+                    className="console-key w-10 h-10 flex items-center justify-center text-[13px] font-semibold leading-none !text-logic-lcd-green"
+                    onClick={() => send({ action: 'regionRepeat', songId: song.id, regionId: r.id, from: r.repeat })}
+                    aria-label={r.repeat ? `Repete ${r.repeat} vezes. Toque para mudar` : 'Repete até desligar. Toque para mudar'}
                   >
                     {r.repeat ? `${r.repeat}x` : '∞'}
                   </button>
                 )}
+                <button
+                  className={`console-key w-10 h-10 flex items-center justify-center ${r.loop ? 'is-lit-green' : ''}`}
+                  onClick={() => send({ action: 'regionLoop', songId: song.id, regionId: r.id, on: !r.loop })}
+                  aria-pressed={r.loop}
+                  aria-label={r.loop ? 'Desligar loop' : 'Ligar loop'}
+                >
+                  <Repeat size={16} strokeWidth={2.5} />
+                </button>
               </div>
             </div>
           );
         })}
         <button
           className={`console-pad flex flex-col items-center justify-center gap-0.5 h-14 px-3 ${!following ? 'opacity-50' : skipping ? 'is-queued text-logic-lcd-amber' : 'text-logic-text'}`}
-          onClick={() => send({ action: 'skipSection', songId: song.id })}
+          onClick={() => send({ action: 'skipSection', songId: song.id, on: !skipping })}
           disabled={!following}
           aria-pressed={skipping}
         >
@@ -354,7 +357,8 @@ export default function RemoteShowTab({ state, macNow, send }: { state: RemoteSt
                 key={f.id}
                 onClick={() => send({ action: 'flow', flow: f.id })}
                 aria-pressed={on}
-                className={`console-key flex items-center justify-center gap-1.5 h-12 text-[13px] ${on ? 'is-lit-blue' : ''}`}
+                // fluxo em uso aceso em laranja, igual ao Modo Show do Mac
+                className={`console-key flex items-center justify-center gap-1.5 h-12 text-[13px] ${on ? 'is-lit-amber' : ''}`}
               >
                 <f.icon size={14} /> {f.label}
               </button>
@@ -364,10 +368,10 @@ export default function RemoteShowTab({ state, macNow, send }: { state: RemoteSt
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">
-        <button className={ledKey(state.towers.bpm)} onClick={() => send({ action: 'towerBpm' })} aria-pressed={state.towers.bpm}>
+        <button className={ledKey(state.towers.bpm)} onClick={() => send({ action: 'towerBpm', on: !state.towers.bpm })} aria-pressed={state.towers.bpm}>
           <span className={`console-led ${state.towers.bpm ? 'is-on-amber' : ''}`} /><Gauge size={16} /> BPM
         </button>
-        <button className={ledKey(state.towers.tuner)} onClick={() => send({ action: 'towerTuner' })} aria-pressed={state.towers.tuner}>
+        <button className={ledKey(state.towers.tuner)} onClick={() => send({ action: 'towerTuner', on: !state.towers.tuner })} aria-pressed={state.towers.tuner}>
           <span className={`console-led ${state.towers.tuner ? 'is-on-amber' : ''}`} /><AudioWaveform size={16} /> Tuner
         </button>
       </div>

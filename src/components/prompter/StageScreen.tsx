@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { LyricPage, Notice, PrompterSnapshot, PrompterState } from '@/lib/prompterTypes';
 import { kindInfo, lyricFontCss, pageColor, pageScale } from '@/lib/prompterTypes';
 import type { SetlistSong, ShowLive } from '@/lib/musicianTypes';
@@ -11,12 +11,14 @@ import SegmentDisplay from '@/components/SegmentDisplay';
 // The TV must keep scrolling lyrics through short internet drops, so tolerate a long gap before freezing.
 const STAGE_STALE_MS = 30000;
 const COUNT_IN_S = 3;
-const GREEN = '#30d158';
-const ORANGE = '#ff9f0a';
-const RED = '#ff453a';
+// Paleta do programa (skin padrão): lima de "tocando", laranja de "próxima"/fluxo e o vermelho do
+// LCD. Sempre hex de 6 dígitos: o Led e o brilho do aviso somam o alfa no fim (`${cor}bb`).
+const GREEN = '#b8e85c';
+const ORANGE = '#ff8a1e';
+const RED = '#ff4c4c';
 
 const NOTICE_STYLE: Record<Notice['level'], { color: string; label: string }> = {
-  info: { color: '#64d2ff', label: 'AVISO' },
+  info: { color: GREEN, label: 'AVISO' },
   warn: { color: ORANGE, label: 'ATENÇÃO' },
   urgent: { color: RED, label: 'URGENTE' },
 };
@@ -33,12 +35,13 @@ function orderedSongs(snap: PrompterSnapshot): SetlistSong[] {
 
 export default function StageScreen({ snap, sync, now, logoUrl = null }: {
   snap: PrompterSnapshot;
-  sync: { lagMs: number; receivedAt: number };
+  sync: { lagMs: number; receivedAt: number; clockOffsetMs?: number };
   now: number;
   logoUrl?: string | null;
 }) {
   const mem = useRef<{ songId: string | null; t: number }>({ songId: null, t: 0 });
   const p = snap.prompter;
+  useFontPreload(p.lyricFont);
   const live = snap.show.live;
   const songs = orderedSongs(snap);
   const current = live?.currentSongId ? songs.find((s) => s.id === live.currentSongId) ?? null : null;
@@ -48,7 +51,14 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
     current?.id ?? null, mem.current, current?.duration,
   );
   const pages = current ? snap.lyrics.find((l) => l.song_id === current.id)?.pages ?? [] : [];
-  const notice = p.toggles.notices ? activeNotice(p, now, current?.id ?? null, lv.currentTime, lv.isPlaying) : null;
+  // O tempo do aviso foi carimbado na hora do servidor: compara com a hora do servidor, e não com o
+  // relógio deste aparelho (TV box sem internet liga com a hora errada). O relógio e o tempo de show
+  // da barra de cima também usam essa hora. A letra (computeLiveView) continua no `now` local, junto
+  // com o receivedAt, que também é local.
+  const serverNow = now + (sync.clockOffsetMs ?? 0);
+  const notice = p.toggles.notices ? activeNotice(p, serverNow, current?.id ?? null, lv.currentTime, lv.isPlaying) : null;
+  // Sem sinal no meio da música: o Tom/BPM fica no último valor que veio, sem voltar ao padrão.
+  const metaPlaying = lv.isPlaying || (lv.status === 'nosignal' && !!live?.isPlaying);
 
   const frame = (children: React.ReactNode) => (
     <div className="w-full h-full bg-black text-white overflow-hidden select-none" style={{ containerType: 'size' }}>
@@ -65,9 +75,9 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
   return frame(
     <>
       <div className={`absolute inset-0 flex transition-opacity duration-300 ${dimForNotice ? 'opacity-25' : 'opacity-100'}`}>
-        {p.toggles.playlist && <SidePlaylist snap={snap} songs={songs} currentId={current?.id ?? null} nextId={next?.id ?? null} />}
+        {p.toggles.playlist && <SidePlaylist snap={snap} songs={songs} currentId={current?.id ?? null} nextId={next?.id ?? null} barInset={notice?.layout === 'bar' ? p.barSize : 0} />}
         <div className="flex-1 min-w-0 flex flex-col">
-          {showTop && <TopBar p={p} now={now} live={live} playing={lv.isPlaying} current={current} next={next} currentName={current && live?.sliceName ? live.sliceName : current?.name} nextName={live?.nextSliceName && current ? live.nextSliceName : next?.name} currentMedley={current && live?.sliceName ? current.name : undefined} nextMedley={current && live?.nextSliceName ? current.name : undefined} progress={lv.songProgress} remaining={current ? Math.max(0, current.duration - lv.currentTime) : 0} />}
+          {showTop && <TopBar p={p} now={serverNow} live={live} playing={metaPlaying} current={current} next={next} currentName={current && live?.sliceName ? live.sliceName : current?.name} nextName={live?.nextSliceName && current ? live.nextSliceName : next?.name} currentMedley={current && live?.sliceName ? current.name : undefined} nextMedley={current && live?.nextSliceName ? current.name : undefined} progress={lv.songProgress} remaining={current ? Math.max(0, current.duration - lv.currentTime) : 0} />}
           <div className="flex-1 min-h-0 relative">
             {showLyrics && current
               ? <LyricsView pages={pages} t={lv.currentTime} playing={lv.isPlaying} songId={current.id} p={p} />
@@ -76,6 +86,17 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
                   <img key={logoUrl} src={logoUrl} alt="Logo da banda" className="object-contain animate-[prompterFade_600ms_ease-out]" style={{ maxWidth: '60cqw', maxHeight: '60cqh' }} draggable={false} />
                 </div>
               )}
+            {/* Sem sinal: a letra fica parada onde estava. O selo fica dentro da área da letra, para
+                não cobrir o "Tempo de show" nem o Tom/BPM, e grande o bastante para ler de longe. */}
+            {lv.status === 'nosignal' && (
+              <span
+                className="absolute flex items-center gap-[0.6cqw] rounded-[0.5cqh] bg-black/85 font-bold pointer-events-none animate-[prompterFade_250ms_ease-out]"
+                style={{ top: '2.4cqh', right: '5cqw', padding: '0.5cqh 1cqw', fontFamily: BARLOW, fontSize: '2.4cqh', letterSpacing: '0.12em', color: RED, border: `0.2cqh solid ${RED}` }}
+              >
+                <span className="rounded-full" style={{ width: '1.1cqh', height: '1.1cqh', background: RED, boxShadow: `0 0 0.8cqh ${RED}` }} />
+                SEM SINAL DO DIRETOR
+              </span>
+            )}
           </div>
           {notice?.layout === 'bar' && <div style={{ height: `${p.barSize}cqh` }} />}
         </div>
@@ -90,7 +111,6 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
         </div>
       )}
       {notice && <NoticeView notice={notice} barSize={p.barSize} />}
-      {lv.status === 'nosignal' && <span className="absolute top-[1.5cqh] right-[1.5cqh] w-[1.2cqh] h-[1.2cqh] rounded-full bg-[#ff9f0a]" title="Sem sinal do diretor" />}
     </>,
   );
 }
@@ -101,10 +121,65 @@ export default function StageScreen({ snap, sync, now, logoUrl = null }: {
 // cqh/cqw para crescer junto com a TV.
 // ---------------------------------------------------------------------------------------------
 
-const LCD_TEXT = '#d8d3c6';
-const LEGEND = '#8f8b81';
-const STEEL = 'linear-gradient(180deg, #24282d, #1b1e22)';
+// Grafite neutro da skin padrão (--lg-lcd-text, --lg-text-dim, --lg-lcd-amber), sem o aço azulado
+// e o creme da paleta antiga.
+const LCD_TEXT = '#ececf0';
+const LEGEND = '#acacb2';
+const DIM = '#6e6e74';
+const AMBER = '#ff9632';
+const EDGE = '#0e0e0f';
+const STEEL = 'linear-gradient(180deg, #232325, #1c1c1e)';
 const BARLOW = "'Barlow Semi Condensed', 'Inter', system-ui, sans-serif";
+
+// Playlist lateral: alturas fixas (cqh), usadas também para calcular a rolagem.
+const PL_HEAD = 5;    // cabeçalho "Playlist do show"
+const PL_BLOCK = 4.4; // faixa do bloco
+const PL_ROW = 5.6;   // linha da música
+
+/**
+ * Baixa a fonte da letra e a dos rótulos assim que a tela abre, e não só quando a primeira página
+ * aparece: com internet, a letra não sai na fonte reserva e troca no meio da música. A folha do
+ * Google entra depois do primeiro desenho; sem as faces ainda, tenta de novo algumas vezes. Nunca
+ * segura a tela esperando a fonte: o texto aparece sempre.
+ */
+function useFontPreload(lyricFont: PrompterState['lyricFont']) {
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+    if (!fonts || typeof fonts.load !== 'function') return;
+    // Só a primeira família da lista: as reservas não precisam ser baixadas.
+    const first = (css: string) => css.split(',')[0].trim();
+    const specs = [`600 64px ${first(lyricFontCss(lyricFont))}`, `600 32px ${first(BARLOW)}`];
+    let alive = true;
+    let tries = 0;
+    let timer = 0;
+    // Navegador antigo pode estourar na hora em vez de devolver promessa: segue com a fonte reserva.
+    const load = (spec: string): Promise<FontFace[]> => {
+      try { return fonts.load(spec).catch(() => []); } catch { return Promise.resolve([]); }
+    };
+    const run = () => {
+      Promise.all(specs.map(load)).then((found) => {
+        if (alive && found.some((f) => f.length === 0) && ++tries < 6) timer = window.setTimeout(run, 2000);
+      }).catch(() => {});
+    };
+    run();
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [lyricFont]);
+}
+
+// Mesma regra do programa (PlaylistPanel) e do Remote: letra escura em bloco claro, branca em
+// bloco escuro. A cor padrão de bloco é branca.
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function blockInk(hex: string): string {
+  return luminance(hex) > 0.18 ? '#111111' : '#ffffff';
+}
 
 function Legend({ children, color = LEGEND }: { children: React.ReactNode; color?: string }) {
   return (
@@ -118,7 +193,7 @@ function Led({ color }: { color: string | null }) {
   return (
     <span
       className="flex-shrink-0 rounded-full"
-      style={{ width: '0.95cqh', height: '0.95cqh', background: color ?? '#2a1a1a', boxShadow: color ? `0 0 0.7cqh 0.15cqh ${color}bb` : 'inset 0 1px 1px rgba(0,0,0,0.8)' }}
+      style={{ width: '0.95cqh', height: '0.95cqh', background: color ?? '#1c1c1e', boxShadow: color ? `0 0 0.7cqh 0.15cqh ${color}bb` : 'inset 0 1px 1px rgba(0,0,0,0.8)' }}
     />
   );
 }
@@ -163,13 +238,13 @@ function SongDisplay({ label, name, color, song, live, playing, progress, time, 
           {medley && <span className="px-[0.3cqw] rounded-[0.3cqh] border border-current" style={{ fontSize: '1.2cqh', letterSpacing: '0.14em' }}>MEDLEY</span>}
         </Legend>
         <span className="flex items-center gap-[1cqw] flex-shrink-0">
-          <Readout label="Tom" value={m.key} color="#ffab1f" />
+          <Readout label="Tom" value={m.key} color={AMBER} />
           <Readout label="BPM" value={m.bpm} color={LCD_TEXT} />
         </span>
       </div>
       <div className="flex items-center gap-[0.6cqw] min-w-0">
         <div className="flex-1 min-w-0">
-          <p className="console-glow font-semibold truncate" style={{ fontFamily: BARLOW, fontSize: '3.9cqh', lineHeight: 1.1, color: on ? color : '#6f6c66' }}>{name}</p>
+          <p className="console-glow font-semibold truncate" style={{ fontFamily: BARLOW, fontSize: '3.9cqh', lineHeight: 1.1, color: on ? color : DIM }}>{name}</p>
           {medley && <p className="truncate" style={{ fontSize: '1.4cqh', color: LEGEND }}>{medley}</p>}
         </div>
         {/* Cronômetro discreto de propósito: o nome da música é o que o músico precisa ler de longe.
@@ -200,7 +275,7 @@ function TopBar({ p, now, live, playing, current, next, currentName, nextName, c
     : st.phase === 'running' ? 'Tempo de show · restam'
     : 'Passou do horário';
   return (
-    <div className="flex items-stretch gap-[1.2cqw] px-[1.6cqw] py-[1.4cqh]" style={{ height: '17cqh', background: STEEL, borderBottom: '0.3cqh solid #0b0d0f' }}>
+    <div className="flex items-stretch gap-[1.2cqw] px-[1.6cqw] py-[1.4cqh]" style={{ height: '17cqh', background: STEEL, borderBottom: `0.3cqh solid ${EDGE}` }}>
       {p.toggles.clock && (
         <Display className="flex-shrink-0" style={{ width: '15cqw' }}>
           <Legend>Relógio</Legend>
@@ -233,56 +308,83 @@ function TopBar({ p, now, live, playing, current, next, currentName, nextName, c
   );
 }
 
-function SidePlaylist({ snap, songs, currentId, nextId }: { snap: PrompterSnapshot; songs: SetlistSong[]; currentId: string | null; nextId: string | null }) {
+function SidePlaylist({ snap, songs, currentId, nextId, barInset }: {
+  snap: PrompterSnapshot; songs: SetlistSong[]; currentId: string | null; nextId: string | null; barInset: number;
+}) {
   const blocks = new Map(snap.show.setlist.blocks.map((b) => [b.id, b]));
   const blockTotal = (id: string) => songs.filter((s) => s.blockId === id).reduce((sum, s) => sum + (s.duration || 0), 0);
+  // Uma passada só: o cabeçalho de bloco e a posição (cqh) de cada linha.
+  let y = 0;
   let lastBlock: string | null | undefined;
+  const rows = songs.map((s) => {
+    const block = s.blockId ? blocks.get(s.blockId) : undefined;
+    const header = s.blockId !== lastBlock && block ? block : null;
+    lastBlock = s.blockId;
+    if (header) y += PL_BLOCK;
+    const top = y;
+    y += PL_ROW;
+    return { s, header, top };
+  });
+  // A música tocando (ou a próxima, antes do show) fica a um terço do topo; uma lista que cabe
+  // inteira não se mexe. Em cqh a posição continua certa em tela cheia, com o tablet girado e na
+  // prévia do produtor. No fim da lista, as últimas sobem acima do aviso em barra. O transform roda
+  // na placa de vídeo e não pesa na letra; na montagem a lista já aparece no lugar, sem animar.
+  const view = 100 - PL_HEAD;
+  const cur = rows.findIndex((r) => r.s.id === currentId);
+  const focus = cur >= 0 ? cur : rows.findIndex((r) => r.s.id === nextId);
+  const shift = focus < 0 ? 0 : Math.min(Math.max(0, rows[focus].top - view * 0.3), Math.max(0, y + barInset - view));
   return (
-    <div className="w-[23cqw] flex-shrink-0 overflow-hidden" style={{ background: STEEL, borderRight: '0.3cqh solid #0b0d0f' }}>
-      <div className="flex items-center justify-between px-[1.2cqw]" style={{ height: '5cqh', borderBottom: '0.2cqh solid #0b0d0f' }}>
+    <div className="w-[23cqw] flex-shrink-0 flex flex-col overflow-hidden" style={{ background: STEEL, borderRight: `0.3cqh solid ${EDGE}` }}>
+      <div className="flex-shrink-0 flex items-center justify-between px-[1.2cqw]" style={{ height: `${PL_HEAD}cqh`, borderBottom: `0.2cqh solid ${EDGE}` }}>
         <Legend color={LCD_TEXT}>Playlist do show</Legend>
         <Legend>{songs.length} músicas</Legend>
       </div>
-      {songs.map((s, i) => {
-        const block = s.blockId ? blocks.get(s.blockId) : undefined;
-        const header = s.blockId !== lastBlock && block;
-        lastBlock = s.blockId;
-        const isCur = s.id === currentId;
-        const isNext = s.id === nextId;
-        const tone = isCur ? GREEN : isNext ? ORANGE : null;
-        return (
-          <div key={s.id}>
-            {header && (
-              <div className="cue-block relative flex items-center justify-center px-[1.2cqw]" style={{ height: '4.4cqh', background: block.color }}>
-                <span className="font-bold uppercase truncate text-white" style={{ fontFamily: BARLOW, fontSize: '1.9cqh', letterSpacing: '0.16em' }}>{block.name}</span>
-                <span className="absolute right-[1.2cqw] tabular-nums text-white/85 font-semibold" style={{ fontFamily: BARLOW, fontSize: '1.6cqh' }}>{formatClock(blockTotal(block.id))}</span>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <div style={{ transform: `translateY(-${shift.toFixed(2)}cqh)`, transition: 'transform 600ms cubic-bezier(0.22, 1, 0.36, 1)', willChange: 'transform' }}>
+          {rows.map(({ s, header }, i) => {
+            const isCur = s.id === currentId;
+            const isNext = s.id === nextId;
+            const tone = isCur ? GREEN : isNext ? ORANGE : null;
+            const ink = header ? blockInk(header.color) : '#ffffff';
+            return (
+              <div key={s.id}>
+                {header && (
+                  // backgroundColor, e não background: o atalho apagaria o brilho da classe .cue-block.
+                  <div className="cue-block relative flex items-center justify-center px-[1.2cqw]" style={{ height: `${PL_BLOCK}cqh`, backgroundColor: header.color }}>
+                    <span className="font-bold uppercase truncate" style={{ fontFamily: BARLOW, fontSize: '1.9cqh', letterSpacing: '0.16em', color: ink }}>{header.name}</span>
+                    <span className="absolute right-[1.2cqw] tabular-nums font-semibold" style={{ fontFamily: BARLOW, fontSize: '1.6cqh', color: ink, opacity: 0.85 }}>{formatClock(blockTotal(header.id))}</span>
+                  </div>
+                )}
+                <div
+                  className={`cue-row flex items-center gap-[0.9cqw] px-[1.2cqw] ${isCur ? 'is-current' : isNext ? 'is-next' : ''}`}
+                  style={{ height: `${PL_ROW}cqh`, borderBottom: '1px solid rgba(0,0,0,0.45)' }}
+                >
+                  <Led color={tone} />
+                  <span className="flex flex-shrink-0" style={{ height: '2.5cqh', color: tone ?? DIM }}>
+                    <SegmentDisplay text={String(i + 1).padStart(2, '0')} className="h-full" label={`Música ${i + 1}`} />
+                  </span>
+                  <span className={`flex-1 min-w-0 truncate font-semibold ${tone ? 'console-glow' : ''}`} style={{ fontFamily: BARLOW, fontSize: '2.6cqh', color: tone ?? LCD_TEXT }}>{s.name}</span>
+                  <span className="flex-shrink-0 tabular-nums" style={{ fontFamily: BARLOW, fontSize: '1.7cqh', color: tone ?? LEGEND }}>{formatClock(s.duration || 0)}</span>
+                </div>
               </div>
-            )}
-            <div
-              className={`cue-row flex items-center gap-[0.9cqw] px-[1.2cqw] ${isCur ? 'is-current' : isNext ? 'is-next' : ''}`}
-              style={{ height: '5.6cqh', borderBottom: '1px solid rgba(0,0,0,0.45)' }}
-            >
-              <Led color={tone} />
-              <span className="flex flex-shrink-0" style={{ height: '2.5cqh', color: tone ?? '#6f6c66' }}>
-                <SegmentDisplay text={String(i + 1).padStart(2, '0')} className="h-full" label={`Música ${i + 1}`} />
-              </span>
-              <span className={`flex-1 min-w-0 truncate font-semibold ${tone ? 'console-glow' : ''}`} style={{ fontFamily: BARLOW, fontSize: '2.6cqh', color: tone ?? LCD_TEXT }}>{s.name}</span>
-              <span className="flex-shrink-0 tabular-nums" style={{ fontFamily: BARLOW, fontSize: '1.7cqh', color: tone ?? LEGEND }}>{formatClock(s.duration || 0)}</span>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
 
 function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: number; playing: boolean; songId: string; p: PrompterState }) {
+  // A página já entra adiantada pela antecipação (pageIndexFor soma lyricLead por dentro). A
+  // contagem 3-2-1 e a barra da página andam com o mesmo tempo, senão o "1" some e a barra atrasa.
+  const tl = t + (p.lyricLead ?? 0);
   const idx = pageIndexFor(pages, t, songId, p);
   const firstTime = pages.find((x) => x.time !== null)?.time ?? null;
 
   if (idx < 0) {
-    const until = firstTime !== null ? firstTime - t : null;
+    const until = firstTime !== null ? firstTime - tl : null;
     const counting = playing && until !== null && until <= COUNT_IN_S && until > 0;
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center px-[6cqw]">
@@ -305,7 +407,7 @@ function LyricsView({ pages, t, playing, songId, p }: { pages: LyricPage[]; t: n
   const next = pages[idx + 1];
   const nextT = nextPageTime(pages, idx);
   const span = nextT !== null && page.time !== null ? nextT - page.time : 0;
-  const progress = span > 0 && page.time !== null ? Math.min(1, Math.max(0, (t - page.time) / span)) : 0;
+  const progress = span > 0 && page.time !== null ? Math.min(1, Math.max(0, (tl - page.time) / span)) : 0;
   const kind = kindInfo(page.kind);
   const fontFamily = lyricFontCss(p.lyricFont);
   const items = karaokeSlots(pages, idx, p.fontScale);

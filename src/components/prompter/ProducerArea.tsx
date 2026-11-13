@@ -106,7 +106,7 @@ export default function ProducerArea() {
                 key={id}
                 onClick={() => setTab(id)}
                 aria-pressed={tab === id}
-                className={`console-key flex items-center gap-1.5 px-3.5 h-8 text-[12px] ${tab === id ? 'is-lit-amber' : ''}`}
+                className={`console-key flex items-center gap-1.5 px-3.5 h-8 text-[12px] ${tab === id ? 'is-lit-blue' : ''}`}
               >
                 <Icon size={14} /> {label}
                 {id === 'notices' && live && <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-amber" />}
@@ -162,19 +162,20 @@ export default function ProducerArea() {
         </div>
       </main>
 
-      <nav className="console-rail sm:hidden fixed bottom-0 inset-x-0 z-30 border-t-2 border-black grid grid-cols-3">
+      {/* Barra de baixo em grafite (o alumínio fica só nos títulos), com as mesmas teclas do Remote. */}
+      <nav
+        className="console-rail vs-legend-bar sm:hidden fixed bottom-0 inset-x-0 z-30 border-t-2 border-black grid grid-cols-3 gap-1.5 px-3 pt-2"
+        style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
+      >
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             aria-pressed={tab === id}
-            className={`relative flex flex-col items-center gap-1 py-2.5 text-[11px] font-bold tracking-wide transition-colors ${
-              tab === id ? 'text-logic-lcd-amber' : 'text-logic-text-dim'
-            }`}
+            className={`console-key relative flex items-center justify-center gap-1.5 h-12 text-[14px] ${tab === id ? 'is-lit-blue' : ''}`}
           >
-            <Icon size={20} />
-            {label}
-            {id === 'notices' && live && <span className="absolute top-2 right-[calc(50%-16px)] w-2 h-2 rounded-full bg-logic-lcd-amber" />}
+            <Icon size={16} /> {label}
+            {id === 'notices' && live && <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-logic-lcd-amber" />}
           </button>
         ))}
       </nav>

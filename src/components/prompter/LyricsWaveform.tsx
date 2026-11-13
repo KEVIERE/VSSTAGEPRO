@@ -3,16 +3,21 @@ import { ZoomIn, ZoomOut } from 'lucide-react';
 import type { LyricPage } from '@/lib/prompterTypes';
 import { kindInfo } from '@/lib/prompterTypes';
 import { formatClock } from '@/lib/prompterView';
+import { NEUTRAL_TRACK_COLOR } from '@/lib/trackColors';
 
 export async function decodePeaks(file: File, buckets = 12000): Promise<{ peaks: Float32Array; duration: number }> {
   const buf = await file.arrayBuffer();
-  const ctx = new OfflineAudioContext(1, 1, 44100);
+  // Mesma taxa do áudio do show (REF_RATE, prompterAudio.ts): não reamostra e usa metade da
+  // memória de 44,1 kHz. Num medley longo isso fazia o Safari do celular recarregar a aba.
+  const ctx = new OfflineAudioContext(1, 1, 22050);
   const audio = await ctx.decodeAudioData(buf);
   const peaks = new Float32Array(buckets);
   const step = Math.max(1, Math.floor(audio.length / buckets));
   for (let c = 0; c < audio.numberOfChannels; c++) {
     const data = audio.getChannelData(c);
     for (let b = 0; b < buckets; b++) {
+      // de tempos em tempos devolve a vez para a tela (toque e digitação não travam)
+      if (b && b % 1000 === 0) await new Promise((r) => setTimeout(r, 0));
       let max = 0;
       const start = b * step;
       const end = Math.min(data.length, start + step);
@@ -166,7 +171,8 @@ export default function LyricsWaveform({ peaks, duration, t, pages, activeIdx, s
     g.fillStyle = 'rgba(255,255,255,0.06)';
     g.fillRect(0, mid, width, 1);
     if (!peaks || !duration) return;
-    g.fillStyle = '#5b8db8';
+    // cinza neutro das faixas (como na timeline), a 70%: a cor do tipo Intro continua aparecendo por cima
+    g.fillStyle = `${NEUTRAL_TRACK_COLOR}b3`;
     const n = peaks.length;
     for (let x = 0; x < width; x++) {
       // cada coluna de pixel pega o pico do trecho de música que ela cobre

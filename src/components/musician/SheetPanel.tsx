@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { ClipboardPaste, ImagePlus, PenLine, Radio, Sparkles } from 'lucide-react';
 import { useImageImport } from './notebook/useImageImport';
 import type { SheetBackend, SheetInfo } from '@/lib/musicianTypes';
@@ -32,7 +32,7 @@ function readPrefs(): ToolPrefs {
 const mapLine = (d: NotebookDoc, id: string, fn: (l: NotebookLine) => NotebookLine): NotebookDoc =>
   ({ ...d, lines: d.lines.map((l) => (l.id === id ? fn(l) : l)) });
 
-export default function SheetPanel({
+function SheetPanel({
   backend, songId, songName, sheet, follow, onToggleFollow, onSheetsChanged, liveSongId, liveSongName,
 }: {
   backend: SheetBackend;
@@ -372,3 +372,6 @@ export default function SheetPanel({
     </div>
   );
 }
+
+// memo: o relógio da área redesenha o pai 4 vezes por segundo; o caderno só muda com as próprias props
+export default memo(SheetPanel);
