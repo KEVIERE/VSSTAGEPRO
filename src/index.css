@@ -2282,8 +2282,7 @@
     box-shadow: inset -1px 0 0 #0e0e0e;
   }
   .of-name.is-selected .of-name-text {
-    color: #161616;
-    background: #e4e4e4;
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--ch) 75%, #ffffff);
   }
   .of-name-num {
     height: 15px;
@@ -2352,9 +2351,9 @@
     border-radius: 9999px;
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.25);
   }
+  /* faixa selecionada: a pílula continua escura (igual às outras), só ganha um contorno claro */
   :where([data-skin='oficina']) .console-row.is-selected .console-tape {
-    color: #161616;
-    background: #ededed;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.7);
   }
 
   /* fader de pitch dos pads e o deitado da timeline: capa clara */
