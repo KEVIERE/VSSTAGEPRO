@@ -3313,6 +3313,10 @@
   :where(:root:not([data-skin])) .vu-lufs-item b.is-hot { color: #ff9a2e; text-shadow: 0 0 6px rgba(255, 154, 46, 0.5); }
   :where(:root:not([data-skin])) .vu-lufs-item b.is-over { color: #ff4c4c; text-shadow: 0 0 6px rgba(255, 76, 76, 0.5); }
 
+  /* fundo atrás dos áudios: um pouco mais escuro que o painel, para os áudios e as ondas saltarem
+     (as cores da linha do timecode, das pastas e do arrasto continuam por cima) */
+  :where(:root:not([data-skin])) .timeline-scroll-container { background-color: #18181a; }
+
   /* ---------- faixas da timeline: o mesmo grafite granulado; a selecionada mais clara ---------- */
   :where(:root:not([data-skin])) .console-row {
     background-color: #29292b;

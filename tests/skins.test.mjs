@@ -361,3 +361,10 @@ test('VU parado no lugar, fluxo do show em laranja e texto legível no alumínio
   assert.match(show, /\$\{on \? 'is-lit-amber' : ''\}/, 'fluxo aceso em laranja');
   assert.match(def, /\.cue-row\.is-selected \{[\s\S]{0,400}inset 0 0 0 2px #e9e9ee/, 'música selecionada com borda em volta');
 });
+
+test('fundo atrás dos áudios um pouco mais escuro que o painel', () => {
+  const css = read('src', 'index.css');
+  const def = css.slice(css.indexOf('Skin padrão: VS Stage, equipamento'));
+  assert.match(def, /:where\(:root:not\(\[data-skin\]\)\) \.timeline-scroll-container \{ background-color: #18181a; \}/);
+});
+
