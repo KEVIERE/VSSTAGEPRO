@@ -2713,5 +2713,22 @@
     font-size: 10px;
     color: #a3a3a3;
   }
+
+  /* nomes menores (em maiúsculas ocupam mais): cabem inteiros na faixa e no canal */
+  :root[data-skin='oficina'] .of-track-label {
+    font-size: 10px !important;
+    font-weight: 600 !important;
+  }
+  .of-track-name,
+  .of-name-text {
+    letter-spacing: 0;
+  }
+  .of-name-text {
+    font-size: 9.5px;
+  }
+  .of-track-icon {
+    width: 15px;
+    height: 15px;
+  }
 }
 
