@@ -2432,4 +2432,200 @@
     background-color: rgba(47, 196, 142, 0.16);
     box-shadow: inset 3px 0 0 #2fc48e;
   }
+
+  /* ================= Oficina: acabamento =================
+     O destaque é a tampa de cor no alto de cada canal (alumínio anodizado colorido, com brilho
+     e quina de luz) junto com o fader cromado; o resto fica discreto e preciso. */
+
+  /* painéis: aço escuro com luz de cima e um fio claro no chanfro */
+  :where([data-skin='oficina']) .console-face {
+    background-color: #2c2e32;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(0, 0, 0, 0.12));
+  }
+  :where([data-skin='oficina']) .console-rail {
+    background-color: #25272a;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.1));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 0 #0d0e0f;
+  }
+  :where([data-skin='oficina']) .console-bed {
+    background-color: #161719;
+  }
+
+  /* canal: grafite com leve degradê, separado por um fio escuro e um fio de luz */
+  :where([data-skin='oficina']) .console-strip {
+    background-color: #1d1e21;
+    background-image: linear-gradient(180deg, #24262a 0%, #1d1e21 40%, #191a1c 100%);
+    box-shadow: inset -1px 0 0 #0b0c0d, inset 1px 0 0 rgba(255, 255, 255, 0.045);
+  }
+  :where([data-skin='oficina']) .console-strip:hover {
+    background-image: linear-gradient(180deg, #2a2c30 0%, #212226 40%, #1c1d20 100%);
+  }
+  /* selecionado: um halo fino na cor do canal em volta da parte escura */
+  :where([data-skin='oficina']) .console-strip.is-selected {
+    background-image: linear-gradient(180deg, #2c2e33 0%, #222428 45%, #1c1d20 100%);
+    box-shadow: inset -1px 0 0 #0b0c0d, inset 0 0 0 1px color-mix(in srgb, var(--ch, #888) 55%, transparent), inset 0 0 14px color-mix(in srgb, var(--ch, #888) 18%, transparent);
+  }
+
+  /* a tampa de cor: alumínio anodizado na cor do canal */
+  .of-top {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.08) 38%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.16) 100%),
+      linear-gradient(180deg, color-mix(in srgb, var(--ch) 72%, #c9c9c9), color-mix(in srgb, var(--ch) 64%, #6d6d6d));
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.55),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.45),
+      inset -1px 0 0 rgba(0, 0, 0, 0.22),
+      0 2px 4px rgba(0, 0, 0, 0.45);
+  }
+  .of-strip.is-selected .of-top {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.42) 0%, rgba(255, 255, 255, 0.12) 38%, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, 0.12) 100%),
+      linear-gradient(180deg, color-mix(in srgb, var(--ch) 80%, #e0e0e0), color-mix(in srgb, var(--ch) 72%, #7a7a7a));
+  }
+  /* pílula da saída: vidro escuro embutido na tampa */
+  :root[data-skin='oficina'] .of-top > button {
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.28));
+    color: #fbfbfb;
+    font-size: 10px;
+    letter-spacing: 0.01em;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+  /* knob: assentado numa cavidade escura */
+  .of-knob {
+    filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45));
+  }
+
+  /* números do volume e do pico */
+  .of-vol {
+    color: #a7abb1;
+    font-weight: 500;
+  }
+  .of-peak {
+    color: #5fd39a;
+    font-weight: 500;
+  }
+
+  /* ranhura do fader rebaixada, com fio de luz na borda de baixo */
+  .of-slot {
+    width: 4px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #000 0%, #0d0e10 50%, #000 100%);
+    box-shadow: inset 0 1px 2px #000, 0 1px 0 rgba(255, 255, 255, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.6);
+  }
+
+  /* medidor: vidro escuro com micro-segmentos */
+  .of-meter-bar {
+    border-radius: 2px;
+    background: #0e0f10;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  .of-meter-bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to top, transparent 0 2px, rgba(14, 15, 16, 0.85) 2px 3px);
+  }
+  .of-meter-fill {
+    background: linear-gradient(to top, #1fae55 0%, #3fd77a 70%, #c9e24a 82%, #f5b942 90%, #ff5232 100%);
+    box-shadow: 0 0 6px rgba(63, 215, 122, 0.35);
+  }
+  .of-meter.is-hot .of-meter-bar {
+    background: linear-gradient(180deg, #5e1f12, #2e120b);
+  }
+  .of-meter-clip {
+    border-radius: 1px;
+    background: #222326;
+  }
+
+  /* botões: luz interna e brilho suave quando acesos */
+  :where([data-skin='oficina']) .console-key,
+  :where([data-skin='oficina']) .logic-btn,
+  :where([data-skin='oficina']) .logic-btn-transport {
+    color: #d9dbde;
+    background-color: #2a2c30;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.02) 48%, rgba(0, 0, 0, 0.2) 100%);
+    border: 1px solid #08090a;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.11), 0 1px 1px rgba(0, 0, 0, 0.5);
+  }
+  :where([data-skin='oficina']) .console-key:hover,
+  :where([data-skin='oficina']) .logic-btn:hover,
+  :where([data-skin='oficina']) .logic-btn-transport:hover {
+    background-color: #33363a;
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-red {
+    background-color: #e0402f;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.04) 50%, rgba(0, 0, 0, 0.14));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 8px rgba(255, 70, 50, 0.45);
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-amber {
+    background-color: #f5b942;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.05) 50%, rgba(0, 0, 0, 0.1));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 0 8px rgba(245, 185, 66, 0.45);
+  }
+  :where([data-skin='oficina']) .console-key.is-lit-green,
+  :where([data-skin='oficina']) .console-key.is-lit-blue,
+  :where([data-skin='oficina']) .console-key.\!bg-\[\#3a3326\] {
+    background-color: #34c38f !important;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.04) 50%, rgba(0, 0, 0, 0.12));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), 0 0 8px rgba(52, 195, 143, 0.45);
+  }
+  :where([data-skin='oficina']) .of-key.is-m:not(.is-lit-red) { color: #ff6a58; text-shadow: 0 0 6px rgba(255, 90, 70, 0.35); }
+  :where([data-skin='oficina']) .of-key.is-s:not(.is-lit-amber) { color: #f5c94e; text-shadow: 0 0 6px rgba(245, 200, 80, 0.3); }
+  :where([data-skin='oficina']) .of-key.is-fx:not(.is-lit-green):not(.is-lit-red) {
+    color: #c9f7e4;
+    background-color: #1b5e47;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(0, 0, 0, 0.18));
+  }
+
+  /* rodapé do canal: nome sobre vidro escuro e o número com brilho */
+  .of-name-text {
+    font-weight: 600;
+    background: linear-gradient(180deg, #17181a, #121314);
+    box-shadow: inset -1px 0 0 #08090a, inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  }
+  .of-name-num {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.02) 55%, rgba(0, 0, 0, 0.12)),
+      var(--ch);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset -1px 0 0 rgba(0, 0, 0, 0.3);
+  }
+
+  /* visores: vidro preto com reflexo discreto */
+  :where([data-skin='oficina']) .logic-lcd,
+  :where([data-skin='oficina']) .console-display {
+    border-color: #050505;
+    border-radius: 5px;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 40%);
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  :root[data-skin='oficina'] {
+    --lg-lcd-bg: 18 19 21;
+  }
+
+  /* timeline: faixa com brilho de alumínio na cor, nome em vidro escuro */
+  :where([data-skin='oficina']) .console-row {
+    background-color: color-mix(in srgb, var(--ch, #8a8a8a) 55%, #8f8f8f);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.04) 45%, rgba(0, 0, 0, 0.1) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
+  }
+  :where([data-skin='oficina']) .console-row.is-selected {
+    background-color: color-mix(in srgb, var(--ch, #8a8a8a) 66%, #a8a8a8);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.5), inset 3px 0 0 #ffffff;
+  }
+  :where([data-skin='oficina']) .console-tape {
+    background: linear-gradient(180deg, #1a1b1d, #232528);
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  .of-track-icon {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0) 60%) !important;
+  }
+  /* clipes: cantos suaves e quina de luz, como peças na timeline */
+  :root[data-skin='oficina'] [data-selectable='clip'] {
+    border-radius: 4px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
 }
+
