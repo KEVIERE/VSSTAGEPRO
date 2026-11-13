@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_READY_VOICE, READY_CUE_GROUPS, RECORDED_CUE_IDS, cueKey, findReadyCue, hasRecording, highlightParts,
+  readyCueUrl, recordedIntensity,
   readyVoice, searchReadyCues, searchWords, voiceFromOldChoice,
 } from '../src/lib/maestroCues.ts';
 
@@ -58,26 +59,25 @@ test('o banco tem cerca de cinco vezes mais falas, sem id ou texto repetido', ()
   }
 });
 
-test('as falas gravadas continuam todas na lista, com o mesmo id', () => {
+test('toda fala da lista tem a voz gravada, e os ids antigos não mudaram', () => {
   const ids = new Set(all.map((c) => c.id));
-  assert.equal(RECORDED_CUE_IDS.size, 209);
+  assert.equal(RECORDED_CUE_IDS.size, all.length);
   for (const id of RECORDED_CUE_IDS) assert.ok(ids.has(id), id);
   assert.equal(findReadyCue('Vai pro refrão')?.id, 'vai-pro-refrao');
-  assert.ok(hasRecording('vai-pro-refrao'));
-  assert.ok(!hasRecording('sobe'), 'fala nova ainda não tem gravação');
-  assert.ok(hasRecording(findReadyCue('Atenção')), 'o exemplo da voz usa só falas gravadas');
+  for (const c of all) assert.ok(hasRecording(c), c.id);
   for (const w of ['Um', 'Dois', 'Três', 'Quatro']) assert.ok(hasRecording(findReadyCue(w)), w);
 });
 
-test('a lista para gravar (desktop/maestro-falas-novas.json) tem exatamente as falas sem gravação', () => {
-  const novas = JSON.parse(read('desktop', 'maestro-falas-novas.json'));
-  const semGravacao = all.filter((c) => !hasRecording(c));
-  assert.deepEqual(novas.map((n) => n.id).sort(), semGravacao.map((c) => c.id).sort());
-  for (const n of novas) {
-    const cue = all.find((c) => c.id === n.id);
-    assert.equal(n.text, cue.text);
-    assert.equal(n.group, cue.group);
-  }
+test('intensidade que a fala ainda não tem sai na Normal (nunca dá arquivo faltando)', () => {
+  const felipe = readyVoice('pronta:felipe:calma');
+  const nova = findReadyCue('Sobe');
+  assert.ok(nova && hasRecording(nova));
+  assert.equal(recordedIntensity(nova, 'calma'), 'normal');
+  assert.equal(readyCueUrl(felipe, nova), `/maestro-falas/felipe/${nova.id}.mp3`);
+  const antiga = findReadyCue('Vai pro refrão');
+  assert.equal(recordedIntensity(antiga, 'calma'), 'calma');
+  assert.equal(readyCueUrl(felipe, antiga), '/maestro-falas/felipe/calma/vai-pro-refrao.mp3');
+  assert.equal(recordedIntensity(antiga, 'normal'), 'normal');
 });
 
 test('fala pronta sem gravação cai na voz do Mac com aviso, sem erro', () => {

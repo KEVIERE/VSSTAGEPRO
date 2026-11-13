@@ -5,11 +5,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { READY_CUE_GROUPS, READY_INTENSITIES, READY_VOICES, RECORDED_CUE_IDS, findReadyCue, hasRecording, readyCueUrl, readyVoice, readyVoiceId, cueKey } from '../src/lib/maestroCues.ts';
+import { READY_CUE_GROUPS, READY_INTENSITIES, READY_VOICES, RECORDED_CUE_IDS, findReadyCue, hasRecording, readyCueUrl, readyVoice, readyVoiceId, recordedIntensity, cueKey } from '../src/lib/maestroCues.ts';
 
 const all = READY_CUE_GROUPS.flatMap((g) => g.cues);
 
-test('toda fala gravada tem o arquivo nas duas vozes e nas três intensidades', () => {
+test('toda fala gravada tem o arquivo nas duas vozes (a intensidade que faltar sai na Normal)', () => {
   for (const v of READY_VOICES) {
     for (const l of READY_INTENSITIES) {
       const voice = readyVoice(readyVoiceId(v, l.id));
@@ -29,7 +29,8 @@ test('a lista de gravadas é igual à pasta de cada voz e intensidade (nem falta
     for (const l of READY_INTENSITIES) {
       const dir = path.join('public', 'maestro-falas', v.dir, l.id === 'normal' ? '' : l.id);
       const files = fs.readdirSync(dir).filter((f) => f.endsWith('.mp3')).map((f) => f.slice(0, -4)).sort();
-      assert.deepEqual(files, [...RECORDED_CUE_IDS].sort(), `${dir} diferente da lista de gravadas`);
+      const want = all.filter((c) => hasRecording(c) && recordedIntensity(c, l.id) === l.id).map((c) => c.id).sort();
+      assert.deepEqual(files, want, `${dir} diferente da lista de gravadas`);
     }
   }
 });

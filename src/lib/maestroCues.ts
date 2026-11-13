@@ -2,9 +2,11 @@
 // (ElevenLabs, plano pago), em três intensidades. Os arquivos ficam em
 // public/maestro-falas/<voz>/<id>.mp3 (Normal) e public/maestro-falas/<voz>/<calma|forte>/<id>.mp3,
 // e funcionam sem internet. Texto fora desta lista sai numa voz do próprio Mac (Masculina ou Feminina).
-// Felipe e Bianca são as vozes padrão do Maestro por IA. As falas marcadas "sem gravação ainda" já
-// estão na lista (a busca acha), mas ainda não têm áudio: até serem gravadas saem na voz do Mac,
-// com aviso (veja RECORDED_CUE_IDS no fim do arquivo).
+// Felipe e Bianca são as vozes padrão do Maestro por IA. Toda fala tem a Normal gravada; quando a
+// Calma ou a Forte de uma fala ainda não foi gravada, ela sai na Normal (veja recordedIntensity).
+// Fala nova na lista e ainda sem áudio sai na voz do Mac, com aviso.
+
+import { RECORDED_CALMA, RECORDED_FORTE, RECORDED_NORMAL } from './maestroFalasGravadas.ts';
 
 export interface ReadyCue { id: string; text: string }
 export interface ReadyCueGroup { id: string; label: string; cues: ReadyCue[] }
@@ -35,7 +37,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'ultimo-refrao', text: "Último refrão" },
     { id: 'ultima-ponte', text: "Última ponte" },
     { id: 'final', text: "Final" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'introducao', text: "Introdução" },
     { id: 'intro-2', text: "Intro 2" },
     { id: 'intro-curta', text: "Intro curta" },
@@ -93,7 +94,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'sem-pausa', text: "Sem pausa" },
     { id: 'vamos-pro-final', text: "Vamos pro final" },
     { id: 'proxima-musica', text: "Próxima música" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'vai-pra-intro', text: "Vai pra intro" },
     { id: 'vai-pro-pre-refrao', text: "Vai pro pré-refrão" },
     { id: 'vai-pro-refrao-2', text: "Vai pro refrão 2" },
@@ -152,7 +152,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'mais-uma-no-refrao', text: "Mais uma no refrão" },
     { id: 'ultima-vez', text: "Última vez" },
     { id: 'ultima', text: "Última" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'repete-o-verso', text: "Repete o verso" },
     { id: 'repete-o-pre-refrao', text: "Repete o pré-refrão" },
     { id: 'repete-o-solo', text: "Repete o solo" },
@@ -215,7 +214,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'entra-a-banda', text: "Entra a banda" },
     { id: 'todo-mundo', text: "Todo mundo" },
     { id: 'vai-sumindo', text: "Vai sumindo" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'sobe', text: "Sobe" },
     { id: 'desce', text: "Desce" },
     { id: 'sobe-mais', text: "Sobe mais" },
@@ -285,7 +283,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'segura-no-final', text: "Segura no final" },
     { id: 'final-arrastado', text: "Final arrastado" },
     { id: 'silencio', text: "Silêncio" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'para', text: "Para" },
     { id: 'para-no-um', text: "Para no um" },
     { id: 'para-no-quatro', text: "Para no quatro" },
@@ -359,7 +356,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'sem-percussao', text: "Sem percussão" },
     { id: 'sem-piano', text: "Sem piano" },
     { id: 'sem-cavaco', text: "Sem cavaco" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'so-voz-e-guitarra', text: "Só voz e guitarra" },
     { id: 'so-voz-e-baixo', text: "Só voz e baixo" },
     { id: 'so-voz-e-bateria', text: "Só voz e bateria" },
@@ -446,7 +442,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'solo-de-flauta', text: "Solo de flauta" },
     { id: 'solo-de-gaita', text: "Solo de gaita" },
     { id: 'solo-de-violino', text: "Solo de violino" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'entra-o-pad', text: "Entra o pad" },
     { id: 'entra-a-voz', text: "Entra a voz" },
     { id: 'entra-o-ministro', text: "Entra o ministro" },
@@ -499,7 +494,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'guitarra-dobra-a-voz', text: "Guitarra dobra a voz" },
   ] },
   { id: 'cada-musico', label: "Para cada músico", cues: [
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'bateria-segura', text: "Bateria, segura" },
     { id: 'bateria-sobe', text: "Bateria, sobe" },
     { id: 'bateria-desce', text: "Bateria, desce" },
@@ -570,7 +564,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'unissono', text: "Uníssono" },
     { id: 'so-a-primeira-voz', text: "Só a primeira voz" },
     { id: 'entra-a-segunda-voz', text: "Entra a segunda voz" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'terceira-voz-no-refrao', text: "Terceira voz no refrão" },
     { id: 'abre-as-vozes-no-refrao', text: "Abre as vozes no refrão" },
     { id: 'abre-a-voz', text: "Abre a voz" },
@@ -620,7 +613,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'desce-meio-tom', text: "Desce meio tom" },
     { id: 'desce-um-tom', text: "Desce um tom" },
     { id: 'tom-original', text: "Tom original" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'sobe-dois-tons', text: "Sobe dois tons" },
     { id: 'sobe-um-tom-e-meio', text: "Sobe um tom e meio" },
     { id: 'desce-dois-tons', text: "Desce dois tons" },
@@ -658,7 +650,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'tom-do-ministro', text: "Tom do ministro" },
   ] },
   { id: 'harmonia', label: "Harmonia", cues: [
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'pedal', text: "Pedal" },
     { id: 'nota-pedal', text: "Nota pedal" },
     { id: 'fica-no-pedal', text: "Fica no pedal" },
@@ -690,7 +681,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'dobra-o-tempo', text: "Dobra o tempo" },
     { id: 'meio-tempo', text: "Meio tempo" },
     { id: 'tempo-normal', text: "Tempo normal" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'mais-lento', text: "Mais lento" },
     { id: 'desacelera', text: "Desacelera" },
     { id: 'segura-o-tempo', text: "Segura o tempo" },
@@ -725,7 +715,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'sem-pressa', text: "Sem pressa" },
   ] },
   { id: 'levada', label: "Levada e groove", cues: [
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'groove', text: "Groove" },
     { id: 'mais-groove', text: "Mais groove" },
     { id: 'levada', text: "Levada" },
@@ -765,7 +754,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'palmas', text: "Palmas" },
     { id: 'maos-pra-cima', text: "Mãos pra cima" },
     { id: 'todo-mundo-pulando', text: "Todo mundo pulando" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'canta-igreja', text: "Canta igreja" },
     { id: 'vamos-cantar', text: "Vamos cantar" },
     { id: 'vamos-cantar-juntos', text: "Vamos cantar juntos" },
@@ -810,7 +798,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'quem-puder-se-ajoelhe', text: "Quem puder, se ajoelhe" },
   ] },
   { id: 'culto', label: "Culto e ministração", cues: [
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'adoracao', text: "Adoração" },
     { id: 'momento-de-adoracao', text: "Momento de adoração" },
     { id: 'clamor', text: "Clamor" },
@@ -881,7 +868,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'pausa', text: "Pausa" },
     { id: 'intervalo', text: "Intervalo" },
     { id: 'bis', text: "Bis" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'abertura', text: "Abertura" },
     { id: 'encerramento', text: "Encerramento" },
     { id: 'apresentacao-da-banda', text: "Apresentação da banda" },
@@ -919,7 +905,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'pula-essa-musica', text: "Pula essa música" },
   ] },
   { id: 'com-a-banda', label: "Com a banda", cues: [
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'olha-pra-mim', text: "Olha pra mim" },
     { id: 'olha-o-sinal', text: "Olha o sinal" },
     { id: 'me-acompanha', text: "Me acompanha" },
@@ -964,7 +949,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'como-combinamos', text: "Como combinamos" },
   ] },
   { id: 'tecnico', label: "Técnico e som", cues: [
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'click', text: "Click" },
     { id: 'liga-o-click', text: "Liga o click" },
     { id: 'desliga-o-click', text: "Desliga o click" },
@@ -1042,7 +1026,6 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'dois-compassos', text: "Dois compassos" },
     { id: 'quatro-compassos', text: "Quatro compassos" },
     { id: 'oito-compassos', text: "Oito compassos" },
-    // sem gravação ainda (lista em desktop/maestro-falas-novas.json)
     { id: 'nove', text: "Nove" },
     { id: 'dez', text: "Dez" },
     { id: 'doze', text: "Doze" },
@@ -1167,7 +1150,8 @@ export function findReadyCue(text: string): ReadyCue | null {
 
 /** Endereço do arquivo da fala, no site e no app do Mac. */
 export function readyCueUrl(voice: ReadyVoiceChoice, cue: ReadyCue, base = '/'): string {
-  const level = voice.intensity === 'normal' ? '' : `${voice.intensity}/`;
+  const got = recordedIntensity(cue, voice.intensity);
+  const level = got === 'normal' ? '' : `${got}/`;
   return `${base.endsWith('/') ? base : `${base}/`}maestro-falas/${voice.dir}/${level}${cue.id}.mp3`;
 }
 
@@ -1175,43 +1159,21 @@ export function readyCueUrl(voice: ReadyVoiceChoice, cue: ReadyCue, base = '/'):
 // Gravação: quais falas já têm o áudio
 
 /**
- * Falas que já têm o áudio gravado (as mesmas nas duas vozes e nas três intensidades), tirada da
- * pasta public/maestro-falas/felipe. Quem gravar as falas novas (desktop/maestro-falas-novas.json)
- * acrescenta o id aqui. Fala da lista sem gravação sai na voz do Mac, com aviso, como texto livre.
+ * Falas que já têm o áudio gravado (as duas vozes têm os mesmos arquivos), na lista gerada a partir
+ * de public/maestro-falas/felipe. Toda fala gravada tem a Normal; Calma e Forte podem faltar e aí
+ * saem na Normal. Fala da lista sem gravação sai na voz do Mac, com aviso, como texto livre.
  */
-const RECORDED_IDS: ReadonlyArray<string> = [
-  'a-capela', 'abre-as-vozes', 'acelera', 'agora', 'agradecimento', 'atencao', 'baixa', 'bis', 'breque',
-  'breque-no-um', 'chama-o-publico', 'cinco', 'coro', 'corta', 'corta-no-quatro', 'corta-seco', 'cresce',
-  'desce-meio-tom', 'desce-o-tom', 'desce-um-tom', 'do-comeco', 'dobra-o-tempo', 'dois', 'dois-compassos',
-  'duas-vezes', 'emenda', 'emenda-direto', 'entra-a-banda', 'entra-a-bateria', 'entra-a-flauta', 'entra-a-gaita',
-  'entra-a-guitarra', 'entra-a-percussao', 'entra-a-sanfona', 'entra-a-segunda-voz', 'entra-a-viola',
-  'entra-a-zabumba', 'entra-as-cordas', 'entra-o-baixo', 'entra-o-bandolim', 'entra-o-cavaco', 'entra-o-coro',
-  'entra-o-orgao', 'entra-o-pandeiro', 'entra-o-piano', 'entra-o-sax', 'entra-o-teclado', 'entra-o-triangulo',
-  'entra-o-trombone', 'entra-o-trompete', 'entra-o-violao', 'entra-o-violino', 'entra-os-metais', 'espontaneo',
-  'explode', 'fala', 'faltam-dois-compassos', 'faltam-quatro-compassos', 'fecha-as-vozes', 'final',
-  'final-arrastado', 'final-em-cima', 'final-no-breque', 'final-segurando', 'instrumental', 'interludio',
-  'intervalo', 'intro', 'ja', 'mais-devagar', 'mais-duas-vezes', 'mais-forte', 'mais-leve', 'mais-rapido',
-  'mais-uma-no-refrao', 'mais-uma-vez', 'maos-pra-cima', 'medley', 'meia-forca', 'meio-tempo', 'ministracao',
-  'momento-de-fala', 'no-proximo', 'oito', 'oito-compassos', 'oracao', 'palmas', 'para-tudo', 'pausa', 'pesado',
-  'ponte', 'ponte-2', 'pos-refrao', 'pre-refrao', 'pre-refrao-2', 'prepara', 'primeira-voz', 'proxima-musica',
-  'publico-canta', 'pula-a-ponte', 'pula-o-solo', 'pula-o-verso', 'quatro', 'quatro-compassos', 'quatro-vezes',
-  'refrao', 'refrao-2', 'refrao-3', 'repete', 'repete-a-ponte', 'repete-o-refrao', 'segue', 'segunda-voz', 'segura',
-  'segura-no-final', 'segura-o-andamento', 'segura-o-clima', 'seis', 'sem-baixo', 'sem-bateria', 'sem-cavaco',
-  'sem-guitarra', 'sem-metais', 'sem-pausa', 'sem-percussao', 'sem-piano', 'sem-sanfona', 'sem-teclado', 'sete',
-  'silencio', 'so-a-primeira-voz', 'so-baixo-e-bateria', 'so-bateria', 'so-cavaco', 'so-cordas', 'so-metais',
-  'so-o-pad', 'so-o-publico', 'so-percussao', 'so-piano', 'so-sanfona', 'so-teclado', 'so-violao', 'so-voz',
-  'so-voz-e-piano', 'so-voz-e-sanfona', 'so-voz-e-teclado', 'so-voz-e-violao', 'sobe-meio-tom', 'sobe-o-tom',
-  'sobe-um-tom', 'solo', 'solo-de-baixo', 'solo-de-bandolim', 'solo-de-bateria', 'solo-de-cavaco', 'solo-de-flauta',
-  'solo-de-gaita', 'solo-de-guitarra', 'solo-de-metais', 'solo-de-orgao', 'solo-de-pandeiro', 'solo-de-percussao',
-  'solo-de-piano', 'solo-de-sanfona', 'solo-de-sax', 'solo-de-sintetizador', 'solo-de-teclado', 'solo-de-trombone',
-  'solo-de-trompete', 'solo-de-viola', 'solo-de-violao', 'solo-de-violino', 'solo-de-zabumba', 'tempo-normal',
-  'terceira-voz', 'todo-mundo', 'todo-mundo-canta', 'todo-mundo-pulando', 'tom-original', 'tres', 'tres-vezes',
-  'ultima', 'ultima-ponte', 'ultima-vez', 'ultimo-compasso', 'ultimo-refrao', 'ultimo-verso', 'um', 'unissono',
-  'vai', 'vai-baixando', 'vai-crescendo', 'vai-pra-ponte', 'vai-pro-refrao', 'vai-pro-solo', 'vai-pro-verso',
-  'vai-sumindo', 'vamos-pro-final', 'verso', 'verso-1', 'verso-2', 'verso-3', 'verso-4', 'volta-pra-ponte',
-  'volta-pro-inicio', 'volta-pro-refrao', 'volta-pro-verso', 'volta-tudo',
-];
-export const RECORDED_CUE_IDS: ReadonlySet<string> = new Set(RECORDED_IDS);
+export const RECORDED_CUE_IDS: ReadonlySet<string> = new Set(RECORDED_NORMAL);
+const RECORDED_LEVEL: Record<'calma' | 'forte', ReadonlySet<string>> = {
+  calma: new Set(RECORDED_CALMA),
+  forte: new Set(RECORDED_FORTE),
+};
+
+/** A intensidade que esta fala tem gravada: a pedida ou, se ela faltar, a Normal. */
+export function recordedIntensity(cue: ReadyCue | string, intensity: ReadyIntensity): ReadyIntensity {
+  if (intensity === 'normal') return 'normal';
+  return RECORDED_LEVEL[intensity].has(typeof cue === 'string' ? cue : cue.id) ? intensity : 'normal';
+}
 
 /** A fala pronta já tem o áudio gravado? */
 export function hasRecording(cue: ReadyCue | string): boolean {

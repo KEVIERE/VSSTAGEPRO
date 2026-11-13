@@ -26,7 +26,7 @@ import { friendlyError } from '@/lib/friendlyError';
 import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, currentSignature, fitTempo, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
 import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
-import { DEFAULT_READY_VOICE, READY_INTENSITIES, findReadyCue, hasRecording, readyCueUrl, readyVoice, voiceFromOldChoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
+import { DEFAULT_READY_VOICE, READY_INTENSITIES, findReadyCue, hasRecording, readyCueUrl, recordedIntensity, readyVoice, voiceFromOldChoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
 
 /** Voz das marcações novas quando nada foi escolhido ainda: o Felipe. */
 export const DEFAULT_VOICE = DEFAULT_READY_VOICE;
@@ -228,7 +228,7 @@ const readyCache = new Map<string, AudioBuffer>();
 
 /** O arquivo gravado da fala pronta, aberto na taxa da saída de áudio. */
 async function readyCueBuffer(voice: ReadyVoiceChoice, cue: ReadyCue): Promise<AudioBuffer> {
-  const key = `${audioEngine.currentSampleRate() ?? deviceSampleRate()}|${voice.dir}|${voice.intensity}|${cue.id}`;
+  const key = `${audioEngine.currentSampleRate() ?? deviceSampleRate()}|${voice.dir}|${recordedIntensity(cue, voice.intensity)}|${cue.id}`;
   const hit = readyCache.get(key);
   if (hit) return hit;
   const res = await fetch(readyCueUrl(voice, cue, import.meta.env.BASE_URL));
