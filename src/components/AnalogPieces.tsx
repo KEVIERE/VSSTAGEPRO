@@ -70,8 +70,9 @@ export function VsKnobFace({ value, bipolar = false, unity = UNITY }: { value: n
       })}
       {/* 0 dB */}
       {!bipolar && unity <= 1 && <circle cx={20 + Math.cos(ua) * 19.6} cy={20 + Math.sin(ua) * 19.6} r="0.9" fill="#f2eee4" />}
-      {/* sombra que o knob joga no painel */}
-      <circle cx="21" cy="22" r="13.6" fill="#000" opacity="0.5" />
+      {/* sombra que o knob joga no painel: por igual em volta (deslocada, ela comia o espaço até os
+          LEDs de um lado só e o knob parecia fora do centro do anel) */}
+      <circle cx="20" cy="20.6" r="13.7" fill="#000" opacity="0.45" />
       {/* saia de metal serrilhada */}
       <circle cx="20" cy="20" r="13.2" fill={`url(#${uid}-skirt)`} stroke="#141517" strokeWidth="0.7" />
       <circle cx="20" cy="20" r="12.3" fill="none" stroke="#1d1e21" strokeOpacity="0.55" strokeWidth="1.8" strokeDasharray="0.55 0.75" />
