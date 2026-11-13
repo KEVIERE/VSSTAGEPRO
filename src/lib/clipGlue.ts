@@ -10,6 +10,7 @@ import {
 } from '@/lib/audioLibrary';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { audioEngine } from '@/lib/audioEngine';
+import { pruneNarrationLinks } from '@/lib/narrations';
 import { generateMarkers } from '@/lib/audioDecoder';
 import { evaluateFadeCurve, type AudioClip } from '@/types';
 
@@ -189,10 +190,12 @@ export async function glueSelectedClips(clipIdsToGlue?: string[]): Promise<boole
 
   // Atualiza a store atomicamente
   const removeSet = new Set(allClipsToRemove);
-  useStore.setState((s) => ({
-    clips: [...s.clips.filter((c) => !removeSet.has(c.id)), ...newlyCreatedClips],
-    selectedClipIds: newlyCreatedClips.map((c) => c.id),
-  }));
+  // a fala do Maestro IA emendada vira áudio comum: a marcação sai no mesmo passo do desfazer
+  useStore.setState((s) => {
+    const clips = [...s.clips.filter((c) => !removeSet.has(c.id)), ...newlyCreatedClips];
+    const songs = pruneNarrationLinks(s.songs, s.clips, clips);
+    return { clips, selectedClipIds: newlyCreatedClips.map((c) => c.id), ...(songs !== s.songs ? { songs } : {}) };
+  });
 
   audioEngine.invalidatePrepared(activeSongId);
 

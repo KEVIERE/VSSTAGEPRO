@@ -1,0 +1,4092 @@
+[
+  {
+    "id": "introducao",
+    "text": "Introdução",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "intro-2",
+    "text": "Intro 2",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "intro-curta",
+    "text": "Intro curta",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "intro-so-teclado",
+    "text": "Intro só teclado",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "intro-so-violao",
+    "text": "Intro só violão",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "primeiro-verso",
+    "text": "Primeiro verso",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "segundo-verso",
+    "text": "Segundo verso",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "terceiro-verso",
+    "text": "Terceiro verso",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "verso-5",
+    "text": "Verso 5",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "primeiro-refrao",
+    "text": "Primeiro refrão",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "segundo-refrao",
+    "text": "Segundo refrão",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "terceiro-refrao",
+    "text": "Terceiro refrão",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "refrao-4",
+    "text": "Refrão 4",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "refrao-final",
+    "text": "Refrão final",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "refrao-dobrado",
+    "text": "Refrão dobrado",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "refrao-so-voz",
+    "text": "Refrão só voz",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "pre-refrao-3",
+    "text": "Pré-refrão 3",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "pos-refrao-2",
+    "text": "Pós-refrão 2",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "ponte-3",
+    "text": "Ponte 3",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "segunda-ponte",
+    "text": "Segunda ponte",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "ponte-final",
+    "text": "Ponte final",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "interludio-2",
+    "text": "Interlúdio 2",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "solo-2",
+    "text": "Solo 2",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "instrumental-final",
+    "text": "Instrumental final",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "parte-a",
+    "text": "Parte A",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "parte-b",
+    "text": "Parte B",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "parte-c",
+    "text": "Parte C",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "tag",
+    "text": "Tag",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "tag-final",
+    "text": "Tag final",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "vamp",
+    "text": "Vamp",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "riff",
+    "text": "Riff",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "convencao",
+    "text": "Convenção",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "coda",
+    "text": "Coda",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "saida",
+    "text": "Saída",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "declamacao",
+    "text": "Declamação",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "corinho",
+    "text": "Corinho",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "tema",
+    "text": "Tema",
+    "group": "partes-da-musica"
+  },
+  {
+    "id": "vai-pra-intro",
+    "text": "Vai pra intro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-pre-refrao",
+    "text": "Vai pro pré-refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-refrao-2",
+    "text": "Vai pro refrão 2",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-ultimo-refrao",
+    "text": "Vai pro último refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pra-ponte-2",
+    "text": "Vai pra ponte 2",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-interludio",
+    "text": "Vai pro interlúdio",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-instrumental",
+    "text": "Vai pro instrumental",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-final",
+    "text": "Vai pro final",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-verso-2",
+    "text": "Vai pro verso 2",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-ultimo-verso",
+    "text": "Vai pro último verso",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-coro",
+    "text": "Vai pro coro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-espontaneo",
+    "text": "Vai pro espontâneo",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pra-tag",
+    "text": "Vai pra tag",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pra-intro",
+    "text": "Volta pra intro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-pre-refrao",
+    "text": "Volta pro pré-refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-verso-1",
+    "text": "Volta pro verso 1",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-verso-2",
+    "text": "Volta pro verso 2",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-refrao-2",
+    "text": "Volta pro refrão 2",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-solo",
+    "text": "Volta pro solo",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-instrumental",
+    "text": "Volta pro instrumental",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-coro",
+    "text": "Volta pro coro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-comeco",
+    "text": "Volta pro começo",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "do-refrao",
+    "text": "Do refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "da-ponte",
+    "text": "Da ponte",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "do-verso",
+    "text": "Do verso",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "pula-a-intro",
+    "text": "Pula a intro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "pula-o-pre-refrao",
+    "text": "Pula o pré-refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "pula-o-interludio",
+    "text": "Pula o interlúdio",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "pula-o-refrao",
+    "text": "Pula o refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "pula-pro-refrao",
+    "text": "Pula pro refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "pula-pro-final",
+    "text": "Pula pro final",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "direto-pro-refrao",
+    "text": "Direto pro refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "direto-pra-ponte",
+    "text": "Direto pra ponte",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "direto-pro-final",
+    "text": "Direto pro final",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "depois-do-refrao-ponte",
+    "text": "Depois do refrão, ponte",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "depois-da-ponte-refrao",
+    "text": "Depois da ponte, refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "fica-no-refrao",
+    "text": "Fica no refrão",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "fica-na-ponte",
+    "text": "Fica na ponte",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "fica-aqui",
+    "text": "Fica aqui",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "continua",
+    "text": "Continua",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "segue-o-roteiro",
+    "text": "Segue o roteiro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "segue-normal",
+    "text": "Segue normal",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "muda-o-roteiro",
+    "text": "Muda o roteiro",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "vai-pro-refrao-e-acaba",
+    "text": "Vai pro refrão e acaba",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "volta-pro-refrao-e-acaba",
+    "text": "Volta pro refrão e acaba",
+    "group": "para-onde-ir"
+  },
+  {
+    "id": "repete-o-verso",
+    "text": "Repete o verso",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-o-pre-refrao",
+    "text": "Repete o pré-refrão",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-o-solo",
+    "text": "Repete o solo",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-a-intro",
+    "text": "Repete a intro",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-o-final",
+    "text": "Repete o final",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-o-coro",
+    "text": "Repete o coro",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-a-tag",
+    "text": "Repete a tag",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-o-refrao-duas-vezes",
+    "text": "Repete o refrão duas vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-o-refrao-tres-vezes",
+    "text": "Repete o refrão três vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-a-ponte-duas-vezes",
+    "text": "Repete a ponte duas vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-a-ponte-tres-vezes",
+    "text": "Repete a ponte três vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-a-ponte-quatro-vezes",
+    "text": "Repete a ponte quatro vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-tres-vezes",
+    "text": "Mais três vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-quatro-vezes",
+    "text": "Mais quatro vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-vez-o-refrao",
+    "text": "Mais uma vez o refrão",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-vez-a-ponte",
+    "text": "Mais uma vez a ponte",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-na-ponte",
+    "text": "Mais uma na ponte",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-duas-no-refrao",
+    "text": "Mais duas no refrão",
+    "group": "repeticao"
+  },
+  {
+    "id": "cinco-vezes",
+    "text": "Cinco vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "seis-vezes",
+    "text": "Seis vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "oito-vezes",
+    "text": "Oito vezes",
+    "group": "repeticao"
+  },
+  {
+    "id": "uma-vez",
+    "text": "Uma vez",
+    "group": "repeticao"
+  },
+  {
+    "id": "so-uma-vez",
+    "text": "Só uma vez",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-e-acabou",
+    "text": "Mais uma e acabou",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-e-vai-pro-final",
+    "text": "Mais uma e vai pro final",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-e-vai-pra-ponte",
+    "text": "Mais uma e vai pra ponte",
+    "group": "repeticao"
+  },
+  {
+    "id": "ultima-vez-o-refrao",
+    "text": "Última vez o refrão",
+    "group": "repeticao"
+  },
+  {
+    "id": "ultima-vez-a-ponte",
+    "text": "Última vez a ponte",
+    "group": "repeticao"
+  },
+  {
+    "id": "de-novo",
+    "text": "De novo",
+    "group": "repeticao"
+  },
+  {
+    "id": "outra-vez",
+    "text": "Outra vez",
+    "group": "repeticao"
+  },
+  {
+    "id": "dobra-o-refrao",
+    "text": "Dobra o refrão",
+    "group": "repeticao"
+  },
+  {
+    "id": "dobra-a-ponte",
+    "text": "Dobra a ponte",
+    "group": "repeticao"
+  },
+  {
+    "id": "refrao-de-novo",
+    "text": "Refrão de novo",
+    "group": "repeticao"
+  },
+  {
+    "id": "ponte-de-novo",
+    "text": "Ponte de novo",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-ate-eu-avisar",
+    "text": "Repete até eu avisar",
+    "group": "repeticao"
+  },
+  {
+    "id": "fica-repetindo",
+    "text": "Fica repetindo",
+    "group": "repeticao"
+  },
+  {
+    "id": "nao-repete",
+    "text": "Não repete",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-a-ultima-frase",
+    "text": "Repete a última frase",
+    "group": "repeticao"
+  },
+  {
+    "id": "mais-uma-volta",
+    "text": "Mais uma volta",
+    "group": "repeticao"
+  },
+  {
+    "id": "duas-voltas",
+    "text": "Duas voltas",
+    "group": "repeticao"
+  },
+  {
+    "id": "quatro-voltas",
+    "text": "Quatro voltas",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-so-voz",
+    "text": "Repete só voz",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-mais-baixo",
+    "text": "Repete mais baixo",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-mais-forte",
+    "text": "Repete mais forte",
+    "group": "repeticao"
+  },
+  {
+    "id": "repete-e-sobe",
+    "text": "Repete e sobe",
+    "group": "repeticao"
+  },
+  {
+    "id": "sobe",
+    "text": "Sobe",
+    "group": "intensidade"
+  },
+  {
+    "id": "desce",
+    "text": "Desce",
+    "group": "intensidade"
+  },
+  {
+    "id": "sobe-mais",
+    "text": "Sobe mais",
+    "group": "intensidade"
+  },
+  {
+    "id": "desce-mais",
+    "text": "Desce mais",
+    "group": "intensidade"
+  },
+  {
+    "id": "sobe-a-energia",
+    "text": "Sobe a energia",
+    "group": "intensidade"
+  },
+  {
+    "id": "desce-a-energia",
+    "text": "Desce a energia",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-energia",
+    "text": "Mais energia",
+    "group": "intensidade"
+  },
+  {
+    "id": "menos-energia",
+    "text": "Menos energia",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-pegada",
+    "text": "Mais pegada",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-suave",
+    "text": "Mais suave",
+    "group": "intensidade"
+  },
+  {
+    "id": "suave",
+    "text": "Suave",
+    "group": "intensidade"
+  },
+  {
+    "id": "bem-suave",
+    "text": "Bem suave",
+    "group": "intensidade"
+  },
+  {
+    "id": "leve",
+    "text": "Leve",
+    "group": "intensidade"
+  },
+  {
+    "id": "baixinho",
+    "text": "Baixinho",
+    "group": "intensidade"
+  },
+  {
+    "id": "bem-baixinho",
+    "text": "Bem baixinho",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-intenso",
+    "text": "Mais intenso",
+    "group": "intensidade"
+  },
+  {
+    "id": "explode-no-refrao",
+    "text": "Explode no refrão",
+    "group": "intensidade"
+  },
+  {
+    "id": "explode-agora",
+    "text": "Explode agora",
+    "group": "intensidade"
+  },
+  {
+    "id": "explode-na-ponte",
+    "text": "Explode na ponte",
+    "group": "intensidade"
+  },
+  {
+    "id": "cresce-na-ponte",
+    "text": "Cresce na ponte",
+    "group": "intensidade"
+  },
+  {
+    "id": "cresce-no-pre-refrao",
+    "text": "Cresce no pré-refrão",
+    "group": "intensidade"
+  },
+  {
+    "id": "cresce-ate-o-refrao",
+    "text": "Cresce até o refrão",
+    "group": "intensidade"
+  },
+  {
+    "id": "cresce-aos-poucos",
+    "text": "Cresce aos poucos",
+    "group": "intensidade"
+  },
+  {
+    "id": "vai-subindo",
+    "text": "Vai subindo",
+    "group": "intensidade"
+  },
+  {
+    "id": "sobe-aos-poucos",
+    "text": "Sobe aos poucos",
+    "group": "intensidade"
+  },
+  {
+    "id": "desce-aos-poucos",
+    "text": "Desce aos poucos",
+    "group": "intensidade"
+  },
+  {
+    "id": "vai-descendo",
+    "text": "Vai descendo",
+    "group": "intensidade"
+  },
+  {
+    "id": "segura-embaixo",
+    "text": "Segura embaixo",
+    "group": "intensidade"
+  },
+  {
+    "id": "segura-em-cima",
+    "text": "Segura em cima",
+    "group": "intensidade"
+  },
+  {
+    "id": "fica-embaixo",
+    "text": "Fica embaixo",
+    "group": "intensidade"
+  },
+  {
+    "id": "la-em-cima",
+    "text": "Lá em cima",
+    "group": "intensidade"
+  },
+  {
+    "id": "todo-mundo-pesado",
+    "text": "Todo mundo pesado",
+    "group": "intensidade"
+  },
+  {
+    "id": "todo-mundo-leve",
+    "text": "Todo mundo leve",
+    "group": "intensidade"
+  },
+  {
+    "id": "todo-mundo-junto",
+    "text": "Todo mundo junto",
+    "group": "intensidade"
+  },
+  {
+    "id": "volta-a-banda",
+    "text": "Volta a banda",
+    "group": "intensidade"
+  },
+  {
+    "id": "volta-todo-mundo",
+    "text": "Volta todo mundo",
+    "group": "intensidade"
+  },
+  {
+    "id": "volta-com-tudo",
+    "text": "Volta com tudo",
+    "group": "intensidade"
+  },
+  {
+    "id": "entra-com-tudo",
+    "text": "Entra com tudo",
+    "group": "intensidade"
+  },
+  {
+    "id": "entra-leve",
+    "text": "Entra leve",
+    "group": "intensidade"
+  },
+  {
+    "id": "abre",
+    "text": "Abre",
+    "group": "intensidade"
+  },
+  {
+    "id": "fecha",
+    "text": "Fecha",
+    "group": "intensidade"
+  },
+  {
+    "id": "respira",
+    "text": "Respira",
+    "group": "intensidade"
+  },
+  {
+    "id": "deixa-respirar",
+    "text": "Deixa respirar",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-simples",
+    "text": "Mais simples",
+    "group": "intensidade"
+  },
+  {
+    "id": "some-aos-poucos",
+    "text": "Some aos poucos",
+    "group": "intensidade"
+  },
+  {
+    "id": "fade-out",
+    "text": "Fade out",
+    "group": "intensidade"
+  },
+  {
+    "id": "mantem-o-clima",
+    "text": "Mantém o clima",
+    "group": "intensidade"
+  },
+  {
+    "id": "menos-banda",
+    "text": "Menos banda",
+    "group": "intensidade"
+  },
+  {
+    "id": "metade-da-banda",
+    "text": "Metade da banda",
+    "group": "intensidade"
+  },
+  {
+    "id": "so-a-base",
+    "text": "Só a base",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-cheio",
+    "text": "Mais cheio",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-peso",
+    "text": "Mais peso",
+    "group": "intensidade"
+  },
+  {
+    "id": "mais-pesado",
+    "text": "Mais pesado",
+    "group": "intensidade"
+  },
+  {
+    "id": "delicado",
+    "text": "Delicado",
+    "group": "intensidade"
+  },
+  {
+    "id": "crescendo",
+    "text": "Crescendo",
+    "group": "intensidade"
+  },
+  {
+    "id": "para",
+    "text": "Para",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "para-no-um",
+    "text": "Para no um",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "para-no-quatro",
+    "text": "Para no quatro",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "para-no-refrao",
+    "text": "Para no refrão",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "para-e-volta",
+    "text": "Para e volta",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "corta-no-um",
+    "text": "Corta no um",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "corta-no-dois",
+    "text": "Corta no dois",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "corta-no-tres",
+    "text": "Corta no três",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "corta-junto",
+    "text": "Corta junto",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "corta-comigo",
+    "text": "Corta comigo",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "corta-no-meu-sinal",
+    "text": "Corta no meu sinal",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "breque-no-dois",
+    "text": "Breque no dois",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "breque-no-tres",
+    "text": "Breque no três",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "breque-no-quatro",
+    "text": "Breque no quatro",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "breque-junto",
+    "text": "Breque junto",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "breque-e-volta",
+    "text": "Breque e volta",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "breque-de-um-compasso",
+    "text": "Breque de um compasso",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-seco",
+    "text": "Final seco",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-aberto",
+    "text": "Final aberto",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-com-virada",
+    "text": "Final com virada",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-lento",
+    "text": "Final lento",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "desacelera-no-final",
+    "text": "Desacelera no final",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-curto",
+    "text": "Final curto",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-longo",
+    "text": "Final longo",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-como-na-gravacao",
+    "text": "Final como na gravação",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-como-no-ensaio",
+    "text": "Final como no ensaio",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-so-voz",
+    "text": "Final só voz",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-so-teclado",
+    "text": "Final só teclado",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "final-com-o-publico",
+    "text": "Final com o público",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "vamos-terminar",
+    "text": "Vamos terminar",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "acabou",
+    "text": "Acabou",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "ultimo-acorde",
+    "text": "Último acorde",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "segura-o-acorde",
+    "text": "Segura o acorde",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "segura-a-ultima-nota",
+    "text": "Segura a última nota",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "deixa-soar",
+    "text": "Deixa soar",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "deixa-so-o-pad",
+    "text": "Deixa só o pad",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "termina-so-voz",
+    "text": "Termina só voz",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "termina-junto",
+    "text": "Termina junto",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "fermata",
+    "text": "Fermata",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "tres-ataques",
+    "text": "Três ataques",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "quatro-ataques",
+    "text": "Quatro ataques",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "ataque-no-um",
+    "text": "Ataque no um",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "pausa-geral",
+    "text": "Pausa geral",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "pausa-de-um-compasso",
+    "text": "Pausa de um compasso",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "pausa-de-dois-tempos",
+    "text": "Pausa de dois tempos",
+    "group": "paradas-e-finais"
+  },
+  {
+    "id": "so-voz-e-guitarra",
+    "text": "Só voz e guitarra",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-voz-e-baixo",
+    "text": "Só voz e baixo",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-voz-e-bateria",
+    "text": "Só voz e bateria",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-voz-e-percussao",
+    "text": "Só voz e percussão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-voz-e-pad",
+    "text": "Só voz e pad",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-voz-e-cordas",
+    "text": "Só voz e cordas",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-voz-e-palmas",
+    "text": "Só voz e palmas",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-guitarra",
+    "text": "Só guitarra",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-baixo",
+    "text": "Só baixo",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-teclado-e-bateria",
+    "text": "Só teclado e bateria",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-teclado-e-violao",
+    "text": "Só teclado e violão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-violao-e-percussao",
+    "text": "Só violão e percussão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-piano-e-cordas",
+    "text": "Só piano e cordas",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-a-cozinha",
+    "text": "Só a cozinha",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-as-vozes",
+    "text": "Só as vozes",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-o-coro",
+    "text": "Só o coro",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-o-ministro",
+    "text": "Só o ministro",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-instrumental",
+    "text": "Só instrumental",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-o-bumbo",
+    "text": "Só o bumbo",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-bumbo-e-voz",
+    "text": "Só bumbo e voz",
+    "group": "quem-toca"
+  },
+  {
+    "id": "so-a-sequencia",
+    "text": "Só a sequência",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-voz",
+    "text": "Sem voz",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-coro",
+    "text": "Sem coro",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-violao",
+    "text": "Sem violão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-pad",
+    "text": "Sem pad",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-cordas",
+    "text": "Sem cordas",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-bateria-no-verso",
+    "text": "Sem bateria no verso",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-bateria-ate-o-refrao",
+    "text": "Sem bateria até o refrão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "sem-sequencia",
+    "text": "Sem sequência",
+    "group": "quem-toca"
+  },
+  {
+    "id": "tira-a-bateria",
+    "text": "Tira a bateria",
+    "group": "quem-toca"
+  },
+  {
+    "id": "tira-o-baixo",
+    "text": "Tira o baixo",
+    "group": "quem-toca"
+  },
+  {
+    "id": "tira-a-guitarra",
+    "text": "Tira a guitarra",
+    "group": "quem-toca"
+  },
+  {
+    "id": "tira-o-teclado",
+    "text": "Tira o teclado",
+    "group": "quem-toca"
+  },
+  {
+    "id": "tira-o-violao",
+    "text": "Tira o violão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "tira-tudo",
+    "text": "Tira tudo",
+    "group": "quem-toca"
+  },
+  {
+    "id": "deixa-so-a-voz",
+    "text": "Deixa só a voz",
+    "group": "quem-toca"
+  },
+  {
+    "id": "deixa-so-o-teclado",
+    "text": "Deixa só o teclado",
+    "group": "quem-toca"
+  },
+  {
+    "id": "deixa-so-o-violao",
+    "text": "Deixa só o violão",
+    "group": "quem-toca"
+  },
+  {
+    "id": "entra-o-pad",
+    "text": "Entra o pad",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-voz",
+    "text": "Entra a voz",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-ministro",
+    "text": "Entra o ministro",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-guitarra-solo",
+    "text": "Entra a guitarra solo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-guitarra-base",
+    "text": "Entra a guitarra base",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-synth",
+    "text": "Entra o synth",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-bumbo",
+    "text": "Entra o bumbo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-caixa",
+    "text": "Entra a caixa",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-chimbal",
+    "text": "Entra o chimbal",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-bateria-no-refrao",
+    "text": "Entra a bateria no refrão",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-baixo-no-refrao",
+    "text": "Entra o baixo no refrão",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-todo-mundo",
+    "text": "Entra todo mundo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-todo-mundo-no-refrao",
+    "text": "Entra todo mundo no refrão",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-todo-mundo-no-um",
+    "text": "Entra todo mundo no um",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-junto",
+    "text": "Entra junto",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-no-um",
+    "text": "Entra no um",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-no-proximo",
+    "text": "Entra no próximo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-comigo",
+    "text": "Entra comigo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-agora",
+    "text": "Entra agora",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-devagar",
+    "text": "Entra devagar",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-sequencia",
+    "text": "Entra a sequência",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entram-as-palmas",
+    "text": "Entram as palmas",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entram-os-backs",
+    "text": "Entram os backs",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entram-as-vozes",
+    "text": "Entram as vozes",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-coral",
+    "text": "Entra o coral",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-cajon",
+    "text": "Entra o cajón",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-conga",
+    "text": "Entra a conga",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-shaker",
+    "text": "Entra o shaker",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-o-violoncelo",
+    "text": "Entra o violoncelo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "entra-a-viola-caipira",
+    "text": "Entra a viola caipira",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "solo-de-synth",
+    "text": "Solo de synth",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "solo-de-cajon",
+    "text": "Solo de cajón",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "solo-de-viola-caipira",
+    "text": "Solo de viola caipira",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "solo-livre",
+    "text": "Solo livre",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "solo-curto",
+    "text": "Solo curto",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "solo-longo",
+    "text": "Solo longo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "pode-solar",
+    "text": "Pode solar",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "termina-o-solo",
+    "text": "Termina o solo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "mais-um-solo",
+    "text": "Mais um solo",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "improvisa",
+    "text": "Improvisa",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "frase-de-guitarra",
+    "text": "Frase de guitarra",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "frase-de-teclado",
+    "text": "Frase de teclado",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "riff-de-guitarra",
+    "text": "Riff de guitarra",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "virada-de-bateria",
+    "text": "Virada de bateria",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "faz-a-virada",
+    "text": "Faz a virada",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "virada-pro-refrao",
+    "text": "Virada pro refrão",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "sem-virada",
+    "text": "Sem virada",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "faz-a-convencao",
+    "text": "Faz a convenção",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "toca-a-melodia",
+    "text": "Toca a melodia",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "guitarra-dobra-a-voz",
+    "text": "Guitarra dobra a voz",
+    "group": "entradas-e-solos"
+  },
+  {
+    "id": "bateria-segura",
+    "text": "Bateria, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-sobe",
+    "text": "Bateria, sobe",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-desce",
+    "text": "Bateria, desce",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-para",
+    "text": "Bateria, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-volta",
+    "text": "Bateria, volta",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-prepara",
+    "text": "Bateria, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-atencao",
+    "text": "Bateria, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-segura",
+    "text": "Baixo, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-sobe",
+    "text": "Baixo, sobe",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-desce",
+    "text": "Baixo, desce",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-para",
+    "text": "Baixo, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-volta",
+    "text": "Baixo, volta",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-prepara",
+    "text": "Baixo, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "baixo-atencao",
+    "text": "Baixo, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-segura",
+    "text": "Guitarra, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-sobe",
+    "text": "Guitarra, sobe",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-desce",
+    "text": "Guitarra, desce",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-para",
+    "text": "Guitarra, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-volta",
+    "text": "Guitarra, volta",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-prepara",
+    "text": "Guitarra, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-atencao",
+    "text": "Guitarra, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-segura",
+    "text": "Violão, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-sobe",
+    "text": "Violão, sobe",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-desce",
+    "text": "Violão, desce",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-para",
+    "text": "Violão, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-volta",
+    "text": "Violão, volta",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-prepara",
+    "text": "Violão, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-atencao",
+    "text": "Violão, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-segura",
+    "text": "Teclado, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-sobe",
+    "text": "Teclado, sobe",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-desce",
+    "text": "Teclado, desce",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-para",
+    "text": "Teclado, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-volta",
+    "text": "Teclado, volta",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-prepara",
+    "text": "Teclado, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-atencao",
+    "text": "Teclado, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "piano-segura",
+    "text": "Piano, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "piano-para",
+    "text": "Piano, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "piano-atencao",
+    "text": "Piano, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "sanfona-segura",
+    "text": "Sanfona, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "sanfona-para",
+    "text": "Sanfona, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "sanfona-atencao",
+    "text": "Sanfona, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "percussao-segura",
+    "text": "Percussão, segura",
+    "group": "cada-musico"
+  },
+  {
+    "id": "percussao-para",
+    "text": "Percussão, para",
+    "group": "cada-musico"
+  },
+  {
+    "id": "percussao-atencao",
+    "text": "Percussão, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "metais-prepara",
+    "text": "Metais, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "metais-agora",
+    "text": "Metais, agora",
+    "group": "cada-musico"
+  },
+  {
+    "id": "cordas-prepara",
+    "text": "Cordas, prepara",
+    "group": "cada-musico"
+  },
+  {
+    "id": "cordas-agora",
+    "text": "Cordas, agora",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-mais-leve",
+    "text": "Bateria mais leve",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-no-prato",
+    "text": "Bateria no prato",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-no-aro",
+    "text": "Bateria no aro",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-so-no-bumbo",
+    "text": "Bateria só no bumbo",
+    "group": "cada-musico"
+  },
+  {
+    "id": "bateria-com-vassourinha",
+    "text": "Bateria com vassourinha",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-mais-limpa",
+    "text": "Guitarra mais limpa",
+    "group": "cada-musico"
+  },
+  {
+    "id": "guitarra-com-drive",
+    "text": "Guitarra com drive",
+    "group": "cada-musico"
+  },
+  {
+    "id": "violao-dedilhado",
+    "text": "Violão dedilhado",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-no-pad",
+    "text": "Teclado no pad",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-no-piano",
+    "text": "Teclado no piano",
+    "group": "cada-musico"
+  },
+  {
+    "id": "teclado-no-orgao",
+    "text": "Teclado no órgão",
+    "group": "cada-musico"
+  },
+  {
+    "id": "vozes-atencao",
+    "text": "Vozes, atenção",
+    "group": "cada-musico"
+  },
+  {
+    "id": "terceira-voz-no-refrao",
+    "text": "Terceira voz no refrão",
+    "group": "vozes"
+  },
+  {
+    "id": "abre-as-vozes-no-refrao",
+    "text": "Abre as vozes no refrão",
+    "group": "vozes"
+  },
+  {
+    "id": "abre-a-voz",
+    "text": "Abre a voz",
+    "group": "vozes"
+  },
+  {
+    "id": "fecha-a-voz",
+    "text": "Fecha a voz",
+    "group": "vozes"
+  },
+  {
+    "id": "voz-principal",
+    "text": "Voz principal",
+    "group": "vozes"
+  },
+  {
+    "id": "backs",
+    "text": "Backs",
+    "group": "vozes"
+  },
+  {
+    "id": "backs-no-refrao",
+    "text": "Backs no refrão",
+    "group": "vozes"
+  },
+  {
+    "id": "backs-mais-alto",
+    "text": "Backs mais alto",
+    "group": "vozes"
+  },
+  {
+    "id": "backs-mais-baixo",
+    "text": "Backs mais baixo",
+    "group": "vozes"
+  },
+  {
+    "id": "so-os-backs",
+    "text": "Só os backs",
+    "group": "vozes"
+  },
+  {
+    "id": "sem-backs",
+    "text": "Sem backs",
+    "group": "vozes"
+  },
+  {
+    "id": "entra-a-terceira-voz",
+    "text": "Entra a terceira voz",
+    "group": "vozes"
+  },
+  {
+    "id": "sai-a-segunda-voz",
+    "text": "Sai a segunda voz",
+    "group": "vozes"
+  },
+  {
+    "id": "so-a-segunda-voz",
+    "text": "Só a segunda voz",
+    "group": "vozes"
+  },
+  {
+    "id": "dobra-a-voz",
+    "text": "Dobra a voz",
+    "group": "vozes"
+  },
+  {
+    "id": "oitava-acima",
+    "text": "Oitava acima",
+    "group": "vozes"
+  },
+  {
+    "id": "oitava-abaixo",
+    "text": "Oitava abaixo",
+    "group": "vozes"
+  },
+  {
+    "id": "unissono-no-refrao",
+    "text": "Uníssono no refrão",
+    "group": "vozes"
+  },
+  {
+    "id": "naipe-feminino",
+    "text": "Naipe feminino",
+    "group": "vozes"
+  },
+  {
+    "id": "naipe-masculino",
+    "text": "Naipe masculino",
+    "group": "vozes"
+  },
+  {
+    "id": "so-as-meninas",
+    "text": "Só as meninas",
+    "group": "vozes"
+  },
+  {
+    "id": "so-os-meninos",
+    "text": "Só os meninos",
+    "group": "vozes"
+  },
+  {
+    "id": "ministro-sozinho",
+    "text": "Ministro sozinho",
+    "group": "vozes"
+  },
+  {
+    "id": "coral",
+    "text": "Coral",
+    "group": "vozes"
+  },
+  {
+    "id": "coro-no-refrao",
+    "text": "Coro no refrão",
+    "group": "vozes"
+  },
+  {
+    "id": "vocalize",
+    "text": "Vocalize",
+    "group": "vozes"
+  },
+  {
+    "id": "o-o-o",
+    "text": "Ô ô ô",
+    "group": "vozes"
+  },
+  {
+    "id": "cuidado-com-a-afinacao",
+    "text": "Cuidado com a afinação",
+    "group": "vozes"
+  },
+  {
+    "id": "mais-voz",
+    "text": "Mais voz",
+    "group": "vozes"
+  },
+  {
+    "id": "menos-voz",
+    "text": "Menos voz",
+    "group": "vozes"
+  },
+  {
+    "id": "canta-mais-forte",
+    "text": "Canta mais forte",
+    "group": "vozes"
+  },
+  {
+    "id": "canta-mais-suave",
+    "text": "Canta mais suave",
+    "group": "vozes"
+  },
+  {
+    "id": "canta-comigo",
+    "text": "Canta comigo",
+    "group": "vozes"
+  },
+  {
+    "id": "canta-junto",
+    "text": "Canta junto",
+    "group": "vozes"
+  },
+  {
+    "id": "canta-baixinho",
+    "text": "Canta baixinho",
+    "group": "vozes"
+  },
+  {
+    "id": "respira-junto",
+    "text": "Respira junto",
+    "group": "vozes"
+  },
+  {
+    "id": "faz-o-eco",
+    "text": "Faz o eco",
+    "group": "vozes"
+  },
+  {
+    "id": "pergunta-e-resposta",
+    "text": "Pergunta e resposta",
+    "group": "vozes"
+  },
+  {
+    "id": "duas-vozes",
+    "text": "Duas vozes",
+    "group": "vozes"
+  },
+  {
+    "id": "tres-vozes",
+    "text": "Três vozes",
+    "group": "vozes"
+  },
+  {
+    "id": "sobe-dois-tons",
+    "text": "Sobe dois tons",
+    "group": "tom"
+  },
+  {
+    "id": "sobe-um-tom-e-meio",
+    "text": "Sobe um tom e meio",
+    "group": "tom"
+  },
+  {
+    "id": "desce-dois-tons",
+    "text": "Desce dois tons",
+    "group": "tom"
+  },
+  {
+    "id": "modula",
+    "text": "Modula",
+    "group": "tom"
+  },
+  {
+    "id": "modulacao",
+    "text": "Modulação",
+    "group": "tom"
+  },
+  {
+    "id": "modula-no-refrao",
+    "text": "Modula no refrão",
+    "group": "tom"
+  },
+  {
+    "id": "modula-no-ultimo-refrao",
+    "text": "Modula no último refrão",
+    "group": "tom"
+  },
+  {
+    "id": "sobe-o-tom-no-refrao",
+    "text": "Sobe o tom no refrão",
+    "group": "tom"
+  },
+  {
+    "id": "sobe-o-tom-no-ultimo-refrao",
+    "text": "Sobe o tom no último refrão",
+    "group": "tom"
+  },
+  {
+    "id": "sobe-meio-tom-no-refrao",
+    "text": "Sobe meio tom no refrão",
+    "group": "tom"
+  },
+  {
+    "id": "sobe-um-tom-no-refrao",
+    "text": "Sobe um tom no refrão",
+    "group": "tom"
+  },
+  {
+    "id": "volta-pro-tom-original",
+    "text": "Volta pro tom original",
+    "group": "tom"
+  },
+  {
+    "id": "mesmo-tom",
+    "text": "Mesmo tom",
+    "group": "tom"
+  },
+  {
+    "id": "muda-o-tom",
+    "text": "Muda o tom",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-do",
+    "text": "Tom de Dó",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-do-sustenido",
+    "text": "Tom de Dó sustenido",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-re",
+    "text": "Tom de Ré",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-mi-bemol",
+    "text": "Tom de Mi bemol",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-mi",
+    "text": "Tom de Mi",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-fa",
+    "text": "Tom de Fá",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-fa-sustenido",
+    "text": "Tom de Fá sustenido",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-sol",
+    "text": "Tom de Sol",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-la-bemol",
+    "text": "Tom de Lá bemol",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-la",
+    "text": "Tom de Lá",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-si-bemol",
+    "text": "Tom de Si bemol",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-si",
+    "text": "Tom de Si",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-la-menor",
+    "text": "Tom de Lá menor",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-mi-menor",
+    "text": "Tom de Mi menor",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-re-menor",
+    "text": "Tom de Ré menor",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-si-menor",
+    "text": "Tom de Si menor",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-do-menor",
+    "text": "Tom de Dó menor",
+    "group": "tom"
+  },
+  {
+    "id": "tom-de-sol-menor",
+    "text": "Tom de Sol menor",
+    "group": "tom"
+  },
+  {
+    "id": "tom-do-ensaio",
+    "text": "Tom do ensaio",
+    "group": "tom"
+  },
+  {
+    "id": "tom-da-gravacao",
+    "text": "Tom da gravação",
+    "group": "tom"
+  },
+  {
+    "id": "tom-do-ministro",
+    "text": "Tom do ministro",
+    "group": "tom"
+  },
+  {
+    "id": "pedal",
+    "text": "Pedal",
+    "group": "harmonia"
+  },
+  {
+    "id": "nota-pedal",
+    "text": "Nota pedal",
+    "group": "harmonia"
+  },
+  {
+    "id": "fica-no-pedal",
+    "text": "Fica no pedal",
+    "group": "harmonia"
+  },
+  {
+    "id": "fica-no-acorde",
+    "text": "Fica no acorde",
+    "group": "harmonia"
+  },
+  {
+    "id": "fica-no-primeiro-grau",
+    "text": "Fica no primeiro grau",
+    "group": "harmonia"
+  },
+  {
+    "id": "vai-pro-quarto-grau",
+    "text": "Vai pro quarto grau",
+    "group": "harmonia"
+  },
+  {
+    "id": "vai-pro-quinto-grau",
+    "text": "Vai pro quinto grau",
+    "group": "harmonia"
+  },
+  {
+    "id": "vai-pro-sexto-grau",
+    "text": "Vai pro sexto grau",
+    "group": "harmonia"
+  },
+  {
+    "id": "vai-pro-relativo-menor",
+    "text": "Vai pro relativo menor",
+    "group": "harmonia"
+  },
+  {
+    "id": "acorde-maior",
+    "text": "Acorde maior",
+    "group": "harmonia"
+  },
+  {
+    "id": "acorde-menor",
+    "text": "Acorde menor",
+    "group": "harmonia"
+  },
+  {
+    "id": "acorde-suspenso",
+    "text": "Acorde suspenso",
+    "group": "harmonia"
+  },
+  {
+    "id": "so-a-tonica",
+    "text": "Só a tônica",
+    "group": "harmonia"
+  },
+  {
+    "id": "resolve",
+    "text": "Resolve",
+    "group": "harmonia"
+  },
+  {
+    "id": "resolve-no-um",
+    "text": "Resolve no um",
+    "group": "harmonia"
+  },
+  {
+    "id": "nao-resolve",
+    "text": "Não resolve",
+    "group": "harmonia"
+  },
+  {
+    "id": "cadencia-final",
+    "text": "Cadência final",
+    "group": "harmonia"
+  },
+  {
+    "id": "dois-cinco-um",
+    "text": "Dois cinco um",
+    "group": "harmonia"
+  },
+  {
+    "id": "harmonia-do-refrao",
+    "text": "Harmonia do refrão",
+    "group": "harmonia"
+  },
+  {
+    "id": "harmonia-original",
+    "text": "Harmonia original",
+    "group": "harmonia"
+  },
+  {
+    "id": "harmonia-simples",
+    "text": "Harmonia simples",
+    "group": "harmonia"
+  },
+  {
+    "id": "acorde-aberto",
+    "text": "Acorde aberto",
+    "group": "harmonia"
+  },
+  {
+    "id": "mais-lento",
+    "text": "Mais lento",
+    "group": "andamento"
+  },
+  {
+    "id": "desacelera",
+    "text": "Desacelera",
+    "group": "andamento"
+  },
+  {
+    "id": "segura-o-tempo",
+    "text": "Segura o tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "nao-corre",
+    "text": "Não corre",
+    "group": "andamento"
+  },
+  {
+    "id": "nao-atrasa",
+    "text": "Não atrasa",
+    "group": "andamento"
+  },
+  {
+    "id": "ta-correndo",
+    "text": "Tá correndo",
+    "group": "andamento"
+  },
+  {
+    "id": "ta-atrasando",
+    "text": "Tá atrasando",
+    "group": "andamento"
+  },
+  {
+    "id": "no-tempo",
+    "text": "No tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "no-click",
+    "text": "No click",
+    "group": "andamento"
+  },
+  {
+    "id": "segue-o-click",
+    "text": "Segue o click",
+    "group": "andamento"
+  },
+  {
+    "id": "segue-a-bateria",
+    "text": "Segue a bateria",
+    "group": "andamento"
+  },
+  {
+    "id": "segue-o-teclado",
+    "text": "Segue o teclado",
+    "group": "andamento"
+  },
+  {
+    "id": "segue-o-violao",
+    "text": "Segue o violão",
+    "group": "andamento"
+  },
+  {
+    "id": "segue-a-voz",
+    "text": "Segue a voz",
+    "group": "andamento"
+  },
+  {
+    "id": "segue-o-ministro",
+    "text": "Segue o ministro",
+    "group": "andamento"
+  },
+  {
+    "id": "tempo-livre",
+    "text": "Tempo livre",
+    "group": "andamento"
+  },
+  {
+    "id": "livre",
+    "text": "Livre",
+    "group": "andamento"
+  },
+  {
+    "id": "rubato",
+    "text": "Rubato",
+    "group": "andamento"
+  },
+  {
+    "id": "dobra",
+    "text": "Dobra",
+    "group": "andamento"
+  },
+  {
+    "id": "metade-do-tempo",
+    "text": "Metade do tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "volta-pro-tempo",
+    "text": "Volta pro tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "andamento-original",
+    "text": "Andamento original",
+    "group": "andamento"
+  },
+  {
+    "id": "em-cima-do-tempo",
+    "text": "Em cima do tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "acelera-aos-poucos",
+    "text": "Acelera aos poucos",
+    "group": "andamento"
+  },
+  {
+    "id": "desacelera-aos-poucos",
+    "text": "Desacelera aos poucos",
+    "group": "andamento"
+  },
+  {
+    "id": "acelera-no-final",
+    "text": "Acelera no final",
+    "group": "andamento"
+  },
+  {
+    "id": "vai-acelerando",
+    "text": "Vai acelerando",
+    "group": "andamento"
+  },
+  {
+    "id": "vai-desacelerando",
+    "text": "Vai desacelerando",
+    "group": "andamento"
+  },
+  {
+    "id": "ritardando",
+    "text": "Ritardando",
+    "group": "andamento"
+  },
+  {
+    "id": "a-tempo",
+    "text": "A tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "firme-no-tempo",
+    "text": "Firme no tempo",
+    "group": "andamento"
+  },
+  {
+    "id": "sem-pressa",
+    "text": "Sem pressa",
+    "group": "andamento"
+  },
+  {
+    "id": "groove",
+    "text": "Groove",
+    "group": "levada"
+  },
+  {
+    "id": "mais-groove",
+    "text": "Mais groove",
+    "group": "levada"
+  },
+  {
+    "id": "levada",
+    "text": "Levada",
+    "group": "levada"
+  },
+  {
+    "id": "muda-a-levada",
+    "text": "Muda a levada",
+    "group": "levada"
+  },
+  {
+    "id": "volta-a-levada",
+    "text": "Volta a levada",
+    "group": "levada"
+  },
+  {
+    "id": "levada-do-refrao",
+    "text": "Levada do refrão",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-balada",
+    "text": "Levada de balada",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-rock",
+    "text": "Levada de rock",
+    "group": "levada"
+  },
+  {
+    "id": "levada-pop",
+    "text": "Levada pop",
+    "group": "levada"
+  },
+  {
+    "id": "levada-seis-por-oito",
+    "text": "Levada seis por oito",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-samba",
+    "text": "Levada de samba",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-baiao",
+    "text": "Levada de baião",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-xote",
+    "text": "Levada de xote",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-forro",
+    "text": "Levada de forró",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-reggae",
+    "text": "Levada de reggae",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-valsa",
+    "text": "Levada de valsa",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-pagode",
+    "text": "Levada de pagode",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-axe",
+    "text": "Levada de axé",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-sertanejo",
+    "text": "Levada de sertanejo",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-bossa",
+    "text": "Levada de bossa",
+    "group": "levada"
+  },
+  {
+    "id": "levada-de-funk",
+    "text": "Levada de funk",
+    "group": "levada"
+  },
+  {
+    "id": "swing",
+    "text": "Swing",
+    "group": "levada"
+  },
+  {
+    "id": "toca-reto",
+    "text": "Toca reto",
+    "group": "levada"
+  },
+  {
+    "id": "quatro-no-chao",
+    "text": "Quatro no chão",
+    "group": "levada"
+  },
+  {
+    "id": "shuffle",
+    "text": "Shuffle",
+    "group": "levada"
+  },
+  {
+    "id": "contratempo",
+    "text": "Contratempo",
+    "group": "levada"
+  },
+  {
+    "id": "levada-no-aro",
+    "text": "Levada no aro",
+    "group": "levada"
+  },
+  {
+    "id": "meia-levada",
+    "text": "Meia levada",
+    "group": "levada"
+  },
+  {
+    "id": "balanco",
+    "text": "Balanço",
+    "group": "levada"
+  },
+  {
+    "id": "batida",
+    "text": "Batida",
+    "group": "levada"
+  },
+  {
+    "id": "canta-igreja",
+    "text": "Canta igreja",
+    "group": "publico"
+  },
+  {
+    "id": "vamos-cantar",
+    "text": "Vamos cantar",
+    "group": "publico"
+  },
+  {
+    "id": "vamos-cantar-juntos",
+    "text": "Vamos cantar juntos",
+    "group": "publico"
+  },
+  {
+    "id": "levanta-as-maos",
+    "text": "Levanta as mãos",
+    "group": "publico"
+  },
+  {
+    "id": "bate-palma",
+    "text": "Bate palma",
+    "group": "publico"
+  },
+  {
+    "id": "palmas-no-dois-e-no-quatro",
+    "text": "Palmas no dois e no quatro",
+    "group": "publico"
+  },
+  {
+    "id": "palma-comigo",
+    "text": "Palma comigo",
+    "group": "publico"
+  },
+  {
+    "id": "mais-alto",
+    "text": "Mais alto",
+    "group": "publico"
+  },
+  {
+    "id": "nao-estou-ouvindo",
+    "text": "Não estou ouvindo",
+    "group": "publico"
+  },
+  {
+    "id": "agora-so-os-homens",
+    "text": "Agora só os homens",
+    "group": "publico"
+  },
+  {
+    "id": "agora-so-as-mulheres",
+    "text": "Agora só as mulheres",
+    "group": "publico"
+  },
+  {
+    "id": "agora-todo-mundo",
+    "text": "Agora todo mundo",
+    "group": "publico"
+  },
+  {
+    "id": "lado-direito",
+    "text": "Lado direito",
+    "group": "publico"
+  },
+  {
+    "id": "lado-esquerdo",
+    "text": "Lado esquerdo",
+    "group": "publico"
+  },
+  {
+    "id": "pula",
+    "text": "Pula",
+    "group": "publico"
+  },
+  {
+    "id": "pula-comigo",
+    "text": "Pula comigo",
+    "group": "publico"
+  },
+  {
+    "id": "grita",
+    "text": "Grita",
+    "group": "publico"
+  },
+  {
+    "id": "faz-barulho",
+    "text": "Faz barulho",
+    "group": "publico"
+  },
+  {
+    "id": "abraca-quem-esta-do-seu-lado",
+    "text": "Abraça quem está do seu lado",
+    "group": "publico"
+  },
+  {
+    "id": "olha-pra-quem-esta-do-seu-lado",
+    "text": "Olha pra quem está do seu lado",
+    "group": "publico"
+  },
+  {
+    "id": "fecha-os-olhos",
+    "text": "Fecha os olhos",
+    "group": "publico"
+  },
+  {
+    "id": "todos-de-pe",
+    "text": "Todos de pé",
+    "group": "publico"
+  },
+  {
+    "id": "pode-sentar",
+    "text": "Pode sentar",
+    "group": "publico"
+  },
+  {
+    "id": "acende-a-lanterna-do-celular",
+    "text": "Acende a lanterna do celular",
+    "group": "publico"
+  },
+  {
+    "id": "balanca-os-bracos",
+    "text": "Balança os braços",
+    "group": "publico"
+  },
+  {
+    "id": "maos-pro-alto",
+    "text": "Mãos pro alto",
+    "group": "publico"
+  },
+  {
+    "id": "repete-comigo",
+    "text": "Repete comigo",
+    "group": "publico"
+  },
+  {
+    "id": "eu-canto-voces-respondem",
+    "text": "Eu canto, vocês respondem",
+    "group": "publico"
+  },
+  {
+    "id": "voces-cantam",
+    "text": "Vocês cantam",
+    "group": "publico"
+  },
+  {
+    "id": "deixa-a-igreja-cantar",
+    "text": "Deixa a igreja cantar",
+    "group": "publico"
+  },
+  {
+    "id": "igreja-canta",
+    "text": "Igreja canta",
+    "group": "publico"
+  },
+  {
+    "id": "so-a-igreja",
+    "text": "Só a igreja",
+    "group": "publico"
+  },
+  {
+    "id": "obrigado",
+    "text": "Obrigado",
+    "group": "publico"
+  },
+  {
+    "id": "muito-obrigado",
+    "text": "Muito obrigado",
+    "group": "publico"
+  },
+  {
+    "id": "boa-noite",
+    "text": "Boa noite",
+    "group": "publico"
+  },
+  {
+    "id": "bom-dia",
+    "text": "Bom dia",
+    "group": "publico"
+  },
+  {
+    "id": "boa-tarde",
+    "text": "Boa tarde",
+    "group": "publico"
+  },
+  {
+    "id": "voces-sao-demais",
+    "text": "Vocês são demais",
+    "group": "publico"
+  },
+  {
+    "id": "sejam-bem-vindos",
+    "text": "Sejam bem-vindos",
+    "group": "publico"
+  },
+  {
+    "id": "mais-uma-vez-igreja",
+    "text": "Mais uma vez, igreja",
+    "group": "publico"
+  },
+  {
+    "id": "canta-mais-alto",
+    "text": "Canta mais alto",
+    "group": "publico"
+  },
+  {
+    "id": "quem-puder-se-ajoelhe",
+    "text": "Quem puder, se ajoelhe",
+    "group": "publico"
+  },
+  {
+    "id": "adoracao",
+    "text": "Adoração",
+    "group": "culto"
+  },
+  {
+    "id": "momento-de-adoracao",
+    "text": "Momento de adoração",
+    "group": "culto"
+  },
+  {
+    "id": "clamor",
+    "text": "Clamor",
+    "group": "culto"
+  },
+  {
+    "id": "momento-de-clamor",
+    "text": "Momento de clamor",
+    "group": "culto"
+  },
+  {
+    "id": "espontaneo-agora",
+    "text": "Espontâneo agora",
+    "group": "culto"
+  },
+  {
+    "id": "fica-no-espontaneo",
+    "text": "Fica no espontâneo",
+    "group": "culto"
+  },
+  {
+    "id": "ministra",
+    "text": "Ministra",
+    "group": "culto"
+  },
+  {
+    "id": "pode-ministrar",
+    "text": "Pode ministrar",
+    "group": "culto"
+  },
+  {
+    "id": "deixa-ministrar",
+    "text": "Deixa ministrar",
+    "group": "culto"
+  },
+  {
+    "id": "deixa-o-ministro-falar",
+    "text": "Deixa o ministro falar",
+    "group": "culto"
+  },
+  {
+    "id": "deixa-o-pastor-falar",
+    "text": "Deixa o pastor falar",
+    "group": "culto"
+  },
+  {
+    "id": "pastor-vai-orar",
+    "text": "Pastor vai orar",
+    "group": "culto"
+  },
+  {
+    "id": "hora-da-oracao",
+    "text": "Hora da oração",
+    "group": "culto"
+  },
+  {
+    "id": "vamos-orar",
+    "text": "Vamos orar",
+    "group": "culto"
+  },
+  {
+    "id": "intercessao",
+    "text": "Intercessão",
+    "group": "culto"
+  },
+  {
+    "id": "momento-profetico",
+    "text": "Momento profético",
+    "group": "culto"
+  },
+  {
+    "id": "cantico-novo",
+    "text": "Cântico novo",
+    "group": "culto"
+  },
+  {
+    "id": "gloria",
+    "text": "Glória",
+    "group": "culto"
+  },
+  {
+    "id": "aleluia",
+    "text": "Aleluia",
+    "group": "culto"
+  },
+  {
+    "id": "gloria-a-deus",
+    "text": "Glória a Deus",
+    "group": "culto"
+  },
+  {
+    "id": "santo-santo-santo",
+    "text": "Santo, santo, santo",
+    "group": "culto"
+  },
+  {
+    "id": "digno",
+    "text": "Digno",
+    "group": "culto"
+  },
+  {
+    "id": "hosana",
+    "text": "Hosana",
+    "group": "culto"
+  },
+  {
+    "id": "amem",
+    "text": "Amém",
+    "group": "culto"
+  },
+  {
+    "id": "presenca",
+    "text": "Presença",
+    "group": "culto"
+  },
+  {
+    "id": "deixa-fluir",
+    "text": "Deixa fluir",
+    "group": "culto"
+  },
+  {
+    "id": "clima-de-adoracao",
+    "text": "Clima de adoração",
+    "group": "culto"
+  },
+  {
+    "id": "clima-de-oracao",
+    "text": "Clima de oração",
+    "group": "culto"
+  },
+  {
+    "id": "fundo-de-oracao",
+    "text": "Fundo de oração",
+    "group": "culto"
+  },
+  {
+    "id": "fundo-musical",
+    "text": "Fundo musical",
+    "group": "culto"
+  },
+  {
+    "id": "toca-o-fundo",
+    "text": "Toca o fundo",
+    "group": "culto"
+  },
+  {
+    "id": "toca-embaixo-da-fala",
+    "text": "Toca embaixo da fala",
+    "group": "culto"
+  },
+  {
+    "id": "pad-na-oracao",
+    "text": "Pad na oração",
+    "group": "culto"
+  },
+  {
+    "id": "segura-o-fundo",
+    "text": "Segura o fundo",
+    "group": "culto"
+  },
+  {
+    "id": "celebracao",
+    "text": "Celebração",
+    "group": "culto"
+  },
+  {
+    "id": "agora-e-festa",
+    "text": "Agora é festa",
+    "group": "culto"
+  },
+  {
+    "id": "jubilo",
+    "text": "Júbilo",
+    "group": "culto"
+  },
+  {
+    "id": "pode-dancar",
+    "text": "Pode dançar",
+    "group": "culto"
+  },
+  {
+    "id": "brado-de-vitoria",
+    "text": "Brado de vitória",
+    "group": "culto"
+  },
+  {
+    "id": "palmas-pro-senhor",
+    "text": "Palmas pro Senhor",
+    "group": "culto"
+  },
+  {
+    "id": "louvor",
+    "text": "Louvor",
+    "group": "culto"
+  },
+  {
+    "id": "exalta",
+    "text": "Exalta",
+    "group": "culto"
+  },
+  {
+    "id": "quebrantamento",
+    "text": "Quebrantamento",
+    "group": "culto"
+  },
+  {
+    "id": "apelo",
+    "text": "Apelo",
+    "group": "culto"
+  },
+  {
+    "id": "avivamento",
+    "text": "Avivamento",
+    "group": "culto"
+  },
+  {
+    "id": "ministracao-final",
+    "text": "Ministração final",
+    "group": "culto"
+  },
+  {
+    "id": "volta-pro-louvor",
+    "text": "Volta pro louvor",
+    "group": "culto"
+  },
+  {
+    "id": "fica-em-silencio",
+    "text": "Fica em silêncio",
+    "group": "culto"
+  },
+  {
+    "id": "reverencia",
+    "text": "Reverência",
+    "group": "culto"
+  },
+  {
+    "id": "santa-ceia",
+    "text": "Santa ceia",
+    "group": "culto"
+  },
+  {
+    "id": "batismo",
+    "text": "Batismo",
+    "group": "culto"
+  },
+  {
+    "id": "ofertorio",
+    "text": "Ofertório",
+    "group": "culto"
+  },
+  {
+    "id": "momento-da-oferta",
+    "text": "Momento da oferta",
+    "group": "culto"
+  },
+  {
+    "id": "pregacao",
+    "text": "Pregação",
+    "group": "culto"
+  },
+  {
+    "id": "leitura-biblica",
+    "text": "Leitura bíblica",
+    "group": "culto"
+  },
+  {
+    "id": "testemunho",
+    "text": "Testemunho",
+    "group": "culto"
+  },
+  {
+    "id": "bencao",
+    "text": "Bênção",
+    "group": "culto"
+  },
+  {
+    "id": "oracao-final",
+    "text": "Oração final",
+    "group": "culto"
+  },
+  {
+    "id": "entrada-do-pastor",
+    "text": "Entrada do pastor",
+    "group": "culto"
+  },
+  {
+    "id": "louvor-de-abertura",
+    "text": "Louvor de abertura",
+    "group": "culto"
+  },
+  {
+    "id": "abertura",
+    "text": "Abertura",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "encerramento",
+    "text": "Encerramento",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "apresentacao-da-banda",
+    "text": "Apresentação da banda",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "momento-acustico",
+    "text": "Momento acústico",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "bloco-acustico",
+    "text": "Bloco acústico",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "bloco-agitado",
+    "text": "Bloco agitado",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "bloco-lento",
+    "text": "Bloco lento",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "troca-de-instrumento",
+    "text": "Troca de instrumento",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "afinando",
+    "text": "Afinando",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "passagem-de-som",
+    "text": "Passagem de som",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "ensaio",
+    "text": "Ensaio",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "ultimo-bloco",
+    "text": "Último bloco",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "primeira-musica",
+    "text": "Primeira música",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "penultima-musica",
+    "text": "Penúltima música",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "ultima-musica",
+    "text": "Última música",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "musica-nova",
+    "text": "Música nova",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "mais-uma-musica",
+    "text": "Mais uma música",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "hora-do-bis",
+    "text": "Hora do bis",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "video",
+    "text": "Vídeo",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "vinheta",
+    "text": "Vinheta",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "avisos",
+    "text": "Avisos",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "volta-do-intervalo",
+    "text": "Volta do intervalo",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "cinco-minutos",
+    "text": "Cinco minutos",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "acabou-o-tempo",
+    "text": "Acabou o tempo",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "hora-de-terminar",
+    "text": "Hora de terminar",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "entra-o-convidado",
+    "text": "Entra o convidado",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "participacao-especial",
+    "text": "Participação especial",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "entrada-da-noiva",
+    "text": "Entrada da noiva",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "entrada-dos-noivos",
+    "text": "Entrada dos noivos",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "hora-do-brinde",
+    "text": "Hora do brinde",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "troca-de-musica",
+    "text": "Troca de música",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "emenda-na-proxima",
+    "text": "Emenda na próxima",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "proxima",
+    "text": "Próxima",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "musica-anterior",
+    "text": "Música anterior",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "pula-essa-musica",
+    "text": "Pula essa música",
+    "group": "momentos-do-show"
+  },
+  {
+    "id": "olha-pra-mim",
+    "text": "Olha pra mim",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "olha-o-sinal",
+    "text": "Olha o sinal",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "me-acompanha",
+    "text": "Me acompanha",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "fica-comigo",
+    "text": "Fica comigo",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "segue-a-minha-mao",
+    "text": "Segue a minha mão",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "meu-sinal",
+    "text": "Meu sinal",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "espera-o-meu-sinal",
+    "text": "Espera o meu sinal",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "muito-bom",
+    "text": "Muito bom",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "boa",
+    "text": "Boa",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "isso",
+    "text": "Isso",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "isso-ai",
+    "text": "Isso aí",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "perfeito",
+    "text": "Perfeito",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "lindo",
+    "text": "Lindo",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "valeu-banda",
+    "text": "Valeu, banda",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "bora",
+    "text": "Bora",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "vamos-la",
+    "text": "Vamos lá",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "foco",
+    "text": "Foco",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "calma-banda",
+    "text": "Calma, banda",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "relaxa",
+    "text": "Relaxa",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "ta-otimo",
+    "text": "Tá ótimo",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "errou-segue",
+    "text": "Errou, segue",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "nao-para",
+    "text": "Não para",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "continua-tocando",
+    "text": "Continua tocando",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "segura-ai",
+    "text": "Segura aí",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "vou-falar-agora",
+    "text": "Vou falar agora",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "vou-chamar-o-refrao",
+    "text": "Vou chamar o refrão",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "vou-chamar-o-final",
+    "text": "Vou chamar o final",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "escuta",
+    "text": "Escuta",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "banda-comigo",
+    "text": "Banda, comigo",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "banda-segura",
+    "text": "Banda, segura",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "banda-prepara",
+    "text": "Banda, prepara",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "banda-sobe",
+    "text": "Banda, sobe",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "banda-desce",
+    "text": "Banda, desce",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "olho-no-ministro",
+    "text": "Olho no ministro",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "deixa-comigo",
+    "text": "Deixa comigo",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "eu-conto",
+    "text": "Eu conto",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "eu-dou-o-sinal",
+    "text": "Eu dou o sinal",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "espera-o-ministro",
+    "text": "Espera o ministro",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "calma",
+    "text": "Calma",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "agora-sim",
+    "text": "Agora sim",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "igual-ao-ensaio",
+    "text": "Igual ao ensaio",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "como-combinamos",
+    "text": "Como combinamos",
+    "group": "com-a-banda"
+  },
+  {
+    "id": "click",
+    "text": "Click",
+    "group": "tecnico"
+  },
+  {
+    "id": "liga-o-click",
+    "text": "Liga o click",
+    "group": "tecnico"
+  },
+  {
+    "id": "desliga-o-click",
+    "text": "Desliga o click",
+    "group": "tecnico"
+  },
+  {
+    "id": "sem-click",
+    "text": "Sem click",
+    "group": "tecnico"
+  },
+  {
+    "id": "click-mais-alto",
+    "text": "Click mais alto",
+    "group": "tecnico"
+  },
+  {
+    "id": "click-mais-baixo",
+    "text": "Click mais baixo",
+    "group": "tecnico"
+  },
+  {
+    "id": "guia",
+    "text": "Guia",
+    "group": "tecnico"
+  },
+  {
+    "id": "liga-a-guia",
+    "text": "Liga a guia",
+    "group": "tecnico"
+  },
+  {
+    "id": "desliga-a-guia",
+    "text": "Desliga a guia",
+    "group": "tecnico"
+  },
+  {
+    "id": "retorno",
+    "text": "Retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-retorno",
+    "text": "Mais retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "menos-retorno",
+    "text": "Menos retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "sem-retorno",
+    "text": "Sem retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-voz-no-retorno",
+    "text": "Mais voz no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-bateria-no-retorno",
+    "text": "Mais bateria no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-baixo-no-retorno",
+    "text": "Mais baixo no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-teclado-no-retorno",
+    "text": "Mais teclado no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-guitarra-no-retorno",
+    "text": "Mais guitarra no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-violao-no-retorno",
+    "text": "Mais violão no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-click-no-retorno",
+    "text": "Mais click no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "menos-voz-no-retorno",
+    "text": "Menos voz no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "menos-click-no-retorno",
+    "text": "Menos click no retorno",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-o-volume",
+    "text": "Sobe o volume",
+    "group": "tecnico"
+  },
+  {
+    "id": "desce-o-volume",
+    "text": "Desce o volume",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-a-voz",
+    "text": "Sobe a voz",
+    "group": "tecnico"
+  },
+  {
+    "id": "desce-a-voz",
+    "text": "Desce a voz",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-a-guitarra",
+    "text": "Sobe a guitarra",
+    "group": "tecnico"
+  },
+  {
+    "id": "desce-a-guitarra",
+    "text": "Desce a guitarra",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-o-teclado",
+    "text": "Sobe o teclado",
+    "group": "tecnico"
+  },
+  {
+    "id": "desce-o-teclado",
+    "text": "Desce o teclado",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-o-violao",
+    "text": "Sobe o violão",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-a-bateria",
+    "text": "Sobe a bateria",
+    "group": "tecnico"
+  },
+  {
+    "id": "desce-a-bateria",
+    "text": "Desce a bateria",
+    "group": "tecnico"
+  },
+  {
+    "id": "sobe-o-baixo",
+    "text": "Sobe o baixo",
+    "group": "tecnico"
+  },
+  {
+    "id": "microfone",
+    "text": "Microfone",
+    "group": "tecnico"
+  },
+  {
+    "id": "liga-o-microfone",
+    "text": "Liga o microfone",
+    "group": "tecnico"
+  },
+  {
+    "id": "microfone-sem-som",
+    "text": "Microfone sem som",
+    "group": "tecnico"
+  },
+  {
+    "id": "troca-o-microfone",
+    "text": "Troca o microfone",
+    "group": "tecnico"
+  },
+  {
+    "id": "sem-som",
+    "text": "Sem som",
+    "group": "tecnico"
+  },
+  {
+    "id": "microfonia",
+    "text": "Microfonia",
+    "group": "tecnico"
+  },
+  {
+    "id": "sem-som-no-fone",
+    "text": "Sem som no fone",
+    "group": "tecnico"
+  },
+  {
+    "id": "troca-a-pilha",
+    "text": "Troca a pilha",
+    "group": "tecnico"
+  },
+  {
+    "id": "troca-o-cabo",
+    "text": "Troca o cabo",
+    "group": "tecnico"
+  },
+  {
+    "id": "chama-o-tecnico",
+    "text": "Chama o técnico",
+    "group": "tecnico"
+  },
+  {
+    "id": "tira-o-efeito",
+    "text": "Tira o efeito",
+    "group": "tecnico"
+  },
+  {
+    "id": "mais-reverb",
+    "text": "Mais reverb",
+    "group": "tecnico"
+  },
+  {
+    "id": "menos-reverb",
+    "text": "Menos reverb",
+    "group": "tecnico"
+  },
+  {
+    "id": "apaga-a-luz",
+    "text": "Apaga a luz",
+    "group": "tecnico"
+  },
+  {
+    "id": "passa-a-letra",
+    "text": "Passa a letra",
+    "group": "tecnico"
+  },
+  {
+    "id": "solta-o-vs",
+    "text": "Solta o VS",
+    "group": "tecnico"
+  },
+  {
+    "id": "para-o-vs",
+    "text": "Para o VS",
+    "group": "tecnico"
+  },
+  {
+    "id": "solta-a-base",
+    "text": "Solta a base",
+    "group": "tecnico"
+  },
+  {
+    "id": "para-a-base",
+    "text": "Para a base",
+    "group": "tecnico"
+  },
+  {
+    "id": "solta-o-pad",
+    "text": "Solta o pad",
+    "group": "tecnico"
+  },
+  {
+    "id": "estamos-ao-vivo",
+    "text": "Estamos ao vivo",
+    "group": "tecnico"
+  },
+  {
+    "id": "nove",
+    "text": "Nove",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "dez",
+    "text": "Dez",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "doze",
+    "text": "Doze",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "dezesseis",
+    "text": "Dezesseis",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "um-dois",
+    "text": "Um, dois",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "um-dois-tres",
+    "text": "Um, dois, três",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "um-dois-tres-quatro",
+    "text": "Um, dois, três, quatro",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "cinco-seis-sete-oito",
+    "text": "Cinco, seis, sete, oito",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "tres-dois-um",
+    "text": "Três, dois, um",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "conta-comigo",
+    "text": "Conta comigo",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "contagem",
+    "text": "Contagem",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "sem-contagem",
+    "text": "Sem contagem",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "um-tempo",
+    "text": "Um tempo",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "dois-tempos",
+    "text": "Dois tempos",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "quatro-tempos",
+    "text": "Quatro tempos",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "um-compasso",
+    "text": "Um compasso",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "tres-compassos",
+    "text": "Três compassos",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "dezesseis-compassos",
+    "text": "Dezesseis compassos",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "faltam-tres-compassos",
+    "text": "Faltam três compassos",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "faltam-oito-compassos",
+    "text": "Faltam oito compassos",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "falta-um-compasso",
+    "text": "Falta um compasso",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "ultimo-tempo",
+    "text": "Último tempo",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-um",
+    "text": "No um",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-dois",
+    "text": "No dois",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-tres",
+    "text": "No três",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-quatro",
+    "text": "No quatro",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-proximo-compasso",
+    "text": "No próximo compasso",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-proximo-refrao",
+    "text": "No próximo refrão",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "na-volta",
+    "text": "Na volta",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "na-virada",
+    "text": "Na virada",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "no-meu-sinal",
+    "text": "No meu sinal",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "espera",
+    "text": "Espera",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "aguarda-o-sinal",
+    "text": "Aguarda o sinal",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "fica-atento",
+    "text": "Fica atento",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "atencao-banda",
+    "text": "Atenção banda",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "atencao-no-final",
+    "text": "Atenção no final",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "atencao-na-virada",
+    "text": "Atenção na virada",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "atencao-no-breque",
+    "text": "Atenção no breque",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "atencao-no-tom",
+    "text": "Atenção no tom",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "la-vem",
+    "text": "Lá vem",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "la-vem-o-refrao",
+    "text": "Lá vem o refrão",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "la-vem-a-ponte",
+    "text": "Lá vem a ponte",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "la-vem-o-final",
+    "text": "Lá vem o final",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "prepara-o-refrao",
+    "text": "Prepara o refrão",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "prepara-a-ponte",
+    "text": "Prepara a ponte",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "prepara-o-final",
+    "text": "Prepara o final",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "prepara-a-virada",
+    "text": "Prepara a virada",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "prepara-pra-mudar-o-tom",
+    "text": "Prepara pra mudar o tom",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "valendo",
+    "text": "Valendo",
+    "group": "contagem-e-aviso"
+  },
+  {
+    "id": "daqui-a-pouco",
+    "text": "Daqui a pouco",
+    "group": "contagem-e-aviso"
+  }
+]

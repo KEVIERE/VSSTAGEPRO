@@ -1,6 +1,8 @@
 // Maestro por IA: o usuário marca um trecho na faixa Maestro, escreve o que quer que seja falado
 // e o app gera a voz.
-// - Vozes padrão (Feminina e Masculina): a voz brasileira de IA (Qwen3-TTS), gerada no próprio Mac,
+// - Vozes padrão (Felipe e Bianca): as falas prontas, gravadas em estúdio (src/lib/maestroCues.ts).
+//   Texto fora da lista, ou fala da lista ainda sem gravação, sai na voz do Mac do mesmo gênero.
+// - Vozes do Mac (Feminina e Masculina): a voz brasileira de IA (Qwen3-TTS), gerada no próprio Mac,
 //   sem custo por uso. O modelo é baixado uma vez, em silêncio; até lá, em Mac Intel ou se ela
 //   falhar, o app usa a voz do sistema como reserva.
 // - Vozes online (src/lib/onlineVoices.ts): pacotes de vozes GRATUITAS da internet, geradas pelo app
@@ -24,7 +26,10 @@ import { friendlyError } from '@/lib/friendlyError';
 import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, currentSignature, fitTempo, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
 import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
-import { READY_INTENSITIES, findReadyCue, readyCueUrl, readyVoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
+import { DEFAULT_READY_VOICE, READY_INTENSITIES, findReadyCue, hasRecording, readyCueUrl, readyVoice, voiceFromOldChoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
+
+/** Voz das marcações novas quando nada foi escolhido ainda: o Felipe. */
+export const DEFAULT_VOICE = DEFAULT_READY_VOICE;
 
 /** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
 export const IA_VOICE_NAMES: Record<'feminina' | 'masculina', string> = { feminina: 'IA', masculina: 'IA' };
@@ -127,18 +132,26 @@ export function cursorTime(songId: string): number | null {
   return Math.max(0, transport.currentTime);
 }
 
-/** A última voz escolhida vira o padrão das próximas marcações. */
-const LAST_VOICE_KEY = 'vs-maestro-ia-voz';
+/**
+ * A última voz escolhida vira o padrão das próximas marcações. A chave mudou quando Felipe e Bianca
+ * viraram as vozes padrão: a escolha guardada antes passa para elas (Masculina vira Felipe, Feminina
+ * vira Bianca); o que for escolhido depois, inclusive Feminina e Masculina, vale como está.
+ */
+const LAST_VOICE_KEY = 'vs-maestro-ia-voz-2';
+const OLD_VOICE_KEY = 'vs-maestro-ia-voz';
 export function lastVoice(): string {
   let v: string | null = null;
-  try { v = localStorage.getItem(LAST_VOICE_KEY); } catch { /* sem armazenamento: fica a padrão */ }
-  // só as vozes oferecidas hoje: uma voz do Mac escolhida antes pelo nome volta para a padrão
-  if (v === 'masculina' || v === 'qwen:masculina') return 'masculina';
-  // Henrique foi apagada: quem usava ela passa para a Masculina
-  if (v === 'henrique' || v === 'qwen:henrique') return 'masculina';
-  // Cubas e Keven saíram do seletor: volta para a voz feminina
-  if (v && onlineVoiceById(v)) return v;
-  return 'feminina';
+  let old: string | null = null;
+  try {
+    v = localStorage.getItem(LAST_VOICE_KEY);
+    if (!v) old = localStorage.getItem(OLD_VOICE_KEY);
+  } catch { /* sem armazenamento: fica a padrão */ }
+  if (v) {
+    // só as vozes oferecidas hoje; uma que saiu do seletor volta para a padrão
+    if (v === 'feminina' || v === 'masculina' || readyVoice(v) || onlineVoiceById(v)) return v;
+    return DEFAULT_VOICE;
+  }
+  return voiceFromOldChoice(old, (x) => !!onlineVoiceById(x));
 }
 export function rememberVoice(voice: string): void {
   try { localStorage.setItem(LAST_VOICE_KEY, voice); } catch { /* sem armazenamento: fica a padrão */ }
@@ -273,12 +286,21 @@ export async function synthesize(text: string, voice: string, span: number, pace
 
   // Falas prontas (Felipe e Bianca): a frase da lista sai do arquivo gravado, e passa pelo mesmo
   // acerto das outras vozes (começa na amostra da palavra, estica para a marcação ou a contagem).
-  // Texto fora da lista sai na voz do Mac do mesmo gênero.
+  // Texto fora da lista, fala da lista ainda sem gravação ou arquivo que não abriu saem na voz do
+  // Mac do mesmo gênero, com aviso (nunca dá erro por isso).
   const ready = readyVoice(voice);
   if (ready) {
     const cue = findReadyCue(trimmed);
-    if (cue) {
-      buffer = await readyCueBuffer(ready, cue);
+    let missingFile = false;
+    if (cue && hasRecording(cue)) {
+      try {
+        buffer = await readyCueBuffer(ready, cue);
+      } catch {
+        buffer = null;
+        missingFile = true;
+      }
+    }
+    if (cue && buffer) {
       const fit = fitTempo(buffer.duration, span, pace);
       tempo = fit.tempo;
       result = {
@@ -289,7 +311,12 @@ export async function synthesize(text: string, voice: string, span: number, pace
         engine: 'pronta',
       };
     } else {
-      fallbackNote = `Essa fala não está nas falas prontas: saiu na voz ${ready.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`;
+      const mac = ready.fallback === 'masculina' ? 'Masculina' : 'Feminina';
+      fallbackNote = !cue
+        ? `Essa fala não está nas falas prontas: saiu na voz ${mac} do Mac.`
+        : missingFile
+          ? `Não encontrei o áudio gravado desta fala: saiu na voz ${mac} do Mac.`
+          : `Essa fala pronta ainda não foi gravada na voz ${ready.label}: saiu na voz ${mac} do Mac.`;
       voice = ready.fallback;
     }
   }
@@ -312,20 +339,27 @@ export async function synthesize(text: string, voice: string, span: number, pace
       result = {
         wpm: Math.round((trimmed.split(/\s+/).length / Math.max(0.3, fit.seconds)) * 60),
         voiceName: natural.voiceName,
-        note: null,
+        // voz pronta que caiu aqui: o aviso de por que não saiu a fala gravada vai junto
+        note: fallbackNote,
         overflow: fit.overflow,
         engine: 'online',
       };
     } catch (err) {
       if (!preset) throw err; // voz online escolhida pelo nome: avisa o erro
       onlineFailedAt = Date.now(); // por 2 minutos nem tenta (não fica esperando a cada fala)
-      fallbackNote = 'Sem internet ou o serviço de voz não respondeu: usei a voz do próprio Mac.';
+      fallbackNote = ready
+        ? fallbackNote
+        : 'Sem internet ou o serviço de voz não respondeu: usei a voz do próprio Mac.';
     }
   }
 
   if (!buffer || !result) {
     const speak = window.vsDesktop?.maestroSpeak;
-    if (!speak) throw new Error('As vozes Feminina e Masculina só são geradas no app do Mac.');
+    if (!speak) {
+      throw new Error(ready
+        ? 'Essa fala não tem áudio gravado nas falas prontas, e a voz do Mac que fala no lugar só existe no app do Mac.'
+        : 'As vozes Feminina e Masculina só são geradas no app do Mac.');
+    }
     let out;
     try {
       out = await speak({ text: trimmed, voice, wpm: wpmForSpan(trimmed, span), span, pace, group });

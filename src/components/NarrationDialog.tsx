@@ -3,8 +3,8 @@ import { Check, Loader2, Mic, Play, Sparkles, Square, Trash2, X } from 'lucide-r
 import { useStore } from '@/store';
 import type { MaestroNarration, Song } from '@/types';
 import {
-  COUNT_PACE_MAX, COUNT_PACE_MIN, FAST_WPM, MAX_WPM, MIN_WPM, NARRATION_MIN_LENGTH, PITCH_PRESETS,
-  isOnBeat, narrationBounds, spanForNatural, spanForWpm, syncedToCursor, wpmForSpan,
+  COUNT_PACE_MAX, COUNT_PACE_MIN, FAST_WPM, NARRATION_MIN_LENGTH, PITCH_PRESETS,
+  isOnBeat, narrationBounds, spanForNatural, spanForWpm, syncedToCursor, wpmForSpan, wpmRange,
 } from '@/lib/narrations';
 import {
   canGenerate, cursorTime, generateNarration, generatingSnapshot, isGenerating, isPresetVoice,
@@ -12,7 +12,8 @@ import {
   iaStatusText, shortVoiceName, stopPreview, subscribeGenerating, voiceEngineStatus,
 } from '@/lib/maestroVoice';
 import MaestroVoicePicker from '@/components/MaestroVoicePicker';
-import { READY_CUE_GROUPS, findReadyCue, readyVoice, type ReadyCue } from '@/lib/maestroCues';
+import ReadyCuePicker, { ESC_CLEARS_ATTR } from '@/components/maestro/ReadyCuePicker';
+import { readyVoice, type ReadyCue } from '@/lib/maestroCues';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
 import { formatRegionTime } from '@/lib/regions';
 import { friendlyError } from '@/lib/friendlyError';
@@ -26,8 +27,9 @@ interface NarrationDialogProps {
 }
 
 /**
- * Editor da fala do Maestro por IA: o texto, a voz (Feminina ou Masculina, de IA no próprio Mac, ou
- * uma das vozes online) e o tamanho da marcação definem a fala. "Gerar e ouvir" cria o áudio na faixa Maestro IA e toca
+ * Editor da fala do Maestro por IA: o texto, a voz (Felipe ou Bianca, as padrão, com as falas
+ * prontas; Feminina ou Masculina, de IA no próprio Mac; ou uma das vozes online) e o tamanho da
+ * marcação definem a fala. As falas prontas têm busca por palavras (ReadyCuePicker). "Gerar e ouvir" cria o áudio na faixa Maestro IA e toca
  * para conferir. Fechou com texto novo? A voz é gerada sozinha.
  */
 export default function NarrationDialog({ song, narration, onClose }: NarrationDialogProps) {
@@ -45,10 +47,8 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   const [ia, setIa] = useState<MaestroVoiceStatus | null>(null);
   // velocidade fixa (contagem): o controle mexe aqui e grava ao soltar (um passo do desfazer)
   const [paceDraft, setPaceDraft] = useState(narration.pace ?? 1);
-  // falas prontas: o assunto aberto (Tom, Andamento...); abre no assunto da fala atual
-  const [cueGroup, setCueGroup] = useState<string | null>(
-    () => READY_CUE_GROUPS.find((g) => g.cues.some((c) => c.id === findReadyCue(narration.text)?.id))?.id ?? null,
-  );
+  // marcação nova (sem texto): o cursor abre na busca das falas prontas; com texto, no texto
+  const [searchFirst] = useState(() => !narration.text.trim());
   const textRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const fit = useFitOnScreen(panelRef);
@@ -61,13 +61,15 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
   const busy = isGenerating(narration.id);
   const span = narration.end - narration.start;
   const wpm = wpmForSpan(text, span);
+  // a barra vai só até onde a marcação pode ir (mínimo de tamanho e a próxima marcação)
+  const pace = wpmRange(text, narrationBounds(song, narration.id).max - narration.start);
   const state = narrationState(narration);
   const onBeat = isOnBeat(song, narration.start);
   const over = narrationOverflows(narration);
   // voz de IA do próprio Mac pronta (as vozes padrão)
   const iaAvailable = !!ia?.ready;
 
-  useEffect(() => { textRef.current?.focus(); textRef.current?.select(); }, []);
+  useEffect(() => { if (!searchFirst) { textRef.current?.focus(); textRef.current?.select(); } }, [searchFirst]);
   // acompanha o download da voz enquanto a janela está aberta
   useEffect(() => {
     let alive = true;
@@ -100,7 +102,11 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeRef.current(); }
+      if (e.key !== 'Escape') return;
+      // Esc na busca das falas prontas com algo escrito: só limpa a busca (a própria busca cuida)
+      const t = e.target as HTMLInputElement | null;
+      if (t?.hasAttribute?.(ESC_CLEARS_ATTR) && t.value) return;
+      e.preventDefault(); e.stopPropagation(); closeRef.current();
     };
     const onDown = (e: PointerEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node)) closeRef.current();
@@ -162,6 +168,15 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
     updateNarration(song.id, narration.id, { text: cue.text, voice: nextVoice });
     if (nextVoice !== voice) rememberVoice(nextVoice);
     void generate();
+  };
+
+  /** Busca sem fala pronta: o que foi digitado vira o texto (sai na voz do Mac ao gerar ou fechar). */
+  const takeTypedText = (typed: string) => {
+    if (!typed) return;
+    setText(typed);
+    textNow.current = typed;
+    setDone(null);
+    textRef.current?.focus();
   };
 
   const generate = async () => {
@@ -241,48 +256,13 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
         }}
       />
 
-      {/* Falas prontas: um botão por assunto; o assunto aberto mostra as falas dele */}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Falas prontas por assunto">
-          {READY_CUE_GROUPS.map((g) => (
-            <button
-              key={g.id}
-              className={`px-1.5 py-1 rounded border text-[10px] font-semibold transition-colors ${
-                cueGroup === g.id
-                  ? 'border-sky-400 bg-sky-500/25 text-sky-100'
-                  : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text'
-              }`}
-              onClick={() => setCueGroup(cueGroup === g.id ? null : g.id)}
-              aria-expanded={cueGroup === g.id}
-            >
-              {g.label}
-            </button>
-          ))}
-        </div>
-        {cueGroup && (
-          <div className="flex flex-wrap gap-1 p-1.5 rounded border border-logic-border bg-logic-bg-deep animate-[fadeIn_120ms_ease-out]">
-            {READY_CUE_GROUPS.find((g) => g.id === cueGroup)?.cues.map((c) => {
-              const on = findReadyCue(text)?.id === c.id;
-              return (
-                <button
-                  key={c.id}
-                  className={`px-1.5 py-1 rounded text-[11px] transition-colors ${on ? 'bg-sky-500/30 text-sky-100' : 'text-logic-text-dim hover:text-logic-text hover:bg-white/5'}`}
-                  onClick={() => pickCue(c)}
-                  disabled={busy}
-                  title="Usar esta fala pronta (voz Felipe ou Bianca, já no tempo)"
-                >
-                  {c.text}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      {/* Falas prontas: busca por palavras em todos os assuntos, ou um botão por assunto */}
+      <ReadyCuePicker text={text} busy={busy} onPick={pickCue} onFreeText={takeTypedText} autoFocus={searchFirst} />
 
       </div>
 
       <div className="flex flex-col gap-2.5 min-w-0">
-      {/* Voz: as padrão (Feminina e Masculina, de IA no próprio Mac) e, logo abaixo, as vozes online */}
+      {/* Voz: as padrão (Felipe e Bianca), as do Mac (Feminina e Masculina) e, logo abaixo, as vozes online */}
       <MaestroVoicePicker voice={voice} onChoose={chooseVoice} iaReady={iaAvailable} pitch={narration.pitch} />
 
       {/* Tom da voz: grave, padrão ou agudo (sem mudar a velocidade) */}
@@ -334,14 +314,16 @@ export default function NarrationDialog({ song, narration, onClose }: NarrationD
         <span className="text-logic-text-muted w-12 shrink-0">Ritmo</span>
         <input
           type="range"
-          min={MIN_WPM}
-          max={MAX_WPM}
-          step={5}
-          value={wpm}
+          min={pace.min}
+          max={pace.max}
+          step={1}
+          value={Math.max(pace.min, Math.min(pace.max, wpm))}
+          disabled={pace.max <= pace.min}
           onChange={(e) => setLength(spanForWpm(text, Number(e.target.value)))}
-          className="flex-1 accent-sky-400"
+          className="flex-1 min-w-0 accent-sky-400 disabled:opacity-40"
           title="Mais rápido = marcação menor; mais devagar = marcação maior."
         />
+        <span className="font-mono text-logic-text-dim w-14 shrink-0 text-right tabular-nums" title="Palavras por minuto">{wpm} p/min</span>
         <button className={btn} onClick={() => setLength(spanForNatural(text))} title="Tamanho para o ritmo de conversa normal">
           Natural
         </button>

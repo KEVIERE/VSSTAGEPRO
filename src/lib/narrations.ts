@@ -54,6 +54,17 @@ export function spanForWpm(text: string, wpm: number): number {
   return Math.max(NARRATION_MIN_LENGTH, ((wordCount(text) * 60) / clamped) * FIT_MARGIN);
 }
 
+/**
+ * Faixa do controle de ritmo para este texto: do mais devagar que cabe até a próxima marcação
+ * (maxSpan) ao mais rápido que a marcação mínima permite. Assim a barra anda de ponta a ponta;
+ * com os limites fixos, um texto curto parava no meio (a marcação já estava no tamanho mínimo).
+ */
+export function wpmRange(text: string, maxSpan: number): { min: number; max: number } {
+  const min = wpmForSpan(text, Math.max(NARRATION_MIN_LENGTH, maxSpan));
+  const max = wpmForSpan(text, NARRATION_MIN_LENGTH);
+  return { min, max: Math.max(min, max) };
+}
+
 /** Espaço (s) que o texto ocupa no ritmo de conversa: o botão "Ritmo natural" usa isso. */
 export function spanForNatural(text: string): number {
   return spanForWpm(text, BASE_WPM);
@@ -258,4 +269,58 @@ export function freeRunAt(song: Pick<Song, 'duration' | 'narrations'>, at: numbe
   const prev = list.filter((n) => n.end <= at + 1e-6).pop();
   const next = list.find((n) => n.start >= at - 1e-6);
   return { lo: prev ? prev.end : 0, hi: next ? next.start : song.duration };
+}
+
+// ---------------------------------------------------------------------------------------------
+// O áudio da fala é um clipe comum da faixa Maestro IA. A marcação só guarda o texto, a voz e o
+// que precisa para gerar de novo, ligada ao clipe por `clipId`.
+
+interface LinkedClip { id: string; trackId: string }
+
+/**
+ * Falas cujo áudio deixou de ser a voz gerada: o clipe foi apagado, emendado com outros, dividido
+ * (`detach`) ou mandado para outra faixa. A marcação sai e o áudio que sobrou fica como um clipe
+ * comum. Só conta clipe que existia antes (`prevClips`): fala de projeto antigo com o áudio
+ * faltando continua lá, para gerar de novo. Sem mudança, devolve a mesma lista (mesma referência).
+ */
+export function pruneNarrationLinks<S extends { narrations?: MaestroNarration[] }>(
+  songs: S[],
+  prevClips: readonly LinkedClip[],
+  nextClips: readonly LinkedClip[],
+  detach?: Iterable<string>,
+): S[] {
+  if (!songs.some((sg) => sg.narrations?.some((n) => n.clipId))) return songs;
+  const before = new Map(prevClips.map((c) => [c.id, c.trackId]));
+  const after = new Map(nextClips.map((c) => [c.id, c.trackId]));
+  const cut = new Set(detach ?? []);
+  const keep = (n: MaestroNarration): boolean => {
+    if (!n.clipId) return true;
+    if (cut.has(n.clipId)) return false;
+    const was = before.get(n.clipId);
+    if (was === undefined) return true;
+    const now = after.get(n.clipId);
+    return now !== undefined && now === was;
+  };
+  let changed = false;
+  const out = songs.map((sg) => {
+    if (!sg.narrations?.length || sg.narrations.every(keep)) return sg;
+    changed = true;
+    return { ...sg, narrations: sg.narrations.filter(keep) };
+  });
+  return changed ? out : songs;
+}
+
+/** Clipes da faixa Maestro IA que não são a voz de nenhuma fala (pedaço dividido, emendado, colado). */
+export function looseMaestroClips<C extends LinkedClip>(
+  clips: readonly C[],
+  narrations: readonly Pick<MaestroNarration, 'clipId'>[] | undefined,
+  trackId: string = MAESTRO_IA_TRACK_ID,
+): C[] {
+  const linked = new Set((narrations ?? []).map((n) => n.clipId).filter(Boolean));
+  return clips.filter((c) => c.trackId === trackId && !linked.has(c.id));
+}
+
+/** A fala existe com o áudio dela no projeto (o clique na fala entra na seleção dos clipes). */
+export function hasLiveClip(n: Pick<MaestroNarration, 'clipId'>, clips: readonly LinkedClip[]): boolean {
+  return !!n.clipId && clips.some((c) => c.id === n.clipId);
 }

@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Loader2, Mic, Sparkles } from 'lucide-react';
 import { useStore } from '@/store';
 import type { MaestroNarration, Song } from '@/types';
 import {
-  FAST_WPM, NARRATION_MIN_LENGTH, freeRunAt, narrationBounds, placeNarration, sortedNarrations, syncedToCursor, wpmForSpan,
+  FAST_WPM, NARRATION_MIN_LENGTH, freeRunAt, hasLiveClip, narrationBounds, placeNarration, sortedNarrations, syncedToCursor, wpmForSpan,
 } from '@/lib/narrations';
 import {
   canGenerate, cursorTime, generateNarration, generatingSnapshot, hasVoiceEngine, isGenerating, moveNarration, narrationBuffer,
@@ -17,6 +17,7 @@ import { audioEngine } from '@/lib/audioEngine';
 import { masterAudioClip } from '@/lib/clipMastering';
 import { MASTER_PROFILES } from '@/lib/mastering';
 import { ClipWaveform } from '@/components/ClipWaveform';
+import { ClipMenuItems } from '@/components/ContextMenu';
 
 /** Altura da régua do Maestro por IA (a coluna de nomes das faixas usa a mesma). */
 export const NARRATION_LANE_HEIGHT = 30;
@@ -50,6 +51,11 @@ interface NarrationLaneProps {
    * inteira (falas e clipes), como no arraste de um clipe. Clique sem arrastar deixa só esta.
    */
   onGroupDrag?: (e: React.PointerEvent<HTMLDivElement>, clipId: string) => void;
+  /**
+   * Áudios comuns da faixa Maestro IA (pedaço de fala dividida, falas emendadas, áudio colado),
+   * desenhados pela timeline como qualquer outro clipe, dentro desta régua.
+   */
+  clipLayer?: ReactNode;
 }
 
 /**
@@ -62,7 +68,7 @@ interface NarrationLaneProps {
  *   menor = mais rápido, maior = mais devagar. A voz é gerada de novo sozinha.
  * - Clique duplo abre o editor; botão direito tem "Sincar no beat do cursor". Alt desliga o ímã.
  */
-export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move, onSelectClip, onGroupDrag }: NarrationLaneProps) {
+export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move, onSelectClip, onGroupDrag, clipLayer }: NarrationLaneProps) {
   const updateNarration = useStore((s) => s.updateNarration);
   const snapStep = useStore((s) => s.snapStep);
   const clips = useStore((s) => s.clips);
@@ -132,12 +138,17 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
     const box = el.getBoundingClientRect();
     const atEdge = box.width > EDGE_PX * 3 && (e.clientX - box.left <= EDGE_PX || e.clientX - box.left >= box.width - EDGE_PX);
     const sel = useStore.getState().selectedClipIds;
+    // Fala com o áudio no projeto: é um clipe como os outros (mesma seleção, Delete, Unir...).
+    // Fala sem voz, ou com o áudio faltando (projeto antigo): seleção própria, para o Delete
+    // ainda apagar a marcação. Antes o clique não selecionava nada e ela não saía mais.
+    const live = hasLiveClip(n, useStore.getState().clips);
+    // (áudio faltando nunca está na seleção, então o arraste do grupo já fica de fora)
     if (n.clipId && onGroupDrag && !additive && !e.shiftKey && !atEdge && sel.includes(n.clipId) && sel.length > 1) {
       setSelectedId(null);
       onGroupDrag(e, n.clipId);
       return;
     }
-    if (n.clipId && onSelectClip) {
+    if (live && n.clipId && onSelectClip) {
       // fala com voz: mesma seleção dos clipes (Delete, Cmd+clique, Shift+clique, retângulo)
       setSelectedId(null);
       onSelectClip(n.clipId, { additive, shift: e.shiftKey });
@@ -205,6 +216,8 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
   // Área vazia: arrastar marca o trecho; clique simples só leva o cursor (como no resto da timeline).
   const handleLanePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
+    // áudio comum desenhado na régua: ele cuida do próprio clique (mesmo travado, não vira marcação)
+    if ((e.target as HTMLElement).closest('[data-selectable="clip"]')) return;
     e.stopPropagation();
     e.preventDefault();
     const el = laneRef.current;
@@ -243,7 +256,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
   };
 
   const handleLaneDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('[data-narration-id]')) return;
+    if ((e.target as HTMLElement).closest('[data-narration-id], [data-selectable="clip"]')) return;
     const anchor = snap(timeAt(e.clientX), e.altKey);
     const free = freeRunAt(song, anchor);
     if (!free || free.hi - anchor < NARRATION_MIN_LENGTH) return;
@@ -265,7 +278,8 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
       onDoubleClick={handleLaneDoubleClick}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {narrations.length === 0 && !draft && (
+      {clipLayer}
+      {narrations.length === 0 && !draft && !clipLayer && (
         <div
           className="absolute top-0 h-full flex items-center gap-1.5 px-3 text-2xs text-logic-text-muted pointer-events-none whitespace-nowrap"
           style={{ left: `${Math.max(0, visible.start)}px` }}
@@ -302,7 +316,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             : state === 'missing' ? 'O áudio desta fala sumiu do projeto: clique duplo e gere de novo.'
               : stale ? (n.text ? 'Falta gerar a voz: clique duplo e "Gerar e ouvir".' : '')
                 : 'Voz pronta.',
-          'Clique para selecionar (Delete apaga). Arraste o meio para mudar de lugar; as bordas mudam a velocidade. Botão direito: sincar no beat do cursor.',
+          'Clique para selecionar (Delete apaga; Cmd e Shift somam à seleção). Arraste o meio para mudar de lugar; as bordas mudam a velocidade. Botão direito: as opções dos áudios (copiar, dividir, unir...) e sincar no beat do cursor.',
         ].filter(Boolean).join('\n');
         const tone = failed
           ? 'border-logic-lcd-red/70 bg-logic-lcd-red/20'
@@ -400,6 +414,8 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
   const [normalizeOpen, setNormalizeOpen] = useState(false);
   const [normalizeDb, setNormalizeDb] = useState('-2');
   const ref = useRef<HTMLDivElement>(null);
+  // O menu ficou mais alto (tem as opções dos áudios): mede e sobe para caber na tela.
+  const [top, setTop] = useState(y);
   const cursor = cursorTime(song.id);
   const engine = canGenerate(narration.voice);
   const state = narrationState(narration);
@@ -432,12 +448,17 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
     };
   }, [onClose]);
 
+  useLayoutEffect(() => {
+    const h = ref.current?.offsetHeight ?? 0;
+    setTop(Math.max(8, Math.min(y, window.innerHeight - h - 8)));
+  }, [y, audioReady, dawMode, normalizeOpen]);
+
   const item = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-40 disabled:pointer-events-none';
   return createPortal(
     <div
       ref={ref}
       className="fixed z-[300] min-w-52 py-1 bg-logic-bg-panel border border-logic-border-light shadow-2xl rounded text-xs text-logic-text"
-      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.max(8, Math.min(y, window.innerHeight - (audioReady ? (dawMode ? 420 : 300) : 200))) }}
+      style={{ left: Math.min(x, window.innerWidth - 230), top }}
       onContextMenu={(e) => e.preventDefault()}
       // o menu fica fora da régua na tela, mas os eventos do React sobem até ela: sem isto o
       // clique num item viraria "criar marcação" / "mover o cursor" na régua
@@ -580,8 +601,25 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
           )}
         </>
       )}
+      {clip && (
+        // Tudo o que os outros áudios têm (Enviar Para, Copiar, Colar, Duplicar, Dividir, Emendar,
+        // Separar stems...). Dividir, Emendar ou mandar para outra faixa transforma a voz num áudio
+        // comum da faixa Maestro IA: a marcação sai, o áudio fica.
+        <>
+          <div className="h-px bg-logic-border-dark my-1" />
+          <ClipMenuItems clipId={clip.id} onClose={onClose} audioTools={false} removeItem={false} routingTools={false} />
+        </>
+      )}
       <div className="h-px bg-logic-border-dark my-1" />
-      <button className={`${item} text-logic-lcd-red`} onClick={() => { onClose(); removeNarration(song.id, narration.id); }}>
+      <button
+        className={`${item} text-logic-lcd-red`}
+        onClick={() => {
+          onClose();
+          if (narration.clipId) audioEngine.stopClipsLive([narration.clipId]);
+          removeNarration(song.id, narration.id);
+          audioEngine.invalidatePrepared(song.id);
+        }}
+      >
         <span>Apagar marcação</span>
       </button>
       {narration.countGroup && (

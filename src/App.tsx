@@ -449,13 +449,16 @@ function DirectorApp({ license }: { license: License }) {
         e.preventDefault();
         toggleMixer();
       } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // a timeline (ou a régua das falas do Maestro IA) já apagou com esta tecla: não apaga de novo
+        if (e.defaultPrevented) return;
         const store = useStore.getState();
         // Se a timeline estiver travada pelo cadeado, não permite deletar clipes
         if (store.timelineLocked) return;
         // No Modo Show a timeline não aparece: apagar daqui tiraria áudio da música no ar sem ninguém ver
         if (store.playlistMaximized) return;
 
-        // Se houver clipes selecionados na timeline, a tecla Delete/Backspace exclui os clipes selecionados
+        // Se houver clipes selecionados na timeline, a tecla Delete/Backspace exclui os clipes selecionados.
+        // Áudio de uma fala do Maestro IA leva a fala junto (a store cuida disso, num passo só do desfazer).
         if (store.selectedClipIds.length > 0) {
           e.preventDefault();
           const targetIds = [...store.selectedClipIds];

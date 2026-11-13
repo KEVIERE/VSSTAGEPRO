@@ -18,41 +18,27 @@ interface ContextMenuState {
   clipId: string | null;
 }
 
+
 export default function ContextMenu() {
   const [state, setState] = useState<ContextMenuState>({
     visible: false, x: 0, y: 0, clipId: null,
   });
-  const [submenuOpen, setSubmenuOpen] = useState(false);
-  const [masterOpen, setMasterOpen] = useState(false);
-  const [normalizeOpen, setNormalizeOpen] = useState(false);
-  const [normalizeDb, setNormalizeDb] = useState('-2');
+  const [menuKey, setMenuKey] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
-  const routeClip = useStore((s) => s.routeClip);
-  const resetClipRouting = useStore((s) => s.resetClipRouting);
-  const removeClip = useStore((s) => s.removeClip);
-  const normalizeClip = useStore((s) => s.normalizeClip);
-  const dawMode = useStore((s) => s.dawMode);
   const clips = useStore((s) => s.clips);
-  const tracks = useStore((s) => s.tracks);
   const songs = useStore((s) => s.songs);
-  // música no ar e trava da timeline: o Dividir fica apagado (mesma regra da tecla S na timeline)
-  const playingSongId = useStore((s) => (s.transport.isPlaying ? s.transport.currentSongId : null));
-  const timelineLocked = useStore((s) => s.timelineLocked);
   // Editor da fala: aberto a partir do próprio clipe gerado (também dá pelo clique duplo na régua)
   const [editingNarrationId, setEditingNarrationId] = useState<{ songId: string; narrationId: string } | null>(null);
 
   const openMenu = useCallback((e: MouseEvent, clipId: string) => {
     e.preventDefault();
     setState({ visible: true, x: e.clientX, y: e.clientY, clipId });
-    setSubmenuOpen(false);
-    setMasterOpen(false);
-    setNormalizeOpen(false);
+    // submenus e o campo do Normalizar começam fechados a cada abertura
+    setMenuKey((k) => k + 1);
   }, []);
 
   const closeMenu = useCallback(() => {
     setState((s) => ({ ...s, visible: false, clipId: null }));
-    setSubmenuOpen(false);
-    setNormalizeOpen(false);
   }, []);
 
   useEffect(() => {
@@ -95,6 +81,65 @@ export default function ContextMenu() {
     ? songs.flatMap((sg) => (sg.narrations ?? []).filter((n) => n.clipId === clip.id).map((n) => ({ song: sg, narration: n })))[0] ?? null
     : null;
 
+  return (
+    <div
+      ref={ref}
+      className="fixed z-[100] min-w-52 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded text-xs select-none"
+      style={{ left: state.x, top: Math.min(state.y, window.innerHeight - 300) }}
+    >
+      {narrationOwner && (
+        <>
+          <button
+            className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+            onClick={() => {
+              const id = narrationOwner.narration.id;
+              const songId = narrationOwner.song.id;
+              closeMenu();
+              setEditingNarrationId({ songId, narrationId: id });
+            }}
+            title="Voltar ao texto e à voz desta fala"
+          >
+            <span>Editar a Fala do Maestro…</span>
+            <span className="text-[10px] opacity-75 truncate max-w-28">{narrationOwner.narration.text || 'sem texto'}</span>
+          </button>
+          <div className="h-px bg-logic-border-dark my-1" />
+        </>
+      )}
+      <ClipMenuItems key={menuKey} clipId={state.clipId} onClose={closeMenu} />
+    </div>
+  );
+}
+
+/**
+ * As opções de um áudio na timeline (Enviar Para, Copiar, Colar, Duplicar, Dividir, Emendar,
+ * Masterizar, Separar stems, Remover...). O menu dos clipes e o menu das falas do Maestro IA usam
+ * as mesmas, para a voz gerada ter tudo o que os outros áudios têm.
+ * `audioTools={false}`: quem chama já mostra Masterizar e Normalizar do seu jeito.
+ * `removeItem={false}`: quem chama já tem o seu Apagar.
+ */
+export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem = true, routingTools = true }: {
+  clipId: string;
+  onClose: () => void;
+  audioTools?: boolean;
+  /** false nas falas do Maestro IA: a IA mandaria a voz do maestro para o canal das vozes (o PA). */
+  routingTools?: boolean;
+  removeItem?: boolean;
+}) {
+  const [submenuOpen, setSubmenuOpen] = useState(false);
+  const [masterOpen, setMasterOpen] = useState(false);
+  const [normalizeOpen, setNormalizeOpen] = useState(false);
+  const [normalizeDb, setNormalizeDb] = useState('-2');
+  const routeClip = useStore((s) => s.routeClip);
+  const resetClipRouting = useStore((s) => s.resetClipRouting);
+  const removeClip = useStore((s) => s.removeClip);
+  const normalizeClip = useStore((s) => s.normalizeClip);
+  const dawMode = useStore((s) => s.dawMode);
+  const clip = useStore((s) => s.clips.find((c) => c.id === clipId));
+  const tracks = useStore((s) => s.tracks);
+  // música no ar e trava da timeline: o Dividir fica apagado (mesma regra da tecla S na timeline)
+  const playingSongId = useStore((s) => (s.transport.isPlaying ? s.transport.currentSongId : null));
+  const timelineLocked = useStore((s) => s.timelineLocked);
+
   const allTargets: { id: string; name: string; color: string; isChild: boolean }[] = [];
   for (const routeId of ROUTABLE_TRACKS) {
     const parent = tracks.find((t) => t.id === routeId);
@@ -107,11 +152,7 @@ export default function ContextMenu() {
   }
 
   return (
-    <div
-      ref={ref}
-      className="fixed z-[100] min-w-52 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded text-xs select-none"
-      style={{ left: state.x, top: Math.min(state.y, window.innerHeight - 300) }}
-    >
+    <>
       {/* Enviar Para submenu */}
       <div
         className="relative"
@@ -131,8 +172,8 @@ export default function ContextMenu() {
                   ${clip?.trackId === target.id ? 'text-logic-accent' : 'text-logic-text'}
                   ${target.isChild ? 'pl-6' : ''}`}
                 onClick={() => {
-                  routeClip(state.clipId!, target.id);
-                  closeMenu();
+                  routeClip(clipId, target.id);
+                  onClose();
                 }}
               >
                 <div className="w-1.5 h-4 rounded-sm flex-shrink-0" style={{ backgroundColor: target.color }} />
@@ -143,32 +184,15 @@ export default function ContextMenu() {
         )}
       </div>
 
-      {narrationOwner && (
-        <>
-          <div className="h-px bg-logic-border-dark my-1" />
-          <button
-            className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
-            onClick={() => {
-              const id = narrationOwner.narration.id;
-              const songId = narrationOwner.song.id;
-              closeMenu();
-              setEditingNarrationId({ songId, narrationId: id });
-            }}
-            title="Voltar ao texto e à voz desta fala"
-          >
-            <span>Editar a Fala do Maestro…</span>
-            <span className="text-[10px] opacity-75 truncate max-w-28">{narrationOwner.narration.text || 'sem texto'}</span>
-          </button>
-        </>
-      )}
-
       <div className="h-px bg-logic-border-dark my-1" />
 
+      {routingTools && (
+        <>
       <button
         className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
         onClick={() => {
-          if (state.clipId) resetClipRouting(state.clipId);
-          closeMenu();
+          if (clipId) resetClipRouting(clipId);
+          onClose();
         }}
       >
         Voltar ao Roteamento Automático
@@ -177,15 +201,17 @@ export default function ContextMenu() {
       <button
         className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
         onClick={() => {
-          if (state.clipId) reclassifyClipWithAi(state.clipId);
-          closeMenu();
+          if (clipId) reclassifyClipWithAi(clipId);
+          onClose();
         }}
       >
         <span>Reclassificar com IA</span>
         <span className="text-[10px] opacity-75 font-normal">Ouvir o áudio</span>
       </button>
+        </>
+      )}
 
-      {dawMode && (
+      {audioTools && dawMode && (
         <>
           <div className="h-px bg-logic-border-dark my-1" />
           {normalizeOpen ? (
@@ -194,8 +220,8 @@ export default function ContextMenu() {
               onSubmit={(e) => {
                 e.preventDefault();
                 const db = parseFloat(normalizeDb.replace(',', '.'));
-                if (state.clipId && Number.isFinite(db)) normalizeClip(state.clipId, Math.min(0, db));
-                closeMenu();
+                if (clipId && Number.isFinite(db)) normalizeClip(clipId, Math.min(0, db));
+                onClose();
               }}
             >
               <span className="text-logic-text-dim whitespace-nowrap">Pico em</span>
@@ -227,8 +253,8 @@ export default function ContextMenu() {
       <button
         className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
         onClick={() => {
-          if (state.clipId) copyClips([state.clipId]);
-          closeMenu();
+          if (clipId) copyClips([clipId]);
+          onClose();
         }}
       >
         <span>Copiar</span>
@@ -240,7 +266,7 @@ export default function ContextMenu() {
           className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
           onClick={() => {
             pasteClips(clip?.trackId);
-            closeMenu();
+            onClose();
           }}
         >
           <span>Colar no Cursor</span>
@@ -251,8 +277,8 @@ export default function ContextMenu() {
       <button
         className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
         onClick={() => {
-          if (state.clipId) duplicateClips([state.clipId]);
-          closeMenu();
+          if (clipId) duplicateClips([clipId]);
+          onClose();
         }}
       >
         <span>Duplicar</span>
@@ -268,12 +294,12 @@ export default function ContextMenu() {
           // Com a música deste clipe tocando, a parte 1 acabava num ponto que já passou e a parte 2
           // (clipe novo) não entra no meio do play: a faixa ficava muda até o fim. Só divide parada.
           const st = useStore.getState();
-          const target = st.clips.find((c) => c.id === state.clipId);
+          const target = st.clips.find((c) => c.id === clipId);
           const playing = !!target && st.transport.isPlaying && st.transport.currentSongId === target.songId;
           if (target && !st.timelineLocked && !playing && st.splitClipAt(target.id, st.transport.currentTime)) {
             audioEngine.invalidatePrepared(target.songId);
           }
-          closeMenu();
+          onClose();
         }}
       >
         <span>Dividir no Cursor (Split)</span>
@@ -285,8 +311,8 @@ export default function ContextMenu() {
       <button
         className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
         onClick={() => {
-          void glueSelectedClips(state.clipId ? [state.clipId, ...useStore.getState().selectedClipIds] : undefined);
-          closeMenu();
+          void glueSelectedClips([clipId, ...useStore.getState().selectedClipIds]);
+          onClose();
         }}
       >
         <span>Emendar Clipes (Unir)</span>
@@ -304,7 +330,7 @@ export default function ContextMenu() {
             });
             setTimeout(() => useStore.getState().setImportProgress(null), 3000);
           }
-          closeMenu();
+          onClose();
         }}
       >
         Ver Info
@@ -313,7 +339,7 @@ export default function ContextMenu() {
       {clip && (
         <>
           <div className="h-px bg-logic-border-dark my-1" />
-          {(() => {
+          {audioTools && (() => {
             // Masteriza qualquer áudio. A IA reconhece o clipe: na música inteira (ou playback
             // LR) o padrão é o perfil Equilibrado; em voz e stem que tocam com outros, o padrão
             // é manter o volume (o equilíbrio do VS), mas dá para levar ao volume de um perfil.
@@ -332,7 +358,7 @@ export default function ContextMenu() {
                   title="A IA ouve o áudio e escolhe EQ, compressão, estéreo e limitador"
                   onClick={() => {
                     masterAudioClip(clip.id);
-                    closeMenu();
+                    onClose();
                   }}
                 >
                   <span>✨ Masterizar com IA</span>
@@ -347,7 +373,7 @@ export default function ContextMenu() {
                         className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-amber-500 hover:text-black transition-colors duration-75"
                         onClick={() => {
                           masterAudioClip(clip.id, o.id);
-                          closeMenu();
+                          onClose();
                         }}
                       >
                         <span className="font-semibold">{o.label}</span>
@@ -376,7 +402,7 @@ export default function ContextMenu() {
                       : 'Separa os instrumentos deste áudio e põe cada um na sua faixa'}
                 onClick={() => {
                   void startClipStemSplit(clip.id);
-                  closeMenu();
+                  onClose();
                 }}
               >
                 <span>✂︎ Separar stems</span>
@@ -389,7 +415,7 @@ export default function ContextMenu() {
               <div className="h-px bg-logic-border-dark my-1" />
               <ClickMenuItems
                 songId={clip.songId}
-                onClose={closeMenu}
+                onClose={onClose}
                 itemClass="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit"
               />
             </>
@@ -397,17 +423,23 @@ export default function ContextMenu() {
         </>
       )}
 
-      <div className="h-px bg-logic-border-dark my-1" />
-
-      <button
-        className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-lcd-red hover:text-white transition-colors duration-75"
-        onClick={() => {
-          if (state.clipId) removeClip(state.clipId);
-          closeMenu();
-        }}
-      >
-        Remover Clip
-      </button>
-    </div>
+      {removeItem && (
+        <>
+          <div className="h-px bg-logic-border-dark my-1" />
+          <button
+            className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-lcd-red hover:text-white transition-colors duration-75"
+            onClick={() => {
+              // áudio de uma fala do Maestro IA: a fala sai junto (a store cuida disso)
+              audioEngine.stopClipsLive([clipId]);
+              removeClip(clipId);
+              audioEngine.invalidatePrepared(clip?.songId);
+              onClose();
+            }}
+          >
+            Remover Clip
+          </button>
+        </>
+      )}
+    </>
   );
 }

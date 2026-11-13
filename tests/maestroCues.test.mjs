@@ -1,19 +1,19 @@
-// Falas prontas do Maestro: cada fala da lista tem o arquivo gravado nas duas vozes e nas três
-// intensidades, a contagem usa as falas prontas, e o texto digitado é reconhecido mesmo com
-// pontuação, sem acento ou com o número por extenso.
+// Falas prontas do Maestro: cada fala gravada tem o arquivo nas duas vozes e nas três intensidades
+// (as novas, ainda sem gravação, ficam fora da lista RECORDED_CUE_IDS), a contagem usa as falas
+// prontas, e o texto digitado é reconhecido mesmo com pontuação, sem acento ou com o número por extenso.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { READY_CUE_GROUPS, READY_INTENSITIES, READY_VOICES, findReadyCue, readyCueUrl, readyVoice, readyVoiceId, cueKey } from '../src/lib/maestroCues.ts';
+import { READY_CUE_GROUPS, READY_INTENSITIES, READY_VOICES, RECORDED_CUE_IDS, findReadyCue, hasRecording, readyCueUrl, readyVoice, readyVoiceId, cueKey } from '../src/lib/maestroCues.ts';
 
 const all = READY_CUE_GROUPS.flatMap((g) => g.cues);
 
-test('toda fala pronta tem o arquivo nas duas vozes e nas três intensidades', () => {
+test('toda fala gravada tem o arquivo nas duas vozes e nas três intensidades', () => {
   for (const v of READY_VOICES) {
     for (const l of READY_INTENSITIES) {
       const voice = readyVoice(readyVoiceId(v, l.id));
-      for (const c of all) {
+      for (const c of all.filter(hasRecording)) {
         const file = path.join('public', readyCueUrl(voice, c));
         assert.ok(fs.existsSync(file), `falta ${file}`);
         assert.ok(fs.statSync(file).size > 1000, `${file} vazio`);
@@ -22,11 +22,23 @@ test('toda fala pronta tem o arquivo nas duas vozes e nas três intensidades', (
   }
 });
 
+test('a lista de gravadas é igual à pasta de cada voz e intensidade (nem falta nem sobra)', () => {
+  const ids = new Set(all.map((c) => c.id));
+  for (const id of RECORDED_CUE_IDS) assert.ok(ids.has(id), `${id} gravada mas fora da lista de falas`);
+  for (const v of READY_VOICES) {
+    for (const l of READY_INTENSITIES) {
+      const dir = path.join('public', 'maestro-falas', v.dir, l.id === 'normal' ? '' : l.id);
+      const files = fs.readdirSync(dir).filter((f) => f.endsWith('.mp3')).map((f) => f.slice(0, -4)).sort();
+      assert.deepEqual(files, [...RECORDED_CUE_IDS].sort(), `${dir} diferente da lista de gravadas`);
+    }
+  }
+});
+
 test('nenhuma fala repetida e todo assunto tem falas', () => {
   assert.equal(new Set(all.map((c) => c.id)).size, all.length);
   assert.equal(new Set(all.map((c) => cueKey(c.text))).size, all.length);
   for (const g of READY_CUE_GROUPS) assert.ok(g.cues.length > 0, g.label);
-  assert.ok(all.length >= 200);
+  assert.ok(all.length >= 1000, `só ${all.length} falas`);
 });
 
 test('os números da contagem (até oito) são falas prontas', () => {

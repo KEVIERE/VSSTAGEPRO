@@ -18,7 +18,7 @@ import { RegionNamePicker } from '@/components/LanePopover';
 import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
 import { NarrationLane, NARRATION_LANE_HEIGHT } from '@/components/NarrationLane';
 import { cursorTime, lastPitch, lastVoice } from '@/lib/maestroVoice';
-import { MAESTRO_IA_TRACK_ID, NARRATION_MIN_LENGTH, beatStartAt, placeNarration } from '@/lib/narrations';
+import { MAESTRO_IA_TRACK_ID, NARRATION_MIN_LENGTH, beatStartAt, looseMaestroClips, placeNarration } from '@/lib/narrations';
 import NarrationDialog from '@/components/NarrationDialog';
 import CountInDialog, { type CountInTarget } from '@/components/CountInDialog';
 import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
@@ -1568,6 +1568,7 @@ const VIEW_MARGIN_PX = 600;
 
 // memo: sem props, só redesenha pelo que lê da store (antes redesenhava junto com o App inteiro,
 // a cada conferência da Rede Local e do Show Online).
+
 export default memo(TimelinePanel);
 
 function TimelinePanel() {
@@ -1754,12 +1755,15 @@ function TimelinePanel() {
 
     // Clipes selecionados que cruzam o cursor
     const selectedCrossing = crossingClips.filter((c) => selectedSet.has(c.id));
+    // sem seleção, a voz das falas do Maestro IA não é cortada junto com a música
+    const narrationClipIds = new Set((song.narrations ?? []).map((n) => n.clipId).filter(Boolean));
 
     // Se houver algum clipe selecionado cruzando o cursor, divide eles.
     // Se nenhum estiver selecionado (ou se todos estiverem), divide todos os que cruzam o cursor!
     const targetIds = selectedCrossing.length > 0
       ? selectedCrossing.map((c) => c.id)
-      : crossingClips.map((c) => c.id);
+      : crossingClips.filter((c) => !narrationClipIds.has(c.id)).map((c) => c.id);
+    if (targetIds.length === 0) return;
 
     const ok = splitClipsAt(targetIds, cursor);
     if (ok) {
@@ -1768,8 +1772,10 @@ function TimelinePanel() {
   }, [song, songClips, selectedSet, splitClipsAt, timelineLocked]);
 
   const handleDeleteSelectedClips = useCallback(() => {
-    if (timelineLocked || selectedClipIds.length === 0) return;
-    const targetIds = [...selectedClipIds];
+    // a seleção de agora (não a do último desenho): o Delete pode chegar antes de a tela redesenhar
+    const liveIds = useStore.getState().selectedClipIds;
+    if (timelineLocked || liveIds.length === 0) return;
+    const targetIds = [...liveIds];
     audioEngine.stopClipsLive(targetIds);
     // fala do Maestro IA selecionada sai inteira (marcação e voz); os outros áudios, como sempre
     const narrationOf = new Map((song?.narrations ?? []).filter((n) => n.clipId).map((n) => [n.clipId as string, n.id]));
@@ -1779,7 +1785,7 @@ function TimelinePanel() {
     if (song) for (const clipId of narrations) removeNarration(song.id, narrationOf.get(clipId)!);
     endGesture();
     if (song) audioEngine.invalidatePrepared(song.id);
-  }, [timelineLocked, selectedClipIds, removeClips, removeNarration, song]);
+  }, [timelineLocked, removeClips, removeNarration, song]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1789,9 +1795,12 @@ function TimelinePanel() {
       const ctrl = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
 
-      // Tecla Delete ou Backspace exclui clipes selecionados
+      // Tecla Delete ou Backspace exclui clipes selecionados (falas do Maestro IA inclusive).
+      // O atalho geral do App também escuta o Delete: quem chegar primeiro apaga e o outro não
+      // faz nada (senão o segundo apagava de novo, ou o primeiro tirava só o áudio da fala).
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (selectedClipIds.length > 0 && !timelineLocked) {
+        if (e.defaultPrevented) return;
+        if (useStore.getState().selectedClipIds.length > 0 && !timelineLocked) {
           e.preventDefault();
           handleDeleteSelectedClips();
           return;
@@ -1813,7 +1822,8 @@ function TimelinePanel() {
       } else if (key === 'g') {
         e.preventDefault();
         if (e.shiftKey) {
-          // Atalho ⌘+Shift+G (ou Ctrl+Shift+G): Emendar / Unir clipes de áudio (Glue)
+          // Atalho ⌘+Shift+G (ou Ctrl+Shift+G): Emendar / Unir clipes de áudio (Glue). Falas do
+          // Maestro IA emendadas viram um áudio comum, num passo só do desfazer.
           void glueSelectedClips();
         } else if (selectedClipIds.length >= 2) {
           groupClips(selectedClipIds);
@@ -2824,6 +2834,27 @@ function TimelinePanel() {
                           const c = songClips.find((x) => x.id === clipId);
                           if (c) handleMoveStart(ev, c);
                         }}
+                        clipLayer={(() => {
+                          // Áudio da faixa Maestro IA que não é mais uma fala (dividido, emendado,
+                          // colado): um clipe como qualquer outro, desenhado na régua das falas.
+                          const loose = looseMaestroClips(songClips, song.narrations);
+                          return loose.length === 0 ? null : loose.map((clip) => (
+                            <ClipBlock
+                              key={clip.id}
+                              clip={clip}
+                              isSelected={selectedSet.has(clip.id)}
+                              onTrimStart={handleTrimStart}
+                              onMoveStart={handleMoveStart}
+                              trim={trimDrag}
+                              move={moveDrag}
+                              trackHeight={maestroLaneHeight}
+                              zoomH={zoomH}
+                              visible={visible}
+                              allowMove={!timelineLocked}
+                              timelineLocked={timelineLocked}
+                            />
+                          ));
+                        })()}
                       />
                     )}
                     </div>

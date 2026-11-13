@@ -19,7 +19,7 @@ import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
 import { moveTempoChange, tempoChangeIndex, type SnapStep } from '@/lib/grid';
 import { shiftSong } from '@/lib/clickEdit';
-import { MAESTRO_IA_TRACK_ID, sortedNarrations } from '@/lib/narrations';
+import { MAESTRO_IA_TRACK_ID, pruneNarrationLinks, sortedNarrations } from '@/lib/narrations';
 
 export interface InstantPrep {
   done: number;
@@ -350,6 +350,11 @@ interface StoreActions {
   /** Coloca o áudio gerado da fala na faixa (tira o antigo) e atualiza a marcação, num passo só. */
   setNarrationAudio: (songId: string, narrationId: string, clip: AudioClip, patch: Partial<MaestroNarration>) => void;
   /**
+   * Depois de uma mudança feita fora da store (ex.: Emendar): a fala cujo áudio sumiu ou saiu da
+   * faixa Maestro IA desde `prevClips` deixa de existir, e o áudio que sobrou vira um clipe comum.
+   */
+  syncNarrationLinks: (prevClips: AudioClip[]) => void;
+  /**
    * Subfaixa "Maestro IA" dentro do Maestro, onde ficam os áudios das falas geradas.
    * Cria na primeira vez e devolve o id.
    */
@@ -547,10 +552,12 @@ function withoutClips(s: Store, toRemove: Set<string>) {
         : 0
     );
   }
+  // fala do Maestro IA cujo áudio foi apagado sai junto (marcação e voz), no mesmo passo do desfazer
+  const songs = s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg));
   return {
     clips: nextClips,
     selectedClipIds: s.selectedClipIds.filter((id) => !toRemove.has(id)),
-    songs: s.songs.map((sg) => (newDurations.has(sg.id) ? { ...sg, duration: newDurations.get(sg.id)! } : sg)),
+    songs: pruneNarrationLinks(songs, s.clips, nextClips),
     playlist: s.playlist.map((p) => (newDurations.has(p.songId) ? { ...p, duration: newDurations.get(p.songId)! } : p)),
   };
 }
@@ -1347,9 +1354,11 @@ export const useStore = create<Store>()(
         const grouped = safe.trackId === 'track-guia'
           ? groupGuides(tracks, s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c))
           : { tracks, clips: s.clips.map((c) => c.id === clipId ? { ...c, ...safe } : c) };
+        const songs = safe.trackId ? pruneNarrationLinks(s.songs, s.clips, grouped.clips) : s.songs;
         return {
           ...(grouped.tracks !== s.tracks ? { tracks: grouped.tracks } : {}),
           clips: grouped.clips,
+          ...(songs !== s.songs ? { songs } : {}),
         };
       }),
       splitClipAt: (clipId, atSeconds) => {
@@ -1400,12 +1409,15 @@ export const useStore = create<Store>()(
         const newPart2Clips = validSplits.map((v) => v.part2);
         const newSelectedIds = newPart2Clips.map((c) => c.id);
 
-        set((state) => ({
-          clips: state.clips
+        set((state) => {
+          const clips = state.clips
             .map((c) => (splitOrigMap.has(c.id) ? { ...c, trimEnd: splitOrigMap.get(c.id)!, fadeOut: 0 } : c))
-            .concat(newPart2Clips),
-          selectedClipIds: newSelectedIds,
-        }));
+            .concat(newPart2Clips);
+          // Fala do Maestro IA dividida: os dois pedaços viram clipes comuns da faixa Maestro IA
+          // (gerar a voz de novo trocaria só um deles e o outro ficaria tocando por cima).
+          const songs = pruneNarrationLinks(state.songs, state.clips, clips, splitOrigMap.keys());
+          return { clips, selectedClipIds: newSelectedIds, ...(songs !== state.songs ? { songs } : {}) };
+        });
 
         return true;
       },
@@ -1428,7 +1440,7 @@ export const useStore = create<Store>()(
         return {
           clips,
           selectedClipIds: s.selectedClipIds.filter((id) => !gone.has(id)),
-          songs: s.songs.map((sg) => (durations.has(sg.id) ? { ...sg, duration: durations.get(sg.id)! } : sg)),
+          songs: pruneNarrationLinks(s.songs.map((sg) => (durations.has(sg.id) ? { ...sg, duration: durations.get(sg.id)! } : sg)), s.clips, clips),
           playlist: s.playlist.map((p) => (durations.has(p.songId) ? { ...p, duration: durations.get(p.songId)! } : p)),
         };
       }),
@@ -1468,7 +1480,8 @@ export const useStore = create<Store>()(
         return {
           clips: nextClips,
           selectedClipIds: s.selectedClipIds.filter((id) => id !== clipId),
-          songs: s.songs.map((sg) => (sg.id === songId ? { ...sg, duration: newDuration } : sg)),
+          // o áudio de uma fala do Maestro IA apagado leva a fala junto
+          songs: pruneNarrationLinks(s.songs.map((sg) => (sg.id === songId ? { ...sg, duration: newDuration } : sg)), s.clips, nextClips),
           playlist: s.playlist.map((p) => (p.songId === songId ? { ...p, duration: newDuration } : p)),
         };
       }),
@@ -1490,7 +1503,9 @@ export const useStore = create<Store>()(
         const grouped = groupGuides(tracks, s.clips.map((c) => c.id === clipId
           ? { ...c, trackId: actualTrackId, routingMethod: 'manual' as const, routingConfidence: 1 }
           : c));
-        return { tracks: grouped.tracks, clips: grouped.clips };
+        // a voz de uma fala mandada para outra faixa vira um áudio comum de lá
+        const songs = pruneNarrationLinks(s.songs, s.clips, grouped.clips);
+        return { tracks: grouped.tracks, clips: grouped.clips, ...(songs !== s.songs ? { songs } : {}) };
       }),
       moveClipsToTracks: (moves) => set((s) => {
         // Só trilha de áudio de verdade recebe: nunca pasta, nem o timecode.
@@ -1511,7 +1526,8 @@ export const useStore = create<Store>()(
           return trackId ? { ...c, trackId, routingMethod: 'manual' as const, routingConfidence: 1 } : c;
         });
         const grouped = groupGuides(tracks, clips);
-        return { tracks: grouped.tracks, clips: grouped.clips };
+        const songs = pruneNarrationLinks(s.songs, s.clips, grouped.clips);
+        return { tracks: grouped.tracks, clips: grouped.clips, ...(songs !== s.songs ? { songs } : {}) };
       }),
       setClipMarkers: (clipId, markers) => set((s) => ({ clips: s.clips.map((c) => c.id === clipId ? { ...c, markers } : c) })),
       resetClipRouting: (clipId) => {
@@ -1829,6 +1845,11 @@ export const useStore = create<Store>()(
             ? { ...sg, narrations: (sg.narrations ?? []).map((x) => (x.id === narrationId ? { ...x, ...patch, clipId: clip.id } : x)) }
             : sg),
         };
+      }),
+
+      syncNarrationLinks: (prevClips) => set((s) => {
+        const songs = pruneNarrationLinks(s.songs, prevClips, s.clips);
+        return songs === s.songs ? s : { songs };
       }),
 
       ensureMaestroIaTrack: () => {

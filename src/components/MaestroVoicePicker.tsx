@@ -67,9 +67,9 @@ function VoiceChip({ label, title, selected, onChoose, demo, onDemo, demoDisable
 }
 
 /**
- * Escolha da voz do Maestro por IA: as vozes do próprio Mac (Feminina e Masculina) e,
- * logo abaixo, os pacotes de vozes online (Google Gemini e ElevenLabs). Cada voz tem um ▶ para ouvir
- * um exemplo antes de gerar.
+ * Escolha da voz do Maestro por IA: primeiro as vozes padrão, Felipe e Bianca (falas prontas, com a
+ * intensidade); depois as vozes do próprio Mac (Feminina e Masculina), que falam qualquer texto; e,
+ * logo abaixo, os pacotes de vozes online. Cada voz tem um ▶ para ouvir um exemplo antes de gerar.
  */
 export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, labelClass = 'w-12' }: MaestroVoicePickerProps) {
   const [open, setOpen] = useState(() => savedOpen() || isOnlineVoice(voice));
@@ -125,27 +125,9 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
 
   return (
     <>
+      {/* Vozes padrão: Felipe e Bianca, as falas prontas gravadas em estúdio (escolha nos botões por assunto) */}
       <div className="flex items-center gap-2">
-        <span className={`text-logic-text-muted ${labelClass} shrink-0`}>Voz</span>
-        <div className="flex-1 grid grid-cols-2 gap-1">
-          {VOICE_PRESETS.map((p) => (
-            <VoiceChip
-              key={p.id}
-              label={<>{p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}</>}
-              title={`Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
-              selected={selected(p.id)}
-              onChoose={() => onChoose(p.id)}
-              demo={demoOf(p.id)}
-              onDemo={() => { void playDemo(p.id); }}
-              demoDisabled={demoBlocked(p.id)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {/* Falas prontas: frases comuns de palco gravadas em estúdio (escolha nos botões por assunto) */}
-      <div className="flex items-center gap-2">
-        <span className={`text-logic-text-muted ${labelClass} shrink-0`}>Prontas</span>
+        <span className={`text-logic-text-muted ${labelClass} shrink-0`} title="Vozes padrão: falas prontas gravadas em estúdio">Voz</span>
         <div className="flex-1 grid grid-cols-2 gap-1">
           {READY_VOICES.map((v) => {
             // trocar entre Felipe e Bianca mantém a intensidade escolhida
@@ -154,7 +136,7 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
               <VoiceChip
                 key={v.id}
                 label={v.label}
-                title={`Voz ${v.label}: fala as falas prontas, sem internet. Texto fora da lista sai na voz ${v.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`}
+                title={`Voz ${v.label} (padrão): fala as falas prontas, sem internet. Texto fora da lista, ou fala ainda sem gravação, sai na voz ${v.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`}
                 selected={ready?.dir === v.dir}
                 onChoose={() => onChoose(id)}
                 demo={demoOf(id)}
@@ -189,6 +171,25 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
           </div>
         </div>
       )}
+
+      {/* Vozes do Mac (Feminina e Masculina): falam qualquer texto; é nelas que sai o texto fora das falas prontas */}
+      <div className="flex items-center gap-2">
+        <span className={`text-logic-text-muted ${labelClass} shrink-0`} title="Vozes do Mac: falam qualquer texto, geradas no próprio Mac">Livre</span>
+        <div className="flex-1 grid grid-cols-2 gap-1">
+          {VOICE_PRESETS.map((p) => (
+            <VoiceChip
+              key={p.id}
+              label={<>{p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}</>}
+              title={`Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
+              selected={selected(p.id)}
+              onChoose={() => onChoose(p.id)}
+              demo={demoOf(p.id)}
+              onDemo={() => { void playDemo(p.id); }}
+              demoDisabled={demoBlocked(p.id)}
+            />
+          ))}
+        </div>
+      </div>
 
       {legacy && (
         <div className="flex items-center gap-2 -mt-1">
