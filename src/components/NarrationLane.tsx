@@ -259,7 +259,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
     <div
       ref={laneRef}
       data-narration-lane
-      className="relative border-b border-logic-border-dark bg-[#10161d] cursor-crosshair select-none"
+      className="sk-narration-lane relative border-b border-logic-border-dark bg-[#10161d] cursor-crosshair select-none"
       style={{ height: `${height}px` }}
       onPointerDown={handleLanePointerDown}
       onDoubleClick={handleLaneDoubleClick}

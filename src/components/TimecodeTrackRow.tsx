@@ -35,7 +35,7 @@ export default function TimecodeTrackRow({ songId }: { songId: string }) {
 
   return (
     <div
-      className="flex items-center gap-1.5 pl-2 pr-1 border-b-2 border-logic-lcd-amber/40 bg-[#2a2216]"
+      className="sk-tc-row flex items-center gap-1.5 pl-2 pr-1 border-b-2 border-logic-lcd-amber/40 bg-[#2a2216]"
       style={{ height: `${Math.round(40 * zoomV)}px` }}
       title="Faixa fixa de timecode: não muda com BPM nem tom e não vai para o Master"
     >

@@ -16,8 +16,10 @@ const estudioAt = css.indexOf('/* ================= Skin Estúdio');
 const analogCss = css.slice(0, grafiteAt);
 const grafiteCss = css.slice(grafiteAt, estudioAt);
 const oficinaAt = css.indexOf('/* ================= Skin Oficina');
+const ambientAt = css.indexOf('/* ================= Ambientação completa das skins');
 const estudioCss = css.slice(estudioAt, oficinaAt);
-const oficinaCss = css.slice(oficinaAt);
+const oficinaCss = css.slice(oficinaAt, ambientAt);
+const ambientCss = css.slice(ambientAt);
 
 /** Cada regra da seção começa por um dos prefixos (presa à marca da skin ou peça só dela). */
 function scopedOnly(section, prefixes) {
@@ -97,6 +99,9 @@ test('Grafite e Estúdio só valem com a marca na página: nada delas vaza para 
   assert.ok(oficinaAt > estudioAt);
   scopedOnly(estudioCss, [":where([data-skin='estudio'])", ":root[data-skin='estudio']", '.es-']);
   scopedOnly(oficinaCss, [":where([data-skin='oficina'])", ":root[data-skin='oficina']", '.of-']);
+  // a ambientação completa (paleta, números, rolagem, playlist...) também só vale com uma skin
+  assert.ok(ambientAt > oficinaAt);
+  scopedOnly(ambientCss, ['grafite', 'estudio', 'oficina'].flatMap((k) => [`:where([data-skin='${k}'])`, `:root[data-skin='${k}']`]));
   // as classes novas que a Analógica também carrega não têm desenho nela
   for (const cls of ['console-faderbed', 'console-bed', 'console-screws']) {
     assert.doesNotMatch(analogCss, new RegExp(`\\.${cls}\\b`), cls);

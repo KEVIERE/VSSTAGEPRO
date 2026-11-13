@@ -220,7 +220,7 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
   const zoomV = useStore((s) => s.zoomV);
   return (
     <div
-      className="flex items-center gap-1.5 border-b border-logic-border-dark bg-[#161b22] pr-2 text-2xs select-none"
+      className="sk-narration-head flex items-center gap-1.5 border-b border-logic-border-dark bg-[#161b22] pr-2 text-2xs select-none"
       style={{ height: `${Math.round(NARRATION_LANE_HEIGHT * zoomV)}px`, paddingLeft: '16px' }}
       title={`Maestro por IA: falas escritas por você e geradas por voz (${count} nesta música). O som sai pela faixa Maestro (mesma saída e volume).`}
     >
