@@ -206,3 +206,12 @@ test('Analógica: o nome do canal num visor âmbar no lugar da fita crepe (mixer
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /console-tape console-lcdname/);
 });
 
+test('Analógica: faixas da timeline com knob de volume depois do visor e medidor na borda direita', () => {
+  const tl = read('src', 'components', 'TimelinePanel.tsx');
+  assert.match(tl, /\{showFader && analogica && \(\s*\/\/ Analógica: knob de volume moderno logo depois do visor/);
+  assert.match(tl, /\{showFader && !analogica && \(/, 'as outras skins seguem com o fader deitado');
+  assert.match(tl, /<AnEdgeMeter\s+id=\{isRecording \? 'input-maestro' : track\.id\}/);
+  const pieces = read('src', 'components', 'AnalogPieces.tsx');
+  assert.match(pieces, /onDoubleClick=\{\(e\) => \{ e\.stopPropagation\(\); if \(!disabled\) onReset\(\); \}\}/, 'duplo clique volta ao 0 dB');
+});
+

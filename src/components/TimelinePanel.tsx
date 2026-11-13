@@ -39,6 +39,7 @@ import { useSkin } from '@/lib/useSkin';
 import { trackOrderOnScreen, trackPickMode } from '@/lib/trackSelection';
 import { esChannelOrder, esTrackColor, shade } from '@/components/EstudioPieces';
 import { OfTrackLabel, ofTrackColor } from '@/components/OficinaPieces';
+import { AnEdgeMeter, AnVolumeKnob } from '@/components/AnalogPieces';
 
 /**
  * A coluna dos nomes das faixas e a régua de cima seguem a rolagem da timeline pelo próprio
@@ -282,6 +283,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   const rowSkin = useSkin();
   const estudio = rowSkin === 'estudio';
   const oficina = rowSkin === 'oficina';
+  const analogica = rowSkin === 'analogica';
   const esOrder = useStore((s) => (estudio || oficina ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, track.id) : -1));
   const rowColor = estudio ? esTrackColor(groupColor ?? track.color, esOrder)
     : oficina ? ofTrackColor(groupColor ?? track.color, esOrder) : track.color;
@@ -478,7 +480,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
     <div
       data-selectable="track"
       data-track-row={track.id}
-      className={`console-row group relative flex items-center gap-1 pl-2 pr-1.5 cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
+      className={`console-row group relative flex items-center gap-1 pl-2 ${analogica ? 'pr-[9px]' : 'pr-1.5'} cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
       style={{ height: `${trackHeight}px`, '--ch': rowColor } as React.CSSProperties}
       onClick={onPick}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
@@ -524,7 +526,16 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       {/* gravando sem lugar para o fader: o medidor da entrada fica aqui */}
       {isRecording && !showFader && <InputVuMeter trackHeight={trackHeight} />}
 
-      {showFader && (
+      {showFader && analogica && (
+        // Analógica: knob de volume moderno logo depois do visor (o medidor fica na borda direita)
+        <AnVolumeKnob
+          value={track.volume}
+          onChange={(v) => setVolume(track.id, v)}
+          onReset={() => setVolume(track.id, 0.8)}
+          size={compact ? 22 : 30}
+        />
+      )}
+      {showFader && !analogica && (
         <div className="flex flex-col gap-[3px] shrink-0">
           <MiniFader
             value={track.volume}
@@ -558,6 +569,13 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
           >S</button>
         </div>
       </div>
+      {analogica && (
+        <AnEdgeMeter
+          id={isRecording ? 'input-maestro' : track.id}
+          off={!isRecording && track.mute}
+          title={isRecording ? 'Sinal da entrada da gravação' : 'Nível do sinal deste canal'}
+        />
+      )}
     </div>
   );
 }
