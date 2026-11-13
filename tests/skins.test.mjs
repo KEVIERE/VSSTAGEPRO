@@ -175,3 +175,13 @@ test('Oficina: canal tingido, botões quadrados, medidor com marcas e nome com n
   assert.match(tl, /style=\{\{ height: `\$\{trackHeight\}px`, '--ch': rowColor \} as React\.CSSProperties\}/, 'faixa tingida na cor');
   assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<OfKnob value=\{pct \* 2 - 1\}/);
 });
+
+test('Oficina: nome da faixa com o ícone do instrumento, escrito normal', () => {
+  const tl = read('src', 'components', 'TimelinePanel.tsx');
+  assert.match(tl, /<OfTrackLabel name=\{track\.name\} color=\{rowColor\} count=\{isFolder \? childClipCount : undefined\} compact=\{compact\} \/>/);
+  const pieces = read('src', 'components', 'OficinaPieces.tsx');
+  assert.match(pieces, /\[\/maestro\/i, Megaphone\]/);
+  assert.match(pieces, /\[\/bateria\|drum\|perc/);
+  assert.match(pieces, /return ICONS\.find\(\(\[re\]\) => re\.test\(name\)\)\?\.\[1\] \?\? AudioLines;/);
+});
+

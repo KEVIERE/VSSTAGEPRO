@@ -37,7 +37,7 @@ import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { useSkin } from '@/lib/useSkin';
 import { esChannelOrder, esTrackColor, shade } from '@/components/EstudioPieces';
-import { ofTrackColor } from '@/components/OficinaPieces';
+import { OfTrackLabel, ofTrackColor } from '@/components/OficinaPieces';
 
 /**
  * A coluna dos nomes das faixas e a régua de cima seguem a rolagem da timeline pelo próprio
@@ -504,6 +504,12 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       )}
 
       {/* Nome na fita crepe, como no mixer */}
+      {oficina ? (
+        // Oficina: ícone do instrumento na cor da faixa, o nome escrito normal e a contagem da pasta
+        <div className={`console-tape of-track-label flex-1 min-w-0 flex items-center gap-1.5 ${compact ? 'h-4' : 'h-[22px]'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
+          <OfTrackLabel name={track.name} color={rowColor} count={isFolder ? childClipCount : undefined} compact={compact} />
+        </div>
+      ) : (
       <div className={`console-tape flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
         <span className="truncate uppercase">{track.name}</span>
         {isFolder && (
@@ -512,6 +518,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
           </span>
         )}
       </div>
+      )}
 
       {!stackMaestro && maestroControls}
       {/* gravando sem lugar para o fader: o medidor da entrada fica aqui */}

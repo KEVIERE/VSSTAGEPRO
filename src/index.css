@@ -2101,7 +2101,7 @@
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
   }
   .of-cap {
-    filter: drop-shadow(0 3px 3px rgba(0, 0, 0, 0.7));
+    filter: drop-shadow(0 1px 0.5px rgba(0, 0, 0, 0.9)) drop-shadow(0 5px 4px rgba(0, 0, 0, 0.55));
   }
   .of-cap-locked {
     outline: 1px solid #e6952c;
@@ -2350,6 +2350,46 @@
     clip-path: none;
     border-radius: 9999px;
     box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  /* nome da faixa com o ícone do instrumento */
+  .of-track-label {
+    padding: 0 8px 0 3px;
+    font-size: 11.5px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.005em;
+  }
+  .of-track-icon {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.45);
+  }
+  .of-track-icon.is-compact {
+    width: 12px;
+    height: 12px;
+  }
+  .of-track-icon > svg {
+    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.35));
+  }
+  .of-track-name {
+    min-width: 0;
+    color: #f0f0f0;
+  }
+  .of-track-count {
+    margin-left: auto;
+    flex-shrink: 0;
+    padding: 0 5px;
+    border-radius: 9999px;
+    font-size: 9.5px;
+    line-height: 14px;
+    font-variant-numeric: tabular-nums;
+    color: #d0d0d0;
+    background: rgba(255, 255, 255, 0.12);
   }
   /* faixa selecionada: a pílula continua escura (igual às outras), só ganha um contorno claro */
   :where([data-skin='oficina']) .console-row.is-selected .console-tape {
