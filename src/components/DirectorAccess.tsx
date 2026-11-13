@@ -30,6 +30,8 @@ export type License = {
   offline_checked_at?: number;
   /** Sem internet: até quando a última conferência vale (ms) */
   offline_until?: number;
+  /** Sem internet: o prazo normal passou nesta hora e o programa está na folga de 3 dias (ms) */
+  offline_grace_from?: number;
 };
 
 // Um Mac por vez: a conta está aberta em outro Mac (conflict) ou este foi desconectado (replaced).
@@ -188,6 +190,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     window.vsDesktop?.licenseCacheClear?.().catch(() => {});
     lastCheckRef.current = null;
     usableLicenseRef.current = null;
+    setHeldOpen(false);
     setNeedInternet(null);
     setDeviceConflict(null);
     setDeviceError(null);
@@ -211,6 +214,10 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const lastCheckRef = useRef<LicenseCache | null>(null);
   // Última licença que liberava o editor: segura o show quando a conta trava com música tocando.
   const usableLicenseRef = useRef<License | null>(null);
+  // Assinante sem internet com o prazo vencido e o programa aberto: segue aberto, com aviso.
+  const [heldOpen, setHeldOpen] = useState(false);
+  // Avisos de vencimento fechados nesta abertura (pela chave do aviso).
+  const [dismissedWarn, setDismissedWarn] = useState<string | null>(null);
   // Um Mac por vez: quem é este Mac e a pergunta quando a conta está aberta em outro.
   const deviceRef = useRef<{ id: string; name: string } | null>(null);
   const [deviceConflict, setDeviceConflict] = useState<{ otherName: string | null; otherSeen: string | null } | null>(null);
@@ -279,6 +286,13 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     if (!userId) return;
     const saved = (await window.vsDesktop?.licenseCacheLoad?.().catch(() => null)) ?? null;
     const d = decideOffline(saved ?? lastCheckRef.current, userId, Date.now());
+    // Assinante com o programa já aberto nunca trava por prazo: segue até fechar, com aviso.
+    // A conferência fica para a próxima abertura (bloqueio do admin vem do servidor, não daqui).
+    const sameAccount = !(d.kind === 'need_internet' && (d.reason === 'other_account' || d.reason === 'never_checked'));
+    if ((d.kind === 'need_internet' || d.kind === 'expired') && sameAccount && usableLicenseRef.current?.status === 'active') {
+      setHeldOpen(true);
+      return;
+    }
     if (d.kind === 'need_internet') {
       setLicense(null);
       setNeedInternet(d.reason);
@@ -287,7 +301,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     setNeedInternet(null);
     if (d.kind === 'expired') setLicense({ status: 'expired', offline_checked_at: d.checkedAt });
     else if (d.kind === 'blocked') setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt });
-    else setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt, offline_until: d.until });
+    else setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt, offline_until: d.until, offline_grace_from: d.graceFrom });
   };
 
   const askServer = async (): Promise<License> => {
@@ -329,6 +343,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
 
   const applyServer = (lic: License) => {
     if (!storedSession()) return; // saiu da conta enquanto esperava
+    setHeldOpen(false);
     setLicense(lic);
     setNeedInternet(null);
     setDeviceConflict(null);
@@ -385,6 +400,9 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           try { await loadLicense(); } catch { /* silencioso */ }
           checkAdmin();
         } else {
+          // saiu da conta por fora (outro Mac, acesso revogado): a licença da sessão anterior não vale mais
+          usableLicenseRef.current = null;
+          setHeldOpen(false);
           setLicense(null);
           setNeedInternet(null);
           setIsAdmin(isWebEnvironment ? null : true);
@@ -957,13 +975,53 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     );
   }
 
+  const warn = renewalWarning(license, heldOpen, Date.now());
   return (
     <>
       {children(license ?? { status: 'trial' }, session)}
       {subscribeOpen && license?.status === 'trial' && <SubscribeDialog onClose={() => setSubscribeOpen(false)} />}
+      {warn && dismissedWarn !== warn.key && (
+        <div
+          role="status"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[390] max-w-[calc(100vw-2rem)] w-[560px] px-4 py-2.5 rounded-lg text-xs flex items-start gap-2.5 console-face shadow-2xl ring-1 ring-black text-logic-lcd-amber"
+        >
+          <span className="console-lamp is-on shrink-0 mt-0.5" />
+          <span className="flex-1 leading-snug">{warn.text}</span>
+          <button className="console-key h-6 w-6 shrink-0 grid place-items-center" onClick={() => setDismissedWarn(warn.key)} aria-label="Fechar o aviso" title="Fechar o aviso">
+            <X size={12} />
+          </button>
+        </div>
+      )}
       {promoToast}
     </>
   );
+}
+
+const shortDate = (ms: number) => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const RENEW_WARN_MS = 3 * 24 * 3600 * 1000;
+
+/**
+ * Aviso de vencimento do assinante, do mais urgente ao menos:
+ * - prazo vencido sem internet com o programa aberto (segue até fechar);
+ * - na folga de 3 dias sem internet;
+ * - faltam 3 dias ou menos para o fim do período pago.
+ */
+function renewalWarning(license: License | null, heldOpen: boolean, now: number): { key: string; text: string } | null {
+  if (!license || license.status !== 'active') return null;
+  if (heldOpen) {
+    return { key: 'held', text: 'Não deu para conferir sua assinatura sem internet. O programa segue aberto até você fechar: conecte à internet um instante antes de fechar ou antes do próximo show.' };
+  }
+  if (license.offline_grace_from && license.offline_until) {
+    return { key: `grace:${license.offline_grace_from}`, text: `Sem internet, sua assinatura não pôde ser conferida. O programa libera até ${shortDate(license.offline_until)}: conecte à internet um instante para confirmar a renovação.` };
+  }
+  const end = license.current_period_end ? new Date(license.current_period_end).getTime() : NaN;
+  // só período pago que não renova sozinho (PIX ou cartão pela InfinitePay); a assinatura antiga
+  // ('active') renova sozinha e o servidor libera mesmo com a data antiga
+  if (!license.partner && license.plan !== 'promo' && license.subscription !== 'active' && Number.isFinite(end) && end > now && end - now <= RENEW_WARN_MS) {
+    const days = Math.max(1, Math.ceil((end - now) / (24 * 3600 * 1000)));
+    return { key: `renew:${end}`, text: `Sua assinatura vence ${days === 1 ? 'em menos de 1 dia' : `em ${days} dias`} (${shortDate(end)}). Renove e abra o programa com internet antes do show.` };
+  }
+  return null;
 }
 function formatRemaining(ms: number) {
   const totalMin = Math.max(0, Math.ceil(ms / 60000));

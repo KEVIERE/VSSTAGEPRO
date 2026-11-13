@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  CLOCK_BACK_TOLERANCE_MS, NEED_INTERNET_TEXT, OFFLINE_MAX_MS, decideOffline,
+  CLOCK_BACK_TOLERANCE_MS, NEED_INTERNET_TEXT, OFFLINE_GRACE_MS, OFFLINE_MAX_MS, decideOffline,
 } from '../src/lib/offlineLicense.ts';
 
 const H = 3600 * 1000;
@@ -66,32 +66,44 @@ test('assinante sem internet dentro da tolerância de 30 dias', () => {
   const c = cache({ status: 'active', subscription: 'card' });
   const d = decideOffline(c, 'u1', T0 + 29 * D);
   assert.equal(d.kind, 'use');
-  assert.equal(d.until, T0 + OFFLINE_MAX_MS);
+  assert.equal(d.until, T0 + OFFLINE_MAX_MS + OFFLINE_GRACE_MS);
+  assert.equal(d.graceFrom, undefined);
 });
 
 test('assinante sem internet há mais de 30 dias: precisa de internet', () => {
   const c = cache({ status: 'active', subscription: 'card' });
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 30 * D), { kind: 'need_internet', reason: 'too_long' });
+  // passou dos 30 dias: 3 dias de folga com aviso, depois precisa de internet
+  const g = decideOffline(c, 'u1', T0 + 30 * D);
+  assert.equal(g.kind, 'use');
+  assert.equal(g.graceFrom, T0 + 30 * D);
+  assert.equal(g.graceReason, 'too_long');
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 33 * D), { kind: 'need_internet', reason: 'too_long' });
 });
 
-test('assinatura vencida sem pagamento e sem internet: bloqueia na data do vencimento, sem folga', () => {
+test('assinatura vencida e sem internet: 3 dias de folga com aviso, depois bloqueia', () => {
   const c = cache({ status: 'active', subscription: 'pix', current_period_end: iso(T0 + 10 * D) });
   const d = decideOffline(c, 'u1', T0 + 10 * D - 1000);
   assert.equal(d.kind, 'use');
-  assert.equal(d.until, T0 + 10 * D);
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 10 * D), { kind: 'need_internet', reason: 'paid_period_over' });
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 11 * D), { kind: 'need_internet', reason: 'paid_period_over' });
+  assert.equal(d.until, T0 + 13 * D);
+  assert.equal(d.graceFrom, undefined);
+  const g = decideOffline(c, 'u1', T0 + 11 * D);
+  assert.equal(g.kind, 'use');
+  assert.equal(g.graceFrom, T0 + 10 * D);
+  assert.equal(g.graceReason, 'paid_period_over');
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 13 * D), { kind: 'need_internet', reason: 'paid_period_over' });
 });
 
 test('período pago longe: o limite é o de 30 dias', () => {
   const c = cache({ status: 'active', plan: 'yearly', current_period_end: iso(T0 + 200 * D) });
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 31 * D), { kind: 'need_internet', reason: 'too_long' });
+  assert.equal(decideOffline(c, 'u1', T0 + 31 * D).graceFrom, T0 + 30 * D);
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 33 * D), { kind: 'need_internet', reason: 'too_long' });
 });
 
 test('bônus (promo) com fim em ends_at também tem limite', () => {
   const c = cache({ status: 'active', plan: 'promo', ends_at: iso(T0 + 2 * D) });
   assert.equal(decideOffline(c, 'u1', T0 + D).kind, 'use');
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 2 * D), { kind: 'need_internet', reason: 'paid_period_over' });
+  assert.equal(decideOffline(c, 'u1', T0 + 2 * D).graceFrom, T0 + 2 * D);
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 5 * D), { kind: 'need_internet', reason: 'paid_period_over' });
 });
 
 test('relógio voltado não estica a assinatura', () => {
@@ -122,6 +134,11 @@ test('assinatura ativa com data de fim que já tinha passado na conferência: va
   const c = cache({ status: 'active', subscription: 'active', plan: 'monthly', current_period_end: iso(T0 - 5 * 3600 * 1000) });
   const d = decideOffline(c, 'u1', T0 + 2 * D);
   assert.equal(d.kind, 'use');
-  assert.equal(d.until, T0 + 30 * D);
-  assert.deepEqual(decideOffline(c, 'u1', T0 + 30 * D), { kind: 'need_internet', reason: 'too_long' });
+  assert.equal(d.until, T0 + 33 * D);
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 33 * D), { kind: 'need_internet', reason: 'too_long' });
+});
+
+test('teste grátis não tem folga: acaba na hora certa', () => {
+  const c = trial(2);
+  assert.equal(decideOffline(c, 'u1', T0 + 2 * D).kind, 'expired');
 });

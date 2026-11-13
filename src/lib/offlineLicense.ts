@@ -5,12 +5,16 @@
 // - bloqueio e teste encerrado continuam valendo sem internet;
 // - teste grátis: o prazo continua contando pelo relógio do Mac;
 // - assinante: até 30 dias desde a última conferência, e nunca depois do fim do período pago
-//   que o servidor informou (sem folga: venceu, precisa de internet para confirmar a renovação);
+//   que o servidor informou, mais 3 dias de folga com aviso (OFFLINE_GRACE_MS);
 // - relógio do Mac voltado para trás, ou fora da hora do servidor na última conferência:
 //   não vale o guardado, precisa de internet;
 // - nunca conferiu neste Mac, ou outra conta: precisa de internet.
 
 export const OFFLINE_MAX_MS = 30 * 24 * 3600 * 1000;
+// Assinante sem internet: depois do fim do período (ou dos 30 dias), mais 3 dias de folga com
+// aviso na tela. Quem renovou pelo celular e está sem internet no show não fica travado; quem não
+// renovou ganha no máximo 3 dias, e só se ficar o tempo todo sem internet.
+export const OFFLINE_GRACE_MS = 3 * 24 * 3600 * 1000;
 // Ajuste automático do relógio mexe em segundos; mais de 1 hora para trás é relógio voltado.
 export const CLOCK_BACK_TOLERANCE_MS = 3600 * 1000;
 
@@ -39,7 +43,8 @@ export type LicenseCache = {
 export type NeedInternetReason = 'never_checked' | 'other_account' | 'clock_back' | 'too_long' | 'paid_period_over' | 'unknown';
 
 export type OfflineDecision =
-  | { kind: 'use'; license: CachedLicense; checkedAt: number; until: number }
+  /** `graceFrom`: está na folga desde esta hora (o prazo normal já passou) */
+  | { kind: 'use'; license: CachedLicense; checkedAt: number; until: number; graceFrom?: number; graceReason?: NeedInternetReason }
   | { kind: 'expired'; checkedAt: number }
   | { kind: 'blocked'; license: CachedLicense; checkedAt: number }
   | { kind: 'need_internet'; reason: NeedInternetReason };
@@ -80,8 +85,11 @@ export function decideOffline(cache: LicenseCache | null | undefined, userId: st
     // Stripe antigo). O servidor liberou mesmo assim, então vale só o limite de 30 dias. Sem
     // isso, essa conta ficava sem nenhum tempo de uso sem internet.
     const paidEnd = periodEnd !== null && periodEnd > checkedAt ? periodEnd : Infinity;
-    const until = Math.min(paidEnd, offlineEnd);
-    if (t >= until) return { kind: 'need_internet', reason: paidEnd <= offlineEnd ? 'paid_period_over' : 'too_long' };
+    const limit = Math.min(paidEnd, offlineEnd);
+    const reason: NeedInternetReason = paidEnd <= offlineEnd ? 'paid_period_over' : 'too_long';
+    const until = limit + OFFLINE_GRACE_MS;
+    if (t >= until) return { kind: 'need_internet', reason };
+    if (t >= limit) return { kind: 'use', license, checkedAt, until, graceFrom: limit, graceReason: reason };
     return { kind: 'use', license, checkedAt, until };
   }
 
