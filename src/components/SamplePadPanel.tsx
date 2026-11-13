@@ -11,12 +11,12 @@ import { useSkin } from '@/lib/useSkin';
 import { VsKnobFace } from '@/components/AnalogPieces';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, fadeAllPads, importPadFile, keepPadsReady, toggleTrimPad, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
+  clearPad, fadeAllPads, importPadFile, keepPadsReady, togglePadRoll, toggleTrimPad, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
   setPadsFx, setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
-  BANK_COUNT, BANK_LABELS, DEFAULT_PAD_FX, PAD_COLORS, filterLabel, isTrimmed, rollLabel, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
-  getPadsState, lastPlaying, padForKey, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchedDuration,
+  BANK_COUNT, BANK_LABELS, DEFAULT_PAD_FX, PAD_COLORS, ROLL_KNOB_MIN, filterLabel, isTrimmed, rollKnob, rollLabel, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
+  getPadsState, lastPlaying, padForKey, padForRollKey, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchedDuration,
   setPadsState, slotPad, subscribePads, togglePadsPanel, usablePadOutput, type PadInfo, type PadOutput,
 } from '@/lib/samplePads';
 import { useStore } from '@/store';
@@ -33,7 +33,8 @@ const dbText = (volume: number) => {
  * Parte de baixo do Modo Show: os pads (tecla P ou o botão de pads da playlist) ficam no lugar
  * do mixer (tecla M). Apertar M com os pads abertos volta para o mixer.
  * Fica montado o tempo todo no Modo Show por causa das teclas: P abre e fecha os pads e, com
- * eles abertos, 1 a 9 tocam os pads do banco.
+ * eles abertos, 1 a 9 tocam os pads do banco, Shift + 1 a 9 liga ou desliga o ROLL de cada pad e
+ * R liga ou desliga o ROLL do pad escolhido.
  */
 export function PadsOrMixer() {
   const visible = useSyncExternalStore(subscribePads, () => getPadsState().visible);
@@ -61,19 +62,26 @@ export function PadsOrMixer() {
         return;
       }
       const cur = getPadsState();
+      // ROLL de um pad só: Shift + 1 a 9 (o pad do banco) ou R (o pad escolhido)
+      const rollPad = e.shiftKey ? padForRollKey(e.code) : null;
+      if (cur.visible && (rollPad !== null || e.key === 'r' || e.key === 'R')) {
+        e.preventDefault();
+        if (!e.repeat) void togglePadRoll(rollPad !== null ? padSlot(cur.bank, rollPad) : cur.selected);
+        return;
+      }
       const pad = padForKey(e.key);
       if (!cur.visible || pad === null) return;
       e.preventDefault();
       if (e.repeat) return;
       const slot = padSlot(cur.bank, pad);
-      held.set(e.key, slot);
+      held.set(e.code, slot);
       triggerPad(slot);
     };
     // soltou a tecla: no modo segurar o som para (depois de pelo menos 0,2 s)
     const onKeyUp = (e: KeyboardEvent) => {
-      const slot = held.get(e.key);
+      const slot = held.get(e.code);
       if (slot === undefined) return;
-      held.delete(e.key);
+      held.delete(e.code);
       releasePad(slot);
     };
     window.addEventListener('keydown', onKey);
@@ -135,7 +143,7 @@ function SamplePadPanel() {
       <div className="console-rail flex items-center gap-2 px-3 h-8 shrink-0">
         <LayoutGrid size={13} className="text-logic-text-dim" />
         <span className="font-stage text-[13px] font-semibold tracking-wide text-logic-text-dim">Pads</span>
-        <span className="console-legend hidden md:inline">TECLAS 1 A 9 · P FECHA</span>
+        <span className="console-legend hidden md:inline" title="1 a 9 tocam os pads; Shift + 1 a 9 (ou R, no pad escolhido) liga e desliga o ROLL do pad">TECLAS 1 A 9 · SHIFT ROLL · P FECHA</span>
         {st.latencyMs !== null && (
           <span className="console-readout text-logic-lcd-green !min-w-0 px-1.5" title="Atraso da saída dos pads, do toque até a placa de áudio">
             {st.latencyMs.toLocaleString('pt-BR')} ms
@@ -158,7 +166,7 @@ function SamplePadPanel() {
           <PlayingDisplay />
           <DetailsDisplay info={selected} number={slotPad(st.selected) + 1} bank={st.bank} output={st.output} />
           <PitchFader value={selected?.pitch ?? 0} disabled={!selected} onChange={(v) => set({ pitch: v })} />
-          <div className="grid grid-cols-5 gap-1" role="group" aria-label="Efeitos do pad escolhido">
+          <div className="grid grid-cols-6 gap-1" role="group" aria-label="Efeitos do pad escolhido">
             <FxKey label="REVERB" on={!!selected?.reverb} lit="is-lit-blue" disabled={!selected} onClick={() => set({ reverb: !selected?.reverb })} title="Reverb: sala com cauda de 2 segundos" />
             <FxKey label="DELAY" on={!!selected?.delay} lit="is-lit-blue" disabled={!selected} onClick={() => set({ delay: !selected?.delay })} title="Delay: repete no tempo da música (uma semínima)" />
             <FxKey label="REVERSO" on={!!selected?.reverse} lit="is-lit-amber" disabled={!selected} onClick={() => set({ reverse: !selected?.reverse })} title="Toca o som de trás para frente (vale no próximo toque)" />
@@ -172,6 +180,16 @@ function SamplePadPanel() {
               title={selected && isTrimmed(selected)
                 ? 'Som cortado: começa bem na cabeça e termina sem o silêncio. Clique para voltar ao som inteiro.'
                 : 'Corta o silêncio do começo e do fim do som, para ele sair bem na cabeça (o arquivo guardado não muda).'}
+            />
+            <FxKey
+              label="ROLL"
+              on={!!selected?.roll}
+              lit="is-lit-amber"
+              disabled={!selected}
+              onClick={() => { if (selected) void togglePadRoll(selected.slot); }}
+              title={selected?.roll
+                ? 'Roll ligado neste pad: repete um pedaço do som no tamanho do knob ROLL. Clique para voltar ao normal (R ou Shift + número do pad).'
+                : 'Liga o roll só neste pad: repete um pedaço do som no tempo da música, no tamanho do knob ROLL (R ou Shift + número do pad). Os outros pads não mudam.'}
             />
           </div>
           <FxKnobs />
@@ -348,7 +366,7 @@ function PlayingDisplay() {
 /** Visor do pad escolhido: nome, tamanho, volume, pitch, efeitos e saída. */
 function DetailsDisplay({ info, number, bank, output }: { info?: PadInfo; number: number; bank: number; output: PadOutput }) {
   const count = useStore((s) => s.outputChannelCount);
-  const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP'].filter(Boolean).join(' · ') : '';
+  const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP', info.roll && 'ROLL'].filter(Boolean).join(' · ') : '';
   return (
     <div className="console-display shrink-0 px-2.5 py-1.5 text-[11px] leading-tight flex flex-col gap-0.5">
       <div className="flex items-center gap-1.5 min-w-0">
@@ -722,7 +740,12 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRel
       <span className={`absolute bottom-1.5 left-2 right-2 flex items-center gap-1 text-[10px] tabular-nums ${playing ? 'text-black/70' : 'text-white/65'}`}>
         {formatPadTime(pitchedDuration(info))}
         {info.loop && <Repeat size={10} aria-label="Loop" />}
-        <span className="ml-auto flex gap-1">
+        <span className="ml-auto flex items-center gap-1">
+          {info.roll && (
+            <span className={`flex items-center gap-0.5 font-semibold ${playing ? 'text-black/80' : 'text-[#ffab1f]'}`} title="Roll ligado neste pad">
+              <span className="console-led is-on-amber !w-1 !h-1" />ROLL
+            </span>
+          )}
           {info.reverb && <span>REV</span>}
           {info.delay && <span>DLY</span>}
           {info.reverse && <span>REV←</span>}
@@ -808,6 +831,16 @@ function PadEditor({ info, anchor, onClose, onReplace, onClear }: {
       >
         {isTrimmed(info) ? 'Voltar o som inteiro' : 'Cortar o silêncio (começo e fim)'}
       </button>
+      <button
+        type="button"
+        className={`console-key h-7 px-2.5 flex items-center justify-center gap-1.5 ${info.roll ? 'is-lit-amber' : ''}`}
+        onClick={() => void togglePadRoll(info.slot)}
+        aria-pressed={!!info.roll}
+        title="Roll só neste pad: repete um pedaço do som no tamanho do knob ROLL, no tempo da música (os outros pads não mudam)"
+      >
+        <span className={`console-led ${info.roll ? 'is-on-green' : ''}`} />
+        {info.roll ? 'Roll ligado neste pad' : 'Ligar o roll neste pad'}
+      </button>
       <div className="flex items-center gap-1.5 pt-2 border-t border-black/60">
         <button type="button" className="console-key h-7 px-2.5 flex-1" onClick={onReplace}>Trocar som...</button>
         <button type="button" className="console-key h-7 px-2.5 hover:!text-logic-lcd-red" onClick={onClear}>Limpar</button>
@@ -818,8 +851,9 @@ function PadEditor({ info, anchor, onClose, onReplace, onClear }: {
 }
 
 /**
- * Knobs de efeito (valem para todos os pads): quanto de reverb e de delay, a velocidade do loop
- * (roll de DJ, no tempo da música) e o filtro de DJ. Duplo clique volta ao padrão.
+ * Knobs de efeito (valem para todos os pads): quanto de reverb e de delay, o tamanho do roll (roll
+ * de DJ, no tempo da música, só nos pads com ROLL ligado) e o filtro de DJ. Duplo clique volta ao
+ * padrão.
  */
 function FxKnobs() {
   const fx = useSyncExternalStore(subscribePads, () => getPadsState().fx);
@@ -843,11 +877,12 @@ function FxKnobs() {
       />
       <FxKnob
         label="ROLL"
-        value={fx.roll}
-        text={rollLabel(fx.roll)}
+        value={rollKnob(fx.roll)}
+        min={ROLL_KNOB_MIN}
+        text={rollLabel(rollKnob(fx.roll))}
         onChange={(v) => setPadsFx({ roll: v })}
-        onReset={() => setPadsFx({ roll: 0 })}
-        title="Velocidade do loop: repete um pedaço do som no tempo da música, de 1 tempo até 1/64 (bem rápido, efeito de DJ). Todo para a esquerda desliga. Duplo clique: desliga."
+        onReset={() => setPadsFx({ roll: DEFAULT_PAD_FX.roll })}
+        title="Tamanho do roll nos pads com ROLL ligado: repete um pedaço do som no tempo da música, de 1 tempo (todo para a esquerda) até 1/64 (bem rápido, efeito de DJ). Quem liga e desliga é a tecla ROLL de cada pad. Duplo clique: 1/8."
       />
       <FxKnob
         label="FILTRO"
@@ -862,17 +897,19 @@ function FxKnobs() {
   );
 }
 
-function FxKnob({ label, value, bipolar, text, onChange, onReset, title }: {
+function FxKnob({ label, value, bipolar, min, text, onChange, onReset, title }: {
   label: string;
   /** 0 a 1, ou -1 a 1 no bipolar. */
   value: number;
   bipolar?: boolean;
+  /** Menor valor (todo para a esquerda), quando não é 0. */
+  min?: number;
   text: string;
   onChange: (v: number) => void;
   onReset: () => void;
   title: string;
 }) {
-  const lo = bipolar ? -1 : 0;
+  const lo = bipolar ? -1 : (min ?? 0);
   const clamp = (v: number) => Math.max(lo, Math.min(1, Math.round(v * 1000) / 1000));
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
@@ -910,7 +947,7 @@ function FxKnob({ label, value, bipolar, text, onChange, onReset, title }: {
         aria-valuenow={value}
         aria-valuetext={text}
       >
-        <VsKnobFace value={bipolar ? (value + 1) / 2 : value} bipolar={bipolar} unity={2} />
+        <VsKnobFace value={(value - lo) / (1 - lo)} bipolar={bipolar} unity={2} />
       </div>
       <span className="console-legend leading-none">{label}</span>
       <span className="console-readout !min-w-0 w-full text-center text-logic-lcd-green text-[10px] leading-none py-[2px]">{text}</span>

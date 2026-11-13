@@ -41,6 +41,12 @@ export interface PadInfo {
   /** Toca de trás para frente. */
   reverse: boolean;
   /**
+   * Roll ligado neste pad: ele repete um pedaço do som no tamanho do knob ROLL (no tempo da
+   * música). Só os pads com o roll ligado repetem; os outros tocam normal. Projetos e pads
+   * guardados antes não têm: ficam desligados.
+   */
+  roll?: boolean;
+  /**
    * Corte do silêncio (segundos do arquivo): o som toca de `trimStart` a `trimEnd`. Sem os dois,
    * toca o arquivo inteiro. O arquivo guardado nunca muda.
    */
@@ -75,6 +81,15 @@ export function padForKey(key: string): number | null {
   return /^[1-9]$/.test(key) ? Number(key) - 1 : null;
 }
 
+/**
+ * Shift + tecla 1 a 9 liga ou desliga o ROLL do pad 0 a 8 (pela tecla física, `KeyboardEvent.code`,
+ * porque com Shift o `key` vira "!", "@"...). Outra tecla: null.
+ */
+export function padForRollKey(code: string): number | null {
+  const m = /^(?:Digit|Numpad)([1-9])$/.exec(code);
+  return m ? Number(m[1]) - 1 : null;
+}
+
 const AUDIO_EXT = /\.(wav|wave|mp3|aif|aiff|m4a|aac|flac|ogg)$/i;
 
 /** O que impede o arquivo de entrar num pad (ou null se pode). */
@@ -95,7 +110,7 @@ export function padNameFromFile(fileName: string): string {
 export function newPadInfo(slot: number, fileName: string, duration: number): PadInfo {
   return {
     slot, name: padNameFromFile(fileName), color: PAD_COLORS[slotPad(slot)], volume: 0.8, loop: false, duration,
-    pitch: 0, reverb: false, delay: false, reverse: false,
+    pitch: 0, reverb: false, delay: false, reverse: false, roll: false,
   };
 }
 
@@ -105,6 +120,7 @@ export function normalizePadInfo(v: Partial<PadInfo> & { slot: number }): PadInf
     name: 'Som', color: PAD_COLORS[slotPad(v.slot)], volume: 0.8, loop: false, duration: 0,
     pitch: 0, reverb: false, delay: false, reverse: false,
     ...v,
+    roll: v.roll === true,
   };
 }
 
@@ -254,21 +270,30 @@ export function makeReverbImpulse(sampleRate: number, seconds = 2.2): [Float32Ar
 
 /**
  * Knobs de efeito dos pads, valendo para todos: quanto de reverb e de delay volta (nos pads com o
- * efeito ligado), a velocidade do loop (o "roll" de DJ: repete um pedaço cada vez menor do som,
- * no tempo da música) e o filtro de DJ (para a esquerda abafa, para a direita afina).
+ * efeito ligado), o tamanho do roll (o "roll" de DJ: repete um pedaço cada vez menor do som, no
+ * tempo da música, só nos pads com ROLL ligado) e o filtro de DJ (para a esquerda abafa, para a
+ * direita afina).
  */
 export interface PadFx {
   /** 0 a 1. */
   reverb: number;
   /** 0 a 1. */
   delay: number;
-  /** 0 = desligado; até 1 = o pedaço mais curto (1/64 de tempo). */
+  /**
+   * Tamanho do roll dos pads com ROLL ligado: de 1/7 (1 tempo) até 1 (1/64 de tempo). O knob
+   * não desliga mais (quem liga e desliga é a tecla ROLL de cada pad); o 0 de antes vale 1/8.
+   */
   roll: number;
   /** -1 (só graves) a 1 (só agudos); 0 = sem filtro. */
   filter: number;
 }
 
-export const DEFAULT_PAD_FX: PadFx = { reverb: 0.5, delay: 0.5, roll: 0, filter: 0 };
+/** Knob ROLL no padrão: 1/8 de tempo (o roll que o músico espera ao apertar a tecla ROLL). */
+export const DEFAULT_ROLL_KNOB = 4 / 7;
+/** O knob ROLL vai de 1 tempo (todo para a esquerda) a 1/64 (todo para a direita). */
+export const ROLL_KNOB_MIN = 1 / 7;
+
+export const DEFAULT_PAD_FX: PadFx = { reverb: 0.5, delay: 0.5, roll: DEFAULT_ROLL_KNOB, filter: 0 };
 
 /**
  * Começo do pedaço do roll: preso na grade do pedaço a partir do começo do som (que, cortado, cai
@@ -298,6 +323,24 @@ export function rollLabel(roll: number): string {
 export function rollSeconds(roll: number, bpm: number): number | null {
   const b = rollBeats(roll);
   return b === null ? null : b * (60 / (bpm > 0 ? bpm : 120));
+}
+
+/**
+ * Knob ROLL sem tamanho (o 0 de antes, que desligava todos): vale o padrão, 1/8. Assim apertar
+ * a tecla ROLL de um pad sempre faz ele repetir.
+ */
+export function rollKnob(roll: number): number {
+  return rollBeats(roll) === null ? DEFAULT_ROLL_KNOB : Math.max(ROLL_KNOB_MIN, Math.min(1, roll));
+}
+
+/** Segundos do pedaço que o pad repete: null se o ROLL dele está desligado. */
+export function padRollSeconds(roll: number, bpm: number, padRoll: boolean | undefined): number | null {
+  return padRoll ? rollSeconds(rollKnob(roll), bpm) : null;
+}
+
+/** Dos pads tocando, os que repetem com o roll (só os que têm o ROLL ligado). */
+export function rollingSlots(playing: Iterable<number>, infos: Map<number, Pick<PadInfo, 'roll'>>): number[] {
+  return [...playing].filter((slot) => !!infos.get(slot)?.roll);
 }
 
 /** Volume da volta do reverb para o knob (0,5 = o de antes). */
@@ -417,7 +460,7 @@ function storedFx(): PadFx {
       return {
         reverb: num(v.reverb, 0, 1, DEFAULT_PAD_FX.reverb),
         delay: num(v.delay, 0, 1, DEFAULT_PAD_FX.delay),
-        roll: num(v.roll, 0, 1, DEFAULT_PAD_FX.roll),
+        roll: rollKnob(num(v.roll, 0, 1, DEFAULT_PAD_FX.roll)),
         filter: num(v.filter, -1, 1, DEFAULT_PAD_FX.filter),
       };
     }

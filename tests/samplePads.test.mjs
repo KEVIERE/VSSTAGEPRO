@@ -216,7 +216,8 @@ test('as teclas 1 a 9 saíram das partes da música; pular a parte é N; o site 
 
 test('knobs de efeito: reverb, delay, roll (velocidade do loop) e filtro de DJ', async () => {
   const m = await import('../src/lib/samplePads.ts');
-  assert.deepEqual(m.DEFAULT_PAD_FX, { reverb: 0.5, delay: 0.5, roll: 0, filter: 0 });
+  // o knob ROLL só dá o tamanho (quem liga é a tecla ROLL de cada pad): começa em 1/8
+  assert.deepEqual(m.DEFAULT_PAD_FX, { reverb: 0.5, delay: 0.5, roll: 4 / 7, filter: 0 });
   assert.equal(m.rollBeats(0), null);
   assert.equal(m.rollLabel(0), 'OFF');
   assert.equal(m.rollLabel(1), '1/64', 'no fim, bem rápido');

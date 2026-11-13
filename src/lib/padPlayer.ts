@@ -17,7 +17,7 @@ import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo 
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
   FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_CLIP_RANGE, PAD_COUNT, chokedBy, padClipCurve, subscribePads, delayAmount, delaySeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
-  rollSeconds, rollSliceStart, trimRegion, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
+  padRollSeconds, rollSliceStart, rollingSlots, trimRegion, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadFx, type PadInfo, type PadOutput, type SavedPads,
 } from '@/lib/samplePads';
@@ -370,7 +370,10 @@ export function setPadsFx(patch: Partial<PadFx>): void {
     o.low.Q.setTargetAtTime(f.q, t, 0.015);
     o.high.Q.setTargetAtTime(f.q, t, 0.015);
   }
-  if (patch.roll !== undefined) for (const [slot, v] of voices) applyRoll(slot, v);
+  // o knob muda o tamanho só dos pads com ROLL ligado; os outros nem sentem
+  if (patch.roll !== undefined) {
+    for (const slot of rollingSlots(voices.keys(), getPadsState().infos)) applyRoll(slot, voices.get(slot)!);
+  }
 }
 
 /** Onde o som da voz está agora, em segundos do arquivo. */
@@ -382,12 +385,14 @@ function headOf(v: Voice, now: number): number {
 }
 
 /**
- * Roll (velocidade do loop): repete um pedaço do som, do ponto onde ele está, do tamanho do knob
- * no tempo da música. Desligado, o som segue de onde estava (em loop só se o pad tem loop).
+ * Roll (velocidade do loop), só nos pads com ROLL ligado: repete um pedaço do som, do ponto onde
+ * ele está, do tamanho do knob no tempo da música. Desligado, o som segue de onde estava (em
+ * loop só se o pad tem loop).
  */
 function applyRoll(slot: number, v: Voice, startAt?: number): void {
   const now = v.src.context.currentTime;
-  const sec = rollSeconds(getPadsState().fx.roll, songBpm());
+  const { fx, infos } = getPadsState();
+  const sec = padRollSeconds(fx.roll, songBpm(), infos.get(slot)?.roll);
   const pos = headOf(v, now);
   v.anchorT = now;
   v.anchorPos = pos;
@@ -629,8 +634,8 @@ export function triggerPad(slot: number): void {
     src, gain, reverb: false, delay: false, startedAt: now,
     anchorT: now, anchorPos: 0, rate: src.playbackRate.value, length: src.buffer.duration, rolling: false, rollStart: 0,
   };
-  // roll ligado antes do toque: repete a partir do primeiro som (nunca o silêncio do começo)
-  if (getPadsState().fx.roll > 0) applyRoll(slot, voice, onsetOf(src.buffer));
+  // ROLL do pad ligado antes do toque: repete a partir do primeiro som (nunca o silêncio do começo)
+  if (info.roll) applyRoll(slot, voice, onsetOf(src.buffer));
   connectSends(voice, o, info.reverb, info.delay);
   src.onended = () => {
     if (voices.get(slot)?.src !== src) return;
@@ -712,6 +717,8 @@ export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot
       v.src.playbackRate.setTargetAtTime(v.rate, t, 0.01);
       if (v.rolling) applyRoll(slot, v);
     }
+    // ROLL do pad ligado ou desligado tocando: vale na hora, só nesta voz (os outros pads seguem)
+    if (patch.roll !== undefined) applyRoll(slot, v);
     if (patch.loop !== undefined && !v.rolling) {
       v.anchorPos = headOf(v, t);
       v.anchorT = t;
@@ -720,6 +727,15 @@ export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot
     if ((patch.reverb !== undefined || patch.delay !== undefined) && out) connectSends(v, out, next.reverb, next.delay);
   }
   await savePadInfo(next).catch(() => say(false, 'Não deu para guardar a mudança do pad.'));
+}
+
+/** Liga ou desliga o ROLL de um pad (vale na hora se ele está tocando). Devolve se ficou ligado. */
+export async function togglePadRoll(slot: number): Promise<boolean> {
+  const info = getPadsState().infos.get(slot);
+  if (!info) return false;
+  const on = !info.roll;
+  await updatePad(slot, { roll: on });
+  return on;
 }
 
 /**
@@ -773,7 +789,7 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
     }
     const old = getPadsState().infos.get(slot);
     const keep = old
-      ? { color: old.color, volume: old.volume, loop: old.loop, pitch: old.pitch, reverb: old.reverb, delay: old.delay, reverse: old.reverse }
+      ? { color: old.color, volume: old.volume, loop: old.loop, pitch: old.pitch, reverb: old.reverb, delay: old.delay, reverse: old.reverse, roll: !!old.roll }
       : {};
     const info: PadInfo = { ...newPadInfo(slot, file.name, buffer.duration), ...keep, type };
     release(slot);
