@@ -30,3 +30,11 @@ test('as fontes usadas viajam no instalador', () => {
   for (const f of fonts) assert.ok(pkg.build.files.includes(f), `${f} está no package.json`);
   assert.match(splash, /class="title"[^>]*>VS Stage Pro</, 'o nome da marca, em Outfit');
 });
+
+test('sem luz azul em volta do logo: o ícone tem luz neutra e a aura é branca', () => {
+  for (const blue of ['#00d9ff', '#1c56ff', '#2a6cff', '#8cfaff', '#00d5ff']) {
+    assert.ok(!splash.includes(blue), `luz azul ${blue} não aparece`);
+  }
+  assert.doesNotMatch(splash, /neon-glow-(wide|mid)/, 'sem halo colorido desfocado em volta da onda');
+});
+
