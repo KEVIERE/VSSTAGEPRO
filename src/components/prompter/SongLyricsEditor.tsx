@@ -481,13 +481,15 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, audioKey, a
             </button>
           </div>
           <div className="flex gap-3 lg:flex-col lg:gap-2 lg:min-h-0">
-            {/* Tela baixa: a TV diminui (sempre 16:9) em vez de invadir a linha do tempo. */}
-            <div className="w-[48%] max-w-[260px] shrink-0 lg:w-full lg:max-w-none lg:shrink lg:min-h-0 lg:aspect-video lg:flex lg:justify-center">
-              <div className="w-full aspect-video lg:w-auto lg:h-full lg:max-w-full rounded overflow-hidden ring-1 ring-black">
+            {/* A TV tem tamanho fixo (sempre 16:9): segue só a largura da coluna e a altura da janela,
+                nunca a música aberta. Antes ela seguia a altura que sobrava, e a linha do tempo de cada
+                música mudava essa altura: a prévia crescia e encolhia a cada troca de música. */}
+            <div className="w-[48%] max-w-[260px] shrink-0 lg:w-full lg:max-w-none lg:flex lg:justify-center">
+              <div className="w-full aspect-video lg:w-[min(100%,calc(38vh*16/9))] rounded overflow-hidden ring-1 ring-black">
                 <StageLyricsPreview pages={pages} t={t} playing={previewPlaying} songId={song.id} p={previewP} />
               </div>
             </div>
-            <div className="flex-1 min-w-0 flex flex-col justify-center lg:flex-none lg:shrink-0 lg:flex-row lg:items-center gap-1 lg:gap-2 text-[11px] min-h-[20px]">
+            <div className="flex-1 min-w-0 flex flex-col justify-center lg:flex-none lg:shrink-0 lg:flex-row lg:items-center gap-1 lg:gap-2 text-[11px] min-h-[20px] lg:h-5 lg:overflow-hidden">
               {shownPage ? (
                 <>
                   <span className="flex items-center gap-2">
@@ -682,8 +684,10 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, audioKey, a
             <Plus size={13} /> Nova marcação
           </button>
         </div>
-        {followLive && !liveOnSong && <p className="text-xs text-logic-lcd-amber mt-2">Aguardando o diretor tocar esta música.</p>}
-        {audioError && <p className="text-xs text-logic-lcd-red mt-2 flex items-center gap-1.5"><AlertTriangle size={13} /> {audioError}</p>}
+        {/* avisos numa linha de altura fixa: aparecer ou sumir não mexe no tamanho da tela */}
+        <p className={`text-xs mt-1 h-4 flex items-center gap-1.5 truncate ${audioError ? 'text-logic-lcd-red' : 'text-logic-lcd-amber'}`}>
+          {audioError ? <><AlertTriangle size={13} className="shrink-0" /> <span className="truncate">{audioError}</span></> : followLive && !liveOnSong ? 'Aguardando o diretor tocar esta música.' : ''}
+        </p>
         {audioUrl && <audio ref={audioRef} src={audioUrl} onEnded={() => setPlaying(false)} preload="auto" />}
 
         <div className="mt-2">
@@ -712,7 +716,7 @@ export default function SongLyricsEditor({ wordsUrl, song, cloudUrl, audioKey, a
           />
         </div>
 
-        <div className="mt-1.5 min-h-[34px] flex flex-wrap items-center gap-2 text-xs">
+        <div className="mt-1.5 h-[34px] flex flex-nowrap items-center gap-2 text-xs overflow-hidden">
           {selected && selected.time !== null ? (
             <>
               <span className="font-semibold text-logic-lcd-amber">Marcação {selIdx + 1}</span>

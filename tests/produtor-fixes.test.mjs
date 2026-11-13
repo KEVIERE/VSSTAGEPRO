@@ -136,3 +136,12 @@ test('dois aparelhos: o pedaço de cada um entra por cima do servidor sem apagar
     { blackout: false, toggles: { clock: false, logo: true } });
   assert.equal(applyPatch(server, {}), server);
 });
+
+test('prévia da TV do produtor com tamanho fixo ao trocar de música', async () => {
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(new URL('../src/components/prompter/SongLyricsEditor.tsx', import.meta.url), 'utf8');
+  assert.match(src, /aspect-video lg:w-\[min\(100%,calc\(38vh\*16\/9\)\)\]/, 'a TV segue a largura da coluna e a janela, não a música');
+  assert.doesNotMatch(src, /lg:w-auto lg:h-full lg:max-w-full rounded overflow-hidden ring-1 ring-black/, 'nada de altura que sobra');
+  assert.match(src, /mt-1\.5 h-\[34px\] flex flex-nowrap/, 'barra da marcação de altura fixa');
+  assert.match(src, /text-xs mt-1 h-4 flex items-center/, 'avisos numa linha fixa');
+});
