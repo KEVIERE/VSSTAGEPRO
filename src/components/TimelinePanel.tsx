@@ -285,11 +285,6 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   const esOrder = useStore((s) => (estudio || oficina ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, track.id) : -1));
   const rowColor = estudio ? esTrackColor(groupColor ?? track.color, esOrder)
     : oficina ? ofTrackColor(groupColor ?? track.color, esOrder) : track.color;
-  const childClipCount = useStore((s) => {
-    if (!track.isSubgroup) return 0;
-    const childIds = new Set(track.children);
-    return s.clips.filter((c) => childIds.has(c.trackId)).length;
-  });
 
   // Gravação na faixa Maestro (REC, Input da placa de áudio e VU Meter)
   const isMaestro = track.id === 'track-maestro';
@@ -517,16 +512,11 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       {oficina ? (
         // Oficina: ícone do instrumento na cor da faixa, o nome escrito normal e a contagem da pasta
         <div className={`console-tape of-track-label flex-1 min-w-0 flex items-center gap-1.5 ${compact ? 'h-4' : 'h-[22px]'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
-          <OfTrackLabel name={track.name} color={rowColor} count={isFolder ? childClipCount : undefined} compact={compact} />
+          <OfTrackLabel name={track.name} color={rowColor} compact={compact} />
         </div>
       ) : (
       <div className={`console-tape flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
         <span className="truncate uppercase">{track.name}</span>
-        {isFolder && (
-          <span className="ml-auto shrink-0 opacity-50 tabular-nums text-[9.5px]" title={`${childClipCount} áudio(s) nas faixas de dentro`}>
-            {childClipCount}
-          </span>
-        )}
       </div>
       )}
 

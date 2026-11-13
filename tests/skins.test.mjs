@@ -179,7 +179,8 @@ test('Oficina: canal tingido, botões quadrados, medidor com marcas e nome com n
 
 test('Oficina: nome da faixa com o ícone do instrumento, escrito normal', () => {
   const tl = read('src', 'components', 'TimelinePanel.tsx');
-  assert.match(tl, /<OfTrackLabel name=\{track\.name\} color=\{rowColor\} count=\{isFolder \? childClipCount : undefined\} compact=\{compact\} \/>/);
+  assert.match(tl, /<OfTrackLabel name=\{track\.name\} color=\{rowColor\} compact=\{compact\} \/>/);
+  assert.doesNotMatch(tl, /childClipCount/, 'sem o número de áudios no nome da faixa');
   const pieces = read('src', 'components', 'OficinaPieces.tsx');
   assert.match(pieces, /\[\/maestro\/i, Megaphone\]/);
   assert.match(pieces, /\[\/bateria\|drum\|perc/);
