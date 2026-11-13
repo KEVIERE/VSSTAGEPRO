@@ -1,5 +1,5 @@
 // Skins (Visualizar > Skins): a Analógica é a padrão e fica exatamente como sempre foi; a
-// Grafite troca o desenho das peças (aço, visor azul, knob, teclas claras, fader cromado).
+// Grafite (mesa digital de palco) e a Estúdio (DAW do Mac) trocam o desenho das peças.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,8 +12,21 @@ const root = path.join(here, '..');
 const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
 const css = read('src', 'index.css');
 const grafiteAt = css.indexOf('/* ================= Skin Grafite');
+const estudioAt = css.indexOf('/* ================= Skin Estúdio');
 const analogCss = css.slice(0, grafiteAt);
-const grafiteCss = css.slice(grafiteAt);
+const grafiteCss = css.slice(grafiteAt, estudioAt);
+const estudioCss = css.slice(estudioAt);
+
+/** Cada regra da seção começa por um dos prefixos (presa à marca da skin ou peça só dela). */
+function scopedOnly(section, prefixes) {
+  const selectors = [...section.matchAll(/^\s*([^@/{}\n][^{}\n]*)\{/gm)].map((m) => m[1].trim());
+  assert.ok(selectors.length > 30);
+  for (const sel of selectors) {
+    for (const part of sel.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean)) {
+      assert.ok(prefixes.some((p) => part.startsWith(p)), `regra solta: ${part}`);
+    }
+  }
+}
 
 function fakePage() {
   const store = new Map();
@@ -22,10 +35,11 @@ function fakePage() {
   return store;
 }
 
-test('duas skins: Analógica (padrão) e Grafite', () => {
-  assert.deepEqual(SKINS.map((s) => s.id), ['analogica', 'grafite']);
+test('três skins: Analógica (padrão), Grafite e Estúdio', () => {
+  assert.deepEqual(SKINS.map((s) => s.id), ['analogica', 'grafite', 'estudio']);
   assert.equal(DEFAULT_SKIN, 'analogica');
-  assert.ok(isSkin('grafite') && !isSkin('azul') && !isSkin(null));
+  assert.ok(isSkin('grafite') && isSkin('estudio') && !isSkin('azul') && !isSkin(null));
+  assert.ok(SKINS.every((s) => !/logic/i.test(s.label)), 'sem nome de marca');
 });
 
 test('a escolha fica guardada; sem escolha (ou com lixo guardado) abre na Analógica', () => {
@@ -74,18 +88,10 @@ test('as cores da Analógica são as mesmas de antes (hex antigos do tailwind.co
   assert.match(tw, /amber: 'rgb\(var\(--lg-lcd-amber\) \/ <alpha-value>\)'/);
 });
 
-test('a Grafite só vale com a marca na página: nada dela vaza para a Analógica', () => {
-  // toda regra da seção da Grafite é presa à marca ou é peça que só existe nela (gf-*)
-  const selectors = [...grafiteCss.matchAll(/^\s*([^@/{}\n][^{}\n]*)\{/gm)].map((m) => m[1].trim());
-  assert.ok(selectors.length > 40);
-  for (const sel of selectors) {
-    for (const part of sel.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean)) {
-      assert.ok(
-        part.startsWith(":where([data-skin='grafite'])") || part.startsWith(":root[data-skin='grafite']") || part.startsWith('.gf-') || part.startsWith('.segment-display.is-tft'),
-        `regra solta na Grafite: ${part}`,
-      );
-    }
-  }
+test('Grafite e Estúdio só valem com a marca na página: nada delas vaza para a Analógica', () => {
+  assert.ok(grafiteAt > 0 && estudioAt > grafiteAt);
+  scopedOnly(grafiteCss, [":where([data-skin='grafite'])", ":root[data-skin='grafite']", '.gf-']);
+  scopedOnly(estudioCss, [":where([data-skin='estudio'])", ":root[data-skin='estudio']", '.es-']);
   // as classes novas que a Analógica também carrega não têm desenho nela
   for (const cls of ['console-faderbed', 'console-bed', 'console-screws']) {
     assert.doesNotMatch(analogCss, new RegExp(`\\.${cls}\\b`), cls);
@@ -94,7 +100,9 @@ test('a Grafite só vale com a marca na página: nada dela vaza para a Analógic
 
 test('Visualizar > Skins, e a skin escolhida entra antes de desenhar', () => {
   const menu = read('src', 'components', 'MenuBar.tsx');
-  assert.match(menu, /\.\.\.SKINS\.map\(\(s\): MenuItem => \(\{\s*label: `Skin: \$\{s\.label\}`,\s*checked: skin === s\.id,\s*action: \(\) => \{ chooseSkin\(s\.id\); setOpenMenu\(null\); \},/);
+  assert.match(menu, /\{ label: 'Skins', skins: true \},/, 'uma pasta Skins em Visualizar');
+  assert.match(menu, /<SkinMenu current=\{skin\} onPick=\{\(id\) => \{ chooseSkin\(id\); setOpenMenu\(null\); \}\} \/>/, 'abre ao lado a janelinha de escolher');
+  assert.match(menu, /\{SKINS\.map\(\(s\) => \{/);
   const main = read('src', 'main.tsx');
   assert.ok(main.indexOf('applySkin(savedSkin());') < main.indexOf('createRoot('));
 });
@@ -108,6 +116,30 @@ test('Grafite tem peças próprias no mixer, no timecode, nos visores e nos pads
   for (const k of ['SOLO', 'MUTE', 'CLIP']) assert.match(mixer, new RegExp(`label="${k}"`));
   assert.match(mixer, /name="MASTER"/);
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<GfCap\s+tone="tc"/);
-  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin === 'grafite'\) \{/);
+  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin !== 'analogica'\) \{/);
   assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<GfKnob value=\{pct \* 2 - 1\} bipolar=\{false\} color=\{color\}/);
+});
+
+test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', async () => {
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.match(mixer, /if \(estudio\) \{\s*\/\/ Estúdio: régua de risquinhos à esquerda/, 'fader com régua e capa translúcida');
+  assert.match(mixer, /<i className="es-ruler-unity" style=\{\{ bottom: `\$\{markY\(0\)\}px` \}\} \/>/, 'traço branco no 0 dB');
+  assert.match(mixer, /if \(skin === 'estudio'\) \{\s*\/\/ Estúdio \(DAW do Mac\)/);
+  assert.match(mixer, /<EsDbBoxes volume=\{track\.volume\} meterId=\{track\.id\}/, 'caixinhas de dB');
+  assert.match(mixer, /<EsName name=\{track\.name\} color=\{color\}/, 'nome embaixo na cor da faixa');
+  for (const k of ['M', 'S', 'AC']) assert.match(mixer, new RegExp(`label="${k}"`));
+  assert.match(mixer, /<EsName name="Master"/);
+  assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<EsName name="Timecode"/);
+  assert.match(read('src', 'components', 'MiniFader.tsx'), /className="es-hslider-fill"/, 'volume da faixa com o verde');
+  const tl = read('src', 'components', 'TimelinePanel.tsx');
+  assert.match(tl, /color=\{estudio && !isMuted \? shade\(routingColor, 0\.62\) : routingColor\}/, 'onda escura no clipe colorido');
+  assert.match(tl, /esTrackColor\(clipTrack\.color, esChannelOrder\(useStore\.getState\(\)\.tracks, ROUTABLE_TRACKS, clipTrack\.id\)\)/, 'clipe na mesma cor do canal');
+  assert.match(mixer, /const color = esTrackColor\(track\.color, index\);/);
+  assert.match(mixer, /\{skin === 'estudio' && <EsRowLabels \/>\}/, 'nomes das linhas na lateral do mixer');
+  assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<EsKnob value=\{pct \* 2 - 1\} bipolar=\{false\}/);
+  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin !== 'analogica'\) \{/);
+  // cores: a da faixa fica viva; a onda é a mesma cor bem mais escura
+  const pieces = read('src', 'components', 'EstudioPieces.tsx');
+  assert.match(pieces, /const DEFAULT_TRACK_COLORS = new Set\(\['#5b8db8', '#5bb87a'\]\);/, 'só a cor de fábrica vira degradê');
+  assert.match(pieces, /if \(!DEFAULT_TRACK_COLORS\.has\(color\.trim\(\)\.toLowerCase\(\)\)\) return vivid\(color\);/, 'cor escolhida pelo usuário continua');
 });

@@ -1273,7 +1273,7 @@
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 3px 10px rgba(0, 0, 0, 0.55);
   }
   /* Números dos visores: fonte de tela, lisa, com um brilho leve */
-  .segment-display.is-tft {
+  :root[data-skin='grafite'] .segment-display.is-tft {
     filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 35%, transparent));
   }
   /* Nome da faixa na timeline: tela preta com a faixa na cor do canal */
@@ -1526,5 +1526,467 @@
   }
   :where([data-skin='grafite']) .console-pad.is-active {
     background-color: color-mix(in srgb, var(--pad-color) 24%, #1c1f23);
+  }
+}
+
+/* ================= Skin Estúdio (Visualizar > Skins) =================
+   No jeito das DAWs atuais do Mac: cinza liso sem textura, fonte do sistema, botões arredondados,
+   azul do sistema para o que está ligado, amarelo no solo, faixas e clipes em cores vivas, visor
+   preto com números grandes, fader cinza claro e medidor liso.
+   Só vale com <html data-skin="estudio">. As regras das peças antigas (console-*) usam :where()
+   para pesar o mesmo que as da Analógica (vencem as dela e perdem para as classes do Tailwind);
+   as de fonte usam :root[data-skin] para valer em cima das classes de fonte.
+   As peças es-* só existem na Estúdio (src/components/EstudioPieces.tsx). */
+
+@layer base {
+  :root[data-skin='estudio'] {
+    --lg-bg: 30 30 32;
+    --lg-bg-deep: 22 22 24;
+    --lg-bg-panel: 38 38 40;
+    --lg-bg-panel-light: 48 48 51;
+    --lg-bg-elevated: 58 58 60;
+    --lg-border: 52 52 55;
+    --lg-border-light: 72 72 76;
+    --lg-border-dark: 10 10 11;
+    --lg-text: 235 235 240;
+    --lg-text-dim: 174 174 178;
+    --lg-text-muted: 120 120 126;
+    --lg-accent: 10 132 255;
+    --lg-accent-hover: 64 156 255;
+    --lg-accent-dim: 0 100 210;
+    --lg-lcd-bg: 20 20 22;
+    --lg-lcd-text: 242 242 247;
+    --lg-lcd-amber: 255 159 10;
+    --lg-lcd-green: 48 209 88;
+    --lg-lcd-red: 255 69 58;
+    --lg-lcd-yellow: 255 214 10;
+  }
+  :root[data-skin='estudio'] body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  /* fonte do sistema também nas peças que usavam a fonte estreita da mesa */
+  :root[data-skin='estudio'] :is(.font-stage, .console-key, .console-flatkey, .console-legend, .console-readout, .console-tape, .console-scale) {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  }
+
+  /* ---------- Painéis lisos ---------- */
+  :where([data-skin='estudio']) .console-face {
+    background-color: #262628;
+    background-image: none;
+  }
+  :where([data-skin='estudio']) .console-screws {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  :where([data-skin='estudio']) .console-rail {
+    background-color: #2c2c2e;
+    background-image: none;
+    box-shadow: inset 0 -1px 0 #0b0b0c;
+  }
+  :where([data-skin='estudio']) .console-bed {
+    background-color: #262628;
+  }
+  :where([data-skin='estudio']) .console-strip {
+    background-color: #262628;
+    box-shadow: inset -1px 0 0 #161618;
+  }
+  :where([data-skin='estudio']) .console-strip:hover {
+    background-color: rgba(255, 255, 255, 0.025);
+  }
+  :where([data-skin='estudio']) .console-strip.is-selected {
+    background-color: #2f2f33;
+    box-shadow: inset -1px 0 0 #121214, inset 0 2px 0 #0a84ff;
+  }
+  .es-strip.is-master {
+    background-color: #29292c;
+    box-shadow: inset 1px 0 0 #121214;
+  }
+  .es-strip.is-tc {
+    box-shadow: inset -1px 0 0 #121214, inset 0 2px 0 rgba(255, 159, 10, 0.6);
+  }
+
+  /* ---------- Botões arredondados ---------- */
+  :where([data-skin='estudio']) .console-key,
+  :where([data-skin='estudio']) .logic-btn,
+  :where([data-skin='estudio']) .logic-btn-transport {
+    font-weight: 600;
+    color: #e5e5ea;
+    background-color: #3a3a3c;
+    background-image: none;
+    border: 1px solid #141416;
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 1px rgba(0, 0, 0, 0.45);
+  }
+  :where([data-skin='estudio']) .console-key:hover,
+  :where([data-skin='estudio']) .logic-btn:hover,
+  :where([data-skin='estudio']) .logic-btn-transport:hover {
+    color: #ffffff;
+    background-color: #48484a;
+  }
+  :where([data-skin='estudio']) .console-key:active,
+  :where([data-skin='estudio']) .logic-btn-transport:active {
+    transform: none;
+    background-color: #545456;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.4);
+  }
+  /* ligado: amarelo (solo, ciclo...), azul (mudo, opções), verde (tocando), vermelho (gravando) */
+  :where([data-skin='estudio']) .console-key.is-lit-amber {
+    color: #1c1c1e;
+    background-color: #ffd60a;
+    background-image: none;
+    border-color: #8a7300;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+  :where([data-skin='estudio']) .console-key.is-lit-blue,
+  :where([data-skin='estudio']) .console-key.\!bg-\[\#3a3326\] {
+    color: #ffffff !important;
+    background-color: #0a84ff !important;
+    background-image: none;
+    border-color: #0058b8;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  }
+  :where([data-skin='estudio']) .console-key.is-lit-green {
+    color: #ffffff;
+    background-color: #30d158;
+    background-image: none;
+    border-color: #1a7a33;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  :where([data-skin='estudio']) .console-key.is-lit-red {
+    color: #ffffff;
+    background-color: #ff453a;
+    background-image: none;
+    border-color: #8f1a12;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+  :where([data-skin='estudio']) .console-key.is-big {
+    border-radius: 10px;
+  }
+  :where([data-skin='estudio']) .console-key.is-big.is-lit-green {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 14px rgba(48, 209, 88, 0.35);
+  }
+  .es-key {
+    height: 18px;
+    padding: 0 2px;
+    font-size: 10.5px !important;
+    font-weight: 600 !important;
+    line-height: 1;
+    border-radius: 5px !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+  }
+  :where([data-skin='estudio']) .es-key:not(.is-lit-amber):not(.is-lit-blue):not(.is-lit-red):not(.is-lit-green) {
+    color: #f2f2f7;
+    background-color: #3a3a3c;
+  }
+  /* nomes das linhas do mixer, na lateral */
+  .es-rowlabels {
+    background: #262628;
+    box-shadow: inset -1px 0 0 #121214;
+  }
+  .es-rowlabels > span {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    font-size: 10px;
+    font-weight: 500;
+    color: #8e8e93;
+    white-space: nowrap;
+  }
+  :where([data-skin='estudio']) .console-flatkey {
+    font-weight: 600;
+    color: #d1d1d6;
+    background-color: #3a3a3c;
+    border: 1px solid #141416;
+    border-radius: 4px;
+  }
+  :where([data-skin='estudio']) .console-flatkey:hover {
+    color: #ffffff;
+    background-color: #48484a;
+  }
+  :where([data-skin='estudio']) .console-flatkey.is-lit-amber {
+    color: #1c1c1e;
+    background-color: #ffd60a;
+    border-color: #8a7300;
+  }
+  :where([data-skin='estudio']) .console-led.is-on-green {
+    background: #30d158;
+    box-shadow: 0 0 4px rgba(48, 209, 88, 0.7);
+  }
+  :where([data-skin='estudio']) .console-led.is-on-amber {
+    background: #ffd60a;
+    box-shadow: 0 0 4px rgba(255, 214, 10, 0.7);
+  }
+  :where([data-skin='estudio']) .console-led.is-on-amber.is-lg {
+    color: rgba(255, 214, 10, 0.7);
+  }
+
+  /* ---------- Visores: preto liso, números grandes ---------- */
+  :where([data-skin='estudio']) .logic-lcd,
+  :where([data-skin='estudio']) .console-display {
+    border-color: #0b0b0c;
+    border-radius: 8px;
+    background-image: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  :where([data-skin='estudio']) .console-readout {
+    background-color: #141416;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  :where([data-skin='estudio']) .console-bezel {
+    padding: 2px;
+    border-radius: 10px;
+    background: #3a3a3c;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  }
+  :where([data-skin='estudio']) .console-legend {
+    letter-spacing: 0.02em;
+    color: #8e8e93;
+  }
+  :where([data-skin='estudio']) .console-glow {
+    text-shadow: none;
+  }
+  /* nome da faixa na timeline: texto branco simples (a cor da faixa fica na barrinha ao lado) */
+  :where([data-skin='estudio']) .console-tape {
+    font-weight: 600;
+    font-size: 11px;
+    color: #f2f2f7;
+    background: transparent;
+    clip-path: none;
+    box-shadow: none;
+  }
+
+  /* ---------- Timeline ---------- */
+  :where([data-skin='estudio']) .console-row {
+    background-color: #2a2a2c;
+    background-image: none;
+    box-shadow: inset 0 -1px 0 #161618;
+  }
+  :where([data-skin='estudio']) .console-row:hover {
+    background-color: #303033;
+  }
+  :where([data-skin='estudio']) .console-row.is-selected {
+    background-color: #3c3c40;
+    box-shadow: inset 0 -1px 0 #161618;
+  }
+  :where([data-skin='estudio']) .console-row-child {
+    background-color: #232325;
+    box-shadow: inset 0 -1px 0 #161618;
+  }
+  :where([data-skin='estudio']) .console-row-child:hover {
+    background-color: #2a2a2c;
+  }
+  :where([data-skin='estudio']) .console-row-child.is-selected {
+    background-color: #36363a;
+  }
+  /* volume deitado da faixa: trilho fino, verde até o volume, bolinha cinza */
+  .es-hslider-track,
+  .es-hslider-fill {
+    position: absolute;
+    top: 50%;
+    height: 4px;
+    transform: translateY(-50%);
+    border-radius: 2px;
+  }
+  .es-hslider-track {
+    background: #18181a;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  }
+  .es-hslider-fill {
+    background: linear-gradient(90deg, #248a3d, #30d158);
+  }
+  .es-hslider-thumb {
+    position: absolute;
+    top: 50%;
+    width: 11px;
+    height: 11px;
+    margin-left: -5.5px;
+    transform: translateY(-50%);
+    border-radius: 9999px;
+    background: linear-gradient(180deg, #f2f2f7, #aeaeb2);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 0 0.5px #1c1c1e;
+  }
+
+  /* ---------- Mixer ---------- */
+  .es-dbbox {
+    flex: 1;
+    height: 16px;
+    border-radius: 5px;
+    background: #1a1a1c;
+    font-size: 10px;
+    line-height: 16px;
+    font-weight: 500;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    color: #e5e5ea;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .es-dbbox.is-green { color: #30d158; }
+  .es-dbbox.is-yellow { color: #ffd60a; }
+  .es-dbbox.is-red { color: #ff453a; }
+  .es-slot {
+    width: 3px;
+    border-radius: 2px;
+    background: #0b0b0c;
+    box-shadow: 0 0 0 1px #3a3a3c;
+  }
+  .es-cap {
+    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+  }
+  .es-cap-locked {
+    outline: 1px solid #ff9f0a;
+    outline-offset: 1px;
+    border-radius: 4px;
+  }
+  /* régua do fader: risquinhos dos dois lados do trilho e o 0 dB num traço branco */
+  .es-ruler-tick {
+    position: absolute;
+    right: 1px;
+    width: 4px;
+    height: 1px;
+    transform: translateY(50%);
+    background: rgba(255, 255, 255, 0.2);
+  }
+  .es-ruler-tick.is-left {
+    right: auto;
+    left: 1px;
+    width: 3px;
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .es-ruler-unity {
+    position: absolute;
+    right: 0;
+    width: 9px;
+    height: 1.5px;
+    transform: translateY(50%);
+    background: #f2f2f7;
+  }
+  .es-scale {
+    position: absolute;
+    right: 2px;
+    transform: translateY(50%);
+    font-size: 7px;
+    line-height: 1;
+    font-weight: 500;
+    color: #8e8e93;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .es-scale.is-unity {
+    color: #f2f2f7;
+    font-weight: 700;
+  }
+  .es-meter {
+    width: 7px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    cursor: default;
+  }
+  .es-meter-clip {
+    flex: 0 0 4px;
+    border-radius: 1px;
+    background: #2c2c2e;
+  }
+  .es-meter-clip.is-on {
+    background: #ff453a;
+    cursor: pointer;
+  }
+  .es-meter-bar {
+    position: relative;
+    flex: 1;
+    border-radius: 1px;
+    background: #141416;
+    overflow: hidden;
+  }
+  .es-meter-fill {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(to top, #2fd158 0%, #2fd158 78%, #ffd60a 86%, #ffd60a 96%, #ff453a 100%);
+  }
+  .es-meter-peak {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #f2f2f7;
+  }
+  .es-meter-mark {
+    position: absolute;
+    right: 0;
+    transform: translateY(50%);
+    font-size: 6px;
+    line-height: 1;
+    color: #98989d;
+    font-variant-numeric: tabular-nums;
+  }
+  .es-name {
+    width: calc(100% + 8px);
+    margin: 0 -4px -6px;
+    height: 28px;
+    padding: 2px 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10.5px;
+    line-height: 12px;
+    font-weight: 500;
+    color: #ffffff;
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.3);
+  }
+  .es-knob {
+    overflow: visible;
+  }
+
+  /* Fader de pitch dos pads e outros faders pequenos: capa cinza clara */
+  :where([data-skin='estudio']) .console-slot {
+    background: #0b0b0c;
+    box-shadow: 0 0 0 1px #3a3a3c;
+  }
+  :where([data-skin='estudio']) .console-cap {
+    border-radius: 3px;
+    background:
+      linear-gradient(to bottom, transparent calc(50% - 0.7px), var(--es-line, #2c2c2e) calc(50% - 0.7px), var(--es-line, #2c2c2e) calc(50% + 0.7px), transparent calc(50% + 0.7px)),
+      linear-gradient(to bottom, #e5e5ea, #c7c7cc 45%, #b5b5bb 55%, #8e8e93);
+    box-shadow: 0 2px 3px rgba(0, 0, 0, 0.6), 0 0 0 1px #1c1c1e;
+  }
+  :where([data-skin='estudio']) .console-cap.is-horizontal {
+    background:
+      linear-gradient(to right, transparent calc(50% - 0.7px), var(--es-line, #2c2c2e) calc(50% - 0.7px), var(--es-line, #2c2c2e) calc(50% + 0.7px), transparent calc(50% + 0.7px)),
+      linear-gradient(to bottom, #e5e5ea, #aeaeb2);
+  }
+  :where([data-skin='estudio']) .console-cap--cue { --es-line: #0a84ff; }
+  :where([data-skin='estudio']) .console-cap--master { --es-line: #ff453a; }
+  :where([data-skin='estudio']) .console-cap--tc { --es-line: #ff9f0a; }
+  :where([data-skin='estudio']) .console-well {
+    background-color: #141416;
+    border-radius: 2px;
+  }
+  /* medidores lisos (sem as linhas dos LEDs) */
+  :where([data-skin='estudio']) .console-meter-segments {
+    background: none;
+  }
+
+  /* Pads de seção: célula arredondada que acende na cor da parte */
+  :where([data-skin='estudio']) .console-pad {
+    border-radius: 8px;
+    border-color: #141416;
+    background-color: #2c2c2e;
+    background-image: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+  :where([data-skin='estudio']) .console-pad:hover {
+    background-color: #3a3a3c;
+  }
+  :where([data-skin='estudio']) .console-pad.is-active {
+    background-color: color-mix(in srgb, var(--pad-color) 70%, #2c2c2e);
+  }
+  :where([data-skin='estudio']) .cue-row.is-selected {
+    background-color: rgba(10, 132, 255, 0.16);
+    box-shadow: inset 3px 0 0 #0a84ff;
   }
 }

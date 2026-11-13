@@ -12,6 +12,7 @@ import { useMeterLevel } from '@/lib/meterBus';
 import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
 import { GfCap, GfFaderMeter, GfKey, GfKnob, GfScreen, GfTag } from '@/components/GrafitePieces';
+import { EsCap, EsDbBoxes, EsKey, EsKnob, EsMeter, EsMeterScale, EsName, esTrackColor } from '@/components/EstudioPieces';
 
 // Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
 // nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
@@ -127,6 +128,11 @@ const SCALE_W = 14;
 const GF_SCALE_W = 15;
 export const GF_CAP_H = 34;
 export const GF_FADER_H = 128;
+// Estúdio: capa cinza mais baixa e escala fina à esquerda
+export const ES_CAP_H = 32;
+export const ES_FADER_H = 128;
+export const ES_SCALE_W = 9;
+export const ES_FADER_W = 16;
 
 /** Valor do fader em dB, como aparece nos visores. */
 export function faderDbText(volume: number): string {
@@ -159,8 +165,10 @@ export function Fader({
   height?: number;
   tone?: CapTone;
 }) {
-  const grafite = useSkin() === 'grafite';
-  const capHeight = grafite ? GF_CAP_H : 22;
+  const skin = useSkin();
+  const grafite = skin === 'grafite';
+  const estudio = skin === 'estudio';
+  const capHeight = grafite ? GF_CAP_H : estudio ? ES_CAP_H : 22;
   const travel = height - capHeight;
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const bottomPx = pct * travel;
@@ -198,6 +206,35 @@ export function Fader({
 
   const db = volumeToDb(value);
   const dbLabel = db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
+
+  if (estudio) {
+    // Estúdio: régua de risquinhos à esquerda (o 0 dB num traço branco maior), trilho fino e a
+    // capa cinza translúcida por cima
+    const ticks = Math.max(2, Math.floor(travel / 5));
+    return (
+      <div
+        className="es-fader relative flex cursor-ns-resize select-none"
+        style={{ width: `${width + ES_SCALE_W}px`, height: `${height}px`, touchAction: 'none' }}
+        onPointerDown={handleDown}
+        onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick?.(); }}
+        title={`Fader: ${dbLabel} dB. Arraste para ajustar (Shift: ajuste fino). Duplo clique: 0 dB.`}
+      >
+        <div className="relative h-full pointer-events-none" style={{ width: `${ES_SCALE_W}px` }}>
+          {Array.from({ length: ticks + 1 }, (_, i) => (
+            <i key={i} className="es-ruler-tick" style={{ bottom: `${capHeight / 2 + (i * travel) / ticks}px` }} />
+          ))}
+          <i className="es-ruler-unity" style={{ bottom: `${markY(0)}px` }} />
+        </div>
+        <div className="relative h-full pointer-events-none" style={{ width: `${width}px` }}>
+          {Array.from({ length: ticks + 1 }, (_, i) => (
+            <i key={i} className="es-ruler-tick is-left" style={{ bottom: `${capHeight / 2 + (i * travel) / ticks}px` }} />
+          ))}
+          <div className="es-slot absolute left-1/2 -translate-x-1/2" style={{ top: `${capHeight / 2 - 2}px`, bottom: `${capHeight / 2 - 2}px` }} />
+          <EsCap tone={tone} className="absolute left-0" style={{ width: '100%', height: `${capHeight}px`, bottom: `${bottomPx}px` }} />
+        </div>
+      </div>
+    );
+  }
 
   if (grafite) {
     // Grafite: escala fina à esquerda, fenda escura e a capa preta fosca com a linha acesa
@@ -278,6 +315,20 @@ function panKnobProps(trackId: string, pan: number, setPan: (id: string, v: numb
   };
 }
 
+/** Estúdio: os nomes das linhas do mixer na lateral (Pan, dB, Mute / Solo, Nome), como nas DAWs. */
+function EsRowLabels() {
+  return (
+    <div className="es-rowlabels flex flex-col items-end w-[62px] min-w-[62px] py-1.5 pr-2 gap-[3px]" aria-hidden="true">
+      <span className="h-[20px]">Saída</span>
+      <span className="h-[28px]">Pan</span>
+      <span className="h-[16px]">dB</span>
+      <span className="mt-auto" style={{ height: ES_FADER_H }} />
+      <span className="h-[18px]">Mute / Solo</span>
+      <span className="h-[28px] -mb-1.5">Nome</span>
+    </div>
+  );
+}
+
 function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === trackId));
   const setVolume = useStore((s) => s.setVolume);
@@ -288,12 +339,81 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
   const toggleAntiClip = useStore((s) => s.toggleAntiClip);
   const clearClipIndicator = useStore((s) => s.clearClipIndicator);
   const selectedTrackId = useStore((s) => s.selectedTrackId);
-  const grafite = useSkin() === 'grafite';
+  const skin = useSkin();
+  const grafite = skin === 'grafite';
 
   if (!track) return null;
 
   const isSelected = selectedTrackId === track.id;
   const isClipping = track.clipIndicator;
+
+  if (skin === 'estudio') {
+    // Estúdio (DAW do Mac): pan, caixinhas de dB, fader com o medidor, M / S / AC e o nome
+    // embaixo na cor da faixa.
+    const color = esTrackColor(track.color, index);
+    return (
+      <div
+        className={`console-strip es-strip flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[4px] gap-[3px] cursor-pointer relative ${isSelected ? 'is-selected' : ''}`}
+        onClick={() => selectTrack(track.id)}
+      >
+        <OutputMenu track={track} />
+        <div className="w-[28px] h-[28px] relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
+          <EsKnob value={track.pan} className="absolute inset-0 w-full h-full pointer-events-none" />
+        </div>
+        <EsDbBoxes volume={track.volume} meterId={track.id} title="Volume do fader e pico do sinal agora (dBFS, últimos 1,5 s)" />
+        <div className="flex items-start gap-[2px] mt-auto">
+          <Fader
+            value={track.volume}
+            onChange={(v) => setVolume(track.id, v)}
+            onDoubleClick={() => setVolume(track.id, 0.8)}
+            width={ES_FADER_W}
+            height={ES_FADER_H}
+            tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
+          />
+          <div className="flex gap-[1px]" style={{ marginTop: ES_CAP_H / 2 }}>
+            <EsMeterScale height={ES_FADER_H - ES_CAP_H} />
+            <EsMeter
+              id={track.id}
+              height={ES_FADER_H - ES_CAP_H}
+              off={track.mute}
+              clipping={isClipping}
+              onClick={(e) => { e.stopPropagation(); if (isClipping) clearClipIndicator(track.id); }}
+            />
+          </div>
+        </div>
+        <div className="flex gap-[2px] w-full">
+          <EsKey
+            label="M"
+            tone="mute"
+            lit={track.mute}
+            className="flex-1"
+            onClick={(e) => { e.stopPropagation(); toggleMute(track.id); }}
+            title={track.mute ? 'Canal mudo: clique para voltar' : 'Silenciar o canal'}
+          />
+          <EsKey
+            label="S"
+            tone="solo"
+            lit={track.solo}
+            className="flex-1"
+            onClick={(e) => { e.stopPropagation(); toggleSolo(track.id); }}
+            title={track.solo ? 'Solo ligado: clique para desligar' : 'Ouvir só este canal (solo)'}
+          />
+          <EsKey
+            label="AC"
+            tone={!track.antiClip && isClipping ? 'alert' : 'on'}
+            lit={track.antiClip || isClipping}
+            pulse={!track.antiClip && isClipping}
+            className="flex-1"
+            onClick={(e) => { e.stopPropagation(); toggleAntiClip(track.id); }}
+            title={track.antiClip
+              ? 'Anti-Clip ligado: a saída deste canal não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+              : 'Anti-Clip desligado: clique para limitar a saída deste canal em -0,1 dBFS, sem mudar o volume do resto.'}
+          />
+        </div>
+        <EsName name={track.name} color={color} title={track.name} />
+      </div>
+    );
+  }
 
   if (grafite) {
     // Grafite (mesa digital): tela do canal, encoder com anel de LED, teclas SOLO / MUTE / CLIP que
@@ -486,7 +606,8 @@ export default function MixerPanel() {
   const masterAntiClip = useStore((s) => !!s.masterAntiClip);
   const toggleMasterAntiClip = useStore((s) => s.toggleMasterAntiClip);
   const masterIsClipping = masterClipPeak >= 1;
-  const grafite = useSkin() === 'grafite';
+  const skin = useSkin();
+  const grafite = skin === 'grafite';
 
   const allChannels = useMemo(() => {
     const result: string[] = [];
@@ -534,12 +655,62 @@ export default function MixerPanel() {
       {/* Canais */}
       <div className="console-bed flex-1 flex overflow-x-auto overflow-y-hidden logic-scroll min-h-0">
         <div className="flex mx-auto min-w-fit border-l border-r border-logic-border-dark">
+          {skin === 'estudio' && <EsRowLabels />}
           <TimecodeMixerChannel />
           {allChannels.map((trackId, i) => (
             <MixerChannel key={trackId} trackId={trackId} index={i} />
           ))}
 
-          {grafite ? (
+          {skin === 'estudio' ? (
+            // Master da Estúdio: IGUALAR em cima, roteamento mágico, dB, fader, AC e o nome
+            <div className="console-strip es-strip is-master flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[4px] gap-[3px]">
+              <div className="min-h-[20px] flex items-center justify-center">
+                <LevelMatchButton />
+              </div>
+              <button
+                className={`console-key flex items-center justify-center w-[28px] h-[28px] !rounded-full ${magicRoutingActive ? 'is-lit-blue animate-pulse' : ''}`}
+                onClick={() => toggleMagicRouting()}
+                aria-pressed={magicRoutingActive}
+                title="Roteamento mágico: Guia/Click/Maestro → L e Banda → R. O timecode não é alterado. Clique novamente para restaurar."
+              >
+                <Wand2 size={13} />
+              </button>
+              <EsDbBoxes volume={masterVolume} meterId="master" title="Volume do master e pico da saída agora (dBFS, depois do limiter)" />
+              <div className="flex items-start gap-[2px] mt-auto">
+                <Fader
+                  value={masterVolume}
+                  onChange={(v) => { setMasterVolume(v); audioEngine.setMasterVolume(v); }}
+                  onDoubleClick={() => { setMasterVolume(0.8); audioEngine.setMasterVolume(0.8); }}
+                  width={ES_FADER_W}
+                  height={ES_FADER_H}
+                  tone="master"
+                />
+                <div className="flex gap-[1px]" style={{ marginTop: ES_CAP_H / 2 }}>
+                  <EsMeterScale height={ES_FADER_H - ES_CAP_H} />
+                  <EsMeter
+                    id="master"
+                    height={ES_FADER_H - ES_CAP_H}
+                    clipping={masterIsClipping}
+                    onClick={() => { if (masterIsClipping) clearMasterClipIndicator(); }}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-[2px] w-full">
+                <EsKey
+                  label="ANTI-CLIP"
+                  tone={!masterAntiClip && masterIsClipping ? 'alert' : 'on'}
+                  lit={masterAntiClip || masterIsClipping}
+                  pulse={!masterAntiClip && masterIsClipping}
+                  className="flex-1"
+                  onClick={toggleMasterAntiClip}
+                  title={masterAntiClip
+                    ? 'Anti-Clip ligado: a saída do master não passa de -0,1 dBFS (limitador de pico). Clique para desligar.'
+                    : 'Anti-Clip desligado: clique para limitar a saída do master em -0,1 dBFS, sem mexer no fader.'}
+                />
+              </div>
+              <EsName name="Master" color="#636366" />
+            </div>
+          ) : grafite ? (
             // Master da Grafite: tela vermelha, roteamento mágico, IGUALAR, CLIP e o fader
             <div className="console-strip gf-strip is-master flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[3px] gap-[3px]">
               <div className="min-h-[20px] flex items-center justify-center">

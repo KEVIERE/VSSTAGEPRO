@@ -6,7 +6,7 @@ import ProjectDialogs from '@/components/ProjectDialogs';
 import ProjectBackupsDialog from '@/components/ProjectBackupsDialog';
 import ShowsMenu from '@/components/ShowsMenu';
 import { DEFAULT_SHOW_NAME } from '@/lib/shows';
-import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package } from 'lucide-react';
+import { Loader2, Check, AlertTriangle, ChevronRight, FolderOpen, Package, Palette } from 'lucide-react';
 import { openRecentProject, SAVE_CANCELLING, saveCurrentProject } from '@/lib/projectQuickSave';
 import { confirmLeaveProject } from '@/lib/unsavedChanges';
 import { autoOpenEnabled, clearRecentProjects, listRecentProjects, setAutoOpenEnabled, type RecentProject } from '@/lib/recentProjects';
@@ -16,7 +16,7 @@ import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { audioEngine } from '@/lib/audioEngine';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { glueSelectedClips } from '@/lib/clipGlue';
-import { SKINS, chooseSkin, currentSkin, subscribeSkin } from '@/lib/skins';
+import { SKINS, chooseSkin, currentSkin, subscribeSkin, type SkinId } from '@/lib/skins';
 
 // O programa é Mac-only: atalhos sempre no padrão do teclado Mac (⌘), nunca Ctrl.
 const SAVE_SHORTCUT = '⌘S';
@@ -27,6 +27,8 @@ interface MenuItem {
   action?: () => void;
   separator?: boolean;
   recent?: boolean;
+  /** Abre ao lado a janelinha de escolher a skin */
+  skins?: boolean;
   checked?: boolean;
 }
 
@@ -70,6 +72,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
 
   const [recent, setRecent] = useState<RecentProject[]>([]);
   const [recentOpen, setRecentOpen] = useState(false);
+  const [skinsOpen, setSkinsOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(autoOpenEnabled);
   const hover = useHoverDismiss(openMenu !== null, () => setOpenMenu(null));
   const hoverProps = (label: string) => ({
@@ -82,6 +85,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
 
   useEffect(() => {
     setRecentOpen(false);
+    setSkinsOpen(false);
     if (openMenu === 'Arquivo') listRecentProjects().then(setRecent);
   }, [openMenu]);
 
@@ -241,11 +245,7 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
           action: () => { toggleTimelineLocked(); setOpenMenu(null); },
         },
         { separator: true },
-        ...SKINS.map((s): MenuItem => ({
-          label: `Skin: ${s.label}`,
-          checked: skin === s.id,
-          action: () => { chooseSkin(s.id); setOpenMenu(null); },
-        })),
+        { label: 'Skins', skins: true },
       ],
     },
   ];
@@ -281,6 +281,28 @@ export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal
               {menu.items.map((item, i) =>
                 item.separator ? (
                   <div key={i} className="h-px bg-logic-border-dark my-1" />
+                ) : item.skins ? (
+                  <div
+                    key={i}
+                    className="relative"
+                    onMouseEnter={() => setSkinsOpen(true)}
+                    onMouseLeave={() => setSkinsOpen(false)}
+                  >
+                    <button
+                      className={`w-full flex items-center justify-between px-3 py-1.5 text-left transition-colors duration-75
+                        ${skinsOpen ? 'bg-logic-accent text-white' : 'hover:bg-logic-accent hover:text-white'}`}
+                      onClick={() => setSkinsOpen((v) => !v)}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Palette size={11} className="opacity-80" />
+                        {item.label}
+                      </span>
+                      <ChevronRight size={12} className="opacity-70" />
+                    </button>
+                    {skinsOpen && (
+                      <SkinMenu current={skin} onPick={(id) => { chooseSkin(id); setOpenMenu(null); }} />
+                    )}
+                  </div>
                 ) : item.recent ? (
                   <div
                     key={i}
@@ -400,6 +422,41 @@ function formatOpenedAt(ts: number): string {
   return sameDay
     ? `Hoje, ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
     : d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+}
+
+/** Janelinha ao lado de Visualizar > Skins: cada skin com uma amostra das cores dela. */
+function SkinMenu({ current, onPick }: { current: SkinId; onPick: (id: SkinId) => void }) {
+  return (
+    <div className="absolute left-full top-0 -mt-1 ml-px z-50 w-80 p-1.5 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded animate-[fadeIn_120ms_ease-out]">
+      <p className="px-1.5 pt-0.5 pb-1.5 text-2xs uppercase tracking-wider text-logic-text-muted">Aparência do programa</p>
+      {SKINS.map((s) => {
+        const on = s.id === current;
+        const [panel, screen, lit] = s.swatch;
+        return (
+          <button
+            key={s.id}
+            className={`group w-full flex items-center gap-2.5 px-1.5 py-1.5 rounded text-left transition-colors duration-75
+              ${on ? 'bg-logic-accent/20' : 'hover:bg-logic-accent hover:text-white'}`}
+            onClick={() => onPick(s.id)}
+            aria-pressed={on}
+          >
+            {/* amostra: painel, a tela em cima, duas teclas acesas e um medidor */}
+            <span className="relative w-14 h-9 shrink-0 rounded-[4px] overflow-hidden border border-black/70" style={{ background: panel }} aria-hidden="true">
+              <span className="absolute left-1 right-1 top-1 h-2.5 rounded-[2px]" style={{ background: screen }} />
+              <span className="absolute left-1.5 bottom-1 w-2.5 h-3 rounded-[2px]" style={{ background: lit }} />
+              <span className="absolute left-5 bottom-1 w-2.5 h-3 rounded-[2px] opacity-60" style={{ background: lit }} />
+              <span className="absolute right-1.5 bottom-1 w-1 h-4 rounded-[1px] bg-[#3ee26e]" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-medium">{s.label}</span>
+              <span className="block text-2xs leading-tight text-logic-text-muted group-hover:text-white/80">{s.hint}</span>
+            </span>
+            <Check size={13} className={`shrink-0 ${on ? 'opacity-100 text-logic-accent' : 'opacity-0'}`} />
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function RecentMenu({ items, onPick, onClear }: {

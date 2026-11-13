@@ -6,14 +6,16 @@ import { LedMeter } from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
 import { useSkin } from '@/lib/useSkin';
 import { GfCap, GfFaderMeter, GfKey, GfScreen } from '@/components/GrafitePieces';
-import { GF_CAP_H, GF_FADER_H } from '@/components/MixerPanel';
+import { ES_CAP_H, ES_FADER_H, ES_FADER_W, ES_SCALE_W, GF_CAP_H, GF_FADER_H } from '@/components/MixerPanel';
+import { EsCap, EsDbBoxes, EsKey, EsMeter, EsMeterScale, EsName } from '@/components/EstudioPieces';
 
 export default function TimecodeMixerChannel() {
   const track = useStore((s) => s.tracks.find((t) => t.id === TIMECODE_TRACK_ID));
   const setVolume = useStore((s) => s.setVolume);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleFaderLock = useStore((s) => s.toggleFaderLock);
-  const grafite = useSkin() === 'grafite';
+  const skin = useSkin();
+  const grafite = skin === 'grafite';
   if (!track) return null;
 
   const locked = !!track.faderLocked;
@@ -22,6 +24,74 @@ export default function TimecodeMixerChannel() {
   const db = volumeToDb(track.volume);
   const dbLabel = db === -Infinity ? '-inf' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
   const noOutput = track.outputChannel === NO_OUTPUT;
+
+  if (skin === 'estudio') {
+    // Estúdio: LTC no lugar do pan, dB, fader com linha laranja, cadeado e M, nome em laranja
+    return (
+      <div className="console-strip es-strip is-tc flex flex-col items-center w-[80px] min-w-[80px] py-1.5 px-[4px] gap-[3px] relative">
+        <OutputMenu track={track} />
+        <div className="flex items-center justify-center gap-1 h-[28px] text-[#ff9f0a]" title="Sinal de controle para telões e luzes">
+          <Clock size={14} />
+          <span className="text-[11px] font-semibold">LTC</span>
+        </div>
+        <EsDbBoxes volume={track.volume} meterId={track.id} title="Volume do timecode e nível do sinal agora" />
+        <div className="flex items-start gap-[2px] mt-auto">
+          <div style={{ width: ES_SCALE_W }} aria-hidden="true" />
+          <div
+            className="es-fader relative"
+            style={{ width: ES_FADER_W, height: ES_FADER_H }}
+            onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
+            title={locked ? 'Fader travado. Clique no cadeado para destravar.' : 'Duplo clique = -6 dB'}
+          >
+            <div className="es-slot absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: ES_CAP_H / 2 - 2, bottom: ES_CAP_H / 2 - 2 }} />
+            <EsCap
+              tone="tc"
+              className={`absolute left-0 pointer-events-none ${locked ? 'es-cap-locked' : ''}`}
+              style={{ width: '100%', height: ES_CAP_H, bottom: `calc(${capPct} * (100% - ${ES_CAP_H}px))` }}
+            />
+            <input
+              type="range"
+              min={0}
+              max={1.5}
+              step={0.01}
+              value={track.volume}
+              disabled={locked}
+              onChange={(e) => setVolume(track.id, parseFloat(e.target.value))}
+              className={`absolute inset-0 w-full h-full opacity-0 ${locked ? 'cursor-not-allowed' : 'cursor-ns-resize'}`}
+              style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
+              aria-label="Volume do timecode"
+            />
+          </div>
+          <div className="flex gap-[1px]" style={{ marginTop: ES_CAP_H / 2 }}>
+            <EsMeterScale height={ES_FADER_H - ES_CAP_H} />
+            <EsMeter id={track.id} height={ES_FADER_H - ES_CAP_H} off={track.mute || noOutput} />
+          </div>
+        </div>
+        <div className="flex gap-[2px] w-full">
+          <EsKey
+            label={locked ? 'Travado' : 'Livre'}
+            tone="on"
+            lit={locked}
+            className="flex-1"
+            onClick={() => toggleFaderLock(track.id)}
+            title={locked ? 'Destravar o fader' : 'Travar o fader'}
+          >
+            {locked ? <Lock size={9} /> : <LockOpen size={9} />}
+          </EsKey>
+          <EsKey
+            label="M"
+            tone="alert"
+            lit={track.mute}
+            pulse={track.mute}
+            className="flex-1"
+            onClick={() => toggleMute(track.id)}
+            title={track.mute ? 'Timecode mudo: clique para voltar a enviar o sinal' : 'Silenciar o timecode'}
+          />
+        </div>
+        <EsName name="Timecode" color="#ff9f0a" />
+      </div>
+    );
+  }
 
   if (grafite) {
     // Grafite: tela dourada, LTC no lugar do encoder, teclas TRAVA e MUTE e o fader de linha âmbar

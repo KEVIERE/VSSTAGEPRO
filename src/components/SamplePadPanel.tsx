@@ -5,6 +5,7 @@ import { LedMeter } from '@/components/MeterMask';
 import MixerPanel, { Fader } from '@/components/MixerPanel';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import { GfKnob } from '@/components/GrafitePieces';
+import { EsKnob } from '@/components/EstudioPieces';
 import { useSkin } from '@/lib/useSkin';
 import { faderToGain } from '@/lib/faderScale';
 import {
@@ -426,7 +427,9 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
   value: number; color: string; disabled: boolean; onChange: (v: number) => void; onReset: () => void;
 }) {
   const pct = Math.max(0, Math.min(1, value / 1.5));
-  const grafite = useSkin() === 'grafite';
+  const skin = useSkin();
+  const grafite = skin === 'grafite';
+  const estudio = skin === 'estudio';
   const SEG = 21;
   const angle = -135 + pct * 270;
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -465,7 +468,7 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
       aria-valuenow={value}
       title="Volume do pad escolhido: arraste para cima ou para baixo (Shift: fino). Duplo clique: 0 dB."
     >
-      {!grafite && (
+      {!grafite && !estudio && (
       <svg viewBox="0 0 78 78" className="absolute inset-0">
         {Array.from({ length: SEG }, (_, i) => {
           const a = ((-135 + (i / (SEG - 1)) * 270) * Math.PI) / 180;
@@ -484,7 +487,12 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
         })}
       </svg>
       )}
-      {grafite ? (
+      {estudio ? (
+        // Estúdio: o knob cinza com o arco azul, o mesmo do pan dos canais
+        <div className="absolute" style={{ inset: 8 }}>
+          <EsKnob value={pct * 2 - 1} bipolar={false} className="w-full h-full" />
+        </div>
+      ) : grafite ? (
         // Grafite: o mesmo encoder com anel de LED dos canais do mixer (anel na cor do pad)
         <div className="absolute" style={{ inset: 6 }}>
           <GfKnob value={pct * 2 - 1} bipolar={false} color={color} className="w-full h-full" />

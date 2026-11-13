@@ -1,5 +1,6 @@
 import { volumeToDb } from '@/lib/audioEngine';
 import { gainToFader } from '@/lib/faderScale';
+import { useSkin } from '@/lib/useSkin';
 
 type CapTone = 'cue' | 'band';
 // nomes escritos por inteiro para o Tailwind não descartar as classes no build
@@ -26,6 +27,7 @@ export default function MiniFader({ value, onChange, onReset, width, height = 14
   height?: number;
   tone?: CapTone;
 }) {
+  const estudio = useSkin() === 'estudio';
   const travel = width - CAP_W;
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const markX = (db: number) => (gainToFader(db === -Infinity ? 0 : Math.pow(10, db / 20)) / 1.5) * travel + CAP_W / 2;
@@ -58,6 +60,24 @@ export default function MiniFader({ value, onChange, onReset, width, height = 14
 
   const db = volumeToDb(value);
   const dbLabel = db === -Infinity ? '-∞' : `${db > 0.05 ? '+' : ''}${db.toFixed(1)}`;
+
+  if (estudio) {
+    // Estúdio: trilho fino com o volume pintado de verde e a bolinha cinza, como nas DAWs do Mac
+    const x = pct * travel + CAP_W / 2;
+    return (
+      <div
+        className="es-hslider relative shrink-0 cursor-ew-resize select-none"
+        style={{ width: `${width}px`, height: `${height}px`, touchAction: 'none' }}
+        onPointerDown={handleDown}
+        onDoubleClick={(e) => { e.stopPropagation(); onReset(); }}
+        title={`Volume: ${dbLabel} dB. Arraste para os lados (Shift: ajuste fino). Duplo clique: 0 dB.`}
+      >
+        <div className="es-hslider-track" style={{ left: `${CAP_W / 2}px`, right: `${CAP_W / 2}px` }} />
+        <div className="es-hslider-fill" style={{ left: `${CAP_W / 2}px`, width: `${Math.max(0, x - CAP_W / 2)}px` }} />
+        <div className="es-hslider-thumb" style={{ left: `${x}px` }} />
+      </div>
+    );
+  }
 
   return (
     <div
