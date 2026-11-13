@@ -1906,7 +1906,7 @@
   .es-meter-fill {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, #2fd158 0%, #2fd158 78%, #ffd60a 86%, #ffd60a 96%, #ff453a 100%);
+    background: linear-gradient(to top, #2fd158 0%, #2fd158 70%, #ffd60a 74%, #ffd60a 92%, #ff453a 96%, #ff453a 100%);
   }
   .es-meter-peak {
     position: absolute;

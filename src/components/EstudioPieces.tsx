@@ -142,9 +142,15 @@ export function EsKnob({ value, className = '' }: { value: number; bipolar?: boo
 
 // ---------- medidor ----------
 
-const DB_FLOOR = -60;
-const pctOf = (db: number) => Math.max(0, Math.min(1, (db - DB_FLOOR) / -DB_FLOOR));
-export const ES_METER_MARKS = [0, -3, -6, -9, -12, -18, -24, -30, -40, -50, -60];
+// Escala como a das DAWs: de 0 a -24 dB ocupa 60% do medidor (onde a música acontece) e de -24 a
+// -60 dB os 40% de baixo. Linear em dB juntava os números de cima um em cima do outro.
+export function esMeterPct(db: number): number {
+  if (!(db > -60)) return 0;
+  if (db >= 0) return 1;
+  return db >= -24 ? 1 - (-db / 24) * 0.6 : 0.4 * ((db + 60) / 36);
+}
+const pctOf = esMeterPct;
+export const ES_METER_MARKS = [0, -6, -12, -18, -24, -40, -60];
 
 /**
  * Medidor em duas barrinhas finas, como nas DAWs do Mac: verde, amarelo perto do topo, vermelho

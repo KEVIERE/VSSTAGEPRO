@@ -143,3 +143,15 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(pieces, /const DEFAULT_TRACK_COLORS = new Set\(\['#5b8db8', '#5bb87a'\]\);/, 'só a cor de fábrica vira degradê');
   assert.match(pieces, /if \(!DEFAULT_TRACK_COLORS\.has\(color\.trim\(\)\.toLowerCase\(\)\)\) return vivid\(color\);/, 'cor escolhida pelo usuário continua');
 });
+
+test('Estúdio: os números da escala do medidor não ficam um em cima do outro', async () => {
+  const src = read('src', 'components', 'EstudioPieces.tsx');
+  const marks = JSON.parse(src.match(/ES_METER_MARKS = (\[[^\]]+\])/)[1]);
+  const pct = (db) => (db >= 0 ? 1 : db >= -24 ? 1 - (-db / 24) * 0.6 : Math.max(0, 0.4 * ((db + 60) / 36)));
+  assert.match(src, /return db >= -24 \? 1 - \(-db \/ 24\) \* 0\.6 : 0\.4 \* \(\(db \+ 60\) \/ 36\);/);
+  const meterPx = 128 - 32; // altura do medidor no mixer
+  for (let i = 1; i < marks.length; i++) {
+    const gap = (pct(marks[i - 1]) - pct(marks[i])) * meterPx;
+    assert.ok(gap >= 9, `${marks[i - 1]} e ${marks[i]} a ${gap.toFixed(1)} px`);
+  }
+});
