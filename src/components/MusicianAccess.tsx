@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useId, useRef } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import {
-  Music, Mail, Lock, User, Guitar, KeyRound, LogOut, Loader2, CheckCircle2,
-  Clock, Ban, ChevronLeft, Ticket, ArrowRight, Settings, ClipboardPaste, WifiOff,
+  Mail, Lock, User, Guitar, KeyRound, LogOut, Loader2, CheckCircle2,
+  Clock, Ban, ChevronLeft, Ticket, ArrowRight, Settings, ClipboardPaste, WifiOff, Globe,
 } from 'lucide-react';
+import { AccessCard, AccessNotice, AccessStage, AccessTitle } from '@/components/access/AccessChrome';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { authRedirect } from '@/lib/authRedirect';
 import { memberMemberships, memberJoin, memberClaimCode, memberUpdateProfile } from '@/lib/musicianApi';
@@ -17,9 +18,6 @@ const RETRY_MAX_MS = 15000;
 
 type AuthView = 'signin' | 'signup' | 'forgot' | 'recovery' | 'code';
 type AccountView = 'home' | 'profile';
-
-// campos embutidos no painel, como as janelinhas de uma mesa
-const inputCls = 'console-well w-full text-sm text-logic-text pl-9 pr-3 py-2.5 !rounded-[5px] border border-black outline-none focus:border-logic-accent transition-colors placeholder:text-logic-text-muted';
 
 function friendlyError(msg: string): string {
   const m = msg.toLowerCase();
@@ -40,29 +38,31 @@ function friendlyError(msg: string): string {
   return 'Algo deu errado. Tente novamente.';
 }
 
-function Field({ icon: Icon, ...props }: { icon: typeof Mail } & React.InputHTMLAttributes<HTMLInputElement>) {
+// Campo rebaixado no painel (acende âmbar ao digitar), igual à entrada da Rede Local. O rótulo
+// fica visível: o texto dentro do campo é só exemplo.
+function Field({ label, icon: Icon, ...props }: { label: string; icon: typeof Mail } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const id = useId();
   return (
-    <div className="relative">
-      <Icon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-logic-text-muted pointer-events-none" />
-      <input {...props} className={inputCls} />
+    <div>
+      <label htmlFor={id} className="console-legend block mb-1.5">{label}</label>
+      <div className="access-input relative">
+        <Icon size={15} className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input id={id} {...props} className="access-field" />
+      </div>
     </div>
   );
 }
 
+/** Aviso num visor escuro com LED: vermelho para erro, verde para tudo certo. */
 function Notice({ tone, children }: { tone: 'error' | 'ok'; children: React.ReactNode }) {
-  const cls = tone === 'error'
-    ? 'bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red'
-    : 'bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green';
-  return <div className={`px-3 py-2 rounded-lg border text-xs text-center leading-relaxed ${cls}`}>{children}</div>;
+  return <AccessNotice tone={tone === 'error' ? 'red' : 'green'}><p>{children}</p></AccessNotice>;
 }
 
+/** Tecla principal acesa em âmbar, a mesma da entrada do programa. */
 function PrimaryButton({ busy, children, ...props }: { busy?: boolean } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
-    <button
-      {...props}
-      className="console-key is-big is-lit-green w-full h-11 text-[15px] flex items-center justify-center gap-2 disabled:opacity-50"
-    >
-      {busy && <Loader2 size={15} className="animate-spin" />}
+    <button {...props} className="access-key">
+      {busy && <Loader2 size={16} className="animate-spin" />}
       {children}
     </button>
   );
@@ -113,30 +113,30 @@ export default function MusicianAccess({
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, []);
 
+  // Mesmo palco, logo e módulo da entrada do programa e da Área do Músico na Rede Local.
   return (
-    <div className="flex items-center justify-center bg-logic-bg-deep p-4 overflow-y-auto logic-scroll" style={{ height: '100%' }}>
-      <div className="console-face w-full max-w-sm my-6 px-5 py-6 rounded-xl border border-black shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
-        <div className="text-center mb-6">
-          <div className="console-display mx-auto mb-3 w-14 h-14 flex items-center justify-center">
-            <Music size={28} className="text-logic-lcd-green console-glow" />
+    <AccessStage>
+      <div className="w-full max-w-[380px] flex flex-col items-stretch">
+        <AccessTitle title="Área do Músico" subtitle="Suas cifras, partituras e anotações, ao vivo com o diretor musical." />
+        <AccessCard label={<><Globe size={12} /> Show Online</>} width={380}>
+          <div className="p-5">
+            {!ready ? (
+              <div className="flex justify-center py-8"><Loader2 className="animate-spin text-logic-text-muted" /></div>
+            ) : session && authView !== 'recovery' ? (
+              <AccountHome
+                session={session} invite={invite} claimCode={claimCode} autoEnter={autoEnter}
+                onEnter={onEnterAccount} onSignOut={doSignOut}
+              />
+            ) : (
+              <AuthForms
+                view={authView} setView={setAuthView} invite={invite} claimCode={claimCode} onEnterCode={onEnterCode}
+                initialCode={initialCode} initialError={initialError}
+              />
+            )}
           </div>
-          <h1 className="console-tape inline-block px-3 py-1.5 !text-[18px] !leading-none">Área do Músico</h1>
-        </div>
-        {!ready ? (
-          <div className="flex justify-center py-8"><Loader2 className="animate-spin text-logic-text-muted" /></div>
-        ) : session && authView !== 'recovery' ? (
-          <AccountHome
-            session={session} invite={invite} claimCode={claimCode} autoEnter={autoEnter}
-            onEnter={onEnterAccount} onSignOut={doSignOut}
-          />
-        ) : (
-          <AuthForms
-            view={authView} setView={setAuthView} invite={invite} claimCode={claimCode} onEnterCode={onEnterCode}
-            initialCode={initialCode} initialError={initialError}
-          />
-        )}
+        </AccessCard>
       </div>
-    </div>
+    </AccessStage>
   );
 }
 
@@ -246,20 +246,19 @@ function AuthForms({ view, setView, invite, claimCode, onEnterCode, initialCode,
 
   return (
     <form onSubmit={submit} className="space-y-3">
-      <p className="text-sm text-logic-text-muted text-center -mt-3 mb-4">{subtitle[view]}</p>
-
       {(view === 'signin' || view === 'signup') && (
-        <div className="grid grid-cols-2 gap-1.5 mb-1">
+        <div className="console-well grid grid-cols-2 gap-1 p-1 rounded-md" role="tablist" aria-label="Entrar ou criar conta">
           {(['signin', 'signup'] as const).map((v) => (
             <button
-              key={v} type="button" onClick={() => go(v)}
-              className={`console-key h-9 text-[13px] ${view === v ? 'is-lit-blue' : ''}`}
+              key={v} type="button" role="tab" aria-selected={view === v} onClick={() => go(v)}
+              className={`console-key h-9 text-[0.98rem] ${view === v ? 'is-lit-amber' : ''}`}
             >
               {v === 'signin' ? 'Entrar' : 'Criar conta'}
             </button>
           ))}
         </div>
       )}
+      <p className="text-sm text-logic-text-dim text-center">{subtitle[view]}</p>
 
       {error && <Notice tone="error">{error}</Notice>}
       {info && <Notice tone="ok">{info}</Notice>}
@@ -268,7 +267,7 @@ function AuthForms({ view, setView, invite, claimCode, onEnterCode, initialCode,
           type="button"
           onClick={resendConfirmation}
           disabled={busy}
-          className="w-full text-xs text-logic-accent hover:underline disabled:opacity-50"
+          className="access-link w-full disabled:opacity-50"
         >
           Reenviar e-mail de confirmação
         </button>
@@ -276,20 +275,20 @@ function AuthForms({ view, setView, invite, claimCode, onEnterCode, initialCode,
 
       {view === 'signup' && (
         <>
-          <Field icon={User} value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" maxLength={60} autoFocus />
-          <Field icon={Guitar} value={instrument} onChange={(e) => setInstrument(e.target.value)} placeholder="Instrumento (ex.: Guitarra)" maxLength={40} />
+          <Field label="Seu nome" icon={User} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: João" autoComplete="name" maxLength={60} autoFocus />
+          <Field label="Instrumento" icon={Guitar} value={instrument} onChange={(e) => setInstrument(e.target.value)} placeholder="Ex.: Guitarra" maxLength={40} />
         </>
       )}
       {(view === 'signin' || view === 'signup' || view === 'forgot') && (
         <Field
-          icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-          placeholder="E-mail" autoComplete="email" required autoFocus={view !== 'signup'}
+          label="E-mail" icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+          placeholder="seu@email.com" autoComplete="email" autoCapitalize="none" required autoFocus={view !== 'signup'}
         />
       )}
       {(view === 'signin' || view === 'signup' || view === 'recovery') && (
         <Field
-          icon={Lock} type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-          placeholder={view === 'recovery' ? 'Nova senha (mín. 6 caracteres)' : 'Senha'}
+          label={view === 'recovery' ? 'Senha nova' : 'Senha'} icon={Lock} type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+          placeholder={view === 'signin' ? 'Sua senha' : 'Mínimo 6 caracteres'}
           autoComplete={view === 'signin' ? 'current-password' : 'new-password'} required minLength={6}
           autoFocus={view === 'recovery'}
         />
@@ -299,17 +298,19 @@ function AuthForms({ view, setView, invite, claimCode, onEnterCode, initialCode,
           <p className="text-xs text-logic-text-dim text-center leading-relaxed">
             Digite a senha que o diretor mandou junto com o link (ex.: ABCD-1234).
           </p>
+          {/* o código aceso em âmbar no visor do campo, como no display da mesa */}
           <div className="flex gap-2">
             <input
               autoFocus value={code} onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="ABCD-1234" maxLength={20}
-              className="flex-1 min-w-0 text-center text-lg font-mono tracking-widest bg-logic-bg-panel text-logic-lcd-amber px-4 py-3 rounded-lg border border-logic-border-light outline-none focus:border-logic-accent"
+              placeholder="ABCD-1234" maxLength={20} aria-label="Código pessoal"
+              autoCapitalize="characters" autoComplete="off" autoCorrect="off" spellCheck={false}
+              className="access-field is-plain flex-1 min-w-0 !h-12 text-center !text-lg font-mono tracking-widest !text-logic-lcd-amber"
             />
             <button
               type="button"
               title="Colar"
               onClick={async () => { try { setCode((await navigator.clipboard.readText()).trim().toUpperCase().slice(0, 20)); } catch { /* sem permissão */ } }}
-              className="flex items-center gap-1.5 px-3 rounded-lg border border-logic-border-light text-xs text-logic-text-dim hover:text-logic-text hover:border-logic-accent transition-colors"
+              className="console-key h-12 px-3 text-xs flex items-center gap-1.5 shrink-0"
             >
               <ClipboardPaste size={14} /> Colar
             </button>
@@ -327,17 +328,17 @@ function AuthForms({ view, setView, invite, claimCode, onEnterCode, initialCode,
 
       <div className="flex flex-col items-center gap-2 pt-2">
         {view === 'signin' && (
-          <button type="button" onClick={() => go('forgot')} className="text-xs text-logic-text-muted hover:text-logic-text transition-colors">
+          <button type="button" onClick={() => go('forgot')} className="access-link">
             Esqueci minha senha
           </button>
         )}
         {(view === 'forgot' || view === 'code') && (
-          <button type="button" onClick={() => go('signin')} className="text-xs text-logic-text-muted hover:text-logic-text transition-colors flex items-center gap-1">
+          <button type="button" onClick={() => go('signin')} className="access-link flex items-center gap-1">
             <ChevronLeft size={12} /> Voltar para entrar
           </button>
         )}
         {(view === 'signin' || view === 'signup') && !claimCode && (
-          <button type="button" onClick={() => go('code')} className="text-xs text-logic-text-muted hover:text-logic-lcd-amber transition-colors flex items-center gap-1">
+          <button type="button" onClick={() => go('code')} className="access-link flex items-center gap-1">
             <KeyRound size={12} /> Tenho um código pessoal do diretor
           </button>
         )}
@@ -560,10 +561,10 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
             {invite ? 'Você foi convidado para um show' : 'Entrar em um show'}
           </p>
           {!invite && (
-            <Field icon={Ticket} value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="Código do convite" maxLength={20} />
+            <Field label="Código do convite" icon={Ticket} value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} placeholder="O código que o diretor mandou" autoCapitalize="characters" autoComplete="off" maxLength={20} />
           )}
-          <Field icon={User} value={joinName} onChange={(e) => setJoinName(e.target.value)} placeholder="Seu nome" maxLength={60} />
-          <Field icon={Guitar} value={joinInstr} onChange={(e) => setJoinInstr(e.target.value)} placeholder="Instrumento" maxLength={40} />
+          <Field label="Seu nome" icon={User} value={joinName} onChange={(e) => setJoinName(e.target.value)} placeholder="Ex.: João" autoComplete="name" maxLength={60} />
+          <Field label="Instrumento" icon={Guitar} value={joinInstr} onChange={(e) => setJoinInstr(e.target.value)} placeholder="Ex.: Baixo" maxLength={40} />
           <PrimaryButton type="submit" busy={busy} disabled={busy || !joinName.trim() || joinCode.replace(/[^A-Za-z0-9]/g, '').length < 6}>
             Pedir para entrar <ArrowRight size={14} />
           </PrimaryButton>
@@ -577,13 +578,13 @@ function AccountHome({ session, invite, claimCode, autoEnter, onEnter, onSignOut
             <p className="text-xs text-logic-text-dim leading-relaxed">
               Digite o código pessoal que o diretor te passou. Ele fica ligado à sua conta, com todas as suas cifras.
             </p>
-            <Field icon={KeyRound} value={oldCode} onChange={(e) => setOldCode(e.target.value.toUpperCase())} placeholder="ABCD-1234" maxLength={20} />
+            <Field label="Código pessoal" icon={KeyRound} value={oldCode} onChange={(e) => setOldCode(e.target.value.toUpperCase())} placeholder="ABCD-1234" autoCapitalize="characters" autoComplete="off" maxLength={20} />
             <PrimaryButton type="submit" busy={busy} disabled={busy || oldCode.replace(/[^A-Za-z0-9]/g, '').length < 8}>
               Ligar à minha conta
             </PrimaryButton>
           </form>
         ) : (
-          <button onClick={() => setShowOldCode(true)} className="w-full text-xs text-logic-text-muted hover:text-logic-lcd-amber transition-colors flex items-center justify-center gap-1">
+          <button type="button" onClick={() => setShowOldCode(true)} className="access-link w-full flex items-center justify-center gap-1">
             <KeyRound size={12} /> Tenho um código pessoal antigo
           </button>
         )
@@ -665,15 +666,15 @@ function ProfileEditor({ session, onBack }: { session: Session; onBack: () => vo
 
   return (
     <form onSubmit={save} className="space-y-3">
-      <button type="button" onClick={onBack} className="text-xs text-logic-text-muted hover:text-logic-text transition-colors flex items-center gap-1">
+      <button type="button" onClick={onBack} className="access-link flex items-center gap-1">
         <ChevronLeft size={12} /> Voltar
       </button>
       <p className="text-sm font-medium text-logic-text">Meu perfil</p>
       {error && <Notice tone="error">{error}</Notice>}
       {info && <Notice tone="ok">{info}</Notice>}
-      <Field icon={User} value={name} onChange={(e) => setName(e.target.value)} placeholder="Seu nome" maxLength={60} />
-      <Field icon={Guitar} value={instrument} onChange={(e) => setInstrument(e.target.value)} placeholder="Instrumento" maxLength={40} />
-      <Field icon={Lock} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Nova senha (deixe vazio para manter)" autoComplete="new-password" />
+      <Field label="Seu nome" icon={User} value={name} onChange={(e) => setName(e.target.value)} placeholder="Ex.: João" autoComplete="name" maxLength={60} />
+      <Field label="Instrumento" icon={Guitar} value={instrument} onChange={(e) => setInstrument(e.target.value)} placeholder="Ex.: Baixo" maxLength={40} />
+      <Field label="Senha nova" icon={Lock} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Deixe vazio para manter a atual" autoComplete="new-password" />
       <PrimaryButton type="submit" busy={busy} disabled={busy}>Salvar</PrimaryButton>
     </form>
   );

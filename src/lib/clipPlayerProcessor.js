@@ -13,6 +13,8 @@ function sampleScale(arr) {
 }
 
 const TAIL_PAD = 16384 * 2;
+// Fade-out da posição antiga numa busca com a música tocando (~5 ms a 48 kHz).
+const SEEK_FADE_OUT_FRAMES = 256;
 
 // ---------- dados do clipe (compartilhados por todas as vozes do reprodutor) ----------
 
@@ -121,6 +123,8 @@ class Voice {
     this.primed = true;
     this.drained = false;
     this.starved = false;
+    // já saiu som desta voz (só então ela precisa de fade-out ao ser trocada)
+    this.heard = false;
     this.scratch = new Float32Array(1024);
     if (!this.isBypass()) this.buildFilter();
   }
@@ -139,6 +143,9 @@ class Voice {
     this.source = new ClipArraySource(this.data);
     this.source.position = this.pos;
     this.filter = new SimpleFilter(this.source, this.engine);
+    // A posição do filtro nunca volta (busca e salto criam outra voz): sem histórico guardado,
+    // a fila de saída fica pequena e cada cópia interna do SoundTouch move menos dados.
+    this.filter.historyBufferSize = 0;
     this.filter.sourcePosition = this.pos;
     this.primeFill = 0;
     this.primeReadPos = 0;
@@ -314,9 +321,12 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       if (typeof d.pitch === 'number') this.pitch = d.pitch;
       if (typeof d.process === 'boolean') this.processAll = d.process;
       this.dropStaleRendered();
+      // Música tocando: a voz que soava sai num fade curto em vez de ser cortada seca (o corte
+      // de uma amostra para a outra dava estalo no PA em todas as faixas ao mesmo tempo).
+      const prev = this.voice;
+      const prevAudible = !!prev && prev.heard && !prev.drained && this.startTime <= currentTime;
       this.voice = this.makeVoice(d.offsetSamples | 0);
       this.jump = null;
-      this.fadeOutVoice = null;
       this.readyPosted = false;
       this.endedPosted = false;
       this.underrun = false;
@@ -324,6 +334,8 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       this.fadeInDone = 0;
       if (typeof d.startTime === 'number') this.startTime = d.startTime;
       if (d.silent === true) this.startTime = Number.POSITIVE_INFINITY;
+      // Se a voz trocada nem chegou a soar (duas buscas seguidas), o fade-out em andamento continua.
+      if (prevAudible) this.startSeekFadeOut(prev);
       return;
     }
     if (d.type === 'jump') {
@@ -451,12 +463,24 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     return i >= frames ? frames : i;
   }
 
+  // Fade-out curto da voz trocada numa busca. Se a voz nova entra antes de ele acabar, o
+  // fade-out não passa do fade-in dela: somadas, as duas nunca ficam acima do pico de cada uma.
+  startSeekFadeOut(prev) {
+    let n = SEEK_FADE_OUT_FRAMES;
+    const startsIn = (this.startTime - currentTime) * sampleRate;
+    if (startsIn < n) n = Math.max(1, Math.min(n, this.fadeInTotal | 0));
+    this.fadeOutVoice = prev;
+    this.fadeOutTotal = n;
+    this.fadeOutDone = 0;
+  }
+
   renderMain(outL, outR, from, to, frames) {
     const s = Math.max(from, this.indexOf(this.startTime, frames));
     if (s >= to) return;
     const n = to - s;
     this.ensureTmp(n);
     this.voice.read(this.tmpL, this.tmpR, 0, n);
+    this.voice.heard = true;
     for (let i = 0; i < n; i++) {
       let g = 1;
       if (this.fadeInDone < this.fadeInTotal) {

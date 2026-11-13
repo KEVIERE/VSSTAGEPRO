@@ -1,19 +1,23 @@
 import type { ReactNode } from 'react';
-import { Timer, Type } from 'lucide-react';
+import { Minus, Plus, Timer, Type } from 'lucide-react';
 
 const LEAD_MAX = 3;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 1.6;
 
-/** Botões − valor + no estilo da mesa. */
+/** Teclas − e + da mesa, com o visor no meio. */
 function Stepper({ label, onMinus, onPlus, minusOff, plusOff, minusLabel, plusLabel }: {
   label: string; onMinus: () => void; onPlus: () => void; minusOff: boolean; plusOff: boolean; minusLabel: string; plusLabel: string;
 }) {
   return (
-    <span className="flex items-center h-8 rounded-md border-2 border-black bg-black/40 overflow-hidden shrink-0">
-      <button onClick={onMinus} disabled={minusOff} className="w-8 h-full text-logic-text-dim hover:text-logic-text hover:bg-white/5 disabled:opacity-30" aria-label={minusLabel}>−</button>
-      <span className="font-stage text-xs tabular-nums text-logic-lcd-amber min-w-[46px] text-center">{label}</span>
-      <button onClick={onPlus} disabled={plusOff} className="w-8 h-full text-logic-text-dim hover:text-logic-text hover:bg-white/5 disabled:opacity-30" aria-label={plusLabel}>+</button>
+    <span className="flex items-center gap-1 shrink-0">
+      <button onClick={onMinus} disabled={minusOff} className="console-key w-8 h-8 flex items-center justify-center disabled:opacity-30" aria-label={minusLabel}>
+        <Minus size={14} />
+      </button>
+      <span className="console-display h-8 min-w-[46px] px-1.5 flex items-center justify-center font-stage text-xs tabular-nums text-logic-lcd-amber">{label}</span>
+      <button onClick={onPlus} disabled={plusOff} className="console-key w-8 h-8 flex items-center justify-center disabled:opacity-30" aria-label={plusLabel}>
+        <Plus size={14} />
+      </button>
     </span>
   );
 }

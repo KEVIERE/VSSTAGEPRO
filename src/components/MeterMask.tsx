@@ -1,13 +1,44 @@
-import { useMeterLevel } from '@/lib/meterBus';
+import { useLayoutEffect, useRef } from 'react';
+import { meterLevel, meterMaskCover, subscribeMeters } from '@/lib/meterBus';
 
-export default function MeterMask({ id, className, horizontal = false }: { id: string; className: string; horizontal?: boolean }) {
-  const level = useMeterLevel(id);
-  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
-  const meterPct = db <= -48 ? 0 : Math.min(100, ((db + 48) / 48) * 100);
-  if (meterPct >= 100) return null;
+/**
+ * Parte apagada do medidor, por cima do degradê. O nível chega umas 30 vezes por segundo com o
+ * programa tocando. Antes cada chegada redesenhava pelo React e mudava a altura, o que refaz
+ * layout e pintura da coluna (e do que está embaixo dela) o show inteiro. Agora o medidor ouve
+ * o meterBus direto e só muda o transform: a placa de vídeo aplica, sem repintar nada. O desenho
+ * é o mesmo (a máscara é uma cor lisa).
+ * `smooth` (VS Stage Remote, poucos níveis por segundo): continua mudando a altura, com a transição.
+ */
+export default function MeterMask({ id, className, horizontal = false, smooth = false }: {
+  id: string;
+  className: string;
+  horizontal?: boolean;
+  smooth?: boolean;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let last = -1;
+    const apply = () => {
+      const cover = meterMaskCover(meterLevel(id));
+      if (cover === last) return;
+      last = cover;
+      if (smooth) {
+        if (horizontal) el.style.width = `${cover * 100}%`;
+        else el.style.height = `${cover * 100}%`;
+      } else {
+        el.style.transform = horizontal ? `scaleX(${cover})` : `scaleY(${cover})`;
+      }
+    };
+    apply();
+    return subscribeMeters(apply);
+  }, [id, horizontal, smooth]);
   // Deitado (coluna das faixas da timeline): a parte apagada fica à direita.
-  if (horizontal) return <div className={`absolute top-0 bottom-0 right-0 ${className}`} style={{ width: `${100 - meterPct}%` }} />;
-  return <div className={`absolute top-0 left-0 right-0 ${className}`} style={{ height: `${100 - meterPct}%` }} />;
+  if (smooth) {
+    return <div ref={ref} className={`absolute ${horizontal ? 'top-0 bottom-0 right-0' : 'top-0 left-0 right-0'} ${className}`} />;
+  }
+  return <div ref={ref} className={`absolute inset-0 will-change-transform ${horizontal ? 'origin-right' : 'origin-top'} ${className}`} />;
 }
 
 // Medidor de LEDs (dBFS) do mixer: degradê verde → amarelo → vermelho, recortado em segmentos.
@@ -34,7 +65,7 @@ export function LedMeter({ id, off, clipping, onClick, title, height = 120, smoo
         {(['L', 'R'] as const).map((side) => (
           <div key={side} className="relative flex-1 overflow-hidden">
             <div className="absolute inset-0" style={{ background: off ? '#3a3d42' : METER_GRADIENT }} />
-            <MeterMask id={`${id}:${side}`} className={`bg-[#0b0c0e]/[0.86]${smooth ? ' transition-[height] duration-100 ease-linear' : ''}`} />
+            <MeterMask id={`${id}:${side}`} smooth={smooth} className={`bg-[#0b0c0e]/[0.86]${smooth ? ' transition-[height] duration-100 ease-linear' : ''}`} />
             <div className="console-meter-segments" />
           </div>
         ))}
@@ -50,7 +81,7 @@ export function LedMeter({ id, off, clipping, onClick, title, height = 120, smoo
   return (
     <div className="console-well relative w-2.5 overflow-hidden" style={{ height }} onClick={onClick} title={title}>
       <div className="absolute inset-0" style={{ background: off ? '#3a3d42' : METER_GRADIENT }} />
-      <MeterMask id={id} className={`bg-[#0b0c0e]/[0.86]${smooth ? ' transition-[height] duration-100 ease-linear' : ''}`} />
+      <MeterMask id={id} smooth={smooth} className={`bg-[#0b0c0e]/[0.86]${smooth ? ' transition-[height] duration-100 ease-linear' : ''}`} />
       <div className="console-meter-segments" />
       {clipping && (
         <div

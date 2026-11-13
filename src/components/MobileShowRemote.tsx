@@ -10,6 +10,7 @@ import RemoteSetlist from '@/components/remote/RemoteSetlist';
 import RemoteMixer from '@/components/remote/RemoteMixer';
 import { useRemoteLink, type RemoteLink } from '@/components/remote/useRemoteLink';
 import type { RemoteState } from '@/lib/remoteProtocol';
+import { useKeepAwake } from '@/lib/useWakeLock';
 
 type Tab = 'show' | 'lista' | 'mixer';
 const TAB_LS = 'vs_remote_tab';
@@ -21,26 +22,6 @@ function useClock() {
     return () => window.clearInterval(id);
   }, []);
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-}
-
-/** Tela sempre acesa durante o show. */
-function useWakeLock() {
-  useEffect(() => {
-    let lock: { release: () => Promise<void> } | null = null;
-    const ask = async () => {
-      try {
-        const wl = (navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<{ release: () => Promise<void> }> } }).wakeLock;
-        if (wl) lock = await wl.request('screen');
-      } catch { /* navegador sem suporte */ }
-    };
-    ask();
-    const onVis = () => { if (document.visibilityState === 'visible') ask(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      document.removeEventListener('visibilitychange', onVis);
-      lock?.release().catch(() => {});
-    };
-  }, []);
 }
 
 function PinScreen({ link }: { link: RemoteLink }) {
@@ -94,7 +75,7 @@ function Rail({ state, link }: { state: RemoteState; link: RemoteLink }) {
     <div className="console-rail flex items-center gap-2 px-3 h-12 shrink-0">
       <span className={`console-lamp shrink-0 ${state.playing ? 'is-on' : ''}`} title={state.playing ? 'No ar' : 'Parado'} />
       <VsLogo size={20} className="shrink-0" />
-      <span className="font-stage text-[15px] font-semibold tracking-wide text-logic-text truncate">VS Stage Remote</span>
+      <span className="vs-brand text-[15px] text-logic-text truncate">VS Stage Remote</span>
       <span className="ml-auto flex items-center gap-1.5 shrink-0 console-legend" title={live ? 'Ligado ao Mac' : 'Sem sinal do Mac'}>
         <span className={`console-led ${live ? 'is-on-green' : 'is-on-amber animate-pulse'}`} />
         {link.via === 'local' ? 'Rede local' : 'Online'}
@@ -147,7 +128,9 @@ const TABS: { id: Tab; label: string; icon: typeof Play }[] = [
 
 export default function MobileShowRemote() {
   const link = useRemoteLink();
-  useWakeLock();
+  // Tela sempre acesa durante o show. Na Rede Local (http, sem Wake Lock) o celular apagava: lá
+  // entra o vídeo invisível, ligado no primeiro toque (o mesmo da TV do palco).
+  useKeepAwake(true);
   const lostLong = useLostLong(link);
   const [tab, setTab] = useState<Tab>(() => {
     try {
@@ -206,7 +189,7 @@ export default function MobileShowRemote() {
           {tab === 'mixer' && <RemoteMixer state={state} send={link.send} watchMeters={link.watchMeters} />}
         </main>
       </div>
-      <nav className="console-rail grid grid-cols-3 gap-1.5 px-3 pt-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
+      <nav className="console-rail vs-legend-bar grid grid-cols-3 gap-1.5 px-3 pt-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
         {TABS.map((t) => (
           <button
             key={t.id}

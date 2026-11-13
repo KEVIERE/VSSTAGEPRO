@@ -55,7 +55,7 @@ function Switch({ on }: { on: boolean }) {
 export default function ScreenControlPanel({ code, snap, sync, now, state, update, logoUrl, onManageNotices }: {
   code: string;
   snap: PrompterSnapshot;
-  sync: { lagMs: number; receivedAt: number };
+  sync: { lagMs: number; receivedAt: number; clockOffsetMs?: number };
   now: number;
   state: PrompterState;
   update: (fn: (s: PrompterState) => PrompterState) => void;
@@ -67,7 +67,11 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
   const current = live?.currentSongId ? snap.show.setlist.songs.find((s) => s.id === live.currentSongId) ?? null : null;
   const lv = holdForward(computeLiveView(live, current?.duration, sync.lagMs, sync.receivedAt, now), current?.id ?? null, mem.current, current?.duration);
   const pages = current ? snap.lyrics.find((l) => l.song_id === current.id)?.pages ?? [] : [];
-  const autoIdx = autoPageIndex(pages, lv.currentTime);
+  // Com o "sai antes" da tela sem fio, igual à TV (pageIndexFor): a página que aparece aqui e os
+  // botões de avançar e voltar partem da mesma página que está na TV.
+  const autoIdx = autoPageIndex(pages, lv.currentTime + (state.lyricLead ?? 0));
+  // Hora do servidor: os avisos e o "Começar a contar agora" usam a mesma hora que a TV.
+  const offset = sync.clockOffsetMs ?? 0;
   const delta = current && state.nudge.songId === current.id ? state.nudge.delta : 0;
   const shownIdx = Math.max(-1, Math.min(pages.length - 1, autoIdx + delta));
 
@@ -197,7 +201,7 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
           title="Avisos prontos"
           aside={<button onClick={onManageNotices} className="console-key h-6 px-2 text-[11px]">Gerenciar</button>}
         >
-          <QuickNotices state={state} update={update} now={now} onManage={onManageNotices} />
+          <QuickNotices state={state} update={update} now={now + offset} clockOffsetMs={offset} onManage={onManageNotices} />
         </Section>
 
         <Section title="Tempo de Show">
@@ -240,7 +244,7 @@ export default function ScreenControlPanel({ code, snap, sync, now, state, updat
             </label>
           </div>
           <div className="flex gap-2 mt-3">
-            <button onClick={() => update((s) => ({ ...s, showStartAt: new Date().toISOString() }))} className="flex-1 py-2.5 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-medium transition-colors">
+            <button onClick={() => update((s) => ({ ...s, showStartAt: new Date(Date.now() + offset).toISOString() }))} className="flex-1 py-2.5 rounded-lg bg-logic-accent hover:bg-logic-accent-hover text-white text-sm font-medium transition-colors">
               Começar a contar agora
             </button>
             {state.showStartAt && (

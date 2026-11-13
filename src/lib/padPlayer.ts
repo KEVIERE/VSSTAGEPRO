@@ -16,7 +16,7 @@ import { meterBallistics, peakOf } from '@/lib/maestroInput';
 import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
-  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delayAmount, delaySeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
+  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_CLIP_RANGE, PAD_COUNT, chokedBy, padClipCurve, subscribePads, delayAmount, delaySeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
   rollSeconds, rollSliceStart, trimRegion, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadFx, type PadInfo, type PadOutput, type SavedPads,
@@ -66,7 +66,7 @@ interface PadOut {
   high: BiquadFilterNode;
   /** Saída depois do filtro (vai para o medidor e para a placa). */
   post: GainNode;
-  /** Sinal inaudível que mantém a placa acordada enquanto o Modo Show está aberto. */
+  /** Sinal inaudível que mantém a placa acordada enquanto o Modo Show está aberto (com algum pad com som). */
   keepAlive: ConstantSourceNode | null;
   /** Medidor da soma (o LED ao lado do fader geral). */
   meter: AnalyserNode;
@@ -172,8 +172,16 @@ export function openPadOutput(): PadOut {
     high.frequency.value = flt.high;
     low.Q.value = flt.q;
     high.Q.value = flt.q;
+    // proteção de pico: os pads saem direto na placa, sem o limitador do master, e a soma (vários
+    // pads, reverb, delay e roll) passa de 0 dBFS. Até -1 dBFS passa igual; acima, dobra suave
+    // até 0 dBFS. WaveShaper sem sobreamostragem: não soma atraso nenhum
+    const clipIn = ctx.createGain();
+    clipIn.gain.value = 1 / PAD_CLIP_RANGE;
+    const clip = ctx.createWaveShaper();
+    clip.curve = padClipCurve();
+    clip.oversample = 'none';
     const post = ctx.createGain();
-    bus.connect(low).connect(high).connect(post);
+    bus.connect(low).connect(high).connect(clipIn).connect(clip).connect(post);
     const meter = ctx.createAnalyser();
     meter.fftSize = 2048;
     post.connect(meter);
@@ -206,30 +214,90 @@ function reportLatency(ctx: AudioContext) {
   if (ms !== getPadsState().latencyMs) setPadsState({ latencyMs: ms });
 }
 
+/** O Modo Show está aberto (os pads ficam prontos enquanto ele estiver). */
+let showReady = false;
+/** Espera o som dos pads acabar de vez para parar a saída fora do Modo Show. */
+let quietTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopQuietTimer(): void {
+  if (quietTimer !== null) clearInterval(quietTimer);
+  quietTimer = null;
+}
+
+/**
+ * Deixa a saída aberta, rodando e acordada com um sinal inaudível (-120 dB). Só com algum pad com
+ * som: sem pad nenhum não há o que tocar, e a saída de bloco mínimo aberta à toa encurta o bloco
+ * da placa para as músicas também. O primeiro som (importado, do computador ou do projeto) já liga.
+ */
+function armPads(): void {
+  if (!showReady || getPadsState().infos.size === 0) return;
+  stopQuietTimer();
+  const o = padOut();
+  // voltou ao Modo Show depois de a saída parar: roda de novo antes do primeiro toque
+  if (o.ctx.state !== 'running') void o.ctx.resume();
+  if (o.keepAlive) return;
+  const k = o.ctx.createConstantSource();
+  k.offset.value = 1e-6;
+  k.connect(o.ctx.destination);
+  k.start();
+  o.keepAlive = k;
+}
+
+/**
+ * Fora do Modo Show ninguém toca os pads: a saída para de rodar, mas só depois de 90 s seguidos
+ * sem voz tocando e com o medidor em silêncio (a cauda mais longa do delay, no máximo do knob e a
+ * 1,5 s por repetição, cai abaixo de -100 dB antes disso: nada fica cortado nem guardado na
+ * memória do efeito) e com as músicas paradas (parar a saída muda o bloco da placa, e isso não
+ * acontece com música tocando). Voltar ao Modo Show faz ela rodar de novo.
+ */
+const QUIET_SECONDS_TO_SUSPEND = 90;
+function suspendWhenQuiet(): void {
+  if (quietTimer !== null || !out) return;
+  const data = new Float32Array(out.meter.fftSize);
+  let quiet = 0;
+  quietTimer = setInterval(() => {
+    const o = out;
+    if (showReady || !o || o.ctx.state !== 'running') { stopQuietTimer(); return; }
+    let silent = voices.size === 0 && o.meter.fftSize === data.length;
+    if (silent) {
+      o.meter.getFloatTimeDomainData(data);
+      silent = peakOf(data) < 1e-5;
+    }
+    quiet = silent ? quiet + 1 : 0;
+    if (quiet < QUIET_SECONDS_TO_SUSPEND || useStore.getState().transport.isPlaying) return;
+    stopQuietTimer();
+    void o.ctx.suspend().catch(() => { /* fica rodando em silêncio */ });
+  }, 1000);
+}
+
 /**
  * Pads sempre prontos no Modo Show: abre a saída, deixa os sons do banco decodificados e mantém a
- * placa acordada com um sinal inaudível (-120 dB). Sem ele, depois de um tempo em silêncio o
- * sistema desliga a saída para economizar, e o primeiro toque atrasa enquanto ela volta.
+ * placa acordada com um sinal inaudível. Sem ele, depois de um tempo em silêncio o sistema
+ * desliga a saída para economizar, e o primeiro toque atrasa enquanto ela volta.
  */
 export function keepPadsReady(on: boolean): void {
+  showReady = on;
   if (!on) {
     if (out?.keepAlive) {
       try { out.keepAlive.stop(); } catch { /* já parou */ }
       out.keepAlive.disconnect();
       out.keepAlive = null;
     }
+    suspendWhenQuiet();
     return;
   }
-  const o = padOut();
-  if (!o.keepAlive) {
-    const k = o.ctx.createConstantSource();
-    k.offset.value = 1e-6;
-    k.connect(o.ctx.destination);
-    k.start();
-    o.keepAlive = k;
-  }
-  void loadPads().then(() => prepareBank(getPadsState().bank));
+  armPads();
+  void loadPads().then(() => {
+    armPads();
+    return prepareBank(getPadsState().bank);
+  });
 }
+
+// o primeiro som entrou com o Modo Show aberto (importado, do computador ou de um projeto): a saída
+// já fica pronta antes do primeiro toque
+subscribePads(() => {
+  if (showReady && !out?.keepAlive && getPadsState().infos.size > 0) armPads();
+});
 
 /** Muda os knobs de efeito; valem na hora para o que está tocando. */
 export function setPadsFx(patch: Partial<PadFx>): void {

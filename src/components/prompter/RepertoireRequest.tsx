@@ -57,7 +57,7 @@ export default function RepertoireRequest({ code, semLetra, total }: {
 
   const info = `O áudio chega quando o diretor envia o repertório. Depois que você salva as letras ele fica mais 10 minutos e sai ${mode === 'local' ? 'do Mac do diretor' : 'do servidor'}. Para ouvir de novo, peça ao diretor.`;
   return (
-    <div className="rounded-lg border border-logic-border bg-logic-bg-panel px-3 py-2">
+    <div className="console-face border-2 border-black rounded-lg shadow-lg px-3 py-2">
       <div className="flex items-center gap-3">
         <Inbox size={15} className="text-logic-accent shrink-0" />
         <div className="flex-1 min-w-0" title={info}>

@@ -14,11 +14,12 @@ const SHOW_RESULT_MS = 3500;
  * e a mensagem completa vai para `onResult` (o aviso da tela).
  * Acesa em âmbar quando há alteração que ainda não chegou ao destino.
  */
-export default function SaveButton({ saveNow, status, backend, onResult, className = '' }: {
+export default function SaveButton({ saveNow, status, backend, onResult, className = 'h-8' }: {
   saveNow: () => Promise<SheetSaveResult>;
   status: SaveStatus;
   backend: SheetBackend;
   onResult: (outcome: SaveOutcome) => void;
+  /** Altura e extras da tecla (padrão h-8; o Modo show usa h-10, melhor para o dedo). */
   className?: string;
 }) {
   const [phase, setPhase] = useState<Phase>('idle');
@@ -65,7 +66,7 @@ export default function SaveButton({ saveNow, status, backend, onResult, classNa
       title={dirty
         ? 'Há alterações para salvar. Aperte para gravar agora.'
         : `Grava o caderno desta música ${backend.storedIn}${backend.saveProject ? ' e o projeto no Mac do diretor' : ''}.`}
-      className={`console-key flex items-center justify-center gap-1.5 h-8 px-2.5 text-[12px] font-semibold flex-shrink-0 ${lit} ${className}`}
+      className={`console-key flex items-center justify-center gap-1.5 px-2.5 text-[12px] font-semibold flex-shrink-0 ${lit} ${className}`}
     >
       <Icon size={14} className={phase === 'busy' ? 'animate-spin' : ''} />
       <span>{label}</span>

@@ -2,10 +2,16 @@ import type { LyricPage, Notice, NoticeLayout, NoticeLevel, PrompterState } from
 
 const SCHEDULED_DEFAULT_SEC = 15;
 
+/**
+ * Página que está no ar no tempo `t`: a de maior tempo marcado que já passou. As páginas podem
+ * estar fora da ordem do tempo (página movida, tempo marcado de novo); pegar só a última da lista
+ * mostrava uma página velha ([70, 62, 80] em 71 s mostrava a de 62). Empate fica com a de baixo.
+ */
 export function autoPageIndex(pages: LyricPage[], t: number): number {
   let idx = -1;
+  let best = -Infinity;
   pages.forEach((p, i) => {
-    if (p.time !== null && p.time <= t + 0.05) idx = i;
+    if (p.time !== null && p.time <= t + 0.05 && p.time >= best) { best = p.time; idx = i; }
   });
   return idx;
 }

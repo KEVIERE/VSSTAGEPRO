@@ -16,9 +16,17 @@ function rpcError(error: { message: string }): Error {
   return new Error(error.message.includes('too_many_attempts') ? 'too_many_attempts' : error.message);
 }
 
+/**
+ * `lyrics: null` junto com `lyrics_rev` vem de um servidor que recebeu a versão das letras e viu
+ * que nada mudou: quer dizer "use a letra que você já tem" (o usePrompterFeed trata). Sem
+ * `lyrics_rev` (servidor antigo), `null` continua valendo lista vazia, como sempre: senão a TV de
+ * um show sem letra nunca saía da tela de carregando. Quem chama sem a versão sempre recebe a lista.
+ */
 function toSnapshot(obj: Record<string, unknown>): PrompterSnapshot {
   const show = obj.show as PrompterSnapshot['show'] | undefined;
   if (!show || typeof show !== 'object') throw new Error('invalid_response');
+  const rev = typeof obj.lyrics_rev === 'string' ? obj.lyrics_rev : null;
+  const sameLyrics = obj.lyrics === null && rev !== null;
   const lyrics = Array.isArray(obj.lyrics) ? obj.lyrics : [];
   const setlist = show.setlist && Array.isArray(show.setlist.songs) ? show.setlist : null;
   const save = (obj.lyrics_save && typeof obj.lyrics_save === 'object' ? obj.lyrics_save : {}) as Record<string, unknown>;
@@ -33,11 +41,12 @@ function toSnapshot(obj: Record<string, unknown>): PrompterSnapshot {
       live_at: String(show.live_at ?? ''),
     },
     prompter: normalizePrompter(obj.prompter),
-    lyrics: lyrics.map((l: Record<string, unknown>) => ({
+    lyrics: (sameLyrics ? null : lyrics.map((l: Record<string, unknown>) => ({
       song_id: String(l.song_id ?? ''),
       pages: normalizePages(l.pages),
       updated_at: String(l.updated_at ?? ''),
-    })),
+    }))) as PrompterSnapshot['lyrics'],
+    ...(rev !== null ? { lyricsRev: rev } : {}),
     lyricsSave: {
       requestedAt: typeof save.requested_at === 'string' ? save.requested_at : null,
       savedAt: typeof save.saved_at === 'string' ? save.saved_at : null,
@@ -66,16 +75,25 @@ export async function directorResetPrompterCodes(showId: string, directorKey: st
   assertOk(data, 'director_reset_prompter_codes failed');
 }
 
-export async function producerState(code: string): Promise<PrompterSnapshot> {
+/**
+ * Parâmetros do estado online. `p_lyrics_rev` só vai quando o servidor já mandou uma versão das
+ * letras: banco sem a migração nunca manda `lyrics_rev`, então nunca recebe o parâmetro (que ele
+ * recusaria por não conhecer).
+ */
+function stateArgs(code: string, lyricsRev?: string | null): Record<string, string> {
+  return typeof lyricsRev === 'string' && lyricsRev ? { p_code: code, p_lyrics_rev: lyricsRev } : { p_code: code };
+}
+
+export async function producerState(code: string, lyricsRev?: string | null): Promise<PrompterSnapshot> {
   if (isLocalClient()) return toSnapshot(await localPrompterState('producer', code));
-  const { data, error } = await supabase.rpc('producer_state', { p_code: code });
+  const { data, error } = await supabase.rpc('producer_state', stateArgs(code, lyricsRev));
   if (error) throw rpcError(error);
   return toSnapshot(assertOk(data, 'producer_state failed'));
 }
 
-export async function screenState(code: string): Promise<PrompterSnapshot> {
+export async function screenState(code: string, lyricsRev?: string | null): Promise<PrompterSnapshot> {
   if (isLocalClient()) return toSnapshot(await localPrompterState('screen', code));
-  const { data, error } = await supabase.rpc('screen_state', { p_code: code });
+  const { data, error } = await supabase.rpc('screen_state', stateArgs(code, lyricsRev));
   if (error) throw rpcError(error);
   return toSnapshot(assertOk(data, 'screen_state failed'));
 }

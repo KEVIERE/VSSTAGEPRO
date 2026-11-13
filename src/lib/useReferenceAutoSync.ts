@@ -29,6 +29,8 @@ const READ_DELAY_MS = 1500;
 const POLL_MS = 20000;
 const READER_POLL_MS = 4000;
 const READER_READING_POLL_MS = 1000;
+// Espera depois da última mudança do projeto (arrastar um fader são dezenas de mudanças seguidas).
+const REV_SETTLE_MS = 300;
 const sigKey = (scope: string) => `prompter-ref-sigs:${scope}`;
 const wordKey = (scope: string) => `prompter-word-sigs:${scope}`;
 const selectKey = (scope: string) => `prompter-ref-select:${scope}`;
@@ -168,16 +170,35 @@ function saveMap(key: string, value: Record<string, string>) {
 }
 
 const hasLyrics = (st: ProjectState, id: string) => (st.lyricMaps?.[id]?.length ?? 0) > 0;
+/** Nada que entra no envio mudou (músicas, clipes, faixas, ordem, LR, letras). */
+const sameProject = (a: ProjectState, b: ProjectState) => a.songs === b.songs && a.clips === b.clips
+  && a.tracks === b.tracks && a.playlistOrder === b.playlistOrder && a.lrMasterActive === b.lrMasterActive
+  && a.lyricMaps === b.lyricMaps;
 /** Música que o leitor deve ouvir: o diretor pediu a letra dela e ela tem voz na faixa Guia. */
 const wantsLyrics = (s: Song, st: ProjectState, asked: Set<string>) => asked.has(s.id) && songHasGuide(s, st);
 
 export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
-  const songs = useStore((s) => s.songs);
-  const clips = useStore((s) => s.clips);
-  const tracks = useStore((s) => s.tracks);
-  const playlistOrder = useStore((s) => s.playlistOrder);
-  const lrMasterActive = useStore((s) => s.lrMasterActive);
-  const lyricMaps = useStore((s) => s.lyricMaps);
+  // Revisão do projeto (músicas, clipes, faixas, ordem, LR, letras), contada fora do React e só
+  // depois que as mudanças param. Este hook roda na raiz do programa: antes ele assinava esses
+  // seis valores e cada movimento de fader, M/S ou BPM redesenhava a tela inteira e recalculava a
+  // assinatura de som de todas as músicas. Os envios já leem o estado na hora (getState).
+  const [rev, setRev] = useState(0);
+  // o estado que as listas usaram por último (para não perder mudança entre o render e a assinatura)
+  const listedFrom = useRef<ProjectState | null>(null);
+  // Hora da última mudança: o envio e a leitura esperam a pessoa parar de mexer, como antes (quando
+  // cada movimento reiniciava a espera). Sem isso, um fader arrastado por mais de 6 s disparava o envio.
+  const lastChangeAt = useRef(0);
+  useEffect(() => {
+    let timer = 0;
+    const bump = () => {
+      lastChangeAt.current = Date.now();
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setRev((n) => n + 1), REV_SETTLE_MS);
+    };
+    const unsub = useStore.subscribe((s, p) => { if (!sameProject(s, p)) bump(); });
+    if (listedFrom.current && !sameProject(useStore.getState(), listedFrom.current)) bump();
+    return () => { window.clearTimeout(timer); unsub(); };
+  }, []);
   const isPlaying = useStore((s) => s.transport.isPlaying);
   const netMode = useNetworkMode();
 
@@ -292,6 +313,8 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
   useEffect(() => {
     if (!backend || !sent || !active || isPlaying || running.current) return;
     const timer = window.setTimeout(async () => {
+      // ainda mexendo no projeto: a espera recomeça quando parar (rev muda logo depois)
+      if (Date.now() - lastChangeAt.current < IDLE_MS) return;
       const st = useStore.getState();
       const pending = orderedSongs(st).filter((s) => {
         const sig = soundSignature(s, st);
@@ -336,7 +359,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       running.current = false;
     }, IDLE_MS);
     return () => window.clearTimeout(timer);
-  }, [backend, sent, sigs, failedSigs, isPlaying, songs, clips, tracks, playlistOrder, lrMasterActive, active, inSelection]);
+  }, [backend, sent, sigs, failedSigs, isPlaying, rev, active, inSelection]);
 
   // 2. Letra lida pelo Mac, só das músicas que ainda não têm letra (uma por vez, com o programa parado).
   // Depende só de "o leitor está pronto" (um booleano): a situação do leitor chega a cada 4 s
@@ -348,6 +371,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     if (!backend || !sent || !active || isPlaying || readingNow.current) return;
     if (!desk?.lyricsTranscribe || !readerReady) return;
     const timer = window.setTimeout(async () => {
+      if (Date.now() - lastChangeAt.current < READ_DELAY_MS) return;
       const st = useStore.getState();
       const next = orderedSongs(st).find((s) => {
         const sig = soundSignature(s, st);
@@ -388,7 +412,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
       }
     }, READ_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, readerReady, lyricMaps, songs, clips, tracks, asked]);
+  }, [backend, sent, sigs, words, wordSigs, failedWords, isPlaying, active, readerReady, rev, asked]);
 
   const [starting, setStarting] = useState(false);
   const send = useCallback((ids?: string[], opts?: { resend?: boolean }) => {
@@ -466,34 +490,46 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
 
   const dismissRequest = useCallback(() => setRequestedAt(null), []);
 
-  const st = { songs, clips, tracks, playlistOrder, lrMasterActive, lyricMaps } as ProjectState;
-  const all = orderedSongs(st);
-  // O envio vale para as escolhidas e as que já estão com o produtor.
-  const list = all.filter((s) => inSelection(s.id) || !!sent?.has(s.id));
-  // Sem registro deste Mac (outro computador, memória apagada), a que está lá conta como em dia.
-  const isCurrent = (s: Song) => !!sent?.has(s.id) && (sigs[s.id] === undefined || sigs[s.id] === soundSignature(s, st));
-  const ready = list.filter(isCurrent).length;
-  const failed = list.filter((s) => failedSigs[s.id] !== undefined).map((s) => s.name);
-  const needLyrics = list.filter((s) => wantsLyrics(s, st, asked));
-  const noGuide = all.filter((s) => asked.has(s.id) && !songHasGuide(s, st)).map((s) => s.name);
-  const lyricsReady = needLyrics.filter((s) => words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === soundSignature(s, st))).length;
-  const lyricsFailed = needLyrics.filter((s) => failedWords[s.id] !== undefined).map((s) => s.name);
-
-  const songRows: RepertoireSong[] = all.map((s) => {
-    const sig = soundSignature(s, st);
-    const onServer = !!sent?.has(s.id);
+  // As listas da tela só são refeitas quando o projeto muda (rev) ou o envio muda; um render da
+  // raiz por outro motivo (Rede Local, Show Online) não recalcula a assinatura de cada música.
+  const lists = useMemo(() => {
+    const st = useStore.getState();
+    listedFrom.current = st;
+    const all = orderedSongs(st);
+    // O envio vale para as escolhidas e as que já estão com o produtor.
+    const list = all.filter((s) => inSelection(s.id) || !!sent?.has(s.id));
+    // Sem registro deste Mac (outro computador, memória apagada), a que está lá conta como em dia.
+    const isCurrent = (s: Song) => !!sent?.has(s.id) && (sigs[s.id] === undefined || sigs[s.id] === soundSignature(s, st));
+    const needLyrics = list.filter((s) => wantsLyrics(s, st, asked));
+    const songRows: RepertoireSong[] = all.map((s) => {
+      const sig = soundSignature(s, st);
+      const onServer = !!sent?.has(s.id);
+      return {
+        id: s.id,
+        name: s.name,
+        withProducer: onServer && (sigs[s.id] === undefined || sigs[s.id] === sig),
+        outdated: onServer && sigs[s.id] !== undefined && sigs[s.id] !== sig,
+        selected: selected === null ? !onServer : selected.has(s.id),
+        lyricsRead: words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === sig),
+        lyricsAsked: asked.has(s.id),
+        hasLyrics: hasLyrics(st, s.id),
+        hasGuide: songHasGuide(s, st),
+      };
+    });
     return {
-      id: s.id,
-      name: s.name,
-      withProducer: onServer && (sigs[s.id] === undefined || sigs[s.id] === sig),
-      outdated: onServer && sigs[s.id] !== undefined && sigs[s.id] !== sig,
-      selected: selected === null ? !onServer : selected.has(s.id),
-      lyricsRead: words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === sig),
-      lyricsAsked: asked.has(s.id),
-      hasLyrics: hasLyrics(st, s.id),
-      hasGuide: songHasGuide(s, st),
+      total: list.length,
+      ready: list.filter(isCurrent).length,
+      failed: list.filter((s) => failedSigs[s.id] !== undefined).map((s) => s.name),
+      needLyricsCount: needLyrics.length,
+      noGuide: all.filter((s) => asked.has(s.id) && !songHasGuide(s, st)).map((s) => s.name),
+      lyricsReady: needLyrics.filter((s) => words.has(s.id) && (wordSigs[s.id] === undefined || wordSigs[s.id] === soundSignature(s, st))).length,
+      lyricsFailed: needLyrics.filter((s) => failedWords[s.id] !== undefined).map((s) => s.name),
+      songRows,
     };
-  });
+    // rev: o projeto mudou (o estado é lido na hora, com getState)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rev, sent, sigs, words, wordSigs, failedSigs, failedWords, asked, selected, inSelection]);
+  const { ready, failed, noGuide, lyricsReady, lyricsFailed, songRows } = lists;
   const rp = reader?.progress ?? null;
 
   return {
@@ -505,7 +541,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     active,
     starting,
     ready,
-    total: list.length,
+    total: lists.total,
     working,
     failed,
     offline,
@@ -514,7 +550,7 @@ export function useReferenceAutoSync(show: SavedShow | null): ReferenceSync {
     requestedAt,
     reader,
     lyricsReady,
-    lyricsTotal: needLyrics.length,
+    lyricsTotal: lists.needLyricsCount,
     noGuide,
     reading,
     lyricsFailed,

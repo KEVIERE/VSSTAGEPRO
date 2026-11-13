@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, Share2 } from 'lucide-react';
 import type { ColleagueInfo, SheetBackend } from '@/lib/musicianTypes';
+import { shareMessage } from './shareMessage';
 
 const musicos = (n: number) => `${n} ${n === 1 ? 'músico' : 'músicos'}`;
 
@@ -27,8 +28,9 @@ export default function SharePane({ backend, sheetId, onBack }: { backend: Sheet
     if (!sheetId) return;
     setBusy(true);
     try {
-      const count = await backend.share(sheetId, [...selected]);
-      setResult({ ok: true, text: count === 1 ? 'Enviado: 1 músico recebeu a partitura desta música.' : `Enviado: ${musicos(count)} receberam a partitura desta música.` });
+      const { count, skipped } = await backend.share(sheetId, [...selected]);
+      // quem já tinha caderno desta música ficou com o dele: o aviso diz quem
+      setResult(shareMessage(count, skipped, colleagues ?? []));
       setSelected(new Set());
     } catch {
       setResult({ ok: false, text: 'Não foi possível enviar. Tente novamente.' });
@@ -45,7 +47,7 @@ export default function SharePane({ backend, sheetId, onBack }: { backend: Sheet
       </div>
       <div className="flex-1 overflow-y-auto logic-scroll p-4 space-y-1.5">
         <p className="text-xs text-logic-text-muted mb-3 leading-relaxed">
-          Vai tudo junto: fotos, cifras, partituras, texto e seus desenhos. Cada um recebe uma cópia na própria conta, que troca sozinha quando esta música tocar.
+          Vai tudo junto: fotos, cifras, partituras, texto e seus desenhos. Cada um recebe uma cópia na própria conta, que troca sozinha quando esta música tocar. Quem já tem caderno desta música, feito por ele ou uma cópia em que mexeu, continua com o que já tinha: nada é apagado.
         </p>
         {result && (
           <div className={`mb-2 px-3 py-2 rounded border text-xs ${result.ok ? 'bg-logic-lcd-green/15 border-logic-lcd-green/40 text-logic-lcd-green' : 'bg-logic-lcd-red/15 border-logic-lcd-red/40 text-logic-lcd-red'}`}>
@@ -57,13 +59,13 @@ export default function SharePane({ backend, sheetId, onBack }: { backend: Sheet
         {colleagues?.map((c) => (
           <label key={c.id} className={`console-key !font-sans flex items-center gap-3 px-3 py-2.5 cursor-pointer ${selected.has(c.id) ? '!border-logic-accent' : ''}`}>
             <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggle(c.id)} className="accent-logic-accent" />
-            <span className="console-tape px-2 py-1 !text-[13px]">{c.name}</span>
+            <span className="console-tape console-lcdname px-2 py-1 !text-[13px]">{c.name}</span>
             {c.instrument && <span className="text-2xs text-logic-text-muted">{c.instrument}</span>}
           </label>
         ))}
       </div>
       {!!colleagues?.length && (
-        <div className="console-rail px-4 py-3 border-t border-black">
+        <div className="console-rail vs-legend-bar px-4 py-3 border-t border-black">
           <button className="w-full logic-btn-accent py-2.5 flex items-center justify-center gap-2 disabled:opacity-50" onClick={send} disabled={busy || selected.size === 0}>
             <Share2 size={16} /> {selected.size ? `Enviar para ${musicos(selected.size)}` : 'Escolha para quem enviar'}
           </button>

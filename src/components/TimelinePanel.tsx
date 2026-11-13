@@ -3,7 +3,7 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
 import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
 import SaveCancelButton from '@/components/SaveCancelButton';
-import { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { memo, useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
 import { audioRecorder, saveRecordingToMaestro, type MaestroInput } from '@/lib/audioRecorder';
@@ -50,6 +50,39 @@ import { AnEdgeMeter, AnVolumeKnob } from '@/components/AnalogPieces';
  */
 const FOLLOW_SCROLL_CSS = typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
   && CSS.supports('animation-timeline', '--vs-tl-y') && CSS.supports('timeline-scope', '--vs-tl-y');
+
+// Campos da faixa que mudam a todo instante: fader, pan, medidor e LED de clip. A timeline em si
+// não desenha nenhum deles (cada TrackRow lê a própria faixa). Antes, cada movimento de fader ou
+// knob redesenhava todas as linhas, clipes e ondas da timeline.
+const VOLATILE_TRACK_KEYS = new Set<string>(['volume', 'pan', 'meterLevel', 'clipIndicator', 'clipPeak']);
+
+function sameTrackLayout(a: Track[], b: Track[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i] as unknown as Record<string, unknown>;
+    const y = b[i] as unknown as Record<string, unknown>;
+    if (x === y) continue;
+    for (const k in x) if (!VOLATILE_TRACK_KEYS.has(k) && x[k] !== y[k]) return false;
+    for (const k in y) if (!VOLATILE_TRACK_KEYS.has(k) && x[k] !== y[k]) return false;
+  }
+  return true;
+}
+
+/**
+ * As faixas como a timeline precisa delas (ordem, pastas, nome, cor, altura, mudo/solo...).
+ * Quando só muda fader, pan, medidor ou LED de clip, devolve o mesmo array de antes e a
+ * timeline não redesenha. Esses campos ficam velhos aqui: quem mostra lê a faixa viva pelo id.
+ */
+function useLayoutTracks(): Track[] {
+  const last = useRef<Track[] | null>(null);
+  return useStore((s) => {
+    const prev = last.current;
+    if (prev && sameTrackLayout(prev, s.tracks)) return prev;
+    last.current = s.tracks;
+    return s.tracks;
+  });
+}
 
 type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
 // `ghosts`: áudios indo para outra trilha (a prévia aparece na trilha de destino); `laneLabel`: para onde.
@@ -259,7 +292,8 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
   );
 }
 
-function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
+// memo: mexer no fader de uma faixa redesenha só a linha dela, não a coluna inteira.
+const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded = true, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
   track: Track; depth?: number; expanded?: boolean; onToggle?: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
   /** Cor da faixa mãe (faixas de dentro de um multigrupo) */
@@ -271,6 +305,8 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   /** Esta faixa está sendo arrastada */
   dragging?: boolean;
 }) {
+  // A faixa viva (volume, pan, LED de clip): a timeline passa a faixa só com a estrutura em dia.
+  const track = useStore((s) => s.tracks.find((t) => t.id === trackProp.id)) ?? trackProp;
   const trackSelected = useStore((s) => s.selectedTrackIds.includes(track.id));
   const pickTrack = useStore((s) => s.pickTrack);
   // clique escolhe esta faixa; ⌘ soma ou tira; Shift vai da última clicada até esta (ordem da tela)
@@ -583,7 +619,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       )}
     </div>
   );
-}
+});
 
 function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
   track: Track;
@@ -1530,8 +1566,13 @@ function TimelineHorizontalScrollbar({
 
 const VIEW_MARGIN_PX = 600;
 
-export default function TimelinePanel() {
-  const tracks = useStore((s) => s.tracks);
+// memo: sem props, só redesenha pelo que lê da store (antes redesenhava junto com o App inteiro,
+// a cada conferência da Rede Local e do Show Online).
+export default memo(TimelinePanel);
+
+function TimelinePanel() {
+  // Só a estrutura: fader, pan e LED de clip não redesenham a timeline inteira (ver useLayoutTracks)
+  const tracks = useLayoutTracks();
   const [trackContextMenu, setTrackContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
 
   const handleOpenTrackMenu = useCallback((e: React.MouseEvent, tr: Track) => {
@@ -1551,7 +1592,6 @@ export default function TimelinePanel() {
   const isPlaying = useStore((s) => s.transport.isPlaying);
   const importProgress = useStore((s) => s.importProgress);
   const exportProgress = useStore((s) => s.exportProgress);
-  const loadingSongIds = useStore((s) => s.loadingSongIds);
   const zoomH = useStore((s) => s.zoomH);
   const zoomV = useStore((s) => s.zoomV);
   const setZoomH = useStore((s) => s.setZoomH);
@@ -1580,6 +1620,8 @@ export default function TimelinePanel() {
   const removeTempoAt = useStore((s) => s.removeTempoAt);
   const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
   const [noSpaceHint, setNoSpaceHint] = useState(false);
+  // "Pare para dividir": a tecla S (ou o botão Dividir) com esta música tocando
+  const [splitHint, setSplitHint] = useState(false);
   const [trimDrag, setTrimDrag] = useState<TrimDrag>(null);
   const [moveDrag, setMoveDrag] = useState<MoveDrag>(null);
   const updateClip = useStore((s) => s.updateClip);
@@ -1626,7 +1668,9 @@ export default function TimelinePanel() {
     const start = placeNarration(song, '', at, length);
     if (start !== null) createNarration(start, start + length);
   }, [song, createNarration]);
-  const isSongLoading = !!song && loadingSongIds.includes(song.id);
+  // Só se ESTA música está carregando: a próxima sendo preparada no fundo não redesenha a timeline.
+  const songIdNow = song?.id ?? null;
+  const isSongLoading = useStore((s) => !!songIdNow && s.loadingSongIds.includes(songIdNow));
   const songClips = useMemo(() =>
     song ? clips.filter((c) => c.songId === song.id) : [],
     [clips, song]
@@ -1693,9 +1737,14 @@ export default function TimelinePanel() {
   const handleSplitAtCursor = useCallback(() => {
     if (!song || timelineLocked) return;
     const st = useStore.getState();
-    const cursor = st.transport.isPlaying && st.transport.currentSongId === song.id
-      ? audioEngine.getCurrentTime()
-      : st.transport.currentTime;
+    // Com esta música tocando, o corte cairia exatamente em "agora": a parte 1 acaba na hora e a
+    // parte 2 é um clipe novo que o motor não liga no meio do play. Toda faixa cortada ficava
+    // muda até o fim da música. Dividir só com a música parada (ou em pausa).
+    if (st.transport.isPlaying && st.transport.currentSongId === song.id) {
+      setSplitHint(true);
+      return;
+    }
+    const cursor = st.transport.currentTime;
 
     // Todos os clipes da música que cruzam o cursor no momento
     const crossingClips = songClips.filter(
@@ -2095,6 +2144,11 @@ export default function TimelinePanel() {
     const t = window.setTimeout(() => setNoSpaceHint(false), 2200);
     return () => window.clearTimeout(t);
   }, [noSpaceHint]);
+  useEffect(() => {
+    if (!splitHint) return;
+    const t = window.setTimeout(() => setSplitHint(false), 2200);
+    return () => window.clearTimeout(t);
+  }, [splitHint]);
 
   const handleCutMedleyAtCursor = () => {
     if (!song) return;
@@ -2462,7 +2516,7 @@ export default function TimelinePanel() {
                 className="console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none"
                 onClick={handleSplitAtCursor}
                 disabled={!song || timelineLocked}
-                title="Dividir áudios selecionados no cursor (Split - atalho S)"
+                title="Dividir áudios selecionados no cursor (Split - atalho S). Com a música parada ou em pausa."
               >
                 <Scissors size={11} className="shrink-0" />
                 <span className="leading-none">Dividir</span>
@@ -2504,7 +2558,9 @@ export default function TimelinePanel() {
               <button className="text-logic-text-muted hover:text-logic-text disabled:opacity-30 p-1 rounded hover:bg-logic-bg-elevated" disabled={zoomV >= 3} onClick={() => setZoomV(Math.min(3, Math.round(zoomV * 1.25 * 100) / 100))} title="Aumentar altura das tracks"><UnfoldVertical size={13} /></button>
             </div>
             <div className="text-[10px] text-logic-text-muted select-none font-mono">
-              {noSpaceHint ? <span className="text-logic-lcd-amber font-sans">Sem espaço</span> : `${Math.round(zoomH * 10)}%`}
+              {noSpaceHint ? <span className="text-logic-lcd-amber font-sans">Sem espaço</span>
+                : splitHint ? <span className="text-logic-lcd-amber font-sans">Pare para dividir</span>
+                : `${Math.round(zoomH * 10)}%`}
             </div>
             <div className="flex items-center gap-1">
               <button className="text-logic-text-muted hover:text-white p-1 rounded hover:bg-logic-bg-elevated transition-colors" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (Afastar)"><ZoomOut size={13} /></button>

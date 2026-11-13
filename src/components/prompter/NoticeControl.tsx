@@ -8,9 +8,9 @@ import { newId, withNotice } from '@/lib/prompterView';
 // A cor de cada tipo é a da TV. Com ! para não sumir no hover da tecla (que fica grudado depois
 // do toque no celular).
 const LEVELS: { id: NoticeLevel; label: string; cls: string; dot: string }[] = [
-  { id: 'info', label: 'Aviso', cls: '!border-[#64d2ff] !text-[#64d2ff] !bg-[#64d2ff]/15', dot: '#64d2ff' },
-  { id: 'warn', label: 'Atenção', cls: '!border-logic-lcd-amber !text-logic-lcd-amber !bg-logic-lcd-amber/15', dot: '#ffab1f' },
-  { id: 'urgent', label: 'Urgente', cls: '!border-logic-lcd-red !text-logic-lcd-red !bg-logic-lcd-red/15', dot: '#ff4136' },
+  { id: 'info', label: 'Aviso', cls: '!border-[#b8e85c] !text-[#b8e85c] !bg-[#b8e85c]/15', dot: '#b8e85c' },
+  { id: 'warn', label: 'Atenção', cls: '!border-logic-lcd-amber !text-logic-lcd-amber !bg-logic-lcd-amber/15', dot: '#ff8a1e' },
+  { id: 'urgent', label: 'Urgente', cls: '!border-logic-lcd-red !text-logic-lcd-red !bg-logic-lcd-red/15', dot: '#ff4c4c' },
 ];
 
 const LAYOUTS: { id: NoticeLayout; label: string }[] = [
@@ -72,11 +72,16 @@ function PresetCard({ text, onSend, onEdit, onDelete, onScreen }: {
   );
 }
 
-export default function NoticeControl({ state, update, songs, now }: {
+/**
+ * `now` é a hora do servidor (hora local + `clockOffsetMs`): o "NA TV AGORA" e a contagem do aviso
+ * batem com a TV. `clockOffsetMs` carimba o aviso novo na hora do servidor.
+ */
+export default function NoticeControl({ state, update, songs, now, clockOffsetMs = 0 }: {
   state: PrompterState;
   update: (fn: (s: PrompterState) => PrompterState) => void;
   songs: SetlistSong[];
   now: number;
+  clockOffsetMs?: number;
 }) {
   const [text, setText] = useState('');
   const [level, setLevel] = useState<NoticeLevel>('info');
@@ -98,7 +103,7 @@ export default function NoticeControl({ state, update, songs, now }: {
     if (!msg.trim()) return;
     // Monta a partir do estado mais novo dentro do update: dois toques seguidos não podem
     // partir da mesma cópia (o segundo perderia o aviso do primeiro no histórico).
-    update((s) => withNotice(s, msg, { level, layout, durationSec: duration }) ?? s);
+    update((s) => withNotice(s, msg, { level, layout, durationSec: duration }, Date.now() + clockOffsetMs) ?? s);
     setSaving(true);
     window.setTimeout(() => setSaving(false), 700);
   };

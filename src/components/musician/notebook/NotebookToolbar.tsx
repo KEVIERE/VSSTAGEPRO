@@ -72,15 +72,16 @@ export default function NotebookToolbar({
   return (
     <div className="border-b border-logic-border-dark bg-logic-bg-panel">
       <div className="flex items-center gap-2 px-3 py-2">
+        {/* tecla da mesa: verde seguindo o diretor, âmbar livre; no celular só o cadeado (40 px para o dedo) */}
         <button
           onClick={onToggleFollow}
+          aria-pressed={follow}
+          aria-label="Seguir o diretor"
           title={follow ? 'Seguindo o diretor: o caderno troca junto com a música do show.' : 'Livre: você escolhe a música. Toque para voltar a seguir o diretor.'}
-          className={`flex items-center gap-1.5 px-2.5 h-7 rounded-md text-2xs font-semibold transition-colors flex-shrink-0 ${
-            follow ? 'bg-logic-lcd-green/15 text-logic-lcd-green hover:bg-logic-lcd-green/25' : 'bg-logic-lcd-amber/15 text-logic-lcd-amber hover:bg-logic-lcd-amber/25'
-          }`}
+          className={`console-key flex items-center justify-center gap-1.5 h-10 sm:h-8 min-w-[40px] px-2.5 text-2xs font-semibold flex-shrink-0 ${follow ? 'is-lit-green' : 'is-lit-amber'}`}
         >
           {follow ? <Unlock size={12} /> : <Lock size={12} />}
-          {follow ? 'Seguir o diretor' : 'Livre'}
+          <span className="hidden sm:inline">{follow ? 'Seguir o diretor' : 'Livre'}</span>
         </button>
         <div className="flex-1 min-w-0">
           <input

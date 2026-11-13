@@ -4,6 +4,7 @@ import LivePanel, { defaultSignalHint } from '@/components/musician/LivePanel';
 import SheetPanel from '@/components/musician/SheetPanel';
 import StageView from '@/components/musician/StageView';
 import { ProfilePhotoButton } from '@/components/musician/MusicianAvatar';
+import { useScreenAwake } from '@/components/musician/useScreenAwake';
 import { currentPart, liveSheetKey, resolveKey } from '@/lib/medleySheets';
 import { computeLiveView, holdForward } from '@/lib/liveClock';
 import { isLocalClient } from '@/lib/localNetwork';
@@ -100,6 +101,8 @@ export default function MusicianWorkspace({
   const [stage, setStage] = useState(() => { try { return localStorage.getItem(STAGE_LS) === '1'; } catch { return false; } });
   const saveStage = (on: boolean) => { setStage(on); try { localStorage.setItem(STAGE_LS, on ? '1' : '0'); } catch { /* conveniência */ } };
   const { focus, enter: enterFocus, exit: exitFocus } = usePanelFocus();
+  // o celular não apaga enquanto o músico lê a cifra
+  useScreenAwake();
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), TICK_MS);
@@ -205,9 +208,9 @@ export default function MusicianWorkspace({
           <div className="flex items-center gap-2 min-w-0">
             {/* foto de perfil: o diretor musical vê a mesma foto no programa */}
             <ProfilePhotoButton backend={backend} name={state.musician.name} onMessage={setPhotoMsg} onLogout={onLogout} />
-            {/* nome do músico na fita crepe, como o nome do canal na mesa */}
+            {/* nome do músico no visor do canal, como o nome do canal na mesa */}
             <div className="min-w-0 flex items-center gap-2">
-              <span className="console-tape px-2 py-1 !text-[12px] truncate max-w-[160px]">{state.musician.name}</span>
+              <span className="console-tape console-lcdname px-2 py-1 !text-[12px] truncate max-w-[160px]">{state.musician.name}</span>
               {state.musician.instrument && <span className="console-legend truncate hidden sm:block">{state.musician.instrument}</span>}
             </div>
           </div>
@@ -284,7 +287,11 @@ export default function MusicianWorkspace({
       ) : (
         <>
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">{mobileTab === 'live' ? livePanel : sheetPanel}</div>
-          <div className="console-rail relative flex items-center justify-around gap-2 px-2 py-1.5 border-t border-black">
+          {/* barra de baixo em grafite, acima da barrinha do iPhone (a página vai até a borda da tela) */}
+          <div
+            className="console-rail vs-legend-bar relative flex items-center justify-around gap-2 px-2 pt-1.5 border-t border-black"
+            style={{ paddingBottom: 'max(0.375rem, env(safe-area-inset-bottom))' }}
+          >
             {showHint && mobileTab === 'live' && (
               <div className="absolute bottom-full right-3 mb-2 max-w-[240px] flex items-start gap-2 pl-3 pr-1.5 py-2 rounded-lg bg-logic-accent text-white shadow-2xl animate-[fadeIn_200ms_ease-out]">
                 <p className="text-xs leading-snug">

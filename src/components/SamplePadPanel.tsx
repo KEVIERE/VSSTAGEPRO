@@ -40,7 +40,8 @@ export function PadsOrMixer() {
 
   useEffect(() => { void loadPads(); }, []);
   // no Modo Show os pads ficam sempre prontos (saída aberta e acordada, sons do banco na memória),
-  // mesmo com o mixer na tela: o primeiro toque sai na hora, até depois de sair e voltar
+  // mesmo com o mixer na tela: o primeiro toque sai na hora, até depois de sair e voltar. Sem pad
+  // nenhum com som a saída não abre à toa; o primeiro som que entrar já deixa ela pronta
   useEffect(() => {
     keepPadsReady(true);
     return () => keepPadsReady(false);

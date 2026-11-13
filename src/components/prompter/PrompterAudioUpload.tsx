@@ -107,7 +107,7 @@ function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSe
     <div className="mt-3 rounded-md border-2 border-black bg-black/30 animate-[fadeIn_160ms_ease-out]">
       <div className="console-rail flex flex-wrap items-center gap-2 px-3 h-9 border-b-2 border-black">
         <ListChecks size={13} className="text-logic-lcd-amber" />
-        <span className="console-legend flex-1 !text-logic-text">Enviar repertório: escolha as músicas (só o áudio)</span>
+        <span className="console-legend flex-1 text-logic-text">Enviar repertório: escolha as músicas (só o áudio)</span>
         <button onClick={() => setChosen(new Set(songs.map((s) => s.id)))} className="console-key px-2 h-6 text-[11px]">Todas</button>
         <button onClick={() => setChosen(new Set(missing))} className="console-key px-2 h-6 text-[11px]" title="Só as que ainda não estão com o produtor">Só as que faltam</button>
         <button onClick={() => setChosen(new Set())} className="console-key px-2 h-6 text-[11px]">Nenhuma</button>
@@ -118,7 +118,7 @@ function SongPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; onSe
           return (
             <li key={s.id}>
               <label className={`flex items-center gap-2.5 px-3 py-2 cursor-pointer transition-colors ${on ? 'bg-logic-lcd-amber/[0.07]' : 'hover:bg-white/[0.03]'}`}>
-                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} className="accent-[#f5a524] w-4 h-4 shrink-0" />
+                <input type="checkbox" checked={on} onChange={() => toggle(s.id)} className="accent-logic-lcd-amber w-4 h-4 shrink-0" />
                 <span className="font-stage text-[11px] tabular-nums w-5 text-logic-text-muted">{i + 1}</span>
                 <span className="flex-1 min-w-0 text-xs text-logic-text truncate">{s.name}</span>
                 <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border ${
@@ -171,7 +171,7 @@ function LyricsPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; on
     <div className="mt-3 rounded-md border-2 border-black bg-black/30 animate-[fadeIn_160ms_ease-out]">
       <div className="console-rail flex flex-wrap items-center gap-2 px-3 h-9 border-b-2 border-black">
         <Sparkles size={13} className="text-logic-lcd-amber" />
-        <span className="console-legend flex-1 !text-logic-text">Enviar letras: de quais músicas o Mac lê a letra</span>
+        <span className="console-legend flex-1 text-logic-text">Enviar letras: de quais músicas o Mac lê a letra</span>
         <button onClick={() => setChosen(new Set(missing))} className="console-key px-2 h-6 text-[11px]" title="Só as que ainda não têm letra">Só as que faltam</button>
         <button onClick={() => setChosen(new Set(songs.filter(can).map((s) => s.id)))} className="console-key px-2 h-6 text-[11px]">Todas com Guia</button>
         <button onClick={() => setChosen(new Set())} className="console-key px-2 h-6 text-[11px]">Nenhuma</button>
@@ -190,7 +190,7 @@ function LyricsPicker({ songs, onSend, onCancel }: { songs: RepertoireSong[]; on
           return (
             <li key={s.id}>
               <label className={`flex items-center gap-2.5 px-3 py-2 transition-colors ${off ? 'opacity-45 cursor-not-allowed' : on ? 'bg-logic-lcd-amber/[0.07] cursor-pointer' : 'hover:bg-white/[0.03] cursor-pointer'}`}>
-                <input type="checkbox" checked={on} disabled={off} onChange={() => toggle(s.id)} className="accent-[#f5a524] w-4 h-4 shrink-0" />
+                <input type="checkbox" checked={on} disabled={off} onChange={() => toggle(s.id)} className="accent-logic-lcd-amber w-4 h-4 shrink-0" />
                 <span className="font-stage text-[11px] tabular-nums w-5 text-logic-text-muted">{i + 1}</span>
                 <span className="flex-1 min-w-0">
                   <span className="block text-xs text-logic-text truncate">{s.name}</span>

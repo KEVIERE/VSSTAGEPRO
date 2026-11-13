@@ -189,6 +189,8 @@ export default function LocalMusicianArea() {
         </span>
       }
       onLogout={() => { void leave(); }}
+      // o Mac respondeu, mas fechou o repertório: o "Sem sinal do diretor" diz o motivo certo
+      signalHint={!offline && notReady ? LOCAL_NOTICE.notReady : undefined}
     />
   );
 }

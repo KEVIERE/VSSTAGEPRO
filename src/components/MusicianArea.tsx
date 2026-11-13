@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Music, WifiOff } from 'lucide-react';
+import { Loader2, WifiOff } from 'lucide-react';
 import MusicianAccess from '@/components/MusicianAccess';
+import { AccessStage } from '@/components/access/AccessChrome';
 import MusicianWorkspace from '@/components/musician/MusicianWorkspace';
 import { serverLagMs } from '@/lib/liveClock';
 import { musicianSheetsStamp, musicianState, musicianSheets, onlineSheetBackend, sheetsListStamp } from '@/lib/musicianApi';
@@ -308,18 +309,19 @@ export default function MusicianArea() {
 
   if (view === 'login') {
     if (loading) {
+      // mesmo palco da entrada (e da Rede Local): o carregamento não aparece em cinza liso
       return (
-        <div className="flex items-center justify-center bg-logic-bg-deep" style={{ height: '100%' }}>
-          <div className="flex flex-col items-center gap-4 px-6 text-center">
-            <Music size={32} className="text-logic-lcd-green animate-pulse" />
+        <AccessStage>
+          <div className="flex flex-col items-center gap-5 text-center">
+            <Loader2 size={28} className="text-logic-lcd-green animate-spin" />
             {retrying && (
               <>
                 <p className="flex items-center gap-2 text-sm text-logic-text-dim"><WifiOff size={16} className="flex-shrink-0" /> {retrying}</p>
-                <button className="logic-btn" onClick={stopAutoTry}>Voltar ao login</button>
+                <button type="button" className="access-link" onClick={stopAutoTry}>Voltar ao login</button>
               </>
             )}
           </div>
-        </div>
+        </AccessStage>
       );
     }
     return (

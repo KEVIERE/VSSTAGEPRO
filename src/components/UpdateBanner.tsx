@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, DownloadCloud, Loader2 } from 'lucide-reac
 import { supabase } from '@/lib/supabaseClient';
 import type { UpdateInfo } from '@/lib/localNetwork';
 import { confirmLeaveProject } from '@/lib/unsavedChanges';
+import { useStore } from '@/store';
 
 const CHECK_INTERVAL_MS = 30 * 60 * 1000;
 const MANUAL_TOAST_MS = 5000;
@@ -17,9 +18,17 @@ const MANUAL_TOAST_MS = 5000;
  * Ao clicar em "Atualizar agora", baixa e instala por cima do app atual, sem o diretor
  * precisar fazer nada: o processo principal (selfUpdate.js) baixa o .dmg, substitui o
  * .app e reabre sozinho.
+ *
+ * No meio do show o aviso espera: com a música tocando ou em pausa, ou no Modo Show, a tela
+ * cheia não aparece (o operador perderia o mouse para parar, avançar e mexer no mixer) e a
+ * barra também não (ela entra no fluxo da tela e empurraria timeline e mixer). Os dois
+ * aparecem quando a música parar. A obrigatória continua obrigatória.
  */
 export default function UpdateBanner() {
   const [info, setInfo] = useState<UpdateInfo | null>(null);
+  const showBusy = useStore((s) => !s.transport.isStopped || s.playlistMaximized);
+  // A barra opcional, depois de aparecer, fica: sumir ao dar play também empurraria a tela.
+  const [barShown, setBarShown] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +67,9 @@ export default function UpdateBanner() {
       check().then((result) => {
         if (!alive) return;
         if (!result) setManualNotice('O VS Stage já está na versão mais recente.');
+        else if (!useStore.getState().transport.isStopped || useStore.getState().playlistMaximized) {
+          setManualNotice(`A versão ${result.version} está disponível. O aviso aparece quando a música parar.`);
+        }
       });
     });
 
@@ -75,9 +87,19 @@ export default function UpdateBanner() {
     return window.vsDesktop.onUpdateProgress(setProgress);
   }, []);
 
+  useEffect(() => {
+    if (!info) setBarShown(false);
+    else if (!info.required && !showBusy) setBarShown(true);
+  }, [info, showBusy]);
+
   if (!window.vsDesktop) return null;
 
-  if (!info) {
+  // Obrigatória: tela cheia só com a música parada (ou se já está instalando). Se a barra já
+  // estava na tela (a versão virou obrigatória no meio do show), ela fica até a música parar.
+  const fullScreen = !!info?.required && (!showBusy || installing);
+  const showBar = !!info && !fullScreen && (barShown || installing);
+  // Sem atualização, ou com ela esperando a música parar: só o aviso do "Verificar Atualizações...".
+  if (!info || (!fullScreen && !showBar)) {
     if (!manualNotice) return null;
     return (
       <div
@@ -111,7 +133,7 @@ export default function UpdateBanner() {
       ? `Uma nova versão do VS Stage (${info.version}) está disponível.`
       : `Há uma atualização de manutenção disponível (versão ${info.version}).`;
 
-  if (info.required) {
+  if (fullScreen) {
     return (
       <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-[fadeIn_200ms_ease-out]">
         <div className="max-w-sm w-full mx-4 bg-logic-bg-panel border border-logic-lcd-red/40 rounded-xl p-6 text-center shadow-2xl">

@@ -1,5 +1,5 @@
 import type { LocalRole } from '@/lib/localNetwork';
-import { PROJECT_SAVE_STATUSES, type ColleagueInfo, type MusicianState, type SheetBackend, type SheetInfo } from '@/lib/musicianTypes';
+import { PROJECT_SAVE_STATUSES, readShareResult, type ColleagueInfo, type MusicianState, type SheetBackend, type SheetInfo } from '@/lib/musicianTypes';
 
 const TOKEN_SS = 'vs_local_token_';
 
@@ -18,6 +18,7 @@ function tokenKey(role: LocalRole, pin: string) {
 // da rede) segurava a tela em "Sem sinal do diretor" até o navegador desistir, mesmo com a rede
 // de volta. Estourou o prazo: vira `offline` e a próxima consulta sai.
 const ANSWER_MS = 4000;          // consulta e comando: na rede local a resposta leva dezenas de ms
+const REMOTE_COMMAND_MS = 2000;  // comando do VS Stage Remote: a fila dele desiste em 2 s
 const PROMPTER_STATE_MS = 8000;  // estado do produtor e da tela: traz as letras do show e o QR
 const AUTH_MS = 10_000;          // entrar e criar conta: o Mac confere a senha
 const TRANSFER_MS = 60_000;      // logo, caderno com foto, lista de cadernos (vários MB)
@@ -98,10 +99,14 @@ export function localProducerPost(pin: string, path: 'prompter' | 'lyrics' | 'ly
   return withSession('producer', pin, 'Produtor', (t) => call(path, { method: 'POST', body: JSON.stringify(body) }, t, path === 'logo' ? TRANSFER_MS : ANSWER_MS));
 }
 
-/** VS Stage Remote: o Modo Show inteiro do Mac. */
-export async function localRemoteState(pin: string): Promise<{ remote: unknown; serverNow: number }> {
+/**
+ * VS Stage Remote: o Modo Show inteiro do Mac. `serverNow`: a hora do Mac na resposta, só quando
+ * ele manda. Antes, sem ela, ia a hora do celular, e o relógio do Remote achava que os dois
+ * relógios eram iguais; sem a hora, quem chama acerta o relógio pelo próprio estado.
+ */
+export async function localRemoteState(pin: string): Promise<{ remote: unknown; serverNow?: number }> {
   const data = await withSession('remote', pin, 'VS Stage Remote', (t) => call('remote-state', {}, t));
-  return { remote: data.remote, serverNow: typeof data.server_now === 'number' ? data.server_now : Date.now() };
+  return { remote: data.remote, serverNow: typeof data.server_now === 'number' && Number.isFinite(data.server_now) ? data.server_now : undefined };
 }
 
 /** VS Stage Remote: medidores dos faders (nível de cada canal agora). */
@@ -110,9 +115,13 @@ export async function localRemoteMeters(pin: string): Promise<unknown> {
   return data.meters;
 }
 
-/** VS Stage Remote: manda um comando para o programa do Mac. */
+/**
+ * VS Stage Remote: manda um comando para o programa do Mac. Prazo do mesmo tamanho da espera da
+ * fila do Remote (2 s): com o prazo geral de 4 s, o pedido desistido pela fila continuava no ar e
+ * podia chegar ao Mac depois do comando seguinte, fora de ordem.
+ */
 export function localRemoteCommand(pin: string, cmd: unknown) {
-  return withSession('remote', pin, 'VS Stage Remote', (t) => call('transport', { method: 'POST', body: JSON.stringify(cmd) }, t));
+  return withSession('remote', pin, 'VS Stage Remote', (t) => call('transport', { method: 'POST', body: JSON.stringify(cmd) }, t, REMOTE_COMMAND_MS));
 }
 
 // ---------- Músico com conta (usuário e senha) ----------
@@ -267,8 +276,8 @@ export function localAccountBackend(username: string): SheetBackend {
       return Array.isArray(data.colleagues) ? (data.colleagues as ColleagueInfo[]) : [];
     },
     async share(sheetId, targets) {
-      const data = await post('sheet-share', { sheetId, targets });
-      return Number(data.count) || 0;
+      // `skipped`: colegas que já tinham caderno desta música e ficaram com o deles
+      return readShareResult(await post('sheet-share', { sheetId, targets }));
     },
   };
 }

@@ -55,6 +55,48 @@ function run<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBRequ
   }));
 }
 
+type BackupKey = { id: string; timestamp: number };
+
+function hasKeyIndexes(store: IDBObjectStore): boolean {
+  return store.indexNames.contains('projectName') && store.indexNames.contains('timestamp');
+}
+
+/**
+ * Os backups de um projeto (sem nome: todos), do mais novo para o mais antigo, achados só pelas
+ * chaves dos índices: nenhum backup é aberto. Antes cada ⌘S lia e montava na tela todos os backups
+ * de todos os projetos (inclusive os antigos, que ainda têm os picos de onda) só para saber quais
+ * apagar. O nome vale sem diferença de maiúscula, como antes.
+ */
+function collectBackupKeys(store: IDBObjectStore, projectName: string | undefined, done: (keys: BackupKey[]) => void, fail: (err: unknown) => void) {
+  const wanted = projectName ? projectName.toLowerCase() : null;
+  const ids = new Set<string>();
+  const byName = store.index('projectName').openKeyCursor();
+  byName.onerror = () => fail(byName.error);
+  byName.onsuccess = () => {
+    const c = byName.result;
+    if (c) {
+      if (wanted === null || String(c.key).toLowerCase() === wanted) ids.add(String(c.primaryKey));
+      c.continue();
+      return;
+    }
+    const keys: BackupKey[] = [];
+    const byTime = store.index('timestamp').openKeyCursor();
+    byTime.onerror = () => fail(byTime.error);
+    byTime.onsuccess = () => {
+      const t = byTime.result;
+      if (t) {
+        const id = String(t.primaryKey);
+        if (ids.delete(id)) keys.push({ id, timestamp: Number(t.key) });
+        t.continue();
+        return;
+      }
+      // backup sem horário (não acontece): conta como o mais antigo
+      for (const id of ids) keys.push({ id, timestamp: 0 });
+      done(keys.sort((a, b) => b.timestamp - a.timestamp));
+    };
+  };
+}
+
 function formatBackupTime(ts: number): string {
   const d = new Date(ts);
   const time = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -84,12 +126,47 @@ export async function saveProjectBackup(state: ProjectState): Promise<ProjectBac
       manifest,
     };
 
-    const all = await listProjectBackups(projectName);
-    const stale = all.slice(MAX_BACKUPS_PER_PROJECT - 1);
-
-    await run('readwrite', (s) => {
-      for (const old of stale) s.delete(old.id);
-      s.put(backup);
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      let failed = false;
+      const fail = (err: unknown) => {
+        if (failed) return;
+        failed = true;
+        db.close();
+        reject(err);
+      };
+      try {
+        const tx = db.transaction(STORE, 'readwrite');
+        const s = tx.objectStore(STORE);
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => fail(tx.error);
+        tx.onabort = () => fail(tx.error);
+        const keep = (keys: BackupKey[]) => {
+          // apaga os mais antigos e grava o novo na mesma transação
+          try {
+            for (const old of keys.slice(MAX_BACKUPS_PER_PROJECT - 1)) s.delete(old.id);
+            s.put(backup);
+          } catch (err) {
+            try { tx.abort(); } catch { /* já terminou */ }
+            fail(err);
+          }
+        };
+        if (hasKeyIndexes(s)) {
+          collectBackupKeys(s, projectName, keep, fail);
+        } else {
+          // banco sem os índices (não deveria existir): do jeito antigo
+          const all = s.getAll();
+          all.onsuccess = () => {
+            const wanted = projectName.toLowerCase();
+            const list = (all.result as ProjectBackup[])
+              .filter((b) => String(b.projectName).toLowerCase() === wanted)
+              .sort((a, b) => b.timestamp - a.timestamp);
+            keep(list.map((b) => ({ id: b.id, timestamp: b.timestamp })));
+          };
+        }
+      } catch (err) {
+        fail(err);
+      }
     });
 
     return backup;
@@ -102,11 +179,32 @@ export async function saveProjectBackup(state: ProjectState): Promise<ProjectBac
 /** Devolve os backups ordenados do mais novo para o mais antigo (máx. 10 por projeto). */
 export async function listProjectBackups(projectName?: string): Promise<ProjectBackup[]> {
   try {
-    const all = (await run<ProjectBackup[]>('readonly', (s) => s.getAll())) ?? [];
-    const filtered = projectName
-      ? all.filter((b) => b.projectName.toLowerCase() === projectName.toLowerCase())
-      : all;
-    return filtered.sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_BACKUPS_PER_PROJECT);
+    const db = await openDb();
+    // só os 10 mais novos deste projeto são abertos (antes: todos os backups de todos os projetos)
+    const indexed = await new Promise<ProjectBackup[] | null>((resolve, reject) => {
+      const fail = (err: unknown) => { db.close(); reject(err); };
+      try {
+        const tx = db.transaction(STORE, 'readonly');
+        const s = tx.objectStore(STORE);
+        const ok = hasKeyIndexes(s);
+        const out: ProjectBackup[] = [];
+        tx.oncomplete = () => { db.close(); resolve(ok ? out : null); };
+        tx.onerror = () => fail(tx.error);
+        if (!ok) return;
+        collectBackupKeys(s, projectName, (keys) => {
+          for (const k of keys.slice(0, MAX_BACKUPS_PER_PROJECT)) {
+            const r = s.get(k.id);
+            r.onsuccess = () => { if (r.result) out.push(r.result as ProjectBackup); };
+          }
+        }, fail);
+      } catch (err) {
+        fail(err);
+      }
+    });
+    const all = indexed ?? ((await run<ProjectBackup[]>('readonly', (s) => s.getAll())) ?? []).filter((b) => (
+      !projectName || b.projectName.toLowerCase() === projectName.toLowerCase()
+    ));
+    return all.sort((a, b) => b.timestamp - a.timestamp).slice(0, MAX_BACKUPS_PER_PROJECT);
   } catch {
     return [];
   }

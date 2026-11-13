@@ -6,6 +6,7 @@ import PrompterAccess, { feedErrorText } from '@/components/prompter/PrompterAcc
 import { screenState } from '@/lib/prompterApi';
 import { useShowLogo } from '@/lib/useShowLogo';
 import { usePrompterFeed } from '@/lib/usePrompterFeed';
+import { useKeepAwake } from '@/lib/useWakeLock';
 import { isLocalClient } from '@/lib/localNetwork';
 import { LOCAL_NOTICE, localForget } from '@/lib/localClientApi';
 import {
@@ -23,137 +24,6 @@ const WAKE_GUARD_MS = 600;
 const CONFIRM_MS = 3000;
 // Na rede local a tela entra sem PIN: ela só mostra o que o diretor e o produtor mandam.
 const LOCAL_SCREEN_CODE = 'TELA';
-
-// ---------------------------------------------------------------------------------------------
-// Tela sempre acesa.
-//
-// `navigator.wakeLock` só existe em contexto seguro (HTTPS ou localhost). A Rede Local serve a
-// tela em http://192.168.x.x:8080, onde ele não existe, e o aparelho ligado à TV apagava sozinho
-// no meio do show. Lá a tela toca um vídeo invisível de 2 s (quadro preto e silêncio), o mesmo
-// truque do NoSleep.js:
-// - COM som (faixa de áudio em silêncio): o Safari só impede o repouso com vídeo que tem áudio e
-//   não está mudo, e o Chrome ignora vídeo mudo pequeno;
-// - SEM loop: o Safari não segura a tela com mídia em loop; o tempo volta no timeupdate;
-// - dentro do documento, com playsinline, e nunca vai para a TV pelo AirPlay no lugar da letra;
-// - a fonte fica embutida (data URI): o servidor do Mac não serve vídeo com Range, que o Safari exige.
-// Vídeo com som precisa de um toque (click, touchend ou tecla; touchstart não vale). Depois do
-// primeiro, ele volta sozinho quando a página reaparece ou o sistema pausa (ligação, Siri).
-// ---------------------------------------------------------------------------------------------
-
-export type KeepAwake = 'nativo' | 'video' | 'precisaToque' | 'falhou';
-
-const KEEP_AWAKE_MP4 = 'data:video/mp4;base64,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';
-const GESTURES = ['click', 'touchend', 'keydown'] as const;
-
-let keepAwakeVideo: HTMLVideoElement | null = null;
-
-function keepAwakeVideoEl(): HTMLVideoElement {
-  if (keepAwakeVideo && keepAwakeVideo.isConnected) return keepAwakeVideo;
-  const v = document.createElement('video');
-  v.setAttribute('playsinline', '');
-  v.setAttribute('webkit-playsinline', '');
-  v.setAttribute('x-webkit-airplay', 'deny');
-  v.setAttribute('aria-hidden', 'true');
-  v.setAttribute('tabindex', '-1');
-  v.playsInline = true;
-  try { v.disableRemotePlayback = true; } catch { /* navegador sem Remote Playback */ }
-  v.preload = 'auto';
-  v.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;';
-  v.src = KEEP_AWAKE_MP4;
-  // No lugar do loop: volta para o começo antes de acabar.
-  v.addEventListener('timeupdate', () => { if (v.currentTime > 0.5) v.currentTime = Math.random(); });
-  document.body.appendChild(v);
-  keepAwakeVideo = v;
-  return v;
-}
-
-function useKeepAwake(active: boolean): KeepAwake {
-  const [state, setState] = useState<KeepAwake>(() => ('wakeLock' in navigator ? 'nativo' : 'video'));
-  useEffect(() => {
-    if (!active) return;
-    let cancelled = false;
-    let lock: WakeLockSentinel | null = null;
-    let video: HTMLVideoElement | null = null;
-    let useVideo = !('wakeLock' in navigator);
-    let armed = false;
-    let retry = 0;
-
-    const onGesture = () => { playVideo(true); };
-    const arm = () => {
-      if (armed) return;
-      armed = true;
-      for (const ev of GESTURES) document.addEventListener(ev, onGesture, true);
-    };
-    const disarm = () => {
-      if (!armed) return;
-      armed = false;
-      for (const ev of GESTURES) document.removeEventListener(ev, onGesture, true);
-    };
-    // Pausa que não foi pedida (ligação, Siri, outra mídia): tenta de novo, sem laço apertado.
-    const onPause = () => {
-      if (cancelled) return;
-      window.clearTimeout(retry);
-      retry = window.setTimeout(() => {
-        if (!cancelled && document.visibilityState === 'visible') playVideo(false);
-      }, 1000);
-    };
-
-    // Síncrono de propósito: dentro do toque, o play() precisa rodar antes de qualquer await.
-    function playVideo(byGesture: boolean) {
-      if (cancelled) return;
-      if (!video) {
-        video = keepAwakeVideoEl();
-        video.addEventListener('pause', onPause);
-      }
-      let started: Promise<void>;
-      try { started = Promise.resolve(video.play()); } catch (e) { started = Promise.reject(e); }
-      started.then(() => {
-        if (cancelled) return;
-        disarm();
-        setState('video');
-      }).catch((e: unknown) => {
-        if (cancelled) return;
-        const blocked = (e as { name?: string } | null)?.name === 'NotAllowedError';
-        // Sem toque ainda: espera o primeiro. Com toque e mesmo assim recusado: avisa e tenta de
-        // novo no próximo toque.
-        setState(blocked && !byGesture ? 'precisaToque' : 'falhou');
-        arm();
-      });
-    }
-
-    const requestNative = async () => {
-      try {
-        const l = await navigator.wakeLock.request('screen');
-        if (cancelled) { l.release().catch(() => {}); return; }
-        lock = l;
-        setState('nativo');
-      } catch {
-        // Recusado com a tela à vista (economia de bateria, política do navegador): usa o vídeo.
-        // Com a página escondida, espera ela voltar.
-        if (cancelled || document.visibilityState !== 'visible') return;
-        useVideo = true;
-        playVideo(false);
-      }
-    };
-
-    const onVis = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (useVideo) playVideo(false); else requestNative();
-    };
-
-    if (useVideo) playVideo(false); else requestNative();
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      cancelled = true;
-      disarm();
-      window.clearTimeout(retry);
-      document.removeEventListener('visibilitychange', onVis);
-      lock?.release().catch(() => {});
-      if (video) { video.removeEventListener('pause', onPause); video.pause(); }
-    };
-  }, [active]);
-  return state;
-}
 
 export default function StageScreenPage() {
   const local = isLocalClient();
@@ -187,7 +57,7 @@ export default function StageScreenPage() {
   }, []);
   useEffect(() => { if (fullscreen) dismissGuide(); }, [fullscreen, dismissGuide]);
 
-  const awake = useKeepAwake(!!feed.snap);
+  const awake = useKeepAwake(!!feed.snap).state;
   useFixedLocalAddress(local && isIPhone() && !installed);
   const logoUrl = useShowLogo(feed.snap ? code : null, feed.snap?.logo ?? null);
 

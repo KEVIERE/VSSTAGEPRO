@@ -2,7 +2,8 @@ import { useStore } from '@/store';
 import { bpmAdjustToAlpha, stretchClipAudio, tempoFromBpm } from '@/lib/timeStretch';
 import { computeNextSongId } from '@/lib/playFlow';
 import { getClipPlayerWorkletUrl } from '@/lib/clipPlayerWorklet';
-import { clipPlayLength, ensureSongLoaded, getClipAudio, onAudioLibraryCleared, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, retainSongs } from '@/lib/audioLibrary';
+import { clipPlayLength, ensureSongLoaded, getClipAudio, onAudioLibraryCleared, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, openClipAudio, putClipAudio, retainSongs } from '@/lib/audioLibrary';
+import { deviceSampleRate } from '@/lib/audioDecoder';
 import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
 import { audioStreamer, diskStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
 import type { DiskHandle, RangeReader, StreamHandle } from '@/lib/audioStreamer';
@@ -138,6 +139,8 @@ export function clipGainFor(clip: AudioClip, songClips: AudioClip[]): number {
 // "local"/playDuration/localOffset ficam em segundos de música (mesma unidade de
 // clip.fadeIn/fadeOut/duration); whenWall é o relógio real do contexto. alpha converte
 // delta de música em delta de relógio (wall = música × alpha), igual ao resto da engine.
+// glide > 0 (fader, mudo ou solo mexidos com o clipe tocando): em vez de pular para o valor novo,
+// desliza do volume atual até ele nesse tempo e segue o fade a partir dali, sem estalo.
 function scheduleClipFade(
   clipGain: GainNode,
   ctx: BaseAudioContext,
@@ -146,6 +149,7 @@ function scheduleClipFade(
   playDuration: number,
   playbackStartTime: number,
   alpha: number,
+  glide = 0,
 ) {
   const fadeIn = Math.max(0, clip.fadeIn ?? 0);
   const fadeOut = Math.max(0, clip.fadeOut ?? 0);
@@ -185,7 +189,7 @@ function scheduleClipFade(
   const curveOut = clip.fadeCurveOut ?? 'linear';
 
   // Se o ponto de reprodução ainda não alcançou o início do clipe:
-  if (now < clipWallStart) {
+  if (now + glide < clipWallStart) {
     try {
       // 1. Silêncio antes do clipe começar (NUNCA vaza áudio antes do início do clipe!)
       clipGain.gain.setValueAtTime(0, now);
@@ -228,8 +232,9 @@ function scheduleClipFade(
     return;
   }
 
-  // Se já estamos dentro da reprodução do clipe:
-  const currentOffset = (now - clipWallStart) / alpha;
+  // Se já estamos dentro da reprodução do clipe (com glide, o ponto de referência é o fim do deslize):
+  const ref = now + Math.max(0, glide);
+  const currentOffset = (ref - clipWallStart) / alpha;
   let currentG = baseGain;
   if (currentOffset < fadeIn && fadeIn > 0) {
     currentG = evaluateFadeCurve(curveIn, currentOffset / fadeIn, true) * baseGain;
@@ -241,15 +246,20 @@ function scheduleClipFade(
   }
 
   try {
-    clipGain.gain.setValueAtTime(currentG, now);
+    if (ref > now) {
+      clipGain.gain.setValueAtTime(clipGain.gain.value, now);
+      clipGain.gain.linearRampToValueAtTime(currentG, ref);
+    } else {
+      clipGain.gain.setValueAtTime(currentG, now);
+    }
 
     // Continua o Fade In restante se estivermos no meio dele
-    if (now < wallFadeInEnd && fadeIn > 0) {
+    if (ref < wallFadeInEnd && fadeIn > 0) {
       const STEPS = curveIn === 'linear' ? 1 : 16;
       for (let i = 1; i <= STEPS; i++) {
         const frac = i / STEPS;
         const t = clipWallStart + frac * fadeIn * alpha;
-        if (t > now) {
+        if (t > ref) {
           const g = evaluateFadeCurve(curveIn, frac, true) * baseGain;
           clipGain.gain.linearRampToValueAtTime(g, t);
         }
@@ -257,22 +267,22 @@ function scheduleClipFade(
     }
 
     // Platô até o Fade Out
-    if (fadeOut > 0 && wallFadeOutStart > now) {
+    if (fadeOut > 0 && wallFadeOutStart > ref) {
       clipGain.gain.setValueAtTime(baseGain, wallFadeOutStart);
     }
 
     // Fade Out
-    if (fadeOut > 0 && now < clipWallEnd) {
+    if (fadeOut > 0 && ref < clipWallEnd) {
       const STEPS = curveOut === 'linear' ? 1 : 16;
       for (let i = 1; i <= STEPS; i++) {
         const frac = i / STEPS;
         const t = wallFadeOutStart + frac * fadeOut * alpha;
-        if (t > now) {
+        if (t > ref) {
           const g = evaluateFadeCurve(curveOut, frac, false) * baseGain;
           clipGain.gain.linearRampToValueAtTime(g, t);
         }
       }
-    } else if (now < clipWallEnd) {
+    } else if (ref < clipWallEnd) {
       clipGain.gain.setValueAtTime(0, clipWallEnd);
     }
   } catch {
@@ -550,7 +560,12 @@ class AudioEngine {
   getContext(): AudioContext {
     if (!this.ctx || this.ctx.state === 'closed') {
       // Modo Show: blocos de áudio maiores, alguns milissegundos a mais de atraso e muito mais folga contra estalos.
-      this.ctx = new AudioContext({ latencyHint: this.stableMode ? 'playback' : 'interactive' });
+      // A taxa fica presa à do áudio aberto: o tocador lê amostra por amostra, sem converter. Se a
+      // saída padrão do Mac mudou de taxa depois (placa ligada com o programa aberto), o show
+      // tocaria fora de velocidade e de tom; assim o navegador converte só na saída.
+      const rate = deviceSampleRate();
+      this.ctx = new AudioContext({ latencyHint: this.stableMode ? 'playback' : 'interactive', sampleRate: rate });
+      if (this.ctx.sampleRate !== rate) console.warn('[audioEngine] taxa do motor diferente da do áudio aberto', this.ctx.sampleRate, rate);
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = faderToGain(useStore.getState().masterVolume);
       // Limiter de segurança no bus master: protege o show de estourar/distorcer, sem alterar o volume percebido.
@@ -724,7 +739,11 @@ class AudioEngine {
       const alpha = bpmAdjustToAlpha(bpmAdjust);
       const tempo = tempoFromBpm(bpmAdjust);
       const cents = song.tuner * 100;
-      const nowPos = (ctx.currentTime - this.playbackStartTime) / (this.playbackAlpha || 1);
+      // Entra um pouco à frente, com o ponto calculado para esse instante: largando "agora", a
+      // ordem chegava depois do horário e a faixa ficava atrasada em relação às outras.
+      this.settleArmed();
+      const at = ctx.currentTime + RETIME_LEAD;
+      const nowPos = (at - this.playbackStartTime) / (this.playbackAlpha || 1);
 
       let attachedAny = false;
       for (const clip of stillMissing) {
@@ -742,7 +761,7 @@ class AudioEngine {
         const pitch = melodic ? pitchFromCents(cents) : 1;
         const local = Math.max(0, nowPos - clip.startTime);
         const offsetSamples = Math.floor(local * sampleRate);
-        const whenWall = ctx.currentTime + Math.max(0, clip.startTime - nowPos) * alpha;
+        const whenWall = at + Math.max(0, clip.startTime - nowPos) * alpha;
 
         const node = this.createPlayer(ctx, buffer.length, {
           sampleRate,
@@ -853,9 +872,19 @@ class AudioEngine {
     this.prepared.clear();
   }
 
+  // Músicas que ainda valem a pena preparar (no ar, selecionada e próxima). null: ninguém disse ainda.
+  private wanted: Set<string> | null = null;
+
+  private isWanted(songId: string): boolean {
+    return !this.wanted || this.wanted.has(songId);
+  }
+
   /** Libera os pré-carregamentos das músicas que não estão mais em uso. */
   releaseUnretained(keepSongIds: Array<string | null | undefined>) {
-    const keep = new Set(keepSongIds.filter(Boolean));
+    const keep = new Set(keepSongIds.filter((id): id is string => !!id));
+    // Um preparo que ainda estava esperando (música no ar chegando do disco) não fica na memória
+    // de uma música que o operador só clicou de passagem.
+    this.wanted = keep;
     for (const songId of Array.from(this.prepared.keys())) {
       if (!keep.has(songId)) this.invalidatePrepared(songId);
     }
@@ -868,15 +897,28 @@ class AudioEngine {
   async prepareSong(songId: string): Promise<void> {
     // A música no ar já tem os reprodutores dela; ao parar eles são guardados para o próximo Play.
     if (this.isPlayingSong(songId)) return;
+    // Já preparada e sem mudança (ou preparando): não espera nada nem prepara de novo.
+    const ready = this.prepared.get(songId);
+    if (ready && ready.signature === this.bundleSignature(songId, ready)) {
+      void this.preloadTimecode(songId);
+      return;
+    }
+    const preparing = this.preparing.get(songId);
+    if (preparing) return preparing;
     // A música no ar termina de abrir primeiro: as duas disputando o disco e o processador era
     // o que fazia a faixa no ar ficar sem dado a tempo.
     const onAir = this.isPlaying ? this.currentSongId : null;
     if (onAir && onAir !== songId) {
       const air = this.onAirDiskDone;
       if (air && air.songId === onAir) await air.done;
+      // lida do disco: ela já está inteira no reprodutor, basta o resto chegar (abrir de novo na
+      // memória era ler e converter a música no ar inteira, no começo dela)
+      else if (this.diskSongs.has(onAir) && !this.headOnly) await this.onAirFeedsDone();
       else if (!isSongLoaded(onAir)) await ensureSongLoaded(onAir).catch(() => { /* avisado pela música no ar */ });
     }
-    if (this.isPlayingSong(songId)) return;
+    if (this.isPlayingSong(songId) || !this.isWanted(songId)) return;
+    // o timecode (um arquivo só) abre junto, para o LTC largar com os stems
+    void this.preloadTimecode(songId);
     if (!isSongLoaded(songId)) {
       // Igual à música no ar: a próxima lê do disco em trechos, sem abrir e converter tudo antes.
       const readers = await openRangeReaders(this.clipsWithSource(songId));
@@ -985,7 +1027,7 @@ class AudioEngine {
 
       const currentSig = this.computePrepareSignature(songId);
       // Se a música começou a tocar com outros reprodutores, este preparo seria uma cópia a mais na memória.
-      if (currentSig !== sig || this.isPlayingSong(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
+      if (currentSig !== sig || this.isPlayingSong(songId) || !this.isWanted(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
         this.disposePreparedBundle(bundle);
         return;
       }
@@ -1061,7 +1103,7 @@ class AudioEngine {
         pending.push({ clipId: clip.id, node, clipStartTime: clip.startTime, clipDuration: clipPlayLength(clip), ready, sampleRate, bufferLength: length, clipGain, clipPanner, trackId: clip.trackId });
       }
       const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots, disk: true };
-      if (this.diskSignature(songId) !== sig || this.isPlayingSong(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
+      if (this.diskSignature(songId) !== sig || this.isPlayingSong(songId) || !this.isWanted(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
         this.disposePreparedBundle(bundle);
         return;
       }
@@ -1216,6 +1258,50 @@ class AudioEngine {
     return this.timecode;
   }
 
+  /** Quando o resto do áudio das faixas no ar terminou de chegar ao reprodutor. */
+  private onAirFeedsDone(): Promise<void> {
+    const handles = Array.from(this.activeClips.values()).map((a) => this.feeds.get(a.node)).filter((h): h is StreamHandle => !!h);
+    return Promise.all(handles.map((h) => h.done)).then(() => undefined);
+  }
+
+  private timecodeLoads = new Map<string, Promise<ClipAudio | null>>();
+
+  // Abre na memória só o arquivo do timecode da música (normalmente mono), sem abrir os stems:
+  // lendo do disco, o LTC esperava a música inteira abrir e entrava segundos depois da largada.
+  private loadTimecodeAudio(songId: string): Promise<ClipAudio | null> {
+    const clip = this.timecodeClip(songId);
+    if (!clip) return Promise.resolve(null);
+    const have = getClipAudio(clip.id);
+    if (have) return Promise.resolve(have);
+    const src = getClipSource(clip.id);
+    if (!src) return Promise.resolve(null);
+    const inflight = this.timecodeLoads.get(clip.id);
+    if (inflight) return inflight;
+    const task = openClipAudio(songId, clip.id, src)
+      .then((audio) => {
+        // o timecode pode ter sido trocado ou apagado enquanto abria
+        if (getClipSource(clip.id) !== src) return null;
+        if (!getClipAudio(clip.id)) putClipAudio(clip.id, songId, audio);
+        return getClipAudio(clip.id);
+      })
+      .catch((err) => {
+        console.warn('[timecode] não consegui abrir o LTC', err);
+        return null;
+      })
+      .finally(() => this.timecodeLoads.delete(clip.id));
+    this.timecodeLoads.set(clip.id, task);
+    return task;
+  }
+
+  /** Deixa o LTC da música aberto e já montado antes do Play. */
+  private async preloadTimecode(songId: string): Promise<void> {
+    const clip = this.timecodeClip(songId);
+    if (!clip) return;
+    const audio = await this.loadTimecodeAudio(songId);
+    if (!audio || this.timecodeClip(songId)?.id !== clip.id || !this.ctx || this.ctx.state === 'closed') return;
+    await this.ensureTimecode().preload(clip.id, audio);
+  }
+
   // Coloca o timecode da música no mesmo ponto dos stems; se o áudio ainda está abrindo, entra assim que abrir.
   private startTimecode(songId: string, songPos: number, when: number, remind: boolean) {
     const clip = this.timecodeClip(songId);
@@ -1234,14 +1320,18 @@ class AudioEngine {
     }
     player.stop();
     const gen = this.playGeneration;
-    ensureSongLoaded(songId).then(() => {
-      const late = getClipAudio(clip.id);
-      if (!late || gen !== this.playGeneration || !this.isPlaying || this.currentSongId !== songId || !this.ctx) return;
+    void this.loadTimecodeAudio(songId).then((late) => {
+      if (!late || gen !== this.playGeneration || !this.isPlaying || this.currentSongId !== songId || !this.ctx || this.timecodeClipId !== clip.id) return;
+      // um salto de loop que já passou entra na conta antes de calcular o ponto do LTC
+      this.settleArmed();
       const at = this.ctx.currentTime + 0.05;
       const pos = (at - this.playbackStartTime) / (this.playbackAlpha || 1);
       player.setRate(1 / (this.playbackAlpha || 1));
       player.start(clip.id, late, pos - clip.startTime, at);
-    }).catch(() => { /* avisado pelo carregamento da música */ });
+      // o salto já armado foi para os stems sem o LTC (o áudio dele ainda não tinha aberto)
+      const armed = this.armedLoop;
+      if (armed) this.jumpTimecode(songId, armed.start, armed.at);
+    });
   }
 
   private jumpTimecode(songId: string, destPos: number, at: number) {
@@ -1267,6 +1357,14 @@ class AudioEngine {
    */
   isSettling(ms = SETTLE_MS): boolean {
     return this.startsInFlight > 0 || performance.now() - this.lastStartAt < ms;
+  }
+
+  // Folga entre marcar o horário da largada e o áudio chegar nele. No Modo Show o som é calculado
+  // em blocos maiores: com folga curta, a ordem de algumas faixas chegava depois do horário e
+  // elas largavam atrasadas em relação às outras pelo resto da música.
+  private startLead(min: number): number {
+    const block = this.ctx?.baseLatency || 0;
+    return Math.max(min, Math.min(0.2, 2 * block));
   }
 
   async playSong(songId: string, startOffset = 0, options?: { fastSeek?: boolean }) {
@@ -1362,10 +1460,8 @@ class AudioEngine {
       this.playbackAlpha = alpha;
       this.playbackCents = cents;
 
-      const headroom = 0.03;
-      const scheduledStart = ctx.currentTime + headroom;
+      const scheduledStart = ctx.currentTime + this.startLead(0.05);
       this.playbackStartTime = scheduledStart - startOffset * alpha;
-      this.startTimecode(songId, startOffset, scheduledStart, true);
 
       for (const p of bundle.pending) {
         const track = tracks.find((t) => t.id === p.trackId);
@@ -1417,6 +1513,9 @@ class AudioEngine {
           trackId: p.trackId,
         });
       }
+      // O timecode entra depois que todas as faixas já receberam o horário da largada: montar o
+      // LTC aqui no meio podia passar da folga e fazer as faixas largarem atrasadas.
+      this.startTimecode(songId, startOffset, scheduledStart, true);
 
       this.startMetering();
       this.scheduleSongEnd(songDuration);
@@ -1426,7 +1525,11 @@ class AudioEngine {
       this.rearmLoop();
       const st = useStore.getState();
       st.setNextSong(computeNextSongId(songId, st.playlist, st.playlistOrder, st.transport.playFlow));
-      this.scheduleRender(songId, 0);
+      // Preparada do disco: igual à largada sem preparo, avisa quando o resto chegou (a próxima
+      // espera por isso em vez de abrir a música no ar inteira na memória) e só abre a música se
+      // uma faixa falhou no disco ou se o BPM/tom pede o áudio ajustado em segundo plano.
+      if (bundle.disk) void this.afterDiskStart(songId, myGen);
+      else this.scheduleRender(songId, 0);
       return;
     }
 
@@ -1564,10 +1667,8 @@ class AudioEngine {
       return;
     }
 
-    const headroom = fastSeek ? 0.03 : 0.05;
-    const scheduledStart = ctx.currentTime + headroom;
+    const scheduledStart = ctx.currentTime + this.startLead(fastSeek ? 0.03 : 0.05);
     this.playbackStartTime = scheduledStart - startOffset * alpha;
-    this.startTimecode(songId, startOffset, scheduledStart, !fastSeek);
 
     for (const p of pending) {
       const whenWall = scheduledStart + Math.max(0, (p.clip.startTime - startOffset)) * alpha;
@@ -1588,6 +1689,8 @@ class AudioEngine {
         trackId: p.clip.trackId,
       });
     }
+    // depois das faixas, pelo mesmo motivo da largada pelo preparo
+    this.startTimecode(songId, startOffset, scheduledStart, !fastSeek);
 
     this.startMetering();
     this.scheduleSongEnd(songDuration);
@@ -1618,8 +1721,8 @@ class AudioEngine {
       const h = handles.find((x) => this.feeds.get(a.node) === x);
       return !!h && 'failed' in h && (h as DiskHandle).failed;
     });
-    const song = useStore.getState().songs.find((s) => s.id === songId);
-    const wantsRender = !!song && songNeedsProcessing(song) && !hasSliceParams(song);
+    // reprodutores guardados de um Play anterior já podem estar com o áudio ajustado
+    const wantsRender = this.needsRender(songId);
     if (failed.length === 0 && !wantsRender) return;
     await ensureSongLoaded(songId).catch(() => { /* avisado pelo carregamento */ });
     if (gen !== this.playGeneration || !this.isPlayingSong(songId)) return;
@@ -1632,6 +1735,22 @@ class AudioEngine {
       this.feed(active.node, audio, Math.max(0, Math.floor((pos - active.clipStartTime) * audio.sampleRate)), PRIORITY_ON_AIR);
     }
     if (wantsRender) this.scheduleRender(songId, 0);
+  }
+
+  /** BPM/tom alterados e algum reprodutor ainda sem o áudio ajustado em segundo plano. */
+  private needsRender(songId: string): boolean {
+    const store = useStore.getState();
+    const song = store.songs.find((s) => s.id === songId);
+    if (!song || !songNeedsProcessing(song) || hasSliceParams(song)) return false;
+    const tempo = tempoFromBpm(song.bpmAdjust ?? 0);
+    const cents = song.tuner * 100;
+    const tracks = store.tracks;
+    return this.songNodes(songId).some((n) => {
+      const track = tracks.find((t) => t.id === n.trackId);
+      if (!track) return false;
+      const pitch = isMelodicTrack(track, tracks) ? pitchFromCents(cents) : 1;
+      return this.nodeRenderKey.get(n.node) !== `${tempo}|${pitch}`;
+    });
   }
 
   private clipsWithSource(songId: string) {
@@ -2071,7 +2190,16 @@ class AudioEngine {
     this.songEndTimeout = window.setTimeout(() => this.onSongEnd(), remaining);
   }
 
+  // Passada da música (playGeneration) cujo fim já foi tratado.
+  private songEndGen = -1;
+
   private onSongEnd() {
+    // Dois avisos de fim (o último reprodutor esgotou e o timer do fim) chegam quase juntos. Se a
+    // próxima ainda está abrindo do disco, a música que acabou continua "no ar" e o segundo aviso
+    // mandava tocar a seguinte da próxima: a próxima era pulada no palco.
+    if (this.songEndGen === this.playGeneration) return;
+    this.songEndGen = this.playGeneration;
+    if (this.songEndTimeout) { clearTimeout(this.songEndTimeout); this.songEndTimeout = null; }
     const store = useStore.getState();
     const { transport } = store;
 
@@ -2085,7 +2213,21 @@ class AudioEngine {
       ? transport.nextSongId : null;
     const nextSongId = armed ?? computeNextSongId(this.currentSongId, store.playlist, store.playlistOrder, transport.playFlow);
     if (nextSongId) {
-      this.playSong(nextSongId, entryPoint(store.songs.find((s) => s.id === nextSongId)));
+      const endedId = this.currentSongId;
+      const endedGen = this.playGeneration;
+      this.playSong(nextSongId, entryPoint(store.songs.find((s) => s.id === nextSongId)))
+        .catch((err) => console.error('[auto] falha ao tocar a próxima', err))
+        .finally(() => {
+          // A próxima não largou (sem faixas, erro ao abrir): a tela não fica em TOCANDO sem som.
+          if (this.startsInFlight > 0) return;
+          const s = useStore.getState();
+          if (!s.transport.isPlaying) return;
+          const stuck = this.isPlaying && this.currentSongId === endedId && this.playGeneration === endedGen;
+          if (this.isPlaying && !stuck) return;
+          if (stuck) this.stopAll();
+          s.stop(s.transport.currentTime);
+          s.setPlaybackError('Não foi possível tocar a próxima música. Selecione a música e dê Play.');
+        });
       const st = useStore.getState();
       st.setNextSong(computeNextSongId(nextSongId, st.playlist, st.playlistOrder, st.transport.playFlow));
       return;
@@ -2245,13 +2387,11 @@ class AudioEngine {
     const params = song ? paramsAt(song, time) : { bpmAdjust: 0, tuner: 0 };
     const alpha = bpmAdjustToAlpha(params.bpmAdjust);
     const cents = params.tuner * 100;
-    const headroom = 0.03;
-    const scheduledStart = ctx!.currentTime + headroom;
+    const scheduledStart = ctx!.currentTime + this.startLead(0.05);
     this.playbackAlpha = alpha;
     this.playbackCents = cents;
     this.playbackStartTime = scheduledStart - time * alpha;
     this.playbackOffset = time;
-    this.startTimecode(songId, time, scheduledStart, false);
 
     for (const clip of clips) {
       const active = this.activeClips.get(clip.id);
@@ -2289,6 +2429,7 @@ class AudioEngine {
       const baseGain = (target && track?.parentId ? channelGainFor(track, tracks, track.volume) : 1) * clipGainFor(clip, clips);
       scheduleClipFade(active.clipGain, ctx!, baseGain, clip, active.durationSeconds, this.playbackStartTime, alpha);
     }
+    this.startTimecode(songId, time, scheduledStart, false);
 
     this.disarmLoop(false);
     if (song) {
@@ -2348,12 +2489,22 @@ class AudioEngine {
       const store = useStore.getState();
       const trackGain = channelGainFor(track, all, track.volume);
       const targetPan = effectivePan(track.id, track.pan, lrActive);
+      let settled = false;
       store.clips.forEach((c) => {
         if (c.trackId === trackId) {
           const g = this.clipGains.get(c.id);
           if (g) {
             const songClips = store.clips.filter((sc) => sc.songId === c.songId);
-            this.rampParam(g.gain, trackGain * clipGainFor(c, songClips));
+            const base = trackGain * clipGainFor(c, songClips);
+            const active = this.activeClips.get(c.id);
+            // O fader da faixa filha mora no mesmo ganho em que o fade do clipe está agendado:
+            // a rampa simples apagava o fade (mexer em qualquer mudo/solo cortava o fade-out seco).
+            if (active && this.ctx && ((c.fadeIn ?? 0) > 0 || (c.fadeOut ?? 0) > 0)) {
+              if (!settled) { this.settleArmed(); settled = true; }
+              scheduleClipFade(g, this.ctx, base, { ...c, startTime: active.clipStartTime }, active.durationSeconds, this.playbackStartTime, this.playbackAlpha || 1, 0.012);
+            } else {
+              this.rampParam(g.gain, base);
+            }
           }
           const p = this.clipPanners.get(c.id);
           if (p) this.rampParam(p.pan, targetPan);
@@ -2611,6 +2762,21 @@ class AudioEngine {
     return peak;
   }
 
+  /** Pico e média (RMS) de um analisador numa leitura só. */
+  private peakAndRms(analyser: AnalyserNode): [number, number] {
+    const data = this.meterScratch;
+    analyser.getFloatTimeDomainData(data);
+    let peak = 0;
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = data[i];
+      const abs = v < 0 ? -v : v;
+      if (abs > peak) peak = abs;
+      sum += v * v;
+    }
+    return [peak, Math.sqrt(sum / data.length)];
+  }
+
   /** Média do sinal agora (RMS, linear) de um analisador: o que um VU de verdade mede. */
   private rmsOf(analyser: AnalyserNode): number {
     const data = this.meterScratch;
@@ -2664,20 +2830,32 @@ class AudioEngine {
         lastMeterTick = now;
         const store = useStore.getState();
         for (const t of store.tracks) {
-          const level = this.getMeterLevel(t.id);
-          levels.set(t.id, level);
           // medidor estéreo: cada lado separado (ID:L e ID:R)
           const lr = this.getMeterLevelsLR(t.id);
           if (lr) { levels.set(`${t.id}:L`, lr[0]); levels.set(`${t.id}:R`, lr[1]); }
+          // O nível do canal é o do lado mais alto. O analisador do canal soma L e R pela metade:
+          // com pan total (LR mágico, LR master) ele mostrava 6 dB a menos e o LED de clip só
+          // acendia em +6 dBFS. Só na saída mono direta a soma é o que sai de verdade.
+          const level = lr && !isTimecodeTrackId(t.id) && !this.routedTo.get(t.id)?.startsWith('out-')
+            ? Math.max(lr[0], lr[1])
+            : this.getMeterLevel(t.id);
+          levels.set(t.id, level);
           if (level >= 1 && !t.clipIndicator) store.updateMeter(t.id, level);
         }
-        const masterLevel = this.getMasterMeterLevel();
-        levels.set('master', masterLevel);
-        const masterLR = this.getMasterMeterLevelsLR();
-        if (masterLR) { levels.set('master:L', masterLR[0]); levels.set('master:R', masterLR[1]); }
-        // VUs de ponteiro: a média do sinal, não o pico
-        const masterRms = this.getMasterRmsLR();
-        if (masterRms) { levels.set('master-rms:L', masterRms[0]); levels.set('master-rms:R', masterRms[1]); }
+        // Master: cada lado lido uma vez só, pico e média juntos (antes cada um era lido duas vezes
+        // e mais uma pela soma L+R, que também mostrava menos com o LR mágico).
+        const pkL = this.masterMeterL ? this.peakAndRms(this.masterMeterL) : null;
+        const pkR = this.masterMeterR ? this.peakAndRms(this.masterMeterR) : null;
+        if (pkL && pkR) {
+          levels.set('master', this.smoothMeter('master', Math.max(pkL[0], pkR[0])));
+          levels.set('master:L', this.smoothMeter('master:L', pkL[0]));
+          levels.set('master:R', this.smoothMeter('master:R', pkR[0]));
+          // VUs de ponteiro: a média do sinal, não o pico
+          const masterRms = [pkL[1], pkR[1]];
+          levels.set('master-rms:L', masterRms[0]); levels.set('master-rms:R', masterRms[1]);
+        } else {
+          levels.set('master', this.getMasterMeterLevel());
+        }
         // com o anti-clip do master ligado a saída não passa do teto: o indicador de clip fica apagado
         const masterPre = store.masterAntiClip ? 0 : this.getMasterPrePeak();
         if (masterPre >= 1 && store.masterClipPeak < masterPre) store.updateMasterMeter(masterPre);

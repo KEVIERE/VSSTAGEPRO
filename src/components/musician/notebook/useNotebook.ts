@@ -207,6 +207,9 @@ export function useNotebook({ backend, songId, songName, sheet, onSheetsChanged 
     if (timer.current || inflight.current.has(sheet.song_id) || newestOf(queueKey, sheet.song_id)) return;
     if (sheet.content === lastSynced.current) return;
     lastSynced.current = sheet.content;
+    // a página passa a mostrar ESTE caderno: a próxima edição grava nele. Antes o id antigo
+    // ficava, e a edição gravava o conteúdo novo por cima do outro caderno da mesma música.
+    setSheetId(sheet.id);
     load(parseDoc(sheet.content), sheet.title || songName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sheet?.id, sheet?.updated_at, sheet?.content]);

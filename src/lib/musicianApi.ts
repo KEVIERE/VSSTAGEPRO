@@ -1,10 +1,11 @@
 import { supabase } from './supabaseClient';
-import type {
-  MusicianState, SheetInfo, ColleagueInfo, DirectorMusician,
-  Setlist, ShowLive, Membership, MemberStatus, ShowInvite, SheetBackend,
+import {
+  readShareResult,
+  type MusicianState, type SheetInfo, type ColleagueInfo, type DirectorMusician,
+  type Setlist, type ShowLive, type Membership, type MemberStatus, type ShowInvite, type SheetBackend, type ShareResult,
 } from './musicianTypes';
 import type { Song, Block } from '@/types';
-import { isSliceEnabled, medleySlices } from '@/lib/medley';
+import { isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
 
 export function effectiveBpm(bpm: number, detected: boolean | undefined, bpmAdjust: number): number | null {
   if (!detected || !bpm) return null;
@@ -162,16 +163,34 @@ export async function memberUpdateProfile(name: string, instrument: string): Pro
 let liveMissing = false;
 
 /**
+ * Prazo de cada consulta do show. O laço da Área do Músico só pede de novo quando a consulta
+ * anterior termina; sem prazo, um pedido que não volta (Wi-Fi do palco associado mas sem passar
+ * pacote, 4G caindo) segurava a tela em "Sem sinal do diretor" até o navegador desistir, mesmo
+ * com a internet de volta. Só nestas consultas: o resto do Supabase segue sem prazo.
+ */
+const STATE_TIMEOUT_MS = 8000;
+
+async function stateRpc(name: 'musician_live' | 'musician_state', args: Record<string, unknown>) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), STATE_TIMEOUT_MS);
+  try {
+    return await supabase.rpc(name, args).abortSignal(ctrl.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Estado do show para o músico. `since`: hora (do servidor) em que este aparelho entrou; se o
  * diretor apertou "Desconectar" depois dela, dá erro `disconnected`. Sem `since` entra normal.
  */
 export async function musicianState(code: string, since: string | null = null): Promise<MusicianState> {
   let res = liveMissing
-    ? await supabase.rpc('musician_state', { p_code: code })
-    : await supabase.rpc('musician_live', { p_code: code, p_since: since });
+    ? await stateRpc('musician_state', { p_code: code })
+    : await stateRpc('musician_live', { p_code: code, p_since: since });
   if (!liveMissing && res.error && (res.error.code === 'PGRST202' || /musician_live/.test(res.error.message))) {
     liveMissing = true;
-    res = await supabase.rpc('musician_state', { p_code: code });
+    res = await stateRpc('musician_state', { p_code: code });
   }
   const { data, error } = res;
   if (error) {
@@ -250,15 +269,18 @@ export async function musicianColleagues(code: string): Promise<ColleagueInfo[]>
   return (obj.colleagues as ColleagueInfo[]) ?? [];
 }
 
+/**
+ * Envia o caderno para colegas. `skipped`: quem já tinha caderno desta música (feito por ele ou
+ * cópia em que mexeu) e ficou com o dele. Banco sem a migração nova: vem só `count`.
+ */
 export async function musicianShareSheet(
   code: string, sheetId: string, targets: string[],
-): Promise<number> {
+): Promise<ShareResult> {
   const { data, error } = await supabase.rpc('musician_share_sheet', {
     p_code: code, p_sheet: sheetId, p_targets: targets,
   });
   if (error) throw error;
-  const obj = assertOk(data, 'share_sheet failed');
-  return Number(obj.count) || 0;
+  return readShareResult(assertOk(data, 'share_sheet failed'));
 }
 
 export async function musicianAvatar(code: string): Promise<string | null> {
@@ -306,8 +328,10 @@ export function buildSetlist(
       baseBpm: s.bpmDetected && s.bpm ? Math.round(s.bpm) : null,
       bpmAdjust: s.bpmAdjust || 0, tuner: s.tuner || 0,
       musicKey: s.musicKey || songKeys?.[s.id]?.key || undefined,
+      // bpmAdjust de cada parte: a sincronia automática da letra segue o andamento de cada uma
       parts: medleySlices(s).map((p) => ({
-        id: p.id, name: p.name, start: p.start, end: p.end, ...(isSliceEnabled(p) ? {} : { enabled: false }),
+        id: p.id, name: p.name, start: p.start, end: p.end, bpmAdjust: sliceParams(s, p).bpmAdjust,
+        ...(isSliceEnabled(p) ? {} : { enabled: false }),
       })),
     })).map((x) => (x.parts.length ? x : { ...x, parts: undefined })),
     blocks: blocks.map((b) => ({ id: b.id, name: b.name, color: b.color })),

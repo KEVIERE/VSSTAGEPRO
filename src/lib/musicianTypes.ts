@@ -52,6 +52,8 @@ export interface SetlistPart {
   end: number;
   /** false = o diretor pula esta parte */
   enabled?: boolean;
+  /** BPM desta parte (cada parte do medley pode tocar num andamento); sem ele vale o da música */
+  bpmAdjust?: number;
 }
 
 export interface SetlistBlock {
@@ -90,6 +92,8 @@ export interface SheetInfo {
   content: string;
   shared_from: string | null;
   updated_at: string;
+  /** Hora em que a cópia chegou de um colega. Igual a `updated_at`: cópia em que o músico não mexeu. */
+  received_at?: string | null;
 }
 
 export interface ColleagueInfo {
@@ -110,6 +114,17 @@ export type ProjectSaveStatus = 'saved' | 'later' | 'no_file' | 'error' | 'unava
 
 export const PROJECT_SAVE_STATUSES: readonly ProjectSaveStatus[] = ['saved', 'later', 'no_file', 'error', 'unavailable'];
 
+export interface ShareResult {
+  count: number;
+  skipped: string[];
+}
+
+/** Resposta do envio (online ou Rede Local). Servidor antigo, sem `skipped`: ninguém foi pulado. */
+export function readShareResult(data: Record<string, unknown>): ShareResult {
+  const skipped = Array.isArray(data.skipped) ? data.skipped.filter((v): v is string => typeof v === 'string') : [];
+  return { count: Number(data.count) || 0, skipped };
+}
+
 /** Where a musician's sheets live: the online account or the director's Mac on the local network. */
 export interface SheetBackend {
   key: string;
@@ -121,7 +136,11 @@ export interface SheetBackend {
   remove(sheetId: string): Promise<void>;
   songLyrics(songId: string): Promise<string[]>;
   colleagues(): Promise<ColleagueInfo[]>;
-  share(sheetId: string, targets: string[]): Promise<number>;
+  /**
+   * Envia o caderno para colegas. `count`: quantos receberam. `skipped`: ids dos colegas que já
+   * tinham caderno desta música (feito por eles ou cópia em que mexeram) e ficaram com o deles.
+   */
+  share(sheetId: string, targets: string[]): Promise<ShareResult>;
   /** Foto de perfil (só na Área do Músico online). */
   avatar?(): Promise<string | null>;
   setAvatar?(avatar: string | null): Promise<void>;

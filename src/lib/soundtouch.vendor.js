@@ -87,7 +87,8 @@ class FifoSampleBuffer {
     output.set(this._vector.subarray(sourceOffset, sourceOffset + numSamples));
   }
   ensureCapacity(numFrames = 0) {
-    const minLength = parseInt(numFrames * 2);
+    // VS Stage: Math.ceil em vez de parseInt (que vira texto a cada chamada na thread de áudio).
+    const minLength = Math.ceil(numFrames * 2);
     if (this._vector.length < minLength) {
       const newVector = new Float32Array(minLength);
       newVector.set(this._vector.subarray(this.startIndex, this.endIndex));
@@ -221,11 +222,27 @@ class FilterSupport {
   ) {
     throw new Error('fillInputBuffer() not overridden');
   }
+  // VS Stage: enche a entrada só com o que uma sequência do WSOLA precisa. Antes eram 16384
+  // quadros de uma vez, o que juntava 4 a 5 sequências num único bloco de 128 amostras da
+  // thread de áudio (e todas as faixas no mesmo bloco). A saída é a mesma: cada sequência lê
+  // os mesmos quadros, só o trabalho fica repartido em pedaços menores.
+  inputTarget() {
+    const pipe = this._pipe;
+    const stretch = pipe && (pipe.stretch || pipe);
+    const req = stretch && stretch.sampleReq > 0 ? stretch.sampleReq : 8192;
+    // sempre acima do que o stretch pede, senão ele nunca processaria
+    return Math.max(4096, Math.ceil(req) + 256);
+  }
   fillOutputBuffer(numFrames = 0) {
     while (this.outputBuffer.frameCount < numFrames) {
-      const numInputFrames = 8192 * 2 - this.inputBuffer.frameCount;
-      this.fillInputBuffer(numInputFrames);
-      if (this.inputBuffer.frameCount < 8192 * 2) {
+      const target = this.inputTarget();
+      // nunca negativo: o andamento pode mudar com sobra maior que o novo alvo na entrada
+      const numInputFrames = Math.max(0, target - this.inputBuffer.frameCount);
+      const got = this.fillInputBuffer(numInputFrames);
+      if (this.inputBuffer.frameCount < target) {
+        // fim da fonte: processa o último pedaço, para o final da música nunca ficar preso
+        // na entrada (com o pedaço menor, a sobra do fim poderia ser maior que o silêncio extra)
+        if (got > 0) this._pipe.process();
         break;
       }
       this._pipe.process();
@@ -275,10 +292,16 @@ class SimpleFilter extends FilterSupport {
     this.callback();
   }
   fillInputBuffer(numFrames = 0) {
-    const samples = new Float32Array(numFrames * 2);
+    // VS Stage: reaproveita o mesmo bloco (só cresce) em vez de criar um novo a cada leitura,
+    // para não alimentar o coletor de lixo na thread de áudio. Só os quadros lidos são copiados.
+    const need = numFrames * 2;
+    if (!this._fillBuffer || this._fillBuffer.length < need) this._fillBuffer = new Float32Array(need);
+    const samples = this._fillBuffer;
     const numFramesExtracted = this.sourceSound.extract(samples, numFrames, this._sourcePosition);
     this._sourcePosition += numFramesExtracted;
-    this.inputBuffer.putSamples(samples, 0, numFramesExtracted);
+    const got = Math.max(0, Math.min(numFrames, numFramesExtracted));
+    this.inputBuffer.putSamples(samples, 0, got);
+    return got;
   }
   extract(target, numFrames = 0) {
     this.fillOutputBuffer(this.outputBufferPosition + numFrames);

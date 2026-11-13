@@ -22,12 +22,12 @@ export default function FontPickerDialog({ value, color, onPick, onClose }: {
         role="dialog"
         aria-modal="true"
         aria-label="Escolher fonte"
-        className="w-full max-w-3xl max-h-[85vh] flex flex-col rounded-2xl border border-logic-border bg-logic-bg-panel shadow-2xl"
+        className="w-full max-w-3xl max-h-[85vh] flex flex-col console-face border-2 border-black rounded-lg overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 h-14 border-b border-logic-border shrink-0">
-          <h2 className="text-sm font-semibold text-logic-text">Escolher fonte da letra</h2>
-          <button onClick={onClose} className="p-2 rounded-lg text-logic-text-muted hover:text-logic-text hover:bg-logic-bg-elevated transition-colors" aria-label="Fechar">
+        <div className="console-rail flex items-center justify-between gap-2 px-4 h-12 border-b-2 border-black shrink-0">
+          <h2 className="console-legend">Escolher fonte da letra</h2>
+          <button onClick={onClose} className="console-key w-8 h-8 flex items-center justify-center" aria-label="Fechar">
             <X size={16} />
           </button>
         </div>
@@ -43,7 +43,7 @@ export default function FontPickerDialog({ value, color, onPick, onClose }: {
                     <button
                       key={f.id}
                       onClick={() => { onPick(f.id); onClose(); }}
-                      className={`relative px-4 py-3 rounded-xl border text-left bg-black transition-all hover:-translate-y-0.5 ${on ? 'border-logic-accent ring-1 ring-logic-accent' : 'border-logic-border hover:border-logic-border-light'}`}
+                      className={`console-well relative px-4 py-3 rounded-lg border text-left transition-colors ${on ? 'border-logic-accent ring-1 ring-logic-accent' : 'border-black hover:border-logic-border-light'}`}
                     >
                       <span className="block text-2xl leading-tight truncate" style={{ fontFamily: f.css, color }}>Aa Canto</span>
                       <span className="block text-xs text-logic-text-dim mt-1">{f.label}</span>

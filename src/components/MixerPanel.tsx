@@ -2,7 +2,8 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import { volumeToDb } from '@/lib/audioEngine';
 import { audioEngine } from '@/lib/audioEngine';
 import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { belowTarget, levelTarget, parseTargetDb, songLevelGain, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
 import { LedMeter } from '@/components/MeterMask';
@@ -366,7 +367,8 @@ function EsRowLabels() {
   );
 }
 
-function MixerChannel({ trackId, index, onMenu: openMenu }: {
+// memo: o canal já lê a própria faixa; mexer no fader de um canal não redesenha os outros.
+const MixerChannel = memo(function MixerChannel({ trackId, index, onMenu: openMenu }: {
   trackId: string;
   index: number;
   /** Botão direito no canal: o mesmo menu da faixa na timeline (cor, nome...). */
@@ -689,7 +691,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
       </div>
     </div>
   );
-}
+});
 
 // Knob de pan da skin padrão: o mesmo knob do volume das faixas, com o anel acendendo do centro.
 function PanKnob({ pan }: { pan: number }) {
@@ -704,38 +706,35 @@ const RAIL_H = 28;
  * Mixer. `fit` (Modo Show): os canais se ajustam à largura da tela, sem rolar e sem sobrar
  * espaço; com poucos canais o mixer cresce (até 60% da altura), com muitos ele encolhe.
  */
-export default function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
+// memo: sem props que mudem, o mixer só redesenha pelo que lê da store (antes redesenhava junto
+// com o App inteiro, a cada conferência da Rede Local e do Show Online).
+export default memo(MixerPanel);
+
+function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
   const mixerVisible = useStore((s) => s.mixerVisible);
   const toggleMixer = useStore((s) => s.toggleMixer);
-  const tracks = useStore((s) => s.tracks);
   const magicRoutingActive = useStore((s) => s.magicRoutingActive);
   const toggleMagicRouting = useStore((s) => s.toggleMagicRouting);
   const masterVolume = useStore((s) => s.masterVolume);
-  const masterClipPeak = useStore((s) => s.masterClipPeak);
+  // Só "está em clip": cada recorde novo do pico do master não redesenha o mixer inteiro.
+  const masterIsClipping = useStore((s) => s.masterClipPeak >= 1);
   const setMasterVolume = useStore((s) => s.setMasterVolume);
   const clearMasterClipIndicator = useStore((s) => s.clearMasterClipIndicator);
   const masterAntiClip = useStore((s) => !!s.masterAntiClip);
   const toggleMasterAntiClip = useStore((s) => s.toggleMasterAntiClip);
-  const masterIsClipping = masterClipPeak >= 1;
   const skin = useSkin();
   // menu da faixa (cor, nome...) aberto com o botão direito num canal
   const [trackMenu, setTrackMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
+  // estável: com o canal em memo, uma função nova a cada render redesenharia todos os canais
+  const openTrackMenu = useCallback((track: Track, x: number, y: number) => setTrackMenu({ track, x, y }), []);
   const grafite = skin === 'grafite';
   const faceRef = useRef<HTMLDivElement>(null);
   const channelsRef = useRef<HTMLDivElement>(null);
   const [fitBox, setFitBox] = useState<{ scale: number; w: number } | null>(null);
 
-  const allChannels = useMemo(() => {
-    const result: string[] = [];
-    for (const id of ROUTABLE_TRACKS) {
-      const track = tracks.find((t) => t.id === id);
-      if (!track) continue;
-      // só canais de topo: subgrupos e tracks soltas (filhas tocam pelo canal do pai)
-      if (track.parentId) continue;
-      result.push(track.id);
-    }
-    return result;
-  }, [tracks]);
+  // Só os ids dos canais de topo (subgrupos e tracks soltas; as filhas tocam pelo canal do pai).
+  // Mexer no fader cria outro array de faixas, mas a lista de canais é a mesma: o mixer não redesenha.
+  const allChannels = useStore(useShallow((s) => ROUTABLE_TRACKS.filter((id) => s.tracks.some((t) => t.id === id && !t.parentId))));
 
   useLayoutEffect(() => {
     if (!fit || !mixerVisible) { setFitBox(null); return; }
@@ -810,7 +809,7 @@ export default function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
           {skin === 'estudio' && <EsRowLabels />}
           <TimecodeMixerChannel />
           {allChannels.map((trackId, i) => (
-            <MixerChannel key={trackId} trackId={trackId} index={i} onMenu={(track, x, y) => setTrackMenu({ track, x, y })} />
+            <MixerChannel key={trackId} trackId={trackId} index={i} onMenu={openTrackMenu} />
           ))}
 
           {skin === 'oficina' ? (

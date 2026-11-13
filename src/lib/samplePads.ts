@@ -328,6 +328,38 @@ export function filterLabel(filter: number): string {
   return `${filter < 0 ? 'LP' : 'HP'} ${Math.round(Math.abs(filter) * 100)}`;
 }
 
+// ---------- Proteção de pico ----------
+
+/** Onde a proteção de pico da soma dos pads começa a agir: -1 dBFS (o mesmo do limitador do master). */
+export const PAD_CLIP_KNEE = Math.pow(10, -1 / 20);
+/** Quanto acima de 0 dBFS a curva da proteção cobre (8 = +18 dB); acima disso fica no teto. */
+export const PAD_CLIP_RANGE = 8;
+
+/**
+ * Proteção de pico da soma dos pads (vários pads juntos, reverb, delay e roll somam e passam de
+ * 0 dBFS): até -1 dBFS o som passa igual; acima, dobra suave até no máximo 0 dBFS, sem estourar
+ * na placa. Não atrasa nada, ao contrário de um limitador.
+ */
+export function padSoftClip(x: number): number {
+  const a = Math.abs(x);
+  if (a <= PAD_CLIP_KNEE) return x;
+  const room = 1 - PAD_CLIP_KNEE;
+  return Math.sign(x) * (PAD_CLIP_KNEE + room * Math.tanh((a - PAD_CLIP_KNEE) / room));
+}
+
+/**
+ * Curva do WaveShaper da proteção. O WaveShaper só lê de -1 a 1, então a soma entra dividida por
+ * PAD_CLIP_RANGE e a curva devolve o som no volume certo. Número ímpar de pontos, para o zero cair
+ * bem no meio (silêncio continua silêncio).
+ */
+export function padClipCurve(points = 16385) {
+  const n = Math.max(3, points % 2 === 1 ? points : points + 1);
+  const curve = new Float32Array(n);
+  const mid = (n - 1) / 2;
+  for (let i = 0; i < n; i++) curve[i] = padSoftClip(((i - mid) / mid) * PAD_CLIP_RANGE);
+  return curve;
+}
+
 /**
  * Onde o som está agora, em segundos do arquivo: começou em `anchorPos` no instante `anchorT` e
  * anda `rate` segundos por segundo; em loop, volta para o começo do trecho que repete.

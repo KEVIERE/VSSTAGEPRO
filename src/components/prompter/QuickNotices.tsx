@@ -2,11 +2,15 @@ import { Send, Megaphone } from 'lucide-react';
 import type { PrompterState } from '@/lib/prompterTypes';
 import { withNotice } from '@/lib/prompterView';
 
-/** Atalho da aba Tela: manda um aviso pronto para a TV com um toque (faixa inferior, até tirar). */
-export default function QuickNotices({ state, update, now, onManage }: {
+/**
+ * Atalho da aba Tela: manda um aviso pronto para a TV com um toque (faixa inferior, até tirar).
+ * `now` é a hora do servidor; `clockOffsetMs` carimba o aviso novo na hora do servidor.
+ */
+export default function QuickNotices({ state, update, now, clockOffsetMs = 0, onManage }: {
   state: PrompterState;
   update: (fn: (s: PrompterState) => PrompterState) => void;
   now: number;
+  clockOffsetMs?: number;
   onManage: () => void;
 }) {
   const active = state.notice;
@@ -40,7 +44,7 @@ export default function QuickNotices({ state, update, now, onManage }: {
             return (
               <li key={p}>
                 <button
-                  onClick={() => update((s) => withNotice(s, p, { level: 'info', layout: 'bar', durationSec: 0 }) ?? s)}
+                  onClick={() => update((s) => withNotice(s, p, { level: 'info', layout: 'bar', durationSec: 0 }, Date.now() + clockOffsetMs) ?? s)}
                   className={`group w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-left transition-colors active:scale-[0.99] ${onScreen ? 'border-logic-lcd-amber/60 bg-logic-lcd-amber/5' : 'border-logic-border bg-logic-bg-deep hover:border-logic-accent/60 hover:bg-logic-accent/5'}`}
                   title="Mandar para a tela"
                 >

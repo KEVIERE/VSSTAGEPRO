@@ -22,7 +22,7 @@ const TABS: { id: Tab; label: string; icon: typeof MonitorPlay }[] = [
   { id: 'lyrics', label: 'Letras', icon: FileText },
 ];
 
-/** "há 3 s", "agora" — o painel mostra quando o último envio chegou ao servidor. */
+/** "há 3 s", "agora": o painel mostra quando o último envio chegou ao servidor. */
 function ago(ms: number, now: number): string {
   const s = Math.max(0, Math.round((now - ms) / 1000));
   if (s < 3) return 'agora';
@@ -43,12 +43,16 @@ export default function ProducerArea() {
     if (feed.snap && code) sessionStorage.setItem(PRODUCER_SS, code);
   }, [feed.snap, code]);
 
-  // Desconectado pelo diretor: esquece o PIN e volta para a tela do PIN com o aviso.
-  const [kicked, setKicked] = useState(false);
+  // Código recusado ou desconectado pelo diretor: a busca parou. Esquece o código e volta para a
+  // tela do código com o motivo guardado aqui, porque trocar o código zera o erro do feed. Sem
+  // zerar o código, digitar de novo o MESMO código não reiniciava a busca.
+  const [rejected, setRejected] = useState<'invalid_code' | 'disconnected' | null>(null);
 
   useEffect(() => {
-    if (feed.error === 'invalid_code') sessionStorage.removeItem(PRODUCER_SS);
-    if (feed.error === 'disconnected') { sessionStorage.removeItem(PRODUCER_SS); setKicked(true); setCode(null); }
+    if (feed.error !== 'invalid_code' && feed.error !== 'disconnected') return;
+    sessionStorage.removeItem(PRODUCER_SS);
+    setRejected(feed.error);
+    setCode(null);
   }, [feed.error]);
 
   const leave = () => {
@@ -64,8 +68,8 @@ export default function ProducerArea() {
         icon={<Clapperboard size={22} />}
         title="Área do Produtor"
         subtitle="Escreva as letras do show, controle o que aparece na TV do palco e mande avisos para os artistas."
-        error={kicked ? feedErrorText('disconnected') : feedErrorText(feed.error)}
-        onSubmit={(c) => { window.location.hash = '#produtor'; setKicked(false); setCode(c); }}
+        error={feedErrorText(feed.error ?? rejected)}
+        onSubmit={(c) => { window.location.hash = '#produtor'; setRejected(null); setCode(c); }}
       />
     );
   }
@@ -85,9 +89,11 @@ export default function ProducerArea() {
   const snap = feed.snap;
   const state = ctl.state;
   const problem = ctl.error ?? (feed.error === 'offline' ? 'Sem conexão' : feed.error === 'not_ready' ? 'Projeto sem músicas no Mac' : null);
-  // Aviso já vencido (ou tirado) não é mais "no ar": a barra não pode dizer que está na TV.
+  // Aviso já vencido (ou tirado) não é mais "no ar": a barra não pode dizer que está na TV. O aviso
+  // é carimbado na hora do servidor, então a conta usa a hora do servidor, igual à TV.
+  const serverNow = feed.now + feed.sync.clockOffsetMs;
   const n = state.notice;
-  const live = n && (n.durationSec <= 0 || feed.now - n.sentAt < n.durationSec * 1000) ? n : null;
+  const live = n && (n.durationSec <= 0 || serverNow - n.sentAt < n.durationSec * 1000) ? n : null;
 
   return (
     <div className="h-screen flex flex-col bg-logic-bg-deep text-logic-text">
@@ -157,7 +163,7 @@ export default function ProducerArea() {
       <main className={`flex-1 min-h-0 overflow-y-auto logic-scroll ${tab === 'lyrics' ? 'lg:overflow-hidden' : ''}`}>
         <div className={`mx-auto px-3 sm:px-4 py-4 pb-24 sm:pb-6 ${tab === 'lyrics' ? 'max-w-[1800px] lg:h-full lg:py-3 lg:pb-3' : tab === 'notices' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
         {tab === 'screen' && <ScreenControlPanel code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} logoUrl={logoUrl} onManageNotices={() => setTab('notices')} />}
-        {tab === 'notices' && <NoticeControl state={state} update={ctl.update} songs={snap.show.setlist.songs} now={feed.now} />}
+        {tab === 'notices' && <NoticeControl state={state} update={ctl.update} songs={snap.show.setlist.songs} now={serverNow} clockOffsetMs={feed.sync.clockOffsetMs} />}
         {tab === 'lyrics' && <LyricsEditor code={code} snap={snap} sync={feed.sync} now={feed.now} state={state} update={ctl.update} />}
         </div>
       </main>

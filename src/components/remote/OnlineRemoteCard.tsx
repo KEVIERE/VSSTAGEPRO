@@ -44,7 +44,7 @@ export default function OnlineRemoteCard() {
     <div className="console-face rounded-lg border border-black overflow-hidden mb-4">
       <div className="console-rail flex items-center gap-2 px-4 h-9">
         <Smartphone size={14} className="text-logic-lcd-green" />
-        <span className="font-stage text-[14px] font-semibold tracking-wide text-logic-text">VS Stage Remote</span>
+        <span className="vs-brand text-[14px] text-logic-text">VS Stage Remote</span>
         <span className="ml-auto flex items-center gap-1.5 console-legend">
           <span className={`console-led ${on && phones > 0 ? 'is-on-green' : ''}`} />
           {!on ? 'Desligado' : phones === 0 ? 'Nenhum celular' : phones === 1 ? '1 celular' : `${phones} celulares`}

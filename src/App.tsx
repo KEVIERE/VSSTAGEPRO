@@ -353,10 +353,15 @@ function DirectorApp({ license }: { license: License }) {
   const saveKind = useStore((s) => s.saveStatus?.kind);
   useEffect(() => { if (saveKind === 'saved') setLyricsNotSaved(false); }, [saveKind]);
   // O produtor pode salvar várias vezes seguidas: vale a última. Espera os pedidos pararem e salva
-  // uma vez só (e nunca enquanto outro salvamento ainda está gravando).
+  // uma vez só (e nunca enquanto outro salvamento ainda está gravando). Com a música tocando, espera
+  // ela parar (como o Salvar do músico): gravar o .vss invalida os trechos que o motor ainda está
+  // lendo do disco, e a faixa que ainda não tinha chegado ficava muda. A letra já está no programa.
   const producerSave = useMemo(() => createCoalescedSave({
     delayMs: 3000,
-    busy: () => useStore.getState().saveStatus?.kind === 'saving',
+    busy: () => {
+      const s = useStore.getState();
+      return s.saveStatus?.kind === 'saving' || s.transport.isPlaying;
+    },
     run: () => saveCurrentProject(),
     onDone: (ok) => { if (!ok) setLyricsNotSaved(true); },
   }), []);

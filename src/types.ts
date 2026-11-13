@@ -288,6 +288,8 @@ export interface MusicianSheetRecord {
   content?: string;
   shared_from?: string | null;
   updated_at: string;
+  /** Cópia recebida de um colega: hora da chegada. Igual a `updated_at` enquanto o músico não mexer nela. */
+  received_at?: string;
   deleted?: boolean;
 }
 

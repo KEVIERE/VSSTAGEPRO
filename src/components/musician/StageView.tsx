@@ -281,7 +281,11 @@ export default function StageView({
   }, [zoom]);
 
   const onManual = () => { roll.current.manualUntil = performance.now() + MANUAL_PAUSE_MS; };
-  const key = (on: boolean) => `console-key flex items-center gap-1.5 h-8 px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
+  // Teclas de 40 px, boas para o dedo no palco. No celular deitado (compacto) ficam com 32 px:
+  // ali a altura é da cifra.
+  const key = (on: boolean) => `console-key flex items-center justify-center gap-1.5 ${compact ? 'h-8' : 'h-10 min-w-[40px]'} px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
+  const sq = compact ? 'w-8 h-8' : 'w-10 h-10';
+  const lcdH = compact ? 'h-8' : 'h-10';
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-logic-bg-deep">
@@ -312,9 +316,9 @@ export default function StageView({
                 <Maximize size={14} /> <span className={compact ? 'hidden' : ''}>Página inteira</span>
               </button>
               <div className="flex items-center gap-1 ml-1">
-                <button className="console-key w-8 h-8 flex items-center justify-center" onClick={() => saveZoom(zoom - 0.1)} aria-label="Letra menor"><Minus size={13} /></button>
-                <span className="console-display h-8 px-2 font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums">{Math.round(zoom * 100)}%</span>
-                <button className="console-key w-8 h-8 flex items-center justify-center" onClick={() => saveZoom(zoom + 0.1)} aria-label="Letra maior"><Plus size={13} /></button>
+                <button className={`console-key ${sq} flex items-center justify-center`} onClick={() => saveZoom(zoom - 0.1)} aria-label="Letra menor"><Minus size={13} /></button>
+                <span className={`console-display ${lcdH} px-2 font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`}>{Math.round(zoom * 100)}%</span>
+                <button className={`console-key ${sq} flex items-center justify-center`} onClick={() => saveZoom(zoom + 0.1)} aria-label="Letra maior"><Plus size={13} /></button>
               </div>
             </>
           )}
@@ -325,16 +329,16 @@ export default function StageView({
             >
               <span className={`console-legend ${compact ? 'hidden' : 'hidden sm:inline'}`}>Velocidade</span>
               <button
-                className="console-key w-8 h-8 flex items-center justify-center"
+                className={`console-key ${sq} flex items-center justify-center`}
                 onClick={() => saveSpeed(stepScrollSpeed(speed, -1))}
                 disabled={speed <= SCROLL_SPEEDS[0]}
                 aria-label="Rolar mais devagar"
               ><Turtle size={14} /></button>
-              <span className="console-display h-8 min-w-[48px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums" aria-live="polite">
+              <span className={`console-display ${lcdH} min-w-[48px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`} aria-live="polite">
                 {scrollSpeedLabel(speed)}
               </span>
               <button
-                className="console-key w-8 h-8 flex items-center justify-center"
+                className={`console-key ${sq} flex items-center justify-center`}
                 onClick={() => saveSpeed(stepScrollSpeed(speed, 1))}
                 disabled={speed >= SCROLL_SPEEDS[SCROLL_SPEEDS.length - 1]}
                 aria-label="Rolar mais rápido"
@@ -350,6 +354,7 @@ export default function StageView({
                 status={nb.status}
                 backend={backend}
                 onResult={(o) => setToast({ ok: o.tone === 'ok', warn: o.tone === 'warn', text: o.text })}
+                className={lcdH}
               />
               <button className={key(false)} onClick={images.open} disabled={images.adding} title="Importar a foto da sua partitura ou cifra para esta música">
                 {images.adding ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}

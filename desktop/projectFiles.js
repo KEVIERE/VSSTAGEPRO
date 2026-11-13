@@ -103,6 +103,23 @@ function maxAssetEnd(manifest) {
   return end;
 }
 
+// Onde termina o último áudio do manifest que este app acabou de gravar em cada projeto. O salvar
+// seguinte usa isso em vez de reler e analisar o manifest antigo inteiro: num show grande eram
+// dezenas de MB de texto analisados na thread da janela (teclado e mouse paravam junto). Só vale
+// enquanto o arquivo está exatamente como ficou (tamanho, data e lugar do manifest).
+const lastWritten = new Map();
+
+function rememberWritten(filePath, st, manifestStart, manifestLen, assetsEnd) {
+  lastWritten.set(filePath, { size: st.size, mtimeMs: st.mtimeMs, manifestStart, manifestLen, assetsEnd });
+}
+
+function writtenAssetsEnd(filePath, st, tail) {
+  const w = lastWritten.get(filePath);
+  if (!w || w.size !== st.size || w.mtimeMs !== st.mtimeMs) return null;
+  if (w.manifestStart !== tail.manifestStart || w.manifestLen !== tail.manifestLen) return null;
+  return w.assetsEnd;
+}
+
 /**
  * Troca só o manifest (letras, mixagem, ordem). Os áudios ficam onde estão.
  * 1. grava o manifest novo + rodapé depois do fim atual (o rodapé antigo continua lá: se cair no
@@ -124,10 +141,11 @@ async function writeTail(filePath, { expectedSize, expectedManifestStart, manife
     if (!tail || st.size !== expectedSize || tail.manifestStart !== expectedManifestStart) {
       return { ok: false, reason: 'changed' };
     }
-    const old = JSON.parse((await readRange(fh, tail.manifestStart, tail.manifestLen)).toString('utf8'));
-    const keep = maxAssetEnd(old);
+    let keep = writtenAssetsEnd(filePath, st, tail);
+    if (keep === null) keep = maxAssetEnd(JSON.parse((await readRange(fh, tail.manifestStart, tail.manifestLen)).toString('utf8')));
+    const newEnd = maxAssetEnd(parsed);
     // o manifest novo só pode apontar para áudio que já está no arquivo
-    if (maxAssetEnd(parsed) > keep || keep > tail.manifestStart) return { ok: false, reason: 'assets' };
+    if (newEnd > keep || keep > tail.manifestStart) return { ok: false, reason: 'assets' };
 
     const oldEnd = st.size;
     await writeAll(fh, Buffer.concat([bytes, trailer(oldEnd, bytes.length)]), oldEnd);
@@ -141,7 +159,9 @@ async function writeTail(filePath, { expectedSize, expectedManifestStart, manife
       await fh.sync();
     }
     const after = await fh.stat();
-    return { ok: true, size: after.size, mtimeMs: after.mtimeMs, manifestStart: size - TRAILER_SIZE - bytes.length };
+    const manifestStart = size - TRAILER_SIZE - bytes.length;
+    rememberWritten(filePath, after, manifestStart, bytes.length, newEnd);
+    return { ok: true, size: after.size, mtimeMs: after.mtimeMs, manifestStart };
   } finally {
     await fh.close();
   }
@@ -203,6 +223,8 @@ async function writeCopy(id, srcPath, begin, size) {
 async function writeClose(id) {
   const w = writer(id);
   writers.delete(id);
+  // arquivo novo inteiro: o salvar seguinte lê o manifest dele uma vez
+  lastWritten.delete(w.filePath);
   try {
     await w.fh.sync();
     await w.fh.close();
@@ -340,7 +362,8 @@ async function appendClose(id, manifest) {
   let parsed;
   try { parsed = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Projeto inválido.'); }
   // o manifest só pode apontar para áudio que está no arquivo
-  if (maxAssetEnd(parsed) > a.pos) throw new Error('O projeto aponta para áudio que não foi gravado.');
+  const assetsEnd = maxAssetEnd(parsed);
+  if (assetsEnd > a.pos) throw new Error('O projeto aponta para áudio que não foi gravado.');
   await writeAll(a.fh, Buffer.concat([bytes, trailer(a.pos, bytes.length)]), a.pos);
   const size = a.pos + bytes.length + TRAILER_SIZE;
   await a.fh.truncate(size);
@@ -349,6 +372,7 @@ async function appendClose(id, manifest) {
   await a.fh.close();
   await fsp.unlink(markerPath(a.filePath)).catch(() => {});
   const st = await fsp.stat(a.filePath);
+  rememberWritten(a.filePath, st, a.pos, bytes.length, assetsEnd);
   return { size: st.size, mtimeMs: st.mtimeMs, manifestStart: a.pos };
 }
 
