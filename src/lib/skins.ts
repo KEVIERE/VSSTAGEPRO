@@ -6,7 +6,7 @@ export type SkinId = 'analogica' | 'grafite' | 'estudio' | 'oficina';
 
 // `swatch`: as cores da amostrinha na janela de escolher (painel, tela e tecla acesa).
 export const SKINS: { id: SkinId; label: string; hint: string; swatch: [string, string, string] }[] = [
-  { id: 'analogica', label: 'VS Stage (padrão)', hint: 'Mesa digital de última geração: vidro escuro, luzes azuis e laranja', swatch: ['#0c1018', '#05070b', '#2e8bff'] },
+  { id: 'analogica', label: 'VS Stage (padrão)', hint: 'Mesa digital de última geração: preto piano, preto fosco e detalhes em cinza', swatch: ['#0f0f10', '#050505', '#d9d9de'] },
   { id: 'grafite', label: 'Grafite', hint: 'Mesa digital de palco: telas pretas, anel de LED e teclas que acendem', swatch: ['#1d2024', '#07080a', '#56c8ff'] },
   { id: 'estudio', label: 'Estúdio', hint: 'DAW moderna do Mac: cinza liso, faixas coloridas e fonte do sistema', swatch: ['#2c2c2e', '#0a84ff', '#ffd60a'] },
   { id: 'oficina', label: 'Oficina', hint: 'Editor de áudio clássico: cinza médio, faixas tingidas na cor e botões quadrados', swatch: ['#3c3c3c', '#a99ce0', '#35b86b'] },

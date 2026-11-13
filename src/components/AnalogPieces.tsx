@@ -67,18 +67,18 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
       <svg viewBox="0 0 40 40" className="absolute inset-0 w-full h-full" aria-hidden="true">
         <defs>
           <radialGradient id="an-knob-skirt" cx="50%" cy="38%" r="65%">
-            <stop offset="0" stopColor="#3a4458" />
-            <stop offset="0.6" stopColor="#171c27" />
-            <stop offset="1" stopColor="#07090e" />
+            <stop offset="0" stopColor="#4a4a4f" />
+            <stop offset="0.6" stopColor="#18181a" />
+            <stop offset="1" stopColor="#050505" />
           </radialGradient>
           <radialGradient id="an-knob-cap" cx="44%" cy="34%" r="70%">
-            <stop offset="0" stopColor="#2c3445" />
-            <stop offset="0.55" stopColor="#121722" />
-            <stop offset="1" stopColor="#07090e" />
+            <stop offset="0" stopColor="#3a3a3e" />
+            <stop offset="0.55" stopColor="#141415" />
+            <stop offset="1" stopColor="#050505" />
           </radialGradient>
           <linearGradient id="an-knob-rim" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#7fb2ff" stopOpacity="0.6" />
-            <stop offset="1" stopColor="#1f7bff" stopOpacity="0.1" />
+            <stop offset="0" stopColor="#c4c4cb" stopOpacity="0.7" />
+            <stop offset="1" stopColor="#000" stopOpacity="0.3" />
           </linearGradient>
         </defs>
         {/* anel de LEDs */}
@@ -91,10 +91,10 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
               key={i}
               x1={20 + Math.cos(a) * 16.2} y1={20 + Math.sin(a) * 16.2}
               x2={20 + Math.cos(a) * 18.6} y2={20 + Math.sin(a) * 18.6}
-              stroke={on ? (hot ? '#ff8a1e' : '#2e8bff') : '#1a2130'}
+              stroke={on ? (hot ? '#ff8a1e' : '#e2e2e7') : '#232326'}
               strokeWidth={1.7}
               strokeLinecap="round"
-              style={on ? { filter: `drop-shadow(0 0 1.6px ${hot ? '#ff8a1e' : '#2e8bff'})` } : undefined}
+              style={on ? { filter: `drop-shadow(0 0 1.4px ${hot ? '#ff8a1e' : 'rgba(255,255,255,0.7)'})` } : undefined}
             />
           );
         })}
@@ -110,7 +110,7 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
         <ellipse cx="18" cy="15.6" rx="5.6" ry="2.6" fill="#fff" opacity="0.1" />
         {/* ponteiro */}
         <g transform={`rotate(${angle} 20 20)`}>
-          <rect x="19.15" y="9.6" width="1.7" height="6.4" rx="0.85" fill="#d6e7ff" style={{ filter: 'drop-shadow(0 0 1.4px #2e8bff)' }} />
+          <rect x="19.15" y="9.6" width="1.7" height="6.4" rx="0.85" fill="#f2f2f5" style={{ filter: 'drop-shadow(0 0 1.2px rgba(255,255,255,0.8))' }} />
         </g>
       </svg>
     </div>

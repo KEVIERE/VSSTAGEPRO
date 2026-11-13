@@ -2887,29 +2887,30 @@
 }
 
 /* ================= Skin padrão: VS Stage, mesa digital de última geração =================
-   Vidro escuro azul-meia-noite com trama de pontos e fios de luz azul nas bordas; teclas de vidro
-   que acendem em neon (laranja da marca, verde, vermelho, azul); visores pretos tipo OLED com o
-   nome em branco-azulado; fader de vidro preto com linha de luz e o rastro azul do volume na
-   fenda; medidores estéreo. Vale só sem skin escolhida (:root sem data-skin). As regras usam
-   :where() para pesar o mesmo que as da base: vencem as dela e perdem para as do Tailwind. */
+   Preto fosco nos painéis e preto piano (brilhante, com reflexo) nas peças: teclas, visores,
+   capas de fader e knobs. Detalhes em cinza escuro e cinza claro; as luzes de estado acendem em
+   neon (laranja, verde, vermelho) e o resto brilha em branco. Visores pretos tipo OLED com o nome
+   em branco; fader com rastro de luz branca do volume; medidores estéreo.
+   Vale só sem skin escolhida (:root sem data-skin). As regras usam :where() para pesar o mesmo
+   que as da base: vencem as dela e perdem para as classes do Tailwind. */
 @layer base {
   :root:not([data-skin]) {
-    --lg-bg: 12 15 21;
-    --lg-bg-deep: 7 9 13;
-    --lg-bg-panel: 16 20 28;
-    --lg-bg-panel-light: 23 28 38;
-    --lg-bg-elevated: 31 37 50;
-    --lg-border: 30 37 50;
-    --lg-border-light: 46 55 72;
-    --lg-border-dark: 3 4 6;
-    --lg-text: 233 238 246;
-    --lg-text-dim: 156 168 186;
-    --lg-text-muted: 96 108 128;
-    --lg-accent: 31 123 255;
-    --lg-accent-hover: 77 154 255;
-    --lg-accent-dim: 14 90 214;
-    --lg-lcd-bg: 5 7 11;
-    --lg-lcd-text: 220 232 255;
+    --lg-bg: 15 15 16;
+    --lg-bg-deep: 9 9 10;
+    --lg-bg-panel: 19 19 20;
+    --lg-bg-panel-light: 28 28 30;
+    --lg-bg-elevated: 38 38 41;
+    --lg-border: 40 40 43;
+    --lg-border-light: 62 62 66;
+    --lg-border-dark: 3 3 4;
+    --lg-text: 236 236 238;
+    --lg-text-dim: 162 162 168;
+    --lg-text-muted: 104 104 110;
+    --lg-accent: 112 112 120;
+    --lg-accent-hover: 146 146 154;
+    --lg-accent-dim: 84 84 90;
+    --lg-lcd-bg: 6 6 7;
+    --lg-lcd-text: 236 236 240;
     --lg-lcd-amber: 255 146 44;
     --lg-lcd-green: 54 240 140;
     --lg-lcd-red: 255 72 72;
@@ -2920,97 +2921,92 @@
 @layer components {
   .console-faderfill { display: none; }
 
-  /* ---------- painéis de vidro escuro ---------- */
+  /* ---------- painéis em preto fosco ---------- */
   :where(:root:not([data-skin])) .console-face {
-    background-color: #0b0f17;
+    background-color: #0f0f10;
     background-image:
-      radial-gradient(rgba(120, 160, 255, 0.055) 0.6px, transparent 0.7px),
-      radial-gradient(140% 90% at 50% -20%, rgba(46, 139, 255, 0.1), transparent 60%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.25));
-    background-size: 12px 12px, 100% 100%, 100% 100%;
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.2));
   }
+  /* trilho em preto piano: brilho em cima e um fio cinza embaixo */
   :where(:root:not([data-skin])) .console-rail {
-    background-color: #080b11;
-    background-image: linear-gradient(180deg, rgba(46, 139, 255, 0.06), rgba(0, 0, 0, 0.3));
-    box-shadow: inset 0 -1px 0 rgba(46, 139, 255, 0.22), 0 1px 0 rgba(0, 0, 0, 0.8);
+    background-color: #0b0b0c;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.3) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 #2c2c2f;
   }
   :where(:root:not([data-skin])) .console-strip {
-    box-shadow: inset -1px 0 0 rgba(120, 160, 255, 0.07);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
   }
   :where(:root:not([data-skin])) .console-strip:hover {
-    background-color: rgba(46, 139, 255, 0.035);
+    background-color: rgba(255, 255, 255, 0.025);
   }
   :where(:root:not([data-skin])) .console-strip.is-selected {
-    background-color: rgba(46, 139, 255, 0.08);
-    box-shadow: inset 0 2px 0 #2e8bff, inset 0 0 18px rgba(46, 139, 255, 0.14), inset -1px 0 0 rgba(120, 160, 255, 0.07);
+    background-color: rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 2px 0 #d9d9de, inset 0 0 16px rgba(255, 255, 255, 0.05), inset -1px 0 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* ---------- visor do nome: preto tipo OLED, letra branco-azulada acesa ---------- */
+  /* ---------- visor do nome: preto piano tipo OLED, letra branca acesa ---------- */
   :root:not([data-skin]) .console-lcdname {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 600;
     font-size: 10.5px;
     letter-spacing: 0.04em;
-    color: #eaf3ff;
-    text-shadow: 0 0 6px rgba(90, 165, 255, 0.75), 0 0 1px rgba(200, 225, 255, 0.9);
+    color: #f4f4f6;
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
     background:
-      linear-gradient(180deg, rgba(120, 170, 255, 0.1), rgba(120, 170, 255, 0) 45%),
-      #04060a;
+      linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.015) 45%, rgba(255, 255, 255, 0) 46%),
+      #050505;
     border-radius: 4px;
-    box-shadow:
-      inset 0 0 0 1px rgba(90, 150, 255, 0.28),
-      inset 0 0 10px rgba(46, 139, 255, 0.16),
-      0 0 0 1px #020305,
-      0 0 10px rgba(46, 139, 255, 0.12);
+    box-shadow: inset 0 0 0 1px #2e2e31, inset 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 0 1px #000, 0 1px 0 1px rgba(255, 255, 255, 0.05);
   }
 
-  /* ---------- visores e leitores ---------- */
+  /* ---------- visores e leitores: preto piano ---------- */
   :where(:root:not([data-skin])) .logic-lcd,
   :where(:root:not([data-skin])) .console-display {
-    border-color: #020305;
+    border-color: #000;
     border-radius: 8px;
-    background-image: linear-gradient(180deg, rgba(120, 170, 255, 0.07), rgba(120, 170, 255, 0) 35%);
-    box-shadow: inset 0 0 0 1px rgba(90, 150, 255, 0.2), inset 0 0 22px rgba(46, 139, 255, 0.08), 0 0 16px rgba(46, 139, 255, 0.06);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.01) 40%, rgba(255, 255, 255, 0) 41%);
+    box-shadow: inset 0 0 0 1px #2a2a2d, inset 0 2px 6px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.06);
   }
   :where(:root:not([data-skin])) .console-bezel {
     padding: 2px;
     border-radius: 11px;
-    background: linear-gradient(180deg, rgba(90, 150, 255, 0.5), rgba(46, 139, 255, 0.08));
-    box-shadow: 0 0 24px rgba(46, 139, 255, 0.15);
+    background: linear-gradient(180deg, #4a4a4f, #1a1a1c 50%, #0c0c0d);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
   :where(:root:not([data-skin])) .console-readout {
-    background-color: #04060a;
+    background-color: #050505;
     border-radius: 3px;
-    box-shadow: inset 0 0 0 1px rgba(90, 150, 255, 0.18);
+    box-shadow: inset 0 0 0 1px #2a2a2d;
   }
   .segment-display.is-tft {
-    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 45%, transparent));
+    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 40%, transparent));
   }
   :where(:root:not([data-skin])) .console-legend {
     font-family: 'Inter', system-ui, sans-serif;
     letter-spacing: 0.1em;
-    color: #7f8ea8;
+    color: #8a8a90;
   }
 
-  /* ---------- teclas de vidro que acendem em neon ---------- */
+  /* ---------- teclas em preto piano; acesas em neon ---------- */
   :where(:root:not([data-skin])) .console-key,
   :where(:root:not([data-skin])) .logic-btn,
   :where(:root:not([data-skin])) .logic-btn-transport {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 600;
-    color: #b8c6dc;
-    background-color: #111622;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.01) 50%, rgba(0, 0, 0, 0.2));
-    border: 1px solid rgba(140, 180, 255, 0.16);
+    color: #c4c4ca;
+    background-color: #121213;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.03) 46%, rgba(255, 255, 255, 0) 47%, rgba(0, 0, 0, 0.25) 100%);
+    border: 1px solid #333336;
     border-radius: 6px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 6px rgba(0, 0, 0, 0.45);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 5px rgba(0, 0, 0, 0.6);
   }
   :where(:root:not([data-skin])) .console-key:hover,
   :where(:root:not([data-skin])) .logic-btn:hover,
   :where(:root:not([data-skin])) .logic-btn-transport:hover {
     color: #ffffff;
-    background-color: #161d2b;
-    border-color: rgba(140, 180, 255, 0.32);
+    background-color: #1c1c1e;
+    border-color: #4a4a4f;
   }
   :where(:root:not([data-skin])) .console-key.is-lit-amber {
     color: #ffc58a;
@@ -3037,12 +3033,12 @@
     text-shadow: 0 0 6px rgba(255, 72, 72, 0.8);
   }
   :where(:root:not([data-skin])) .console-key.is-lit-blue {
-    color: #b9d8ff;
-    background-color: rgba(46, 139, 255, 0.18);
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.12);
     background-image: none;
-    border-color: #2e8bff;
-    box-shadow: 0 0 12px rgba(46, 139, 255, 0.45), inset 0 0 8px rgba(46, 139, 255, 0.25);
-    text-shadow: 0 0 6px rgba(46, 139, 255, 0.8);
+    border-color: #d9d9de;
+    box-shadow: 0 0 12px rgba(255, 255, 255, 0.25), inset 0 0 8px rgba(255, 255, 255, 0.12);
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
   }
   :where(:root:not([data-skin])) .console-key.is-big { border-radius: 10px; }
   :where(:root:not([data-skin])) .console-key.is-big.is-lit-green {
@@ -3050,9 +3046,10 @@
   }
   :where(:root:not([data-skin])) .console-flatkey {
     font-family: 'Inter', system-ui, sans-serif;
-    color: #9fb0c8;
-    background-color: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(140, 180, 255, 0.14);
+    color: #a6a6ad;
+    background-color: #131314;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.2));
+    border: 1px solid #2e2e31;
     border-radius: 4px;
   }
   :where(:root:not([data-skin])) .console-flatkey.is-lit-amber {
@@ -3064,98 +3061,98 @@
   :where(:root:not([data-skin])) .console-led.is-on-green { background: #36f08c; box-shadow: 0 0 6px 1px rgba(54, 240, 140, 0.8); }
   :where(:root:not([data-skin])) .console-led.is-on-amber { background: #ff8a1e; box-shadow: 0 0 6px 1px rgba(255, 138, 30, 0.8); }
 
-  /* ---------- fader: vidro preto com linha de luz e o rastro azul do volume ---------- */
+  /* ---------- fader: capa em preto piano, linha clara e o rastro de luz branca ---------- */
   :where(:root:not([data-skin])) .console-slot {
-    background: #020305;
-    box-shadow: inset 0 0 0 1px rgba(120, 160, 255, 0.12);
+    background: #000;
+    box-shadow: inset 0 0 0 1px #2a2a2d;
   }
   :where(:root:not([data-skin])) .console-faderfill {
     display: block;
     width: 2px;
     border-radius: 1px;
-    background: linear-gradient(to top, rgba(46, 139, 255, 0.05), #3d9bff);
-    box-shadow: 0 0 6px rgba(46, 139, 255, 0.85);
+    background: linear-gradient(to top, rgba(255, 255, 255, 0.04), #e6e6ea);
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
   }
   :where(:root:not([data-skin])) .console-cap {
     border-radius: 4px;
     background:
-      linear-gradient(to bottom, transparent calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% + 1px), transparent calc(50% + 1px)),
-      linear-gradient(180deg, #2b3446 0%, #141a26 45%, #0b0f17 100%);
-    box-shadow: 0 0 0 1px rgba(140, 180, 255, 0.22), 0 4px 10px rgba(0, 0, 0, 0.7), 0 0 10px color-mix(in srgb, var(--vs-line, #3d9bff) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+      linear-gradient(to bottom, transparent calc(50% - 1px), var(--vs-line, #d9d9de) calc(50% - 1px), var(--vs-line, #d9d9de) calc(50% + 1px), transparent calc(50% + 1px)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0.05) 46%, rgba(255, 255, 255, 0) 47%),
+      linear-gradient(180deg, #2a2a2d 0%, #121213 50%, #050505 100%);
+    box-shadow: 0 0 0 1px #3a3a3e, 0 4px 10px rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
   :where(:root:not([data-skin])) .console-cap.is-horizontal {
     background:
-      linear-gradient(to right, transparent calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% + 1px), transparent calc(50% + 1px)),
-      linear-gradient(180deg, #2b3446, #0b0f17);
+      linear-gradient(to right, transparent calc(50% - 1px), var(--vs-line, #d9d9de) calc(50% - 1px), var(--vs-line, #d9d9de) calc(50% + 1px), transparent calc(50% + 1px)),
+      linear-gradient(180deg, #2a2a2d, #050505);
   }
-  :where(:root:not([data-skin])) .console-cap--cue { --vs-line: #37d4ff; }
-  :where(:root:not([data-skin])) .console-cap--band { --vs-line: #3d9bff; }
+  :where(:root:not([data-skin])) .console-cap--cue { --vs-line: #f2f2f5; }
+  :where(:root:not([data-skin])) .console-cap--band { --vs-line: #a3a3aa; }
   :where(:root:not([data-skin])) .console-cap--master { --vs-line: #ff4848; }
   :where(:root:not([data-skin])) .console-cap--tc { --vs-line: #ff922c; }
-  :where(:root:not([data-skin])) .console-scale { color: #64748e; font-family: 'Inter', system-ui, sans-serif; }
-  :where(:root:not([data-skin])) .console-scale.is-unity { color: #cfe0ff; }
+  :where(:root:not([data-skin])) .console-scale { color: #6c6c73; font-family: 'Inter', system-ui, sans-serif; }
+  :where(:root:not([data-skin])) .console-scale.is-unity { color: #e6e6ea; }
   :where(:root:not([data-skin])) .console-tick {
-    background: linear-gradient(to right, rgba(140, 180, 255, 0.25) 0 5px, transparent 5px calc(100% - 5px), rgba(140, 180, 255, 0.25) calc(100% - 5px));
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.2) 0 5px, transparent 5px calc(100% - 5px), rgba(255, 255, 255, 0.2) calc(100% - 5px));
   }
   :where(:root:not([data-skin])) .console-tick.is-unity {
-    background: linear-gradient(to right, rgba(160, 200, 255, 0.8) 0 6px, transparent 6px calc(100% - 6px), rgba(160, 200, 255, 0.8) calc(100% - 6px));
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.75) 0 6px, transparent 6px calc(100% - 6px), rgba(255, 255, 255, 0.75) calc(100% - 6px));
   }
   :where(:root:not([data-skin])) .console-well {
-    background-color: #04060a;
+    background-color: #050505;
     border-radius: 2px;
-    box-shadow: inset 0 0 0 1px rgba(120, 160, 255, 0.1);
+    box-shadow: inset 0 0 0 1px #232326;
   }
   :where(:root:not([data-skin])) .console-meter-segments {
-    background: repeating-linear-gradient(to top, transparent 0 2px, #04060a 2px 3px);
+    background: repeating-linear-gradient(to top, transparent 0 2px, #050505 2px 3px);
   }
 
-  /* ---------- faixas da timeline ---------- */
+  /* ---------- faixas da timeline: preto fosco, a selecionada em cinza ---------- */
   :where(:root:not([data-skin])) .console-row {
-    background-color: #0f141e;
-    background-image: linear-gradient(180deg, rgba(120, 160, 255, 0.05), rgba(0, 0, 0, 0.2));
-    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(120, 160, 255, 0.06);
+    background-color: #121213;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.2));
+    box-shadow: inset 0 -1px 0 #000, inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
-  :where(:root:not([data-skin])) .console-row:hover { background-color: #131a26; }
+  :where(:root:not([data-skin])) .console-row:hover { background-color: #18181a; }
   :where(:root:not([data-skin])) .console-row.is-selected {
-    background-color: #11203a;
-    box-shadow: inset 0 0 0 1px rgba(46, 139, 255, 0.65), inset 0 0 16px rgba(46, 139, 255, 0.15);
+    background-color: #202023;
+    box-shadow: inset 0 0 0 1px #6e6e75, inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
-  :where(:root:not([data-skin])) .console-row-child { background-color: #0a0d14; }
-  :where(:root:not([data-skin])) .console-row-child.is-selected { background-color: rgba(46, 139, 255, 0.14); }
+  :where(:root:not([data-skin])) .console-row-child { background-color: #0c0c0d; }
+  :where(:root:not([data-skin])) .console-row-child.is-selected { background-color: #1c1c1f; }
   .an-edge-meter {
-    background: #04060a;
-    box-shadow: inset 0 0 0 1px rgba(120, 160, 255, 0.12);
+    background: #050505;
+    box-shadow: inset 0 0 0 1px #232326;
   }
 
   /* ---------- playlist, pads e o resto ---------- */
   :where(:root:not([data-skin])) .cue-row.is-current {
-    background-color: rgba(54, 240, 140, 0.1);
-    box-shadow: inset 3px 0 0 #36f08c, 0 0 0 0 transparent;
+    background-color: rgba(54, 240, 140, 0.09);
+    box-shadow: inset 3px 0 0 #36f08c;
   }
   :where(:root:not([data-skin])) .cue-row.is-next {
-    background-color: rgba(255, 138, 30, 0.09);
+    background-color: rgba(255, 138, 30, 0.08);
     box-shadow: inset 3px 0 0 #ff8a1e;
   }
   :where(:root:not([data-skin])) .cue-row.is-selected {
-    background-color: rgba(46, 139, 255, 0.1);
-    box-shadow: inset 3px 0 0 #2e8bff;
+    background-color: rgba(255, 255, 255, 0.06);
+    box-shadow: inset 3px 0 0 #d9d9de;
   }
   :where(:root:not([data-skin])) .console-pad {
     border-radius: 8px;
-    border-color: rgba(140, 180, 255, 0.16);
-    background-color: #111622;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.2));
+    border-color: #2e2e31;
+    background-color: #121213;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 46%, rgba(0, 0, 0, 0.25));
   }
   :where(:root:not([data-skin])) .console-pad.is-active {
     border-color: var(--pad-color);
-    background-color: color-mix(in srgb, var(--pad-color) 18%, #111622);
+    background-color: color-mix(in srgb, var(--pad-color) 18%, #121213);
     box-shadow: 0 0 16px color-mix(in srgb, var(--pad-color) 50%, transparent);
   }
   :where(:root:not([data-skin])) .sk-tc-row { background-color: #17130c; }
-  :root:not([data-skin]) .sk-narration-head { background-color: #0d1420; }
-  :root:not([data-skin]) .sk-narration-lane { background-color: #090e17; }
+  :root:not([data-skin]) .sk-narration-head { background-color: #141416; }
+  :root:not([data-skin]) .sk-narration-lane { background-color: #0d0d0e; }
   :root:not([data-skin]) .font-mono { font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
-  :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-thumb { background: rgba(120, 160, 255, 0.22); border-radius: 9999px; }
+  :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 9999px; }
   :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-track { background: transparent; }
 }
-

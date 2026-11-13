@@ -680,8 +680,8 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
   );
 }
 
-// Knob de pan da skin padrão: anel de LEDs azuis acendendo do centro até o pan (laranja quando
-// passa do meio para um lado), corpo de vidro escuro com aro de luz e o ponteiro aceso.
+// Knob de pan da skin padrão: anel de LEDs brancos acendendo do centro até o pan, corpo em preto
+// piano com aro cinza e o ponteiro aceso.
 const PAN_LEDS = 13;
 
 function PanKnob({ pan }: { pan: number }) {
@@ -692,24 +692,24 @@ function PanKnob({ pan }: { pan: number }) {
     <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
       <defs>
         <radialGradient id="vs-pan-body" cx="45%" cy="32%" r="72%">
-          <stop offset="0" stopColor="#2c3445" />
-          <stop offset="0.6" stopColor="#121722" />
-          <stop offset="1" stopColor="#07090e" />
+          <stop offset="0" stopColor="#3a3a3e" />
+          <stop offset="0.6" stopColor="#141415" />
+          <stop offset="1" stopColor="#050505" />
         </radialGradient>
         <linearGradient id="vs-pan-rim" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#7fb2ff" stopOpacity="0.55" />
-          <stop offset="1" stopColor="#1f7bff" stopOpacity="0.08" />
+          <stop offset="0" stopColor="#bdbdc4" stopOpacity="0.6" />
+          <stop offset="1" stopColor="#3a3a3e" stopOpacity="0.2" />
         </linearGradient>
       </defs>
       {Array.from({ length: PAN_LEDS }, (_, i) => {
         const a = ((-135 + (i / (PAN_LEDS - 1)) * 270 - 90) * Math.PI) / 180;
         const lit = i === mid || (pos >= mid ? i >= mid && i <= pos + 0.01 : i <= mid && i >= pos - 0.01);
-        const color = i === mid ? '#9cc8ff' : '#2e8bff';
+        const color = i === mid ? '#f2f2f5' : '#d0d0d6';
         return (
           <circle
             key={i}
             cx={14 + 12.6 * Math.cos(a)} cy={14 + 12.6 * Math.sin(a)} r={0.95}
-            fill={lit ? color : '#1a2130'}
+            fill={lit ? color : '#232326'}
             style={lit ? { filter: `drop-shadow(0 0 1.5px ${color})` } : undefined}
           />
         );
@@ -719,7 +719,7 @@ function PanKnob({ pan }: { pan: number }) {
       <circle cx="14" cy="14" r="9.2" fill="none" stroke="url(#vs-pan-rim)" strokeWidth="0.8" />
       <ellipse cx="12.6" cy="10.4" rx="4.4" ry="2.1" fill="#fff" opacity="0.07" />
       <g transform={`rotate(${v * 135} 14 14)`}>
-        <rect x="13.35" y="5.8" width="1.3" height="5.2" rx="0.65" fill="#cfe3ff" style={{ filter: 'drop-shadow(0 0 1.4px #2e8bff)' }} />
+        <rect x="13.35" y="5.8" width="1.3" height="5.2" rx="0.65" fill="#f2f2f5" style={{ filter: 'drop-shadow(0 0 1.2px rgba(255,255,255,0.8))' }} />
       </g>
     </svg>
   );
