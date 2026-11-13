@@ -187,6 +187,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     clearLocalSession(scope);
     window.vsDesktop?.licenseCacheClear?.().catch(() => {});
     lastCheckRef.current = null;
+    usableLicenseRef.current = null;
     setNeedInternet(null);
     setDeviceConflict(null);
     setDeviceError(null);
@@ -208,6 +209,8 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const [needInternet, setNeedInternet] = useState<NeedInternetReason | null>(null);
   // Última resposta do servidor nesta abertura: vale como conferência se o Mac não tiver a guardada.
   const lastCheckRef = useRef<LicenseCache | null>(null);
+  // Última licença que liberava o editor: segura o show quando a conta trava com música tocando.
+  const usableLicenseRef = useRef<License | null>(null);
   // Um Mac por vez: quem é este Mac e a pergunta quando a conta está aberta em outro.
   const deviceRef = useRef<{ id: string; name: string } | null>(null);
   const [deviceConflict, setDeviceConflict] = useState<{ otherName: string | null; otherSeen: string | null } | null>(null);
@@ -557,7 +560,16 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     </div>
   );
 
-  const showingEditor = !!session && gatePassed && !deviceConflict && !(needInternet && !license) && license?.status !== 'blocked' && license?.status !== 'expired';
+  // Com música tocando, a licença nunca derruba o show: prazo sem internet vencido, teste
+  // encerrado ou conta bloqueada esperam a música parar para mostrar a tela de acesso. Até lá o
+  // editor continua com a última licença que valia (só a trava de um Mac por vez já fazia isso).
+  const isPlaying = useStore((s) => s.transport.isPlaying);
+  const locked = !!deviceConflict || (!!needInternet && !license) || license?.status === 'blocked' || license?.status === 'expired';
+  useEffect(() => {
+    if (!locked && license) usableLicenseRef.current = license;
+  }, [locked, license]);
+  const holdForShow = locked && isPlaying && !!session && gatePassed && usableLicenseRef.current !== null;
+  const showingEditor = (!!session && gatePassed && !locked) || holdForShow;
   useEffect(() => {
     if (!ready || showingEditor) return;
     const id = requestAnimationFrame(() => window.vsDesktop?.appReady());
@@ -725,6 +737,21 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           </AccessFoot>
         </AccessCard>
       </AccessStage>
+    );
+  }
+
+  if (holdForShow && session && usableLicenseRef.current) {
+    return (
+      <>
+        {children(usableLicenseRef.current, session)}
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] max-w-[calc(100vw-2rem)] px-4 py-3 rounded-lg text-sm flex items-center gap-2.5 console-face shadow-2xl ring-1 ring-black text-logic-lcd-amber"
+        >
+          <span className="console-lamp is-on shrink-0" />
+          Sua conta precisa ser conferida. A música segue tocando; a tela de acesso aparece quando ela parar.
+        </div>
+      </>
     );
   }
 

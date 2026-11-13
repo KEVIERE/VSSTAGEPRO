@@ -116,3 +116,12 @@ test('todo motivo tem texto para a tela', () => {
     assert.ok(NEED_INTERNET_TEXT[reason]?.length > 20, reason);
   }
 });
+
+test('assinatura ativa com data de fim que já tinha passado na conferência: vale o limite de 30 dias', () => {
+  // ativada pela administração: o servidor libera e a data é resto do Stripe antigo
+  const c = cache({ status: 'active', subscription: 'active', plan: 'monthly', current_period_end: iso(T0 - 5 * 3600 * 1000) });
+  const d = decideOffline(c, 'u1', T0 + 2 * D);
+  assert.equal(d.kind, 'use');
+  assert.equal(d.until, T0 + 30 * D);
+  assert.deepEqual(decideOffline(c, 'u1', T0 + 30 * D), { kind: 'need_internet', reason: 'too_long' });
+});

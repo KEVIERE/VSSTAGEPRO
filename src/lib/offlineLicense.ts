@@ -75,7 +75,11 @@ export function decideOffline(cache: LicenseCache | null | undefined, userId: st
 
   if (license.status === 'active') {
     const periodEnd = time(license.current_period_end) ?? time(license.ends_at);
-    const paidEnd = periodEnd ?? Infinity;
+    // Data que já tinha passado quando o servidor respondeu "ativa" não é o fim do período: é
+    // resto de outra forma de pagamento (assinatura ativada pela administração herdava a data do
+    // Stripe antigo). O servidor liberou mesmo assim, então vale só o limite de 30 dias. Sem
+    // isso, essa conta ficava sem nenhum tempo de uso sem internet.
+    const paidEnd = periodEnd !== null && periodEnd > checkedAt ? periodEnd : Infinity;
     const until = Math.min(paidEnd, offlineEnd);
     if (t >= until) return { kind: 'need_internet', reason: paidEnd <= offlineEnd ? 'paid_period_over' : 'too_long' };
     return { kind: 'use', license, checkedAt, until };
