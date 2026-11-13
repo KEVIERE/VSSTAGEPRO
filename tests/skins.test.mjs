@@ -137,8 +137,8 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<EsName name="Timecode"/);
   assert.match(read('src', 'components', 'MiniFader.tsx'), /className="es-hslider-fill"/, 'volume da faixa com o verde');
   const tl = read('src', 'components', 'TimelinePanel.tsx');
-  assert.match(tl, /color=\{estudio && !isMuted \? shade\(routingColor, 0\.62\) : routingColor\}/, 'onda escura no clipe colorido (Estúdio)');
-  assert.match(tl, /color-mix\(in srgb, \$\{routingColor\} \$\{isSelected \? 42 : 30\}%, #232427\)/, 'Oficina: clipe sóbrio, onda na cor da faixa');
+  assert.match(tl, /color=\{filled && !isMuted \? shade\(routingColor, oficina \? 0\.7 : 0\.62\) : routingColor\}/, 'onda escura no clipe colorido');
+  assert.match(tl, /color-mix\(in srgb, \$\{routingColor\} \$\{isSelected \? 82 : 66\}%, #2a2b2e\)/, 'Oficina: clipe na cor, em tom médio');
   assert.match(tl, /\(estudio \? esTrackColor : ofTrackColor\)\(clipTrack\.color, esChannelOrder\(useStore\.getState\(\)\.tracks, ROUTABLE_TRACKS, clipTrack\.id\)\)/, 'clipe na mesma cor do canal');
   assert.match(mixer, /const color = esTrackColor\(track\.color, index\);/);
   assert.match(mixer, /\{skin === 'estudio' && <EsRowLabels \/>\}/, 'nomes das linhas na lateral do mixer');
@@ -184,5 +184,11 @@ test('Oficina: nome da faixa com o ícone do instrumento, escrito normal', () =>
   assert.match(pieces, /\[\/maestro\/i, Megaphone\]/);
   assert.match(pieces, /\[\/bateria\|drum\|perc/);
   assert.match(pieces, /return ICONS\.find\(\(\[re\]\) => re\.test\(name\)\)\?\.\[1\] \?\? AudioLines;/);
+});
+
+test('Oficina: pan fora do centro acende o arco verde', () => {
+  const pieces = read('src', 'components', 'OficinaPieces.tsx');
+  assert.match(pieces, /const off = Math\.abs\(v\) > 0\.01;/);
+  assert.match(pieces, /\{off && \(\s*<path[\s\S]*?stroke="#3ddc84"/);
 });
 

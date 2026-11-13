@@ -42,7 +42,7 @@ export default function TimecodeMixerChannel() {
         </div>
         <div className="flex items-start gap-[3px] mt-auto mb-[4px]">
           <div
-            className="of-fader relative w-[22px]"
+            className="of-fader relative w-[18px]"
             style={{ height: OF_FADER_H }}
             onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
             title={locked ? 'Fader travado. Clique no cadeado para destravar.' : 'Duplo clique = -6 dB'}

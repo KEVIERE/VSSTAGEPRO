@@ -22,94 +22,94 @@ export function ofTrackColor(color: string, order: number): string {
 // ---------- fader ----------
 
 export type OfCapTone = 'band' | 'cue' | 'master' | 'tc';
-const CAP_GAP: Record<OfCapTone, string> = { band: '#0c0c0c', cue: '#0c0c0c', master: '#5a0f0a', tc: '#5a3a05' };
+const CAP_INDEX: Record<OfCapTone, string> = { band: '#f2f3f5', cue: '#f2f3f5', master: '#ff5a46', tc: '#ffad33' };
 
 /**
- * Capa cromada em dois blocos, desenhada como metal de verdade: cada bloco tem as faixas de
- * reflexo do cromo (claro em cima, uma faixa escura, o reflexo forte e a sombra embaixo), as
- * laterais arredondadas mais escuras, o chanfro de luz na quina de cima e a borda escura embaixo.
- * O vão do meio é fundo, com sombra por dentro.
+ * Capa do fader em cromo realista: cada metade reflete como metal polido de verdade (claro em
+ * cima, a faixa escura do horizonte, o reflexo do meio e a sombra embaixo), com as laterais
+ * escurecendo, quinas finas, um escovado bem leve e a ranhura do meio com o traço de referência.
  */
 export function OfCap({ tone, className = '', style }: { tone: OfCapTone; className?: string; style?: React.CSSProperties }) {
-  const block = (y: number, h: number, metal: string) => (
+  const half = (y: number) => (
     <g>
-      {/* corpo de metal com as faixas de reflexo */}
-      <rect x="0.7" y={y} width="22.6" height={h} rx="3.6" fill={`url(#${metal})`} />
-      {/* laterais arredondadas (cilindro): escurecem nas pontas */}
-      <rect x="0.7" y={y} width="22.6" height={h} rx="3.6" fill="url(#of-cap-cyl)" />
-      {/* reflexo forte e estreito no alto */}
-      <rect x="3.2" y={y + 1.1} width="17.6" height="2.2" rx="1.1" fill="#fff" opacity="0.85" />
-      <rect x="5" y={y + 1.5} width="7" height="1.2" rx="0.6" fill="#fff" />
-      {/* chanfro de luz na quina de cima e sombra na de baixo */}
-      <rect x="1.6" y={y + 0.35} width="20.8" height="0.7" rx="0.35" fill="#fff" opacity="0.9" />
-      <rect x="1.6" y={y + h - 1.05} width="20.8" height="0.8" rx="0.4" fill="#000" opacity="0.45" />
-      {/* contorno */}
-      <rect x="0.7" y={y} width="22.6" height={h} rx="3.6" fill="none" stroke="#111111" strokeWidth="0.65" />
+      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="url(#of-chrome)" />
+      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="url(#of-chrome-brush)" />
+      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="url(#of-chrome-edges)" />
+      <rect x="1.3" y={y + 0.35} width="15.4" height="0.55" rx="0.27" fill="#fff" opacity="0.95" />
+      <rect x="1.3" y={y + 11.6} width="15.4" height="0.6" rx="0.3" fill="#000" opacity="0.4" />
+      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="none" stroke="#121315" strokeWidth="0.55" />
     </g>
   );
   return (
-    <svg viewBox="0 0 24 36" preserveAspectRatio="none" className={`of-cap ${className}`} style={style} aria-hidden="true">
+    <svg viewBox="0 0 18 28" preserveAspectRatio="none" className={`of-cap ${className}`} style={style} aria-hidden="true">
       <defs>
-        <linearGradient id="of-cap-metal-a" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#fdfdfd" />
-          <stop offset="0.22" stopColor="#d9dadc" />
-          <stop offset="0.42" stopColor="#8e9094" />
-          <stop offset="0.5" stopColor="#6b6d71" />
-          <stop offset="0.6" stopColor="#c9cacc" />
-          <stop offset="0.78" stopColor="#a4a6a9" />
-          <stop offset="1" stopColor="#4c4e52" />
+        <linearGradient id="of-chrome" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="#fbfcfd" />
+          <stop offset="0.16" stopColor="#d7dade" />
+          <stop offset="0.34" stopColor="#5b5f65" />
+          <stop offset="0.46" stopColor="#7f848b" />
+          <stop offset="0.66" stopColor="#e9ecef" />
+          <stop offset="0.82" stopColor="#aeb2b8" />
+          <stop offset="1" stopColor="#5f636a" />
         </linearGradient>
-        <linearGradient id="of-cap-metal-b" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#f1f1f2" />
-          <stop offset="0.25" stopColor="#c6c7c9" />
-          <stop offset="0.45" stopColor="#7d7f83" />
-          <stop offset="0.55" stopColor="#5d5f63" />
-          <stop offset="0.66" stopColor="#b7b8bb" />
-          <stop offset="0.84" stopColor="#8a8c90" />
-          <stop offset="1" stopColor="#3d3f42" />
+        <linearGradient id="of-chrome-edges" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#000" stopOpacity="0.42" />
+          <stop offset="0.12" stopColor="#000" stopOpacity="0.08" />
+          <stop offset="0.35" stopColor="#fff" stopOpacity="0.1" />
+          <stop offset="0.6" stopColor="#fff" stopOpacity="0" />
+          <stop offset="0.88" stopColor="#000" stopOpacity="0.1" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.45" />
         </linearGradient>
-        <linearGradient id="of-cap-cyl" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#000" stopOpacity="0.5" />
-          <stop offset="0.12" stopColor="#000" stopOpacity="0.12" />
-          <stop offset="0.3" stopColor="#fff" stopOpacity="0.12" />
-          <stop offset="0.5" stopColor="#fff" stopOpacity="0" />
-          <stop offset="0.85" stopColor="#000" stopOpacity="0.12" />
-          <stop offset="1" stopColor="#000" stopOpacity="0.55" />
-        </linearGradient>
-        <linearGradient id="of-cap-gap" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#000" />
-          <stop offset="1" stopColor="#262626" />
-        </linearGradient>
+        <pattern id="of-chrome-brush" width="18" height="0.9" patternUnits="userSpaceOnUse">
+          <rect width="18" height="0.35" fill="#fff" opacity="0.07" />
+        </pattern>
       </defs>
-      {/* vão entre os blocos: fundo, com a cor da função bem escura */}
-      <rect x="2.2" y="15.8" width="19.6" height="4.4" rx="1" fill="url(#of-cap-gap)" />
-      <rect x="2.2" y="17.4" width="19.6" height="1.2" fill={CAP_GAP[tone]} opacity="0.9" />
-      {block(0.6, 15.6, 'of-cap-metal-a')}
-      {block(19.8, 15.6, 'of-cap-metal-b')}
+      {half(0.6)}
+      {/* ranhura do meio com o traço de referência */}
+      <rect x="0.6" y="13.2" width="16.8" height="1.6" fill="#16171a" />
+      <rect x="1.6" y="13.6" width="14.8" height="0.8" rx="0.4" fill={CAP_INDEX[tone]} />
+      {half(14.8)}
     </svg>
   );
 }
 
 // ---------- knob ----------
 
-/** Knob redondo branco brilhante (como uma bolinha) com o ponto preto mostrando a posição. */
+/**
+ * Knob redondo branco com o ponto preto mostrando a posição. Fora do centro, acende em volta um
+ * arco verde do centro até onde o knob está (como o pan desses editores).
+ */
 export function OfKnob({ value, className = '' }: { value: number; className?: string }) {
   const v = Math.max(-1, Math.min(1, value));
+  const R = 11.4;
+  const pt = (deg: number) => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    return [13 + R * Math.cos(a), 13 + R * Math.sin(a)];
+  };
+  const to = v * 135;
+  const [x0, y0] = pt(Math.min(0, to));
+  const [x1, y1] = pt(Math.max(0, to));
+  const off = Math.abs(v) > 0.01;
   return (
-    <svg viewBox="0 0 24 24" className={`of-knob ${className}`} aria-hidden="true">
+    <svg viewBox="0 0 26 26" className={`of-knob ${className}`} aria-hidden="true">
       <defs>
         <radialGradient id="of-knob-ball" cx="42%" cy="32%" r="72%">
           <stop offset="0" stopColor="#ffffff" />
-          <stop offset="0.45" stopColor="#e2e2e2" />
-          <stop offset="0.8" stopColor="#a6a6a6" />
-          <stop offset="1" stopColor="#6e6e6e" />
+          <stop offset="0.5" stopColor="#dedede" />
+          <stop offset="1" stopColor="#8a8a8a" />
         </radialGradient>
       </defs>
-      <circle cx="12" cy="13" r="10.6" fill="#000" opacity="0.4" />
-      <circle cx="12" cy="12" r="10.4" fill="url(#of-knob-ball)" stroke="#1a1a1a" strokeWidth="0.8" />
-      <ellipse cx="10.2" cy="7.6" rx="4.6" ry="2.4" fill="#fff" opacity="0.7" />
-      <g transform={`rotate(${v * 135} 12 12)`}>
-        <circle cx="12" cy="4.2" r="1.5" fill="#111" />
+      {off && (
+        <path
+          d={`M ${x0} ${y0} A ${R} ${R} 0 ${Math.abs(to) > 180 ? 1 : 0} 1 ${x1} ${y1}`}
+          fill="none" stroke="#3ddc84" strokeWidth="2.2" strokeLinecap="round"
+          style={{ filter: 'drop-shadow(0 0 2px rgba(61, 220, 132, 0.7))' }}
+        />
+      )}
+      <circle cx="13" cy="13.8" r="9" fill="#000" opacity="0.4" />
+      <circle cx="13" cy="13" r="8.8" fill="url(#of-knob-ball)" stroke="#161616" strokeWidth="0.8" />
+      <g transform={`rotate(${to} 13 13)`}>
+        <circle cx="13" cy="6.6" r="1.4" fill={off ? '#1f9e57' : '#111'} />
       </g>
     </svg>
   );

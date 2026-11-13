@@ -134,7 +134,7 @@ export const ES_CAP_H = 32;
 export const ES_FADER_H = 128;
 export const ES_SCALE_W = 9;
 // Oficina: capa clara de 28 px, sem escala ao lado (as marcas ficam dentro do medidor)
-export const OF_CAP_H = 36;
+export const OF_CAP_H = 28;
 export const OF_FADER_H = 150;
 export const ES_FADER_W = 16;
 
@@ -381,7 +381,7 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
       >
         <div className="of-top w-full flex flex-col items-center gap-[4px] px-[4px] pt-[5px] pb-[6px]">
           <OutputMenu track={track} />
-          <div className="w-[24px] h-[24px] relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
+          <div className="w-[26px] h-[26px] relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
             <OfKnob value={track.pan} className="absolute inset-0 w-full h-full pointer-events-none" />
           </div>
         </div>
@@ -393,7 +393,7 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
             onDoubleClick={() => setVolume(track.id, 0.8)}
-            width={22}
+            width={18}
             height={OF_FADER_H}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
           />
@@ -777,7 +777,7 @@ export default function MixerPanel() {
                   value={masterVolume}
                   onChange={(v) => { setMasterVolume(v); audioEngine.setMasterVolume(v); }}
                   onDoubleClick={() => { setMasterVolume(0.8); audioEngine.setMasterVolume(0.8); }}
-                  width={22}
+                  width={18}
                   height={OF_FADER_H}
                   tone="master"
                 />

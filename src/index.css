@@ -2469,26 +2469,24 @@
     background-image: none;
     box-shadow: inset -1px 0 0 #131416;
   }
-  /* topo do canal: só um fio na cor dele */
+  /* topo do canal tingido na cor dele, em tom escuro e liso */
   .of-top {
-    background: transparent;
-    box-shadow: inset 0 3px 0 var(--ch), inset 0 -1px 0 #131416;
+    background: color-mix(in srgb, var(--ch) 42%, #26272a);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ch) 70%, #ffffff 10%), inset 0 -1px 0 #131416;
   }
   .of-strip.is-selected .of-top {
-    background: color-mix(in srgb, var(--ch) 10%, transparent);
+    background: color-mix(in srgb, var(--ch) 58%, #2c2d30);
   }
   :root[data-skin='oficina'] .of-top > button {
-    margin-top: 2px;
-    border-radius: 4px;
-    padding: 2px 5px;
-    background: #2a2c30;
-    color: #c9ccd1;
+    border-radius: 9999px;
+    padding: 2px 6px;
+    background: rgba(0, 0, 0, 0.32);
+    color: #f1f2f4;
     font-size: 10px;
     box-shadow: none;
   }
   :root[data-skin='oficina'] .of-top > button:hover {
-    background: #33363a;
-    color: #ffffff;
+    background: rgba(0, 0, 0, 0.45);
   }
   .of-knob {
     filter: none;
@@ -2507,7 +2505,7 @@
     box-shadow: none;
   }
   .of-cap {
-    filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.55));
+    filter: drop-shadow(0 1px 0.5px rgba(0, 0, 0, 0.85)) drop-shadow(0 4px 4px rgba(0, 0, 0, 0.45));
   }
 
   /* medidor fino e liso */
@@ -2579,14 +2577,14 @@
     border-color: #2fa877;
     box-shadow: none;
   }
-  :where([data-skin='oficina']) .of-key.is-m:not(.is-lit-red),
-  :where([data-skin='oficina']) .of-key.is-s:not(.is-lit-amber),
+  /* letra colorida no botão escuro: M vermelho, S amarelo; o AC é o verde do FX */
+  :where([data-skin='oficina']) .of-key.is-m:not(.is-lit-red) { color: #f0604f; text-shadow: none; }
+  :where([data-skin='oficina']) .of-key.is-s:not(.is-lit-amber) { color: #e9c046; text-shadow: none; }
   :where([data-skin='oficina']) .of-key.is-fx:not(.is-lit-green):not(.is-lit-red) {
-    color: #9a9ea5;
-    text-shadow: none;
-    background-color: #26282c;
+    color: #bdeedb;
+    background-color: #1d5a45;
     background-image: none;
-    border-color: #141517;
+    border-color: #154434;
   }
 
   /* rodapé: nome claro e um fio na cor do canal embaixo dele */
@@ -2602,15 +2600,19 @@
     color: #ffffff;
     box-shadow: none;
   }
+  /* número numa faixa na cor do canal (a marca desses editores), liso */
+  .of-name-text {
+    color: color-mix(in srgb, var(--ch) 55%, #ffffff);
+  }
   .of-name-num {
-    height: 14px;
-    line-height: 14px;
-    font-size: 9.5px;
-    font-weight: 500;
-    color: color-mix(in srgb, var(--ch) 70%, #ffffff);
-    text-shadow: none;
-    background: #17181a;
-    box-shadow: inset 0 2px 0 var(--ch);
+    height: 15px;
+    line-height: 15px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
+    background: color-mix(in srgb, var(--ch) 80%, #1d1e21);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.3);
   }
 
   /* visores: grafite liso */
@@ -2628,21 +2630,22 @@
     --lg-bg-panel: 32 33 36;
   }
 
-  /* timeline: faixa neutra, a cor só na lateral e no ícone */
+  /* timeline: faixa tingida na cor (tom escuro e liso), nome numa pílula escura */
   :where([data-skin='oficina']) .console-row {
-    background-color: #24262a;
+    background-color: color-mix(in srgb, var(--ch, #777) 34%, #25262a);
     background-image: none;
     box-shadow: inset 0 -1px 0 #17181a;
   }
   :where([data-skin='oficina']) .console-row:hover {
-    background-color: #2a2c30;
+    background-color: color-mix(in srgb, var(--ch, #777) 40%, #2a2b2f);
   }
   :where([data-skin='oficina']) .console-row.is-selected {
-    background-color: #2f3237;
+    background-color: color-mix(in srgb, var(--ch, #777) 50%, #2e2f33);
     box-shadow: inset 0 -1px 0 #17181a;
   }
   :where([data-skin='oficina']) .console-tape {
-    background: transparent;
+    background: rgba(0, 0, 0, 0.38);
+    border-radius: 9999px;
     box-shadow: none;
   }
   :where([data-skin='oficina']) .console-row.is-selected .console-tape {
