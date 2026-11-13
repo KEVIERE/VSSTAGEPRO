@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { nextTrackSelection, type TrackPickMode } from '@/lib/trackSelection';
 import { temporal } from 'zundo';
 import { routeByName } from '@/lib/nameRouter';
 import { computeNextSongId } from '@/lib/playFlow';
@@ -149,6 +150,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
     nextSongCountdown: 0,
   },
   selectedTrackId: null,
+  selectedTrackIds: [],
   selectedSongId: null,
   selectedClipIds: [],
   selectedBlockId: null,
@@ -217,6 +219,8 @@ interface StoreActions {
   /** Derruba o músico agora (ele continua na lista e entra de novo com usuário e senha). */
   disconnectMusician: (accountId: string) => void;
   selectTrack: (id: string | null) => void;
+  /** Clique numa faixa com ⌘ (soma ou tira) ou Shift (trecho até ela), na ordem da tela. */
+  pickTrack: (id: string, mode: TrackPickMode, order: string[]) => void;
   selectSong: (id: string | null) => void;
   selectClip: (id: string | null, additive?: boolean) => void;
   selectClips: (ids: string[]) => void;
@@ -689,7 +693,11 @@ export const useStore = create<Store>()(
           },
         };
       }),
-      selectTrack: (id) => set({ selectedTrackId: id }),
+      selectTrack: (id) => set({ selectedTrackId: id, selectedTrackIds: id ? [id] : [] }),
+      pickTrack: (id, mode, order) => set((s) => {
+        const next = nextTrackSelection(s.selectedTrackIds, s.selectedTrackId, id, mode, order);
+        return { selectedTrackIds: next.ids, selectedTrackId: next.anchor };
+      }),
       selectSong: (id) => set((s) => {
         if (id === s.selectedSongId || s.transport.isPlaying) return { selectedSongId: id };
         // trocar de música parada/pausada leva o cursor para o início da nova música
@@ -905,6 +913,7 @@ export const useStore = create<Store>()(
             track,
           ],
           selectedTrackId: id,
+          selectedTrackIds: [id],
         }));
         return id;
       },
@@ -932,6 +941,7 @@ export const useStore = create<Store>()(
             copy,
           ],
           selectedTrackId: id,
+          selectedTrackIds: [id],
         }));
         return id;
       },
@@ -953,6 +963,7 @@ export const useStore = create<Store>()(
             .filter((t) => t.id !== trackId)
             .map((t) => (t.children.includes(trackId) ? { ...t, children: t.children.filter((id) => id !== trackId) } : t)),
           selectedTrackId: s.selectedTrackId === trackId ? null : s.selectedTrackId,
+          selectedTrackIds: s.selectedTrackIds.filter((x) => x !== trackId),
         };
       }),
 

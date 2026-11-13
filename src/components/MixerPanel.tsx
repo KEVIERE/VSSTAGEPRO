@@ -7,10 +7,13 @@ import { belowTarget, levelTarget, parseTargetDb, songLevelGain, TARGET_DB_MAX, 
 import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
 import { LedMeter } from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
+import TrackContextMenu from '@/components/TrackContextMenu';
+import type { Track } from '@/types';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import { useMeterLevel } from '@/lib/meterBus';
 import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
+import { trackOrderOnScreen, trackPickMode } from '@/lib/trackSelection';
 import { GfCap, GfFaderMeter, GfKey, GfKnob, GfScreen, GfTag } from '@/components/GrafitePieces';
 import { EsCap, EsDbBoxes, EsKey, EsKnob, EsMeter, EsMeterScale, EsName, esTrackColor } from '@/components/EstudioPieces';
 import { OfCap, OfKey, OfKnob, OfMeter, OfName, ofTrackColor } from '@/components/OficinaPieces';
@@ -134,7 +137,7 @@ export const ES_CAP_H = 32;
 export const ES_FADER_H = 128;
 export const ES_SCALE_W = 9;
 // Oficina: capa clara de 28 px, sem escala ao lado (as marcas ficam dentro do medidor)
-export const OF_CAP_H = 28;
+export const OF_CAP_H = 30;
 export const OF_FADER_H = 150;
 export const ES_FADER_W = 16;
 
@@ -350,22 +353,35 @@ function EsRowLabels() {
   );
 }
 
-function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
+function MixerChannel({ trackId, index, onMenu: openMenu }: {
+  trackId: string;
+  index: number;
+  /** Botão direito no canal: o mesmo menu da faixa na timeline (cor, nome...). */
+  onMenu: (track: Track, x: number, y: number) => void;
+}) {
   const track = useStore((s) => s.tracks.find((t) => t.id === trackId));
   const setVolume = useStore((s) => s.setVolume);
   const setPan = useStore((s) => s.setPan);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
-  const selectTrack = useStore((s) => s.selectTrack);
   const toggleAntiClip = useStore((s) => s.toggleAntiClip);
   const clearClipIndicator = useStore((s) => s.clearClipIndicator);
-  const selectedTrackId = useStore((s) => s.selectedTrackId);
+  const isPicked = useStore((s) => s.selectedTrackIds.includes(trackId));
+  const pickTrack = useStore((s) => s.pickTrack);
+  // clique escolhe este canal; ⌘ soma ou tira; Shift vai do último clicado até este
+  const onPick = (e: React.MouseEvent) => pickTrack(trackId, trackPickMode(e), trackOrderOnScreen('data-mixer-track'));
+  const onMenu = (e: React.MouseEvent) => {
+    if (!track) return;
+    e.preventDefault();
+    e.stopPropagation();
+    openMenu(track, e.clientX, e.clientY);
+  };
   const skin = useSkin();
   const grafite = skin === 'grafite';
 
   if (!track) return null;
 
-  const isSelected = selectedTrackId === track.id;
+  const isSelected = isPicked;
   const isClipping = track.clipIndicator;
 
   if (skin === 'oficina') {
@@ -377,7 +393,9 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
       <div
         className={`console-strip of-strip flex flex-col items-center w-[72px] min-w-[72px] cursor-pointer relative ${isSelected ? 'is-selected' : ''}`}
         style={{ '--ch': color } as React.CSSProperties}
-        onClick={() => selectTrack(track.id)}
+        data-mixer-track={track.id}
+        onClick={onPick}
+        onContextMenu={onMenu}
       >
         <div className="of-top w-full flex flex-col items-center gap-[4px] px-[4px] pt-[5px] pb-[6px]">
           <OutputMenu track={track} />
@@ -393,7 +411,7 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
             value={track.volume}
             onChange={(v) => setVolume(track.id, v)}
             onDoubleClick={() => setVolume(track.id, 0.8)}
-            width={18}
+            width={16}
             height={OF_FADER_H}
             tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
           />
@@ -446,7 +464,9 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
     return (
       <div
         className={`console-strip es-strip flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[4px] gap-[3px] cursor-pointer relative ${isSelected ? 'is-selected' : ''}`}
-        onClick={() => selectTrack(track.id)}
+        data-mixer-track={track.id}
+        onClick={onPick}
+        onContextMenu={onMenu}
       >
         <OutputMenu track={track} />
         <div className="w-[28px] h-[28px] relative cursor-ew-resize select-none" {...panKnobProps(track.id, track.pan, setPan)}>
@@ -514,7 +534,9 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
       <div
         className={`console-strip gf-strip flex flex-col items-center w-[72px] min-w-[72px] py-1.5 px-[3px] gap-[3px] cursor-pointer relative ${isSelected ? 'is-selected' : ''}`}
         style={{ '--ch': track.color } as React.CSSProperties}
-        onClick={() => selectTrack(track.id)}
+        data-mixer-track={track.id}
+        onClick={onPick}
+        onContextMenu={onMenu}
       >
         <OutputMenu track={track} />
         <GfScreen
@@ -584,7 +606,9 @@ function MixerChannel({ trackId, index }: { trackId: string; index: number }) {
     <div
       className={`console-strip flex flex-col items-center w-[72px] min-w-[72px] border-r border-logic-border-dark py-1.5 px-1 gap-[3px] cursor-pointer transition-colors duration-75 relative
         ${isSelected ? 'is-selected' : ''}`}
-      onClick={() => selectTrack(track.id)}
+      data-mixer-track={track.id}
+        onClick={onPick}
+        onContextMenu={onMenu}
     >
       <OutputMenu track={track} />
 
@@ -699,6 +723,8 @@ export default function MixerPanel() {
   const toggleMasterAntiClip = useStore((s) => s.toggleMasterAntiClip);
   const masterIsClipping = masterClipPeak >= 1;
   const skin = useSkin();
+  // menu da faixa (cor, nome...) aberto com o botão direito num canal
+  const [trackMenu, setTrackMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
   const grafite = skin === 'grafite';
 
   const allChannels = useMemo(() => {
@@ -750,7 +776,7 @@ export default function MixerPanel() {
           {skin === 'estudio' && <EsRowLabels />}
           <TimecodeMixerChannel />
           {allChannels.map((trackId, i) => (
-            <MixerChannel key={trackId} trackId={trackId} index={i} />
+            <MixerChannel key={trackId} trackId={trackId} index={i} onMenu={(track, x, y) => setTrackMenu({ track, x, y })} />
           ))}
 
           {skin === 'oficina' ? (
@@ -777,7 +803,7 @@ export default function MixerPanel() {
                   value={masterVolume}
                   onChange={(v) => { setMasterVolume(v); audioEngine.setMasterVolume(v); }}
                   onDoubleClick={() => { setMasterVolume(0.8); audioEngine.setMasterVolume(0.8); }}
-                  width={18}
+                  width={16}
                   height={OF_FADER_H}
                   tone="master"
                 />
@@ -983,6 +1009,9 @@ export default function MixerPanel() {
           )}
         </div>
       </div>
+      {trackMenu && (
+        <TrackContextMenu track={trackMenu.track} x={trackMenu.x} y={trackMenu.y} onClose={() => setTrackMenu(null)} />
+      )}
     </div>
   );
 }

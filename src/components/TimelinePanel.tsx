@@ -36,6 +36,7 @@ import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { useSkin } from '@/lib/useSkin';
+import { trackOrderOnScreen, trackPickMode } from '@/lib/trackSelection';
 import { esChannelOrder, esTrackColor, shade } from '@/components/EstudioPieces';
 import { OfTrackLabel, ofTrackColor } from '@/components/OficinaPieces';
 
@@ -268,8 +269,10 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   /** Esta faixa está sendo arrastada */
   dragging?: boolean;
 }) {
-  const selectedTrackId = useStore((s) => s.selectedTrackId);
-  const selectTrack = useStore((s) => s.selectTrack);
+  const trackSelected = useStore((s) => s.selectedTrackIds.includes(track.id));
+  const pickTrack = useStore((s) => s.pickTrack);
+  // clique escolhe esta faixa; ⌘ soma ou tira; Shift vai da última clicada até esta (ordem da tela)
+  const onPick = (e: React.MouseEvent) => pickTrack(track.id, trackPickMode(e), trackOrderOnScreen('data-track-row'));
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
   const setVolume = useStore((s) => s.setVolume);
@@ -357,7 +360,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
     }
   };
 
-  const isSelected = selectedTrackId === track.id;
+  const isSelected = trackSelected;
   const trackHeight = Math.round((track.height ?? 40) * zoomV);
   const isFolder = track.isSubgroup;
   // Faixa de dentro de um multigrupo: visual simples, preso à faixa mãe por uma guia na cor dela.
@@ -422,9 +425,10 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       <div
         data-selectable="track"
         data-child-row={track.id}
+        data-track-row={track.id}
         className={`console-row-child group relative flex items-center gap-1.5 pr-1.5 cursor-grab active:cursor-grabbing overflow-hidden ${isSelected ? 'is-selected' : ''} ${dragging ? 'opacity-40' : ''}`}
         style={{ paddingLeft: `${10 + depth * 16}px`, height: `${trackHeight}px` }}
-        onClick={() => selectTrack(track.id)}
+        onClick={onPick}
         onPointerDown={(e) => onReorderStart?.(e, track.id)}
         onContextMenu={onRowContextMenu}
         title={`${rowTitle}. Arraste para cima ou para baixo para mudar a ordem.`}
@@ -478,9 +482,10 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   return (
     <div
       data-selectable="track"
+      data-track-row={track.id}
       className={`console-row group relative flex items-center gap-1 pl-2 pr-1.5 cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
       style={{ height: `${trackHeight}px`, '--ch': rowColor } as React.CSSProperties}
-      onClick={() => selectTrack(track.id)}
+      onClick={onPick}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
       onContextMenu={onRowContextMenu}
       title={rowTitle}
@@ -1233,6 +1238,11 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
   zoomH: number;
   visible: VisibleRange;
 }) {
+  // Estúdio e Oficina: o multigrupo recolhido fica na cor da faixa, pintado como os clipes dela
+  const skin = useSkin();
+  const filled = skin === 'estudio' || skin === 'oficina';
+  const order = useStore((s) => (filled ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, folder.id) : -1));
+  const color = skin === 'estudio' ? esTrackColor(folder.color, order) : skin === 'oficina' ? ofTrackColor(folder.color, order) : folder.color;
   const left = preview.start * zoomH;
   const width = Math.max(8, preview.duration * zoomH);
   if (left > visible.end || left + width < visible.start) return null;
@@ -1242,22 +1252,29 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
   } as unknown as AudioClip;
   return (
     <div
-      className="absolute rounded-sm border overflow-hidden pointer-events-none"
+      className={`absolute border overflow-hidden pointer-events-none ${filled ? 'rounded' : 'rounded-sm'}`}
       style={{
         left: `${left}px`,
         top: '2px',
         width: `${width}px`,
         height: `${height}px`,
-        borderColor: `${folder.color}aa`,
-        backgroundColor: 'rgba(0, 0, 0, 0.3)',
-        backgroundImage: `linear-gradient(180deg, ${folder.color}1f, ${folder.color}0a)`,
+        ...(filled
+          ? {
+            borderColor: 'rgba(0, 0, 0, 0.45)',
+            backgroundColor: skin === 'oficina' ? `color-mix(in srgb, ${color} 66%, #2a2b2e)` : color,
+          }
+          : {
+            borderColor: `${color}aa`,
+            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            backgroundImage: `linear-gradient(180deg, ${color}1f, ${color}0a)`,
+          }),
       }}
     >
-      <ClipWaveform clip={summary} left={left} width={width} height={height} visible={visible} color={folder.color} />
+      <ClipWaveform clip={summary} left={left} width={width} height={height} visible={visible} color={filled ? shade(color, skin === 'oficina' ? 0.7 : 0.62) : color} />
       {height >= 20 && (
         <span
           className="absolute top-0.5 px-1 rounded-sm bg-black/70 text-[10px] font-semibold leading-tight whitespace-nowrap"
-          style={{ left: `${Math.max(0, visible.start - left) + 3}px`, color: folder.color }}
+          style={{ left: `${Math.max(0, visible.start - left) + 3}px`, color: filled ? '#ffffff' : color }}
         >
           {folder.name} · {count} {count === 1 ? 'áudio' : 'áudios'}
         </span>

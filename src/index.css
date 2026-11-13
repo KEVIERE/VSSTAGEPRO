@@ -2469,19 +2469,19 @@
     background-image: none;
     box-shadow: inset -1px 0 0 #131416;
   }
-  /* topo do canal tingido na cor dele, em tom escuro e liso */
+  /* topo do canal: cinza-claro (ou a cor que o usuário escolheu para a faixa) */
   .of-top {
-    background: color-mix(in srgb, var(--ch) 42%, #26272a);
-    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ch) 70%, #ffffff 10%), inset 0 -1px 0 #131416;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ch) 92%, #ffffff), var(--ch));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), inset -1px 0 0 rgba(0, 0, 0, 0.25), inset 0 -1px 0 #131416;
   }
   .of-strip.is-selected .of-top {
-    background: color-mix(in srgb, var(--ch) 58%, #2c2d30);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--ch) 80%, #ffffff), color-mix(in srgb, var(--ch) 90%, #ffffff));
   }
   :root[data-skin='oficina'] .of-top > button {
     border-radius: 9999px;
     padding: 2px 6px;
-    background: rgba(0, 0, 0, 0.32);
-    color: #f1f2f4;
+    background: color-mix(in srgb, var(--ch) 70%, #3a3d40);
+    color: #f4f5f6;
     font-size: 10px;
     box-shadow: none;
   }
@@ -2600,19 +2600,19 @@
     color: #ffffff;
     box-shadow: none;
   }
-  /* número numa faixa na cor do canal (a marca desses editores), liso */
+  /* número numa faixa cinza-clara (ou na cor escolhida), com o número escuro */
   .of-name-text {
-    color: color-mix(in srgb, var(--ch) 55%, #ffffff);
+    color: #e2e4e6;
   }
   .of-name-num {
-    height: 15px;
-    line-height: 15px;
-    font-size: 10px;
-    font-weight: 600;
-    color: #ffffff;
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.3);
-    background: color-mix(in srgb, var(--ch) 80%, #1d1e21);
-    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.3);
+    height: 16px;
+    line-height: 16px;
+    font-size: 10.5px;
+    font-weight: 500;
+    color: #18191b;
+    text-shadow: none;
+    background: var(--ch);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   }
 
   /* visores: grafite liso */
@@ -2630,23 +2630,23 @@
     --lg-bg-panel: 32 33 36;
   }
 
-  /* timeline: faixa tingida na cor (tom escuro e liso), nome numa pílula escura */
+  /* timeline: faixa cinza-clara (ou na cor escolhida), nome numa caixa escura */
   :where([data-skin='oficina']) .console-row {
-    background-color: color-mix(in srgb, var(--ch, #777) 34%, #25262a);
-    background-image: none;
-    box-shadow: inset 0 -1px 0 #17181a;
+    background-color: var(--ch, #a4a9ae);
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(0, 0, 0, 0.04));
+    box-shadow: inset 0 -1px 0 #2a2b2d, inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
   :where([data-skin='oficina']) .console-row:hover {
-    background-color: color-mix(in srgb, var(--ch, #777) 40%, #2a2b2f);
+    background-color: color-mix(in srgb, var(--ch, #a4a9ae) 92%, #ffffff);
   }
   :where([data-skin='oficina']) .console-row.is-selected {
-    background-color: color-mix(in srgb, var(--ch, #777) 50%, #2e2f33);
-    box-shadow: inset 0 -1px 0 #17181a;
+    background-color: color-mix(in srgb, var(--ch, #a4a9ae) 78%, #ffffff);
+    box-shadow: inset 0 -1px 0 #2a2b2d, inset 0 1px 0 rgba(255, 255, 255, 0.5);
   }
   :where([data-skin='oficina']) .console-tape {
-    background: rgba(0, 0, 0, 0.38);
-    border-radius: 9999px;
-    box-shadow: none;
+    background: #2b2c2e;
+    border-radius: 3px;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.35);
   }
   :where([data-skin='oficina']) .console-row.is-selected .console-tape {
     box-shadow: none;

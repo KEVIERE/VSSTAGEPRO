@@ -337,6 +337,8 @@ export interface ProjectState {
   timelineOrder: string[];
   transport: TransportState;
   selectedTrackId: string | null;
+  /** Faixas selecionadas (⌘ soma, Shift seleciona um trecho); a `selectedTrackId` é a âncora. */
+  selectedTrackIds: string[];
   selectedSongId: string | null;
   selectedClipIds: string[];
   selectedBlockId: string | null;

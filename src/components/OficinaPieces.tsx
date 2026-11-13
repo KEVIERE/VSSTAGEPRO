@@ -8,15 +8,17 @@ import { AudioLines, Drum, Guitar, KeyboardMusic, Megaphone, MicVocal, Music, Pi
 import { useMeterLevel } from '@/lib/meterBus';
 import { vivid } from '@/components/EstudioPieces';
 
-// Faixas com a cor de fábrica ganham as cores desses editores, na ordem dos canais. A cor que o
-// usuário escolheu continua valendo.
+// Como no visual padrão desses editores, as faixas com a cor de fábrica ficam cinza; a cor só
+// aparece quando o usuário escolhe uma (pelo menu da faixa, na timeline ou no mixer).
 const DEFAULT_TRACK_COLORS = new Set(['#5b8db8', '#5bb87a']);
+// (cores antigas da Oficina; ficam para quem quiser voltar a pintar por canal)
 export const OF_PALETTE = ['#a020f0', '#5e8274', '#a99cff', '#c98f8c', '#8a63f0', '#45cde6', '#6fdc6f', '#f07a55', '#8f8f8f', '#9a7fd6', '#d9b84a', '#4fb59a'];
 
-export function ofTrackColor(color: string, order: number): string {
+export const OF_NEUTRAL = '#a4a9ae';
+
+export function ofTrackColor(color: string, _order: number): string {
   if (!DEFAULT_TRACK_COLORS.has(color.trim().toLowerCase())) return vivid(color);
-  const n = OF_PALETTE.length;
-  return OF_PALETTE[((Math.max(0, order) % n) + n) % n];
+  return OF_NEUTRAL;
 }
 
 // ---------- fader ----------
@@ -25,50 +27,41 @@ export type OfCapTone = 'band' | 'cue' | 'master' | 'tc';
 const CAP_INDEX: Record<OfCapTone, string> = { band: '#f2f3f5', cue: '#f2f3f5', master: '#ff5a46', tc: '#ffad33' };
 
 /**
- * Capa do fader em cromo realista: cada metade reflete como metal polido de verdade (claro em
- * cima, a faixa escura do horizonte, o reflexo do meio e a sombra embaixo), com as laterais
- * escurecendo, quinas finas, um escovado bem leve e a ranhura do meio com o traço de referência.
+ * Capa do fader como a dos editores clássicos: estreita e alta, dois blocos de metal grafite
+ * (claros em cima e escurecendo para baixo, como um cilindro com luz de cima), separados por um
+ * vão preto fino, contorno escuro e as laterais um pouco mais escuras.
  */
 export function OfCap({ tone, className = '', style }: { tone: OfCapTone; className?: string; style?: React.CSSProperties }) {
-  const half = (y: number) => (
+  const block = (y: number) => (
     <g>
-      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="url(#of-chrome)" />
-      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="url(#of-chrome-brush)" />
-      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="url(#of-chrome-edges)" />
-      <rect x="1.3" y={y + 0.35} width="15.4" height="0.55" rx="0.27" fill="#fff" opacity="0.95" />
-      <rect x="1.3" y={y + 11.6} width="15.4" height="0.6" rx="0.3" fill="#000" opacity="0.4" />
-      <rect x="0.6" y={y} width="16.8" height="12.6" rx="1.6" fill="none" stroke="#121315" strokeWidth="0.55" />
+      <rect x="0.6" y={y} width="14.8" height="13.6" rx="2" fill="url(#of-gun)" />
+      <rect x="0.6" y={y} width="14.8" height="13.6" rx="2" fill="url(#of-gun-edges)" />
+      <rect x="1.6" y={y + 0.7} width="12.8" height="1.4" rx="0.7" fill="#fff" opacity="0.8" />
+      <rect x="0.6" y={y} width="14.8" height="13.6" rx="2" fill="none" stroke="#0e0e0f" strokeWidth="0.7" />
     </g>
   );
   return (
-    <svg viewBox="0 0 18 28" preserveAspectRatio="none" className={`of-cap ${className}`} style={style} aria-hidden="true">
+    <svg viewBox="0 0 16 30" preserveAspectRatio="none" className={`of-cap ${className}`} style={style} aria-hidden="true">
       <defs>
-        <linearGradient id="of-chrome" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#fbfcfd" />
-          <stop offset="0.16" stopColor="#d7dade" />
-          <stop offset="0.34" stopColor="#5b5f65" />
-          <stop offset="0.46" stopColor="#7f848b" />
-          <stop offset="0.66" stopColor="#e9ecef" />
-          <stop offset="0.82" stopColor="#aeb2b8" />
-          <stop offset="1" stopColor="#5f636a" />
+        <linearGradient id="of-gun" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="#f6f3f3" />
+          <stop offset="0.22" stopColor="#ddd5d5" />
+          <stop offset="0.5" stopColor="#a39696" />
+          <stop offset="0.8" stopColor="#635959" />
+          <stop offset="1" stopColor="#3c3535" />
         </linearGradient>
-        <linearGradient id="of-chrome-edges" x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#000" stopOpacity="0.42" />
-          <stop offset="0.12" stopColor="#000" stopOpacity="0.08" />
-          <stop offset="0.35" stopColor="#fff" stopOpacity="0.1" />
-          <stop offset="0.6" stopColor="#fff" stopOpacity="0" />
-          <stop offset="0.88" stopColor="#000" stopOpacity="0.1" />
+        <linearGradient id="of-gun-edges" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#000" stopOpacity="0.4" />
+          <stop offset="0.15" stopColor="#000" stopOpacity="0.05" />
+          <stop offset="0.5" stopColor="#fff" stopOpacity="0.08" />
+          <stop offset="0.85" stopColor="#000" stopOpacity="0.05" />
           <stop offset="1" stopColor="#000" stopOpacity="0.45" />
         </linearGradient>
-        <pattern id="of-chrome-brush" width="18" height="0.9" patternUnits="userSpaceOnUse">
-          <rect width="18" height="0.35" fill="#fff" opacity="0.07" />
-        </pattern>
       </defs>
-      {half(0.6)}
-      {/* ranhura do meio com o traço de referência */}
-      <rect x="0.6" y="13.2" width="16.8" height="1.6" fill="#16171a" />
-      <rect x="1.6" y="13.6" width="14.8" height="0.8" rx="0.4" fill={CAP_INDEX[tone]} />
-      {half(14.8)}
+      {block(0.6)}
+      <rect x="1.4" y="14.3" width="13.2" height="1.4" fill="#050505" />
+      {tone !== 'band' && tone !== 'cue' && <rect x="2.4" y="14.6" width="11.2" height="0.8" fill={CAP_INDEX[tone]} />}
+      {block(15.8)}
     </svg>
   );
 }
