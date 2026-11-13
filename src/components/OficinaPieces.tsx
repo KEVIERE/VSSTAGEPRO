@@ -10,7 +10,7 @@ import { vivid } from '@/components/EstudioPieces';
 
 // Como no visual padrão desses editores, as faixas com a cor de fábrica ficam cinza; a cor só
 // aparece quando o usuário escolhe uma (pelo menu da faixa, na timeline ou no mixer).
-const DEFAULT_TRACK_COLORS = new Set(['#5b8db8', '#5bb87a']);
+const DEFAULT_TRACK_COLORS = new Set(['#5b8db8', '#5bb87a', '#8e9097']);
 // (cores antigas da Oficina; ficam para quem quiser voltar a pintar por canal)
 export const OF_PALETTE = ['#a020f0', '#5e8274', '#a99cff', '#c98f8c', '#8a63f0', '#45cde6', '#6fdc6f', '#f07a55', '#8f8f8f', '#9a7fd6', '#d9b84a', '#4fb59a'];
 

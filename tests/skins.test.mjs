@@ -156,7 +156,7 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin\) \{/);
   // cores: a da faixa fica viva; a onda é a mesma cor bem mais escura
   const pieces = read('src', 'components', 'EstudioPieces.tsx');
-  assert.match(pieces, /const DEFAULT_TRACK_COLORS = new Set\(\['#5b8db8', '#5bb87a'\]\);/, 'só a cor de fábrica vira degradê');
+  assert.match(pieces, /const DEFAULT_TRACK_COLORS = new Set\(\['#5b8db8', '#5bb87a', '#8e9097'\]\);/, 'só a cor de fábrica vira degradê');
   assert.match(pieces, /if \(!DEFAULT_TRACK_COLORS\.has\(color\.trim\(\)\.toLowerCase\(\)\)\) return vivid\(color\);/, 'cor escolhida pelo usuário continua');
 });
 
@@ -231,5 +231,17 @@ test('padrão (VS Stage): mesa digital, com medidor estéreo e rastro de luz no 
   const engine = read('src', 'lib', 'audioEngine.ts');
   assert.match(engine, /if \(lr\) \{ levels\.set\(`\$\{t\.id\}:L`, lr\[0\]\); levels\.set\(`\$\{t\.id\}:R`, lr\[1\]\); \}/, 'o motor publica L e R');
   assert.match(engine, /ch\.analyser\.connect\(ch\.meterSplit\);/, 'o medidor estéreo continua ligado ao trocar a saída');
+});
+
+test('as faixas nascem cinza neutro; as cores de fábrica antigas aparecem cinza', async () => {
+  const { NEUTRAL_TRACK_COLOR, shownTrackColor, isFactoryTrackColor } = await import('../src/lib/trackColors.ts');
+  assert.equal(NEUTRAL_TRACK_COLOR, '#8e9097');
+  assert.equal(shownTrackColor('#5b8db8'), NEUTRAL_TRACK_COLOR);
+  assert.equal(shownTrackColor('#5BB87A'), NEUTRAL_TRACK_COLOR);
+  assert.equal(shownTrackColor('#e06c75'), '#e06c75', 'a cor escolhida pelo usuário fica');
+  assert.ok(isFactoryTrackColor(undefined));
+  const store = read('src', 'store.ts');
+  assert.doesNotMatch(store, /color: '#5b8db8'|color: '#5bb87a'|\?\? '#5b8db8'/, 'nenhuma faixa nasce azul ou verde');
+  assert.ok((store.match(/color: NEUTRAL_TRACK_COLOR/g) ?? []).length >= 12, 'as faixas de fábrica nascem cinza');
 });
 

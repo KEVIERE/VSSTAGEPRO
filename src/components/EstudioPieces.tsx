@@ -97,7 +97,7 @@ export function EsCap({ tone, className = '', style }: { tone: EsCapTone; classN
 
 // Faixas com a cor de fábrica ganham o degradê das DAWs do Mac (ciano → azul → roxo → rosa), na
 // ordem dos canais. A cor que o usuário escolheu para a faixa continua valendo.
-const DEFAULT_TRACK_COLORS = new Set(['#5b8db8', '#5bb87a']);
+const DEFAULT_TRACK_COLORS = new Set(['#5b8db8', '#5bb87a', '#8e9097']);
 export const ES_PALETTE = ['#16b4d8', '#13a2e3', '#178ff0', '#2f79f3', '#4a66ef', '#5d57ea', '#7150e3', '#874ad8', '#9d44c9', '#b23fb6', '#c43c9f', '#d24485'];
 
 export function esTrackColor(color: string, order: number): string {

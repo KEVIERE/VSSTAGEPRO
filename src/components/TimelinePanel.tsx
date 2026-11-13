@@ -36,6 +36,7 @@ import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { useSkin } from '@/lib/useSkin';
+import { shownTrackColor } from '@/lib/trackColors';
 import { trackOrderOnScreen, trackPickMode } from '@/lib/trackSelection';
 import { esChannelOrder, esTrackColor, shade } from '@/components/EstudioPieces';
 import { OfTrackLabel, ofTrackColor } from '@/components/OficinaPieces';
@@ -286,7 +287,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   const analogica = rowSkin === 'analogica';
   const esOrder = useStore((s) => (estudio || oficina ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, track.id) : -1));
   const rowColor = estudio ? esTrackColor(groupColor ?? track.color, esOrder)
-    : oficina ? ofTrackColor(groupColor ?? track.color, esOrder) : track.color;
+    : oficina ? ofTrackColor(groupColor ?? track.color, esOrder) : shownTrackColor(track.color);
 
   // Gravação na faixa Maestro (REC, Input da placa de áudio e VU Meter)
   const isMaestro = track.id === 'track-maestro';
@@ -435,17 +436,17 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
         {/* Guia do grupo: desce da tecla da faixa mãe e faz um "L" na última faixa de dentro */}
         <span
           className="absolute top-0 w-[2px] pointer-events-none"
-          style={{ left: `${depth * 16 - 1}px`, bottom: isLastChild ? '50%' : 0, backgroundColor: groupColor ?? track.color, opacity: 0.6 }}
+          style={{ left: `${depth * 16 - 1}px`, bottom: isLastChild ? '50%' : 0, backgroundColor: shownTrackColor(groupColor ?? track.color), opacity: 0.6 }}
         />
         <span
           className="absolute h-[2px] w-[7px] pointer-events-none"
-          style={{ left: `${depth * 16 - 1}px`, top: 'calc(50% - 1px)', backgroundColor: groupColor ?? track.color, opacity: 0.6 }}
+          style={{ left: `${depth * 16 - 1}px`, top: 'calc(50% - 1px)', backgroundColor: shownTrackColor(groupColor ?? track.color), opacity: 0.6 }}
         />
         {/* Ponto da cor; com o mouse em cima vira a alça de arrastar */}
         <span className="relative w-2.5 h-3 shrink-0 flex items-center justify-center">
           <span
             className="w-1.5 h-1.5 rounded-full group-hover:opacity-0 transition-opacity"
-            style={{ backgroundColor: track.color, boxShadow: `0 0 4px ${track.color}80` }}
+            style={{ backgroundColor: shownTrackColor(track.color), boxShadow: `0 0 4px ${shownTrackColor(track.color)}80` }}
           />
           <GripVertical size={11} className="absolute text-logic-text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
         </span>
@@ -1057,7 +1058,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
   const clipTrack = useStore.getState().tracks.find((t) => t.id === clip.trackId);
   const trackColor = (estudio || oficina) && clipTrack
     ? (estudio ? esTrackColor : ofTrackColor)(clipTrack.color, esChannelOrder(useStore.getState().tracks, ROUTABLE_TRACKS, clipTrack.id))
-    : clipTrack?.color || routingColorOf(clip);
+    : clipTrack ? shownTrackColor(clipTrack.color) : routingColorOf(clip);
   // Estúdio e Oficina: o clipe é pintado na cor da faixa e a onda vai escura por cima
   const filled = estudio || oficina;
   const routingColor = isMuted ? '#666670' : trackColor;
@@ -1259,7 +1260,7 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
   const skin = useSkin();
   const filled = skin === 'estudio' || skin === 'oficina';
   const order = useStore((s) => (filled ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, folder.id) : -1));
-  const color = skin === 'estudio' ? esTrackColor(folder.color, order) : skin === 'oficina' ? ofTrackColor(folder.color, order) : folder.color;
+  const color = skin === 'estudio' ? esTrackColor(folder.color, order) : skin === 'oficina' ? ofTrackColor(folder.color, order) : shownTrackColor(folder.color);
   const left = preview.start * zoomH;
   const width = Math.max(8, preview.duration * zoomH);
   if (left > visible.end || left + width < visible.start) return null;

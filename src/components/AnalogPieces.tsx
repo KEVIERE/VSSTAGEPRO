@@ -91,10 +91,10 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
               key={i}
               x1={20 + Math.cos(a) * 16.2} y1={20 + Math.sin(a) * 16.2}
               x2={20 + Math.cos(a) * 18.6} y2={20 + Math.sin(a) * 18.6}
-              stroke={on ? (hot ? '#ff8a1e' : '#e2e2e7') : '#232326'}
+              stroke={on ? (hot ? '#ff8a1e' : '#36f08c') : '#232326'}
               strokeWidth={1.7}
               strokeLinecap="round"
-              style={on ? { filter: `drop-shadow(0 0 1.4px ${hot ? '#ff8a1e' : 'rgba(255,255,255,0.7)'})` } : undefined}
+              style={on ? { filter: `drop-shadow(0 0 1.5px ${hot ? '#ff8a1e' : '#36f08c'})` } : undefined}
             />
           );
         })}

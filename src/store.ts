@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { nextTrackSelection, type TrackPickMode } from '@/lib/trackSelection';
+import { NEUTRAL_TRACK_COLOR } from '@/lib/trackColors';
 import { temporal } from 'zundo';
 import { routeByName } from '@/lib/nameRouter';
 import { computeNextSongId } from '@/lib/playFlow';
@@ -40,18 +41,18 @@ function migrateSongRegions(song: Song): Song {
 
 const DEFAULT_TRACKS: Track[] = [
   makeTimecodeTrack(),
-  { id: 'track-guia', name: 'Guia', type: 'audio', color: '#5b8db8', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-click', name: 'Click', type: 'audio', color: '#5b8db8', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-maestro', name: 'Maestro', type: 'audio', color: '#5b8db8', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-bateria', name: 'Bateria', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-contrabaixo', name: 'Contrabaixo', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-percussoes', name: 'Percussões', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-guitarras', name: 'Guitarras', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-violoes', name: 'Violões', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-sanfonas', name: 'Sanfonas', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-teclados', name: 'Teclados', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-solos', name: 'Solos', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
-  { id: 'track-outros', name: 'Outros', type: 'subgroup', color: '#5bb87a', volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-guia', name: 'Guia', type: 'audio', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-click', name: 'Click', type: 'audio', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-maestro', name: 'Maestro', type: 'audio', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: false, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-bateria', name: 'Bateria', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-contrabaixo', name: 'Contrabaixo', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-percussoes', name: 'Percussões', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-guitarras', name: 'Guitarras', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-violoes', name: 'Violões', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-sanfonas', name: 'Sanfonas', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-teclados', name: 'Teclados', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-solos', name: 'Solos', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
+  { id: 'track-outros', name: 'Outros', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
 ];
 
 export const ROUTABLE_TRACKS: RoutingTarget[] = [
@@ -469,7 +470,7 @@ function intoFolder(tracks: Track[], clips: AudioClip[], folderId: string, clip:
   const folder = tracks.find((t) => t.id === folderId);
   const id = `${folderId}-child-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const child: Track = {
-    id, name: plan.create.name, type: 'audio', color: folder?.color ?? '#5b8db8',
+    id, name: plan.create.name, type: 'audio', color: folder?.color ?? NEUTRAL_TRACK_COLOR,
     volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
     isSubgroup: false, parentId: folderId, children: [], height: 40, visible: true,
     outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0,
@@ -881,7 +882,7 @@ export const useStore = create<Store>()(
           tracks: [
             ...s.tracks.map((t) => t.id === parentId ? { ...t, children: [...t.children, id] } : t),
             {
-              id, name, type: 'audio' as const, color: parent?.color ?? '#5b8db8',
+              id, name, type: 'audio' as const, color: parent?.color ?? NEUTRAL_TRACK_COLOR,
               volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
               isSubgroup: false, parentId, children: [], height: 40, visible: true,
               outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0,
@@ -897,7 +898,7 @@ export const useStore = create<Store>()(
         const parent = s.tracks.find((t) => t.id === place.parentId);
         const id = `${place.parentId}-nova-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
         const track: Track = {
-          id, name: uniqueTrackName(s.tracks, place.parentId, name), type: 'audio', color: parent?.color ?? '#5b8db8',
+          id, name: uniqueTrackName(s.tracks, place.parentId, name), type: 'audio', color: parent?.color ?? NEUTRAL_TRACK_COLOR,
           volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false,
           isSubgroup: false, parentId: place.parentId, children: [], height: 40, visible: true,
           outputChannel: 0, custom: true, meterLevel: 0, clipIndicator: false, clipPeak: 0,
@@ -2093,7 +2094,7 @@ export const useStore = create<Store>()(
               id,
               name: fullName,
               type: 'audio',
-              color: prev?.color ?? parent?.color ?? '#5b8db8',
+              color: prev?.color ?? parent?.color ?? NEUTRAL_TRACK_COLOR,
               volume: prev?.volume ?? 0.8,
               pan: prev?.pan ?? 0,
               mute: prev?.mute ?? false,

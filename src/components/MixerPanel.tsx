@@ -680,7 +680,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
   );
 }
 
-// Knob de pan da skin padrão: anel de LEDs brancos acendendo do centro até o pan, corpo em preto
+// Knob de pan da skin padrão: anel de LEDs verdes acendendo do centro até o pan, corpo em preto
 // piano com aro cinza e o ponteiro aceso.
 const PAN_LEDS = 13;
 
@@ -704,7 +704,7 @@ function PanKnob({ pan }: { pan: number }) {
       {Array.from({ length: PAN_LEDS }, (_, i) => {
         const a = ((-135 + (i / (PAN_LEDS - 1)) * 270 - 90) * Math.PI) / 180;
         const lit = i === mid || (pos >= mid ? i >= mid && i <= pos + 0.01 : i <= mid && i >= pos - 0.01);
-        const color = i === mid ? '#f2f2f5' : '#d0d0d6';
+        const color = i === mid ? '#b8ffd6' : '#36f08c';
         return (
           <circle
             key={i}
