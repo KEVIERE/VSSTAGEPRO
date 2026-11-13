@@ -1215,6 +1215,8 @@ class AudioEngine {
       useStore.getState().setPlaybackError('Lembrete: o TIMECODE (LTC) está "Sem Saída". Escolha no mixer a saída física da interface que vai para o telão ou a mesa de luz (ex.: Saída 5).');
     }
     const player = this.ensureTimecode();
+    // o timecode anda no andamento das faixas (BPM ajustado), nunca no tom (tuner)
+    player.setRate(1 / (this.playbackAlpha || 1));
     const audio = getClipAudio(clip.id);
     this.timecodeClipId = clip.id;
     if (audio) {
@@ -1228,6 +1230,7 @@ class AudioEngine {
       if (!late || gen !== this.playGeneration || !this.isPlaying || this.currentSongId !== songId || !this.ctx) return;
       const at = this.ctx.currentTime + 0.05;
       const pos = (at - this.playbackStartTime) / (this.playbackAlpha || 1);
+      player.setRate(1 / (this.playbackAlpha || 1));
       player.start(clip.id, late, pos - clip.startTime, at);
     }).catch(() => { /* avisado pelo carregamento da música */ });
   }
@@ -2692,6 +2695,7 @@ class AudioEngine {
     this.playbackCents = newCents;
     this.playbackOffset = posAt;
     this.playbackStartTime = at - posAt * newAlpha;
+    this.timecode?.retime(1 / newAlpha, at);
 
     const tracks = store.tracks;
     const process = params.bpmAdjust !== 0 || params.tuner !== 0;

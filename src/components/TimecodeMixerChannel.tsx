@@ -6,6 +6,7 @@ import { LedMeter } from '@/components/MeterMask';
 import OutputMenu from '@/components/OutputMenu';
 import { useSkin } from '@/lib/useSkin';
 import { GfCap, GfFaderMeter, GfKey, GfScreen } from '@/components/GrafitePieces';
+import { VS_CAP_H, VS_CAP_W, VsCap } from '@/components/AnalogPieces';
 import { ES_CAP_H, ES_FADER_H, ES_FADER_W, ES_SCALE_W, GF_CAP_H, GF_FADER_H, OF_CAP_H, OF_FADER_H } from '@/components/MixerPanel';
 import { OfCap, OfKey, OfMeter, OfName } from '@/components/OficinaPieces';
 import { EsCap, EsDbBoxes, EsKey, EsMeter, EsMeterScale, EsName } from '@/components/EstudioPieces';
@@ -246,11 +247,12 @@ export default function TimecodeMixerChannel() {
           onDoubleClick={() => { if (!locked) setVolume(track.id, TIMECODE_DEFAULT_VOLUME); }}
           title={locked ? 'Fader travado. Clique no cadeado para destravar.' : 'Duplo clique = -6 dB'}
         >
-          <div className="console-slot absolute left-1/2 -translate-x-1/2 top-[9px] bottom-[9px] pointer-events-none" />
-          <div className="console-tick is-unity pointer-events-none" style={{ bottom: `${(0.8 / 1.5) * 102 + 9}px` }} />
-          <div
-            className={`console-cap console-cap--tc absolute left-0 right-0 h-[18px] pointer-events-none ${locked ? 'ring-1 ring-logic-lcd-amber ring-offset-1 ring-offset-black' : ''}`}
-            style={{ bottom: `calc(${capPct} * (100% - 18px))` }}
+          <div className="console-slot absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: VS_CAP_H / 2 - 2, bottom: VS_CAP_H / 2 - 2 }} />
+          <div className="console-tick is-unity pointer-events-none" style={{ bottom: `${(0.8 / 1.5) * (120 - VS_CAP_H) + VS_CAP_H / 2}px` }} />
+          <VsCap
+            tone="tc"
+            className={`absolute left-1/2 -translate-x-1/2 pointer-events-none drop-shadow-[0_3px_3px_rgba(0,0,0,0.8)] ${locked ? 'outline outline-1 outline-offset-1 outline-logic-lcd-amber rounded-[3px]' : ''}`}
+            style={{ width: VS_CAP_W, height: VS_CAP_H, bottom: `calc(${capPct} * (100% - ${VS_CAP_H}px))` }}
           />
           <input
             type="range"

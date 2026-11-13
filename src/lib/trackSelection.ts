@@ -37,6 +37,36 @@ export function nextTrackSelection(
 }
 
 /** A ordem das faixas como aparecem na tela, pelo atributo que cada linha (ou canal) leva. */
+/**
+ * Faixas que andam juntas quando o usuário mexe numa: se ela faz parte de uma seleção de várias,
+ * todas as selecionadas; senão, só ela.
+ */
+export function linkedTrackIds(selected: string[], id: string): string[] {
+  return selected.length > 1 && selected.includes(id) ? selected : [id];
+}
+
+/**
+ * Volume novo de cada faixa ligada quando o fader de `id` vai para `volume`: as outras andam o
+ * mesmo tanto (cada uma do ponto onde está, dentro de 0 a 1,5). Faixa com o fader travado fica.
+ */
+export function linkedVolumes(
+  tracks: { id: string; volume: number; faderLocked?: boolean }[],
+  ids: string[],
+  id: string,
+  volume: number,
+): Map<string, number> {
+  const clamp = (v: number) => Math.max(0, Math.min(1.5, Math.round(v * 1000) / 1000));
+  const out = new Map<string, number>();
+  const moved = tracks.find((t) => t.id === id);
+  if (!moved) return out;
+  const delta = clamp(volume) - moved.volume;
+  for (const t of tracks) {
+    if (!ids.includes(t.id) || t.faderLocked) continue;
+    out.set(t.id, t.id === id ? clamp(volume) : clamp(t.volume + delta));
+  }
+  return out;
+}
+
 export function trackOrderOnScreen(attr: 'data-track-row' | 'data-mixer-track'): string[] {
   if (typeof document === 'undefined') return [];
   return [...document.querySelectorAll<HTMLElement>(`[${attr}]`)].map((el) => el.getAttribute(attr) ?? '').filter(Boolean);

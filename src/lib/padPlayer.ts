@@ -16,9 +16,9 @@ import { meterBallistics, peakOf } from '@/lib/maestroInput';
 import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
-  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delaySeconds, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
+  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_COUNT, chokedBy, delayAmount, delaySeconds, djFilter, playheadAt, reverbWet, rollSeconds, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
-  usablePadOutput, withItem, withPlaying, type PadInfo, type PadOutput, type SavedPads,
+  usablePadOutput, withItem, withPlaying, type PadFx, type PadInfo, type PadOutput, type SavedPads,
 } from '@/lib/samplePads';
 import { useStore } from '@/store';
 
@@ -26,7 +26,23 @@ import { useStore } from '@/store';
 const sources = new Map<number, Blob>();
 const buffers = new Map<number, AudioBuffer>();
 const reversed = new Map<number, AudioBuffer>();
-interface Voice { src: AudioBufferSourceNode; gain: GainNode; reverb: boolean; delay: boolean; startedAt: number }
+interface Voice {
+  src: AudioBufferSourceNode;
+  gain: GainNode;
+  reverb: boolean;
+  delay: boolean;
+  startedAt: number;
+  /** Para saber onde o som está (o roll repete a partir dali): posição no arquivo em `anchorT`. */
+  anchorT: number;
+  anchorPos: number;
+  /** Velocidade (pitch). */
+  rate: number;
+  /** Duração do arquivo, em segundos. */
+  length: number;
+  /** O roll está repetindo um pedaço, a partir de `rollStart`. */
+  rolling: boolean;
+  rollStart: number;
+}
 const voices = new Map<number, Voice>();
 let loaded: Promise<void> | null = null;
 
@@ -37,6 +53,16 @@ interface PadOut {
   reverbSend: GainNode;
   delaySend: GainNode;
   delay: DelayNode;
+  reverbWet: GainNode;
+  delayWet: GainNode;
+  feedback: GainNode;
+  /** Filtro de DJ depois da soma: passa-baixa e passa-alta. */
+  low: BiquadFilterNode;
+  high: BiquadFilterNode;
+  /** Saída depois do filtro (vai para o medidor e para a placa). */
+  post: GainNode;
+  /** Sinal inaudível que mantém a placa acordada enquanto o Modo Show está aberto. */
+  keepAlive: ConstantSourceNode | null;
   /** Medidor da soma (o LED ao lado do fader geral). */
   meter: AnalyserNode;
   /** Ligação da soma com as saídas da placa. */
@@ -76,20 +102,20 @@ function route(o: PadOut) {
     dest.channelCountMode = 'explicit';
     dest.channelInterpretation = 'discrete';
   } catch { /* a saída não aceita mais canais: fica no estéreo */ }
-  try { o.bus.disconnect(); } catch { /* ignore */ }
-  o.bus.connect(o.meter);
+  try { o.post.disconnect(); } catch { /* ignore */ }
+  o.post.connect(o.meter);
   if (o.merger) { try { o.merger.disconnect(); } catch { /* ignore */ } }
   const n = Math.max(2, dest.channelCount);
   const merger = o.ctx.createChannelMerger(n);
   const first = want.channel <= 0 ? 0 : want.channel - 1;
   if (want.channel <= 0 || want.stereo) {
     const split = o.ctx.createChannelSplitter(2);
-    o.bus.connect(split);
+    o.post.connect(split);
     split.connect(merger, 0, Math.min(first, n - 2));
     split.connect(merger, 1, Math.min(first + 1, n - 1));
   } else {
     // mono: esquerda e direita somadas na saída escolhida
-    o.bus.connect(merger, 0, Math.min(first, n - 1));
+    o.post.connect(merger, 0, Math.min(first, n - 1));
   }
   merger.connect(dest);
   o.merger = merger;
@@ -111,28 +137,45 @@ export function openPadOutput(): PadOut {
     ir.getChannelData(0).set(l);
     ir.getChannelData(1).set(r);
     convolver.buffer = ir;
-    const reverbWet = ctx.createGain();
-    reverbWet.gain.value = 0.5;
-    reverbSend.connect(convolver).connect(reverbWet).connect(bus);
+    const fx = getPadsState().fx;
+    const reverbWetNode = ctx.createGain();
+    reverbWetNode.gain.value = reverbWet(fx.reverb);
+    reverbSend.connect(convolver).connect(reverbWetNode).connect(bus);
     // delay: uma semínima no BPM da música, repetindo e escurecendo
     const delaySend = ctx.createGain();
     const delay = ctx.createDelay(2);
     delay.delayTime.value = delaySeconds(songBpm());
     const feedback = ctx.createGain();
-    feedback.gain.value = 0.38;
+    const dly = delayAmount(fx.delay);
+    feedback.gain.value = dly.feedback;
     const tone = ctx.createBiquadFilter();
     tone.type = 'lowpass';
     tone.frequency.value = 4200;
     const delayWet = ctx.createGain();
-    delayWet.gain.value = 0.45;
+    delayWet.gain.value = dly.wet;
     delaySend.connect(delay);
     delay.connect(tone);
     tone.connect(feedback).connect(delay);
     tone.connect(delayWet).connect(bus);
+    // filtro de DJ depois da soma (com os efeitos), e a saída final
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    const high = ctx.createBiquadFilter();
+    high.type = 'highpass';
+    const flt = djFilter(fx.filter);
+    low.frequency.value = flt.low;
+    high.frequency.value = flt.high;
+    low.Q.value = flt.q;
+    high.Q.value = flt.q;
+    const post = ctx.createGain();
+    bus.connect(low).connect(high).connect(post);
     const meter = ctx.createAnalyser();
     meter.fftSize = 2048;
-    bus.connect(meter);
-    out = { ctx, bus, reverbSend, delaySend, delay, meter, merger: null, routeKey: '', sink: null };
+    post.connect(meter);
+    out = {
+      ctx, bus, reverbSend, delaySend, delay, reverbWet: reverbWetNode, delayWet, feedback, low, high, post, keepAlive: null,
+      meter, merger: null, routeKey: '', sink: null,
+    };
     voices.clear();
   }
   const o = out;
@@ -156,6 +199,92 @@ function reportLatency(ctx: AudioContext) {
   const extra = (ctx as AudioContext & { outputLatency?: number }).outputLatency ?? 0;
   const ms = Math.round((ctx.baseLatency + extra) * 10000) / 10;
   if (ms !== getPadsState().latencyMs) setPadsState({ latencyMs: ms });
+}
+
+/**
+ * Pads sempre prontos no Modo Show: abre a saída, deixa os sons do banco decodificados e mantém a
+ * placa acordada com um sinal inaudível (-120 dB). Sem ele, depois de um tempo em silêncio o
+ * sistema desliga a saída para economizar, e o primeiro toque atrasa enquanto ela volta.
+ */
+export function keepPadsReady(on: boolean): void {
+  if (!on) {
+    if (out?.keepAlive) {
+      try { out.keepAlive.stop(); } catch { /* já parou */ }
+      out.keepAlive.disconnect();
+      out.keepAlive = null;
+    }
+    return;
+  }
+  const o = padOut();
+  if (!o.keepAlive) {
+    const k = o.ctx.createConstantSource();
+    k.offset.value = 1e-6;
+    k.connect(o.ctx.destination);
+    k.start();
+    o.keepAlive = k;
+  }
+  void loadPads().then(() => prepareBank(getPadsState().bank));
+}
+
+/** Muda os knobs de efeito; valem na hora para o que está tocando. */
+export function setPadsFx(patch: Partial<PadFx>): void {
+  const fx = { ...getPadsState().fx, ...patch };
+  setPadsState({ fx });
+  if (!out) return;
+  const o = out;
+  const t = o.ctx.currentTime;
+  if (patch.reverb !== undefined) o.reverbWet.gain.setTargetAtTime(reverbWet(fx.reverb), t, 0.02);
+  if (patch.delay !== undefined) {
+    const d = delayAmount(fx.delay);
+    o.delayWet.gain.setTargetAtTime(d.wet, t, 0.02);
+    o.feedback.gain.setTargetAtTime(d.feedback, t, 0.02);
+  }
+  if (patch.filter !== undefined) {
+    const f = djFilter(fx.filter);
+    o.low.frequency.setTargetAtTime(f.low, t, 0.015);
+    o.high.frequency.setTargetAtTime(f.high, t, 0.015);
+    o.low.Q.setTargetAtTime(f.q, t, 0.015);
+    o.high.Q.setTargetAtTime(f.q, t, 0.015);
+  }
+  if (patch.roll !== undefined) for (const [slot, v] of voices) applyRoll(slot, v);
+}
+
+/** Onde o som da voz está agora, em segundos do arquivo. */
+function headOf(v: Voice, now: number): number {
+  return playheadAt(now, {
+    anchorT: v.anchorT, anchorPos: v.anchorPos, rate: v.rate,
+    loopStart: v.src.loopStart, loopEnd: v.src.loopEnd > 0 ? v.src.loopEnd : v.length, looping: v.src.loop,
+  });
+}
+
+/**
+ * Roll (velocidade do loop): repete um pedaço do som, do ponto onde ele está, do tamanho do knob
+ * no tempo da música. Desligado, o som segue de onde estava (em loop só se o pad tem loop).
+ */
+function applyRoll(slot: number, v: Voice): void {
+  const now = v.src.context.currentTime;
+  const sec = rollSeconds(getPadsState().fx.roll, songBpm());
+  const pos = headOf(v, now);
+  v.anchorT = now;
+  v.anchorPos = pos;
+  if (sec === null) {
+    if (!v.rolling) return;
+    v.rolling = false;
+    v.src.loop = !!getPadsState().infos.get(slot)?.loop;
+    v.src.loopStart = 0;
+    v.src.loopEnd = 0;
+    return;
+  }
+  const len = Math.max(0.004, Math.min(v.length, sec * v.rate));
+  if (!v.rolling) {
+    v.rollStart = Math.max(0, Math.min(pos, v.length - len));
+    v.rolling = true;
+  }
+  const end = v.rollStart + len;
+  if (pos >= end) v.anchorPos = v.rollStart + ((pos - v.rollStart) % len);
+  v.src.loopEnd = end;
+  v.src.loopStart = v.rollStart;
+  v.src.loop = true;
 }
 
 function padOut(): PadOut {
@@ -203,6 +332,7 @@ useStore.subscribe((s, prev) => {
   if (s.outputChannelCount !== prev.outputChannelCount) route(out);
   if (s.songs !== prev.songs || s.transport.currentSongId !== prev.transport.currentSongId || s.selectedSongId !== prev.selectedSongId) {
     out.delay.delayTime.setTargetAtTime(delaySeconds(songBpm()), out.ctx.currentTime, 0.05);
+    for (const [slot, v] of voices) if (v.rolling) applyRoll(slot, v);
   }
 });
 
@@ -325,7 +455,12 @@ export function triggerPad(slot: number): void {
   gain.gain.value = faderToGain(info.volume);
   src.connect(gain);
   gain.connect(o.bus);
-  const voice: Voice = { src, gain, reverb: false, delay: false, startedAt: o.ctx.currentTime };
+  const now = o.ctx.currentTime;
+  const voice: Voice = {
+    src, gain, reverb: false, delay: false, startedAt: now,
+    anchorT: now, anchorPos: 0, rate: src.playbackRate.value, length: src.buffer.duration, rolling: false, rollStart: 0,
+  };
+  if (getPadsState().fx.roll > 0) applyRoll(slot, voice);
   connectSends(voice, o, info.reverb, info.delay);
   src.onended = () => {
     if (voices.get(slot)?.src !== src) return;
@@ -397,8 +532,18 @@ export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot
   if (v) {
     const t = v.gain.context.currentTime;
     if (patch.volume !== undefined) v.gain.gain.setTargetAtTime(faderToGain(patch.volume), t, 0.01);
-    if (patch.pitch !== undefined) v.src.playbackRate.setTargetAtTime(pitchRate(patch.pitch), t, 0.01);
-    if (patch.loop !== undefined) v.src.loop = patch.loop;
+    if (patch.pitch !== undefined) {
+      v.anchorPos = headOf(v, t);
+      v.anchorT = t;
+      v.rate = pitchRate(patch.pitch);
+      v.src.playbackRate.setTargetAtTime(v.rate, t, 0.01);
+      if (v.rolling) applyRoll(slot, v);
+    }
+    if (patch.loop !== undefined && !v.rolling) {
+      v.anchorPos = headOf(v, t);
+      v.anchorT = t;
+      v.src.loop = patch.loop;
+    }
     if ((patch.reverb !== undefined || patch.delay !== undefined) && out) connectSends(v, out, next.reverb, next.delay);
   }
   await savePadInfo(next).catch(() => say(false, 'Não deu para guardar a mudança do pad.'));

@@ -8,13 +8,14 @@ import { GfKnob } from '@/components/GrafitePieces';
 import { EsKnob } from '@/components/EstudioPieces';
 import { OfKnob } from '@/components/OficinaPieces';
 import { useSkin } from '@/lib/useSkin';
+import { VsKnobFace } from '@/components/AnalogPieces';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, fadeAllPads, importPadFile, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
-  setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
+  clearPad, fadeAllPads, importPadFile, keepPadsReady, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
+  setPadsFx, setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
-  BANK_COUNT, BANK_LABELS, PAD_COLORS, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
+  BANK_COUNT, BANK_LABELS, DEFAULT_PAD_FX, PAD_COLORS, filterLabel, rollLabel, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
   getPadsState, lastPlaying, padForKey, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchedDuration,
   setPadsState, slotPad, subscribePads, togglePadsPanel, usablePadOutput, type PadInfo, type PadOutput,
 } from '@/lib/samplePads';
@@ -38,7 +39,12 @@ export function PadsOrMixer() {
   const visible = useSyncExternalStore(subscribePads, () => getPadsState().visible);
 
   useEffect(() => { void loadPads(); }, []);
-  // abre a saída dos pads junto com o painel: o primeiro toque já sai sem espera
+  // no Modo Show os pads ficam sempre prontos (saída aberta e acordada, sons do banco na memória),
+  // mesmo com o mixer na tela: o primeiro toque sai na hora, até depois de sair e voltar
+  useEffect(() => {
+    keepPadsReady(true);
+    return () => keepPadsReady(false);
+  }, []);
   useEffect(() => { if (visible) openPadOutput(); }, [visible]);
 
   useEffect(() => {
@@ -84,7 +90,7 @@ export function PadsOrMixer() {
     if (!s.mixerVisible) s.toggleMixer();
   }), []);
 
-  return visible ? <SamplePadPanel /> : <MixerPanel />;
+  return visible ? <SamplePadPanel /> : <MixerPanel fit />;
 }
 
 /**
@@ -124,7 +130,7 @@ function SamplePadPanel() {
   const set = (patch: Partial<Omit<PadInfo, 'slot'>>) => { if (selected) void updatePad(selected.slot, patch); };
 
   return (
-    <div className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '336px', maxHeight: '62%' }}>
+    <div className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '404px', maxHeight: '66%' }}>
       <div className="console-rail flex items-center gap-2 px-3 h-8 shrink-0">
         <LayoutGrid size={13} className="text-logic-text-dim" />
         <span className="font-stage text-[13px] font-semibold tracking-wide text-logic-text-dim">Pads</span>
@@ -157,6 +163,7 @@ function SamplePadPanel() {
             <FxKey label="REVERSO" on={!!selected?.reverse} lit="is-lit-amber" disabled={!selected} onClick={() => set({ reverse: !selected?.reverse })} title="Toca o som de trás para frente (vale no próximo toque)" />
             <FxKey label="LOOP" on={!!selected?.loop} lit="is-lit-green" disabled={!selected} onClick={() => set({ loop: !selected?.loop })} title="Repete até apertar o pad de novo" />
           </div>
+          <FxKnobs />
           <div className="flex items-center gap-1.5 mt-auto">
             <button
               type="button"
@@ -790,3 +797,105 @@ function PadEditor({ info, anchor, onClose, onReplace, onClear }: {
     document.body,
   );
 }
+
+/**
+ * Knobs de efeito (valem para todos os pads): quanto de reverb e de delay, a velocidade do loop
+ * (roll de DJ, no tempo da música) e o filtro de DJ. Duplo clique volta ao padrão.
+ */
+function FxKnobs() {
+  const fx = useSyncExternalStore(subscribePads, () => getPadsState().fx);
+  return (
+    <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Knobs de efeito dos pads">
+      <FxKnob
+        label="REVERB"
+        value={fx.reverb}
+        text={`${Math.round(fx.reverb * 100)}`}
+        onChange={(v) => setPadsFx({ reverb: v })}
+        onReset={() => setPadsFx({ reverb: DEFAULT_PAD_FX.reverb })}
+        title="Quanto de reverb nos pads com REVERB ligado. Duplo clique: 50."
+      />
+      <FxKnob
+        label="DELAY"
+        value={fx.delay}
+        text={`${Math.round(fx.delay * 100)}`}
+        onChange={(v) => setPadsFx({ delay: v })}
+        onReset={() => setPadsFx({ delay: DEFAULT_PAD_FX.delay })}
+        title="Quanto de delay (e quantas repetições) nos pads com DELAY ligado. Duplo clique: 50."
+      />
+      <FxKnob
+        label="ROLL"
+        value={fx.roll}
+        text={rollLabel(fx.roll)}
+        onChange={(v) => setPadsFx({ roll: v })}
+        onReset={() => setPadsFx({ roll: 0 })}
+        title="Velocidade do loop: repete um pedaço do som no tempo da música, de 1 tempo até 1/64 (bem rápido, efeito de DJ). Todo para a esquerda desliga. Duplo clique: desliga."
+      />
+      <FxKnob
+        label="FILTRO"
+        value={fx.filter}
+        bipolar
+        text={filterLabel(fx.filter)}
+        onChange={(v) => setPadsFx({ filter: v })}
+        onReset={() => setPadsFx({ filter: 0 })}
+        title="Filtro de DJ: para a esquerda abafa (só graves), para a direita afina (só agudos). No meio, sem filtro. Duplo clique: meio."
+      />
+    </div>
+  );
+}
+
+function FxKnob({ label, value, bipolar, text, onChange, onReset, title }: {
+  label: string;
+  /** 0 a 1, ou -1 a 1 no bipolar. */
+  value: number;
+  bipolar?: boolean;
+  text: string;
+  onChange: (v: number) => void;
+  onReset: () => void;
+  title: string;
+}) {
+  const lo = bipolar ? -1 : 0;
+  const clamp = (v: number) => Math.max(lo, Math.min(1, Math.round(v * 1000) / 1000));
+  const down = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+    let last = e.clientY;
+    let acc = value;
+    const move = (ev: PointerEvent) => {
+      acc = clamp(acc + ((last - ev.clientY) / 140) * (1 - lo) * (ev.shiftKey ? 0.1 : 1));
+      last = ev.clientY;
+      onChange(acc);
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  return (
+    <div className="flex flex-col items-center gap-0.5 min-w-0" title={title}>
+      <div
+        className="relative w-[38px] h-[38px] shrink-0 select-none cursor-ns-resize"
+        style={{ touchAction: 'none' }}
+        onPointerDown={down}
+        onDoubleClick={onReset}
+        onWheel={(e) => onChange(clamp(value - Math.sign(e.deltaY) * 0.02 * (1 - lo)))}
+        role="slider"
+        aria-label={label}
+        aria-valuemin={lo}
+        aria-valuemax={1}
+        aria-valuenow={value}
+        aria-valuetext={text}
+      >
+        <VsKnobFace value={bipolar ? (value + 1) / 2 : value} bipolar={bipolar} unity={2} />
+      </div>
+      <span className="console-legend leading-none">{label}</span>
+      <span className="console-readout !min-w-0 w-full text-center text-logic-lcd-green text-[10px] leading-none py-[2px]">{text}</span>
+    </div>
+  );
+}
+

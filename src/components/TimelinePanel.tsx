@@ -277,7 +277,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
   const onPick = (e: React.MouseEvent) => pickTrack(track.id, trackPickMode(e), trackOrderOnScreen('data-track-row'));
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
-  const setVolume = useStore((s) => s.setVolume);
+  const setVolume = useStore((s) => s.setVolumeLinked);
   const headerWidth = useStore((s) => s.trackHeaderWidth);
   const zoomV = useStore((s) => s.zoomV);
   // Estúdio: a cor da faixa no degradê das DAWs do Mac (só nas faixas com a cor de fábrica)

@@ -200,7 +200,7 @@ test('tela: knob do pad, fader geral, visores, pitch, efeitos, saída e pads ace
   assert.match(panel, /<PitchFader/);
   for (const fx of ['REVERB', 'DELAY', 'REVERSO', 'LOOP']) assert.match(panel, new RegExp(`label="${fx}"`));
   assert.match(panel, /onClick=\{fadeAllPads\}/);
-  assert.match(panel, /return visible \? <SamplePadPanel \/> : <MixerPanel \/>;/);
+  assert.match(panel, /return visible \? <SamplePadPanel \/> : <MixerPanel fit \/>;/);
   assert.match(panel, /if \(e\.key === 'p' \|\| e\.key === 'P'\) \{/);
 });
 
@@ -211,4 +211,37 @@ test('as teclas 1 a 9 saíram das partes da música; pular a parte é N; o site 
   assert.match(read('components', 'sales', 'SalesPage.tsx'), /\['L', 'N'\]/);
   assert.match(read('components', 'PlaylistPanel.tsx'), /onClick=\{togglePadsPanel\}/);
   assert.match(read('lib', 'padStorage.ts'), /const DB_NAME = 'vs-stage-pads';/);
+});
+
+test('knobs de efeito: reverb, delay, roll (velocidade do loop) e filtro de DJ', async () => {
+  const m = await import('../src/lib/samplePads.ts');
+  assert.deepEqual(m.DEFAULT_PAD_FX, { reverb: 0.5, delay: 0.5, roll: 0, filter: 0 });
+  assert.equal(m.rollBeats(0), null);
+  assert.equal(m.rollLabel(0), 'OFF');
+  assert.equal(m.rollLabel(1), '1/64', 'no fim, bem rápido');
+  assert.equal(m.rollSeconds(1, 120), 0.5 / 64);
+  assert.equal(m.rollSeconds(1 / 7, 120), 0.5, '1 tempo a 120 BPM');
+  const mid = m.delayAmount(0.5);
+  assert.ok(Math.abs(mid.wet - 0.45) < 1e-9 && Math.abs(mid.feedback - 0.425) < 1e-9, 'o meio é o delay de antes');
+  assert.ok(m.delayAmount(1).feedback <= 0.75, 'sem realimentação infinita');
+  assert.deepEqual(m.djFilter(0), { low: 20000, high: 20, q: 0.707 });
+  assert.ok(Math.abs(m.djFilter(-1).low - 200) < 1e-6, 'todo para a esquerda: só graves');
+  assert.ok(Math.abs(m.djFilter(1).high - 5000) < 1e-6, 'todo para a direita: só agudos');
+  assert.equal(m.filterLabel(-0.4), 'LP 40');
+  assert.equal(m.filterLabel(0), 'OFF');
+  const v = { anchorT: 10, anchorPos: 2, rate: 1, loopStart: 2, loopEnd: 2.5, looping: true };
+  assert.ok(Math.abs(m.playheadAt(10.2, v) - 2.2) < 1e-9);
+  assert.ok(Math.abs(m.playheadAt(10.7, v) - 2.2) < 1e-9, 'no roll, volta ao começo do pedaço');
+  assert.equal(m.playheadAt(11, { ...v, looping: false }), 3);
+});
+
+test('pads sempre prontos no Modo Show: saída acordada e efeitos na hora', () => {
+  const player = fs.readFileSync(new URL('../src/lib/padPlayer.ts', import.meta.url), 'utf8');
+  const panel = fs.readFileSync(new URL('../src/components/SamplePadPanel.tsx', import.meta.url), 'utf8');
+  assert.match(player, /export function keepPadsReady/);
+  assert.match(player, /createConstantSource\(\)/, 'sinal inaudível mantém a placa acordada');
+  assert.match(panel, /keepPadsReady\(true\)/);
+  assert.match(panel, /return \(\) => keepPadsReady\(false\)/);
+  assert.match(panel, /<FxKnobs \/>/);
+  assert.match(panel, /<MixerPanel fit \/>/, 'o mixer do Modo Show se ajusta ao espaço');
 });

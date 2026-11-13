@@ -49,3 +49,37 @@ test('a timeline e o mixer usam a seleção de várias faixas, na ordem da tela'
   const store = fs.readFileSync(new URL('../src/store.ts', import.meta.url), 'utf8');
   assert.match(store, /selectTrack: \(id\) => set\(\{ selectedTrackId: id, selectedTrackIds: id \? \[id\] : \[\] \}\),/);
 });
+
+test('volume e cor andam juntos em todas as faixas selecionadas', async () => {
+  const { linkedTrackIds, linkedVolumes } = await import('../src/lib/trackSelection.ts');
+  assert.deepEqual(linkedTrackIds(['guia', 'click'], 'click'), ['guia', 'click']);
+  assert.deepEqual(linkedTrackIds(['guia', 'click'], 'bateria'), ['bateria'], 'fora da seleção: só ela');
+  assert.deepEqual(linkedTrackIds(['guia'], 'guia'), ['guia']);
+  const tracks = [
+    { id: 'guia', volume: 0.8 },
+    { id: 'click', volume: 0.5 },
+    { id: 'bateria', volume: 1.4 },
+    { id: 'timecode', volume: 0.4, faderLocked: true },
+  ];
+  const v = linkedVolumes(tracks, ['guia', 'click', 'bateria', 'timecode'], 'guia', 1);
+  assert.equal(v.get('guia'), 1);
+  assert.equal(v.get('click'), 0.7, 'anda o mesmo tanto');
+  assert.equal(v.get('bateria'), 1.5, 'para no máximo');
+  assert.equal(v.has('timecode'), false, 'fader travado fica');
+});
+
+test('o arrasto inteiro vira um passo só no desfazer; mixer e timeline usam o volume em grupo', () => {
+  const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
+  const gesture = read('src/lib/historyGesture.ts');
+  assert.match(gesture, /temporal\.getState\(\)\.pause\(\)/);
+  assert.match(gesture, /temporal\.getState\(\)\.resume\(\)/);
+  for (const f of ['src/components/MixerPanel.tsx', 'src/components/MiniFader.tsx', 'src/components/AnalogPieces.tsx']) {
+    const src = read(f);
+    assert.match(src, /beginHistoryGesture\(\)/, f);
+    assert.match(src, /historyGestureStep\(\)/, f);
+    assert.match(src, /endHistoryGesture\(\)/, f);
+  }
+  assert.match(read('src/components/MixerPanel.tsx'), /s\.setVolumeLinked/);
+  assert.match(read('src/components/TimelinePanel.tsx'), /s\.setVolumeLinked/);
+  assert.match(read('src/components/TrackContextMenu.tsx'), /s\.setTrackColorLinked/);
+});

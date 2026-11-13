@@ -245,3 +245,24 @@ test('as faixas nascem cinza neutro; as cores de fábrica antigas aparecem cinza
   assert.ok((store.match(/color: NEUTRAL_TRACK_COLOR/g) ?? []).length >= 12, 'as faixas de fábrica nascem cinza');
 });
 
+
+test('skin padrão: o mesmo knob no volume e no balanço, capa cromada em pé e botões proporcionais', () => {
+  const analog = read('src', 'components', 'AnalogPieces.tsx');
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.match(analog, /export function VsKnobFace/);
+  assert.match(analog, /<VsKnobFace value=\{pct\} \/>/, 'knob de volume das faixas');
+  assert.match(mixer, /<VsKnobFace value=\{[^}]+\} bipolar \/>/, 'balanço do mixer com o mesmo knob');
+  assert.match(analog, /stroke=\{on \? color : '#38393e'\}/, 'os LEDs apagados aparecem: o anel inteiro fica visível');
+  assert.match(analog, /export const VS_CAP_W = 18;\nexport const VS_CAP_H = 30;/, 'capa mais alta que larga');
+  assert.match(mixer, /<VsCap\n/);
+  assert.equal((mixer.match(/vs-wide-key[^`]*w-\[52px\][^`]*whitespace-nowrap/g) ?? []).length, 3, 'ANTI-CLIP e IGUALAR na largura do par M e S, sem quebrar');
+});
+
+test('timecode anda no BPM ajustado, nunca no tuner', () => {
+  const tc = read('src', 'lib', 'timecodePlayer.ts');
+  const engine = read('src', 'lib', 'audioEngine.ts');
+  assert.match(tc, /src\.playbackRate\.value = this\.rate;/);
+  assert.doesNotMatch(tc, /cents|pitchFromCents|tuner\s*\*/);
+  assert.match(engine, /player\.setRate\(1 \/ \(this\.playbackAlpha \|\| 1\)\);/);
+  assert.match(engine, /this\.timecode\?\.retime\(1 \/ newAlpha, at\);/);
+});

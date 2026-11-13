@@ -7,13 +7,16 @@ interface Voice {
 }
 
 /**
- * Toca o timecode sempre na velocidade e no tom originais: o sinal é lido por telões e
- * mesas de luz, então nunca passa pelo ajuste de BPM nem pelo afinador.
+ * Toca o timecode no mesmo andamento das faixas: com o BPM ajustado, ele corre mais rápido ou mais
+ * devagar junto (como o varispeed das máquinas de fita), para os telões e as luzes seguirem a
+ * música. O afinador (tuner) não mexe nele: o sinal nunca passa pelo processamento de tom.
  */
 export class TimecodePlayer {
   private current: Voice | null = null;
   private pending: Voice | null = null;
   private cache: { clipId: string; buffer: AudioBuffer } | null = null;
+  /** Velocidade de leitura (1 = original; 1,1 = BPM 10% mais rápido). */
+  private rate = 1;
 
   constructor(private ctx: AudioContext, private output: AudioNode) {}
 
@@ -23,15 +26,31 @@ export class TimecodePlayer {
   }
 
   private voice(buffer: AudioBuffer, localPos: number, when: number): Voice | null {
-    const startsAt = Math.max(this.ctx.currentTime, when + Math.max(0, -localPos));
+    // antes do começo do arquivo, espera o tanto que a música leva até ele (no andamento atual)
+    const startsAt = Math.max(this.ctx.currentTime, when + Math.max(0, -localPos) / this.rate);
     const offset = Math.max(0, localPos);
     if (offset >= buffer.duration) return null;
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
+    src.playbackRate.value = this.rate;
     src.connect(this.output);
     src.start(startsAt, offset);
     src.onended = () => { try { src.disconnect(); } catch { /* ignore */ } };
     return { src, startsAt };
+  }
+
+  /** Andamento para os próximos inícios (chamar antes de start). */
+  setRate(rate: number) {
+    this.rate = rate > 0 ? rate : 1;
+  }
+
+  /** BPM mudou tocando: a partir do instante `at`, o timecode corre no andamento novo. */
+  retime(rate: number, at: number) {
+    this.setRate(rate);
+    const when = Math.max(this.ctx.currentTime, at);
+    for (const v of [this.current, this.pending]) {
+      if (v) v.src.playbackRate.setValueAtTime(this.rate, when);
+    }
   }
 
   /** Começa (ou recomeça) no ponto `localPos` do arquivo, no instante `when` do relógio de áudio. */

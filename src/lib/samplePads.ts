@@ -207,6 +207,87 @@ export function makeReverbImpulse(sampleRate: number, seconds = 2.2): [Float32Ar
   return out;
 }
 
+/**
+ * Knobs de efeito dos pads, valendo para todos: quanto de reverb e de delay volta (nos pads com o
+ * efeito ligado), a velocidade do loop (o "roll" de DJ: repete um pedaço cada vez menor do som,
+ * no tempo da música) e o filtro de DJ (para a esquerda abafa, para a direita afina).
+ */
+export interface PadFx {
+  /** 0 a 1. */
+  reverb: number;
+  /** 0 a 1. */
+  delay: number;
+  /** 0 = desligado; até 1 = o pedaço mais curto (1/64 de tempo). */
+  roll: number;
+  /** -1 (só graves) a 1 (só agudos); 0 = sem filtro. */
+  filter: number;
+}
+
+export const DEFAULT_PAD_FX: PadFx = { reverb: 0.5, delay: 0.5, roll: 0, filter: 0 };
+
+/** Tamanho do pedaço repetido em tempos da música; null = sem roll. */
+export const ROLL_STEPS: Array<number | null> = [null, 1, 1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32, 1 / 64];
+
+export function rollBeats(roll: number): number | null {
+  const i = Math.round(Math.max(0, Math.min(1, roll)) * (ROLL_STEPS.length - 1));
+  return ROLL_STEPS[i];
+}
+
+/** "OFF", "1", "1/2"... "1/64". */
+export function rollLabel(roll: number): string {
+  const b = rollBeats(roll);
+  return b === null ? 'OFF' : b >= 1 ? String(b) : `1/${Math.round(1 / b)}`;
+}
+
+/** Segundos do pedaço do roll no BPM da música (null = sem roll). */
+export function rollSeconds(roll: number, bpm: number): number | null {
+  const b = rollBeats(roll);
+  return b === null ? null : b * (60 / (bpm > 0 ? bpm : 120));
+}
+
+/** Volume da volta do reverb para o knob (0,5 = o de antes). */
+export function reverbWet(amount: number): number {
+  return Math.max(0, Math.min(1, amount)) * 1.1;
+}
+
+/** Volta e realimentação do delay para o knob (0,5 = o de antes; no máximo 0,75 de realimentação). */
+export function delayAmount(amount: number): { wet: number; feedback: number } {
+  const a = Math.max(0, Math.min(1, amount));
+  return { wet: a * 0.9, feedback: 0.1 + a * 0.65 };
+}
+
+/** Filtro de DJ: frequência do passa-baixa e do passa-alta e a ressonância. */
+export function djFilter(filter: number): { low: number; high: number; q: number } {
+  const f = Math.max(-1, Math.min(1, filter));
+  const near = Math.abs(f) < 0.02;
+  return {
+    low: near || f > 0 ? 20000 : 20000 * Math.pow(0.01, -f),
+    high: near || f < 0 ? 20 : 20 * Math.pow(250, f),
+    q: near ? 0.707 : 0.707 + Math.abs(f) * 2.5,
+  };
+}
+
+/** Texto do filtro: "OFF", "LP 40", "HP 70". */
+export function filterLabel(filter: number): string {
+  if (Math.abs(filter) < 0.02) return 'OFF';
+  return `${filter < 0 ? 'LP' : 'HP'} ${Math.round(Math.abs(filter) * 100)}`;
+}
+
+/**
+ * Onde o som está agora, em segundos do arquivo: começou em `anchorPos` no instante `anchorT` e
+ * anda `rate` segundos por segundo; em loop, volta para o começo do trecho que repete.
+ */
+export function playheadAt(
+  now: number,
+  v: { anchorT: number; anchorPos: number; rate: number; loopStart: number; loopEnd: number; looping: boolean },
+): number {
+  const p = v.anchorPos + Math.max(0, now - v.anchorT) * v.rate;
+  if (!v.looping || v.loopEnd <= v.loopStart) return p;
+  if (p < v.loopEnd) return p;
+  const len = v.loopEnd - v.loopStart;
+  return v.loopStart + ((p - v.loopStart) % len);
+}
+
 // ---------- Estado da tela ----------
 
 export interface PadsState {
@@ -223,6 +304,8 @@ export interface PadsState {
   /** Volume geral dos pads (padrão dos faders). */
   master: number;
   output: PadOutput;
+  /** Knobs de efeito (valem para todos os pads). */
+  fx: PadFx;
   /** Um por vez: tocar um pad para os outros. */
   choke: boolean;
   /** Segurar: os pads tocam enquanto estão apertados; apertou e soltou, toca só 0,2 s. */
@@ -237,6 +320,23 @@ const MASTER_KEY = 'vsstage.pads.master';
 const OUTPUT_KEY = 'vsstage.pads.output';
 const CHOKE_KEY = 'vsstage.pads.choke';
 const HOLD_KEY = 'vsstage.pads.hold';
+const FX_KEY = 'vsstage.pads.fx';
+
+function storedFx(): PadFx {
+  try {
+    const v = JSON.parse(globalThis.localStorage?.getItem(FX_KEY) ?? 'null') as Partial<PadFx> | null;
+    if (v && typeof v === 'object') {
+      const num = (x: unknown, lo: number, hi: number, d: number) => (typeof x === 'number' && x >= lo && x <= hi ? x : d);
+      return {
+        reverb: num(v.reverb, 0, 1, DEFAULT_PAD_FX.reverb),
+        delay: num(v.delay, 0, 1, DEFAULT_PAD_FX.delay),
+        roll: num(v.roll, 0, 1, DEFAULT_PAD_FX.roll),
+        filter: num(v.filter, -1, 1, DEFAULT_PAD_FX.filter),
+      };
+    }
+  } catch { /* sem nada guardado */ }
+  return { ...DEFAULT_PAD_FX };
+}
 
 function stored(key: string, fallback: number, ok: (v: number) => boolean): number {
   try {
@@ -266,6 +366,7 @@ let state: PadsState = {
   loading: new Set(),
   master: stored(MASTER_KEY, 0.8, (v) => v >= 0 && v <= 1.5),
   output: storedOutput(),
+  fx: storedFx(),
   choke: stored(CHOKE_KEY, 0, (v) => v === 0 || v === 1) === 1,
   hold: stored(HOLD_KEY, 0, (v) => v === 0 || v === 1) === 1,
   message: null,
@@ -290,6 +391,7 @@ export function setPadsState(patch: Partial<PadsState>): void {
     if (patch.output !== undefined) globalThis.localStorage?.setItem(OUTPUT_KEY, JSON.stringify(patch.output));
     if (patch.choke !== undefined) globalThis.localStorage?.setItem(CHOKE_KEY, patch.choke ? '1' : '0');
     if (patch.hold !== undefined) globalThis.localStorage?.setItem(HOLD_KEY, patch.hold ? '1' : '0');
+    if (patch.fx !== undefined) globalThis.localStorage?.setItem(FX_KEY, JSON.stringify(patch.fx));
   } catch { /* só não lembra */ }
   listeners.forEach((l) => l());
 }

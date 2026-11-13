@@ -2,7 +2,7 @@ import { useStore, ROUTABLE_TRACKS } from '@/store';
 import { volumeToDb } from '@/lib/audioEngine';
 import { audioEngine } from '@/lib/audioEngine';
 import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { belowTarget, levelTarget, parseTargetDb, songLevelGain, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
 import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
 import { LedMeter } from '@/components/MeterMask';
@@ -13,10 +13,12 @@ import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import { useMeterLevel } from '@/lib/meterBus';
 import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
+import { beginHistoryGesture, endHistoryGesture, historyGestureStep } from '@/lib/historyGesture';
 import { trackOrderOnScreen, trackPickMode } from '@/lib/trackSelection';
 import { GfCap, GfFaderMeter, GfKey, GfKnob, GfScreen, GfTag } from '@/components/GrafitePieces';
 import { EsCap, EsDbBoxes, EsKey, EsKnob, EsMeter, EsMeterScale, EsName, esTrackColor } from '@/components/EstudioPieces';
 import { OfCap, OfKey, OfKnob, OfMeter, OfName, OfPeak, ofTrackColor } from '@/components/OficinaPieces';
+import { VS_CAP_H, VS_CAP_W, VsCap, VsKnobFace } from '@/components/AnalogPieces';
 
 // Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
 // nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
@@ -81,7 +83,7 @@ function LevelMatchButton() {
   return (
     <div className="flex flex-col items-center justify-center gap-0.5">
       <button
-        className={`console-key flex items-center gap-1 h-[15px] px-1.5 text-[8.5px] leading-none tabular-nums ${on ? 'text-logic-text' : ''}`}
+        className={`console-key vs-wide-key flex items-center justify-center gap-[3px] w-[52px] h-[16px] px-1 text-[7.5px] leading-none whitespace-nowrap tabular-nums ${on ? 'text-logic-text' : ''}`}
         onClick={() => setLevelMatch(!on)}
         title={title}
         aria-pressed={on}
@@ -148,12 +150,6 @@ export function faderDbText(volume: number): string {
 }
 
 type CapTone = 'cue' | 'band' | 'master';
-// nomes escritos por inteiro para o Tailwind não descartar as classes no build
-const CAP_CLASS: Record<CapTone, string> = {
-  cue: 'console-cap--cue',
-  band: 'console-cap--band',
-  master: 'console-cap--master',
-};
 
 // Fader de mesa: escala impressa à esquerda, fenda no painel e a capa com frisos.
 // Curso exato em pixels: onde o mouse arrasta é onde a capa fica.
@@ -176,7 +172,7 @@ export function Fader({
   const grafite = skin === 'grafite';
   const estudio = skin === 'estudio';
   const oficina = skin === 'oficina';
-  const capHeight = grafite ? GF_CAP_H : estudio ? ES_CAP_H : oficina ? OF_CAP_H : 22;
+  const capHeight = grafite ? GF_CAP_H : estudio ? ES_CAP_H : oficina ? OF_CAP_H : VS_CAP_H;
   const travel = height - capHeight;
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const bottomPx = pct * travel;
@@ -193,6 +189,7 @@ export function Fader({
     const startValue = value;
     let lastY = startY;
     let acc = startValue;
+    beginHistoryGesture();
 
     const move = (ev: PointerEvent) => {
       const dy = lastY - ev.clientY;
@@ -200,8 +197,10 @@ export function Fader({
       acc += (dy / travel) * 1.5 * (ev.shiftKey ? 0.1 : 1);
       acc = Math.max(0, Math.min(1.5, acc));
       onChange(Math.round(acc * 1000) / 1000);
+      historyGestureStep();
     };
     const up = () => {
+      endHistoryGesture();
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', up);
       target.removeEventListener('pointercancel', up);
@@ -312,10 +311,11 @@ export function Fader({
         />
         {/* rastro de luz do volume na fenda (só a skin padrão desenha) */}
         <div className="console-faderfill absolute left-1/2 -translate-x-1/2" style={{ bottom: `${capHeight / 2}px`, height: `${bottomPx}px` }} />
-        {/* Capa do fader */}
-        <div
-          className={`console-cap ${CAP_CLASS[tone]} absolute left-0 right-0`}
-          style={{ height: `${capHeight}px`, bottom: `${bottomPx}px` }}
+        {/* Capa do fader: em pé e cromada */}
+        <VsCap
+          tone={tone}
+          className="absolute left-1/2 -translate-x-1/2 drop-shadow-[0_3px_3px_rgba(0,0,0,0.8)]"
+          style={{ width: `${VS_CAP_W}px`, height: `${capHeight}px`, bottom: `${bottomPx}px` }}
         />
       </div>
     </div>
@@ -362,7 +362,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
   onMenu: (track: Track, x: number, y: number) => void;
 }) {
   const track = useStore((s) => s.tracks.find((t) => t.id === trackId));
-  const setVolume = useStore((s) => s.setVolume);
+  const setVolume = useStore((s) => s.setVolumeLinked);
   const setPan = useStore((s) => s.setPan);
   const toggleMute = useStore((s) => s.toggleMute);
   const toggleSolo = useStore((s) => s.toggleSolo);
@@ -648,7 +648,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
 
       {/* Anti-clip: liga/desliga o limitador de pico do canal em -0,1 dBFS. O LED verde mostra que está ligado. */}
       <button
-        className={`console-key flex items-center gap-1 h-[15px] px-1.5 text-[8.5px] leading-none ${
+        className={`console-key vs-wide-key flex items-center justify-center gap-[3px] w-[52px] h-[16px] px-1 text-[7.5px] leading-none whitespace-nowrap ${
           !track.antiClip && isClipping ? 'is-lit-red animate-pulse' : ''
         } ${track.antiClip ? 'text-logic-text' : ''}`}
         onClick={(e) => { e.stopPropagation(); toggleAntiClip(track.id); }}
@@ -680,52 +680,20 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
   );
 }
 
-// Knob de pan da skin padrão: anel de LEDs verdes acendendo do centro até o pan, corpo em preto
-// piano com aro cinza e o ponteiro aceso.
-const PAN_LEDS = 13;
-
+// Knob de pan da skin padrão: o mesmo knob do volume das faixas, com o anel acendendo do centro.
 function PanKnob({ pan }: { pan: number }) {
-  const v = Math.max(-1, Math.min(1, pan));
-  const pos = ((v + 1) / 2) * (PAN_LEDS - 1);
-  const mid = (PAN_LEDS - 1) / 2;
-  return (
-    <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
-      <defs>
-        <radialGradient id="vs-pan-body" cx="45%" cy="32%" r="72%">
-          <stop offset="0" stopColor="#3a3a3e" />
-          <stop offset="0.6" stopColor="#141415" />
-          <stop offset="1" stopColor="#050505" />
-        </radialGradient>
-        <linearGradient id="vs-pan-rim" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#bdbdc4" stopOpacity="0.6" />
-          <stop offset="1" stopColor="#3a3a3e" stopOpacity="0.2" />
-        </linearGradient>
-      </defs>
-      {Array.from({ length: PAN_LEDS }, (_, i) => {
-        const a = ((-135 + (i / (PAN_LEDS - 1)) * 270 - 90) * Math.PI) / 180;
-        const lit = i === mid || (pos >= mid ? i >= mid && i <= pos + 0.01 : i <= mid && i >= pos - 0.01);
-        const color = i === mid ? '#b8ffd6' : '#36f08c';
-        return (
-          <circle
-            key={i}
-            cx={14 + 12.6 * Math.cos(a)} cy={14 + 12.6 * Math.sin(a)} r={0.95}
-            fill={lit ? color : '#232326'}
-            style={lit ? { filter: `drop-shadow(0 0 1.5px ${color})` } : undefined}
-          />
-        );
-      })}
-      <circle cx="14" cy="14.7" r="9.4" fill="#000" opacity="0.55" />
-      <circle cx="14" cy="14" r="9.2" fill="url(#vs-pan-body)" />
-      <circle cx="14" cy="14" r="9.2" fill="none" stroke="url(#vs-pan-rim)" strokeWidth="0.8" />
-      <ellipse cx="12.6" cy="10.4" rx="4.4" ry="2.1" fill="#fff" opacity="0.07" />
-      <g transform={`rotate(${v * 135} 14 14)`}>
-        <rect x="13.35" y="5.8" width="1.3" height="5.2" rx="0.65" fill="#f2f2f5" style={{ filter: 'drop-shadow(0 0 1.2px rgba(255,255,255,0.8))' }} />
-      </g>
-    </svg>
-  );
+  return <VsKnobFace value={(Math.max(-1, Math.min(1, pan)) + 1) / 2} bipolar />;
 }
 
-export default function MixerPanel() {
+// Altura dos canais com o mixer no tamanho normal (300 px menos o trilho de cima e a borda).
+const BED_H = 271;
+const RAIL_H = 28;
+
+/**
+ * Mixer. `fit` (Modo Show): os canais se ajustam à largura da tela, sem rolar e sem sobrar
+ * espaço; com poucos canais o mixer cresce (até 60% da altura), com muitos ele encolhe.
+ */
+export default function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
   const mixerVisible = useStore((s) => s.mixerVisible);
   const toggleMixer = useStore((s) => s.toggleMixer);
   const tracks = useStore((s) => s.tracks);
@@ -742,6 +710,9 @@ export default function MixerPanel() {
   // menu da faixa (cor, nome...) aberto com o botão direito num canal
   const [trackMenu, setTrackMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
   const grafite = skin === 'grafite';
+  const faceRef = useRef<HTMLDivElement>(null);
+  const channelsRef = useRef<HTMLDivElement>(null);
+  const [fitBox, setFitBox] = useState<{ scale: number; w: number } | null>(null);
 
   const allChannels = useMemo(() => {
     const result: string[] = [];
@@ -754,6 +725,28 @@ export default function MixerPanel() {
     }
     return result;
   }, [tracks]);
+
+  useLayoutEffect(() => {
+    if (!fit || !mixerVisible) { setFitBox(null); return; }
+    const face = faceRef.current;
+    const inner = channelsRef.current;
+    if (!face || !inner) return;
+    const host = face.parentElement;
+    const update = () => {
+      const w = inner.offsetWidth;
+      if (!w) return;
+      const maxH = Math.max(BED_H * 0.6, (host?.clientHeight ?? 900) * 0.6 - RAIL_H - 1);
+      const scale = Math.max(0.55, Math.min(face.clientWidth / w, maxH / BED_H));
+      const next = { scale: Math.floor(scale * 1000) / 1000, w };
+      setFitBox((prev) => (prev && prev.scale === next.scale && prev.w === next.w ? prev : next));
+    };
+    const ro = new ResizeObserver(update);
+    ro.observe(face);
+    ro.observe(inner);
+    if (host) ro.observe(host);
+    update();
+    return () => ro.disconnect();
+  }, [fit, mixerVisible, skin, allChannels.length]);
 
   if (!mixerVisible) {
     return (
@@ -771,7 +764,11 @@ export default function MixerPanel() {
   }
 
   return (
-    <div className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '300px', maxHeight: '60%' }}>
+    <div
+      ref={faceRef}
+      className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden"
+      style={fitBox ? { height: `${RAIL_H + 1 + Math.ceil(BED_H * fitBox.scale)}px` } : { height: '300px', maxHeight: '60%' }}
+    >
       {/* Trilho de cima */}
       <div
         className="console-rail flex items-center justify-between px-3 h-7 cursor-pointer"
@@ -787,8 +784,14 @@ export default function MixerPanel() {
       </div>
 
       {/* Canais */}
-      <div className="console-bed flex-1 flex overflow-x-auto overflow-y-hidden logic-scroll min-h-0">
-        <div className="flex mx-auto min-w-fit border-l border-r border-logic-border-dark">
+      <div className={`console-bed flex-1 flex ${fitBox ? 'overflow-hidden' : 'overflow-x-auto overflow-y-hidden logic-scroll'} min-h-0`}>
+        {/* no Modo Show os canais ficam no tamanho natural e são escalados para caber certinho */}
+        <div className="mx-auto shrink-0" style={fitBox ? { width: fitBox.w * fitBox.scale, height: BED_H * fitBox.scale } : { display: 'contents' }}>
+        <div
+          ref={channelsRef}
+          className={`flex mx-auto min-w-fit border-l border-r border-logic-border-dark ${fit ? 'w-max origin-top-left' : ''}`}
+          style={fit ? { height: BED_H, transform: fitBox ? `scale(${fitBox.scale})` : undefined } : undefined}
+        >
           {skin === 'estudio' && <EsRowLabels />}
           <TimecodeMixerChannel />
           {allChannels.map((trackId, i) => (
@@ -1004,7 +1007,7 @@ export default function MixerPanel() {
 
           {/* Anti-clip: o mesmo dos canais — liga/desliga o limitador de pico do master em -0,1 dBFS. LED verde = ligado. */}
           <button
-            className={`console-key flex items-center gap-1 h-[15px] px-1.5 text-[8.5px] leading-none ${
+            className={`console-key vs-wide-key flex items-center justify-center gap-[3px] w-[52px] h-[16px] px-1 text-[7.5px] leading-none whitespace-nowrap ${
               !masterAntiClip && masterIsClipping ? 'is-lit-red animate-pulse' : ''
             } ${masterAntiClip ? 'text-logic-text' : ''}`}
             onClick={toggleMasterAntiClip}
@@ -1024,6 +1027,7 @@ export default function MixerPanel() {
 
           </div>
           )}
+        </div>
         </div>
       </div>
       {trackMenu && (

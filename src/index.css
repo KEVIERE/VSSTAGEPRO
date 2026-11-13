@@ -497,8 +497,8 @@
     box-shadow: inset 3px 0 0 #ffab1f, inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
   .cue-row.is-selected {
-    background-color: rgba(255, 255, 255, 0.07);
-    box-shadow: inset 3px 0 0 #0a84ff, inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    background-color: rgba(10, 132, 255, 0.14);
+    box-shadow: inset 5px 0 0 #0a84ff, inset 0 0 0 1px rgba(10, 132, 255, 0.4);
   }
 
   /* Cabeçalho de bloco: faixa na cor do bloco, com brilho em cima e sombra embaixo */
@@ -3134,9 +3134,11 @@
     background-color: rgba(255, 138, 30, 0.08);
     box-shadow: inset 3px 0 0 #ff8a1e;
   }
+  /* música selecionada: bem destacada (barra branca grossa, fundo claro e contorno) */
   :where(:root:not([data-skin])) .cue-row.is-selected {
-    background-color: rgba(255, 255, 255, 0.06);
-    box-shadow: inset 3px 0 0 #d9d9de;
+    background-color: rgba(255, 255, 255, 0.13);
+    background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0) 70%);
+    box-shadow: inset 5px 0 0 #f2f2f5, inset 0 0 0 1px rgba(255, 255, 255, 0.28), 0 0 12px rgba(255, 255, 255, 0.06);
   }
   :where(:root:not([data-skin])) .console-pad {
     border-radius: 8px;

@@ -74,7 +74,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const tracks = useStore((s) => s.tracks);
   const count = useStore((s) => s.outputChannelCount);
   const renameTrack = useStore((s) => s.renameTrack);
-  const setTrackColor = useStore((s) => s.setTrackColor);
+  const setTrackColor = useStore((s) => s.setTrackColorLinked);
   const moveTrackToFolder = useStore((s) => s.moveTrackToFolder);
   const setOutputChannel = useStore((s) => s.setOutputChannel);
   const toggleMute = useStore((s) => s.toggleMute);

@@ -1,3 +1,4 @@
+import { beginHistoryGesture, endHistoryGesture, historyGestureStep } from '@/lib/historyGesture';
 import { volumeToDb } from '@/lib/audioEngine';
 import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
@@ -39,6 +40,7 @@ export default function MiniFader({ value, onChange, onReset, width, height = 14
     target.setPointerCapture(e.pointerId);
     let lastX = e.clientX;
     let acc = value;
+    beginHistoryGesture();
 
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - lastX;
@@ -46,8 +48,10 @@ export default function MiniFader({ value, onChange, onReset, width, height = 14
       acc += (dx / travel) * 1.5 * (ev.shiftKey ? 0.1 : 1);
       acc = Math.max(0, Math.min(1.5, acc));
       onChange(Math.round(acc * 1000) / 1000);
+      historyGestureStep();
     };
     const up = () => {
+      endHistoryGesture();
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', up);
       target.removeEventListener('pointercancel', up);

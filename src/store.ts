@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { nextTrackSelection, type TrackPickMode } from '@/lib/trackSelection';
+import { linkedTrackIds, linkedVolumes, nextTrackSelection, type TrackPickMode } from '@/lib/trackSelection';
 import { NEUTRAL_TRACK_COLOR } from '@/lib/trackColors';
 import { temporal } from 'zundo';
 import { routeByName } from '@/lib/nameRouter';
@@ -236,6 +236,10 @@ interface StoreActions {
   setVolume: (trackId: string, volume: number) => void;
   setPan: (trackId: string, pan: number) => void;
   setTrackColor: (trackId: string, color: string) => void;
+  /** Volume pelo fader ou knob da tela: com várias faixas selecionadas, todas andam juntas. */
+  setVolumeLinked: (trackId: string, volume: number) => void;
+  /** Cor pelo menu da faixa: com várias faixas selecionadas, todas mudam juntas. */
+  setTrackColorLinked: (trackId: string, color: string) => void;
   renameTrack: (trackId: string, name: string) => void;
   moveTrackToFolder: (trackId: string, targetFolderId: string | null) => void;
   /** stereo = usa o par N/N+1 da interface em vez da saída mono N */
@@ -828,6 +832,15 @@ export const useStore = create<Store>()(
       setVolume: (trackId, volume) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId && !t.faderLocked ? { ...t, volume: Math.max(0, Math.min(1.5, volume)) } : t) })),
       setPan: (trackId, pan) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, pan: Math.max(-1, Math.min(1, pan)) } : t) })),
       setTrackColor: (trackId, color) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, color } : t) })),
+      setVolumeLinked: (trackId, volume) => set((s) => {
+        const next = linkedVolumes(s.tracks, linkedTrackIds(s.selectedTrackIds, trackId), trackId, volume);
+        if (next.size === 0) return {};
+        return { tracks: s.tracks.map((t) => next.has(t.id) && next.get(t.id) !== t.volume ? { ...t, volume: next.get(t.id)! } : t) };
+      }),
+      setTrackColorLinked: (trackId, color) => set((s) => {
+        const ids = linkedTrackIds(s.selectedTrackIds, trackId);
+        return { tracks: s.tracks.map((t) => ids.includes(t.id) ? { ...t, color } : t) };
+      }),
       renameTrack: (trackId, name) => set((s) => ({
         tracks: s.tracks.map((t) => t.id === trackId ? { ...t, name: name.trim() || t.name } : t),
       })),
