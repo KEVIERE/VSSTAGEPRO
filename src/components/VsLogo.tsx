@@ -1,5 +1,10 @@
 import { useId } from 'react';
 
+/** Onda da marca (viewBox 0 0 1000 1000): também gravada na placa do mixer (BrandPlate). */
+export const VS_WAVE_D = 'M 154,496 C 176,502 206,464 248,390 C 290,316 326,268 366,268 C 408,268 435,336 468,444 C 501,552 528,636 560,688 C 576,714 590,726 606,726 C 638,726 676,672 724,598 C 766,534 804,484 842,498';
+/** Contorno do play da marca (viewBox 0 0 1000 1000), de cantos arredondados. */
+export const VS_PLAY_D = 'M 347,318.44 A 24,24 0 0,1 383,297.66 L 694,477.22 A 24,24 0 0,1 694,518.78 L 383,698.34 A 24,24 0 0,1 347,677.56 Z';
+
 interface VsLogoProps {
   size?: number;
   className?: string;
@@ -214,16 +219,7 @@ export default function VsLogo({ size = 40, className = '' }: VsLogoProps) {
         <path
           id={id('wave-path')}
           fill="none"
-          d="
-            M 154, 496
-            C 176, 502, 206, 464, 248, 390
-            C 290, 316, 326, 268, 366, 268
-            C 408, 268, 435, 336, 468, 444
-            C 501, 552, 528, 636, 560, 688
-            C 576, 714, 590, 726, 606, 726
-            C 638, 726, 676, 672, 724, 598
-            C 766, 534, 804, 484, 842, 498
-          "
+          d={VS_WAVE_D}
         />
 
         <mask id={id('tube-mask')} maskUnits="userSpaceOnUse" x="100" y="200" width="800" height="600">
@@ -232,15 +228,7 @@ export default function VsLogo({ size = 40, className = '' }: VsLogoProps) {
 
         <path
           id={id('outer-triangle')}
-          d="
-            M 347, 318.44
-            A 24, 24 0 0, 1 383, 297.66
-            L 694, 477.22
-            A 24, 24 0 0, 1 694, 518.78
-            L 383, 698.34
-            A 24, 24 0 0, 1 347, 677.56
-            Z
-          "
+          d={VS_PLAY_D}
         />
 
         <path

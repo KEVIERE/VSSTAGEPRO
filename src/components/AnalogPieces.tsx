@@ -10,9 +10,9 @@ const UNITY = 0.8 / 1.5; // 0 dB no curso do knob (o mesmo do fader)
 
 /**
  * Rosto do knob da skin padrão, o mesmo no volume das faixas e no balanço do mixer: anel de LEDs
- * em volta (os apagados ficam visíveis em cinza, para o anel inteiro aparecer e o knob ficar no
- * meio), corpo em preto piano serrilhado, tampa côncava e o ponteiro branco. `value` vai de 0 a 1.
- * Unipolar (volume): acende do começo até o valor, verde até o 0 dB e laranja acima; a marquinha
+ * em volta (os apagados ficam visíveis, mais escuros que o painel, para o anel inteiro aparecer e o knob ficar no
+ * meio), saia de metal serrilhada, tampa preta côncava e o ponteiro branco. `value` vai de 0 a 1.
+ * Unipolar (volume): acende do começo até o valor, verde-limão até o 0 dB e laranja acima; a marquinha
  * clara fora do anel é o 0 dB (unity acima de 1: sem marca e sem laranja). Bipolar (balanço): acende do centro até o valor, com o LED do meio
  * mais claro.
  */
@@ -27,11 +27,13 @@ export function VsKnobFace({ value, bipolar = false, unity = UNITY }: { value: n
   return (
     <svg viewBox="0 0 40 40" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
       <defs>
-        <radialGradient id={`${uid}-skirt`} cx="50%" cy="38%" r="65%">
-          <stop offset="0" stopColor="#4a4a4f" />
-          <stop offset="0.6" stopColor="#18181a" />
-          <stop offset="1" stopColor="#050505" />
-        </radialGradient>
+        {/* saia de metal: alumínio com a luz de cima */}
+        <linearGradient id={`${uid}-skirt`} x1="0.2" x2="0.8" y1="0" y2="1">
+          <stop offset="0" stopColor="#d4d6da" />
+          <stop offset="0.35" stopColor="#8e9196" />
+          <stop offset="0.7" stopColor="#4b4d52" />
+          <stop offset="1" stopColor="#26272a" />
+        </linearGradient>
         <radialGradient id={`${uid}-cap`} cx="44%" cy="34%" r="70%">
           <stop offset="0" stopColor="#3a3a3e" />
           <stop offset="0.55" stopColor="#141415" />
@@ -50,13 +52,13 @@ export function VsKnobFace({ value, bipolar = false, unity = UNITY }: { value: n
           ? center || (pos >= mid ? i >= mid && i <= pos + 1e-6 : i <= mid && i >= pos - 1e-6)
           : pct > 0 && i <= pos + 1e-6;
         const hot = !bipolar && i / (SEG - 1) > unity + 0.02;
-        const color = center ? '#b8ffd6' : hot ? '#ff8a1e' : '#36f08c';
+        const color = center ? '#e6f7c0' : hot ? '#ff8a1e' : '#b8e85c';
         return (
           <line
             key={i}
             x1={20 + Math.cos(a) * 16.2} y1={20 + Math.sin(a) * 16.2}
             x2={20 + Math.cos(a) * 18.6} y2={20 + Math.sin(a) * 18.6}
-            stroke={on ? color : '#38393e'}
+            stroke={on ? color : '#141415'}
             strokeWidth={1.7}
             strokeLinecap="round"
             style={on ? { filter: `drop-shadow(0 0 1.5px ${color})` } : undefined}
@@ -65,12 +67,14 @@ export function VsKnobFace({ value, bipolar = false, unity = UNITY }: { value: n
       })}
       {/* 0 dB */}
       {!bipolar && unity <= 1 && <circle cx={20 + Math.cos(ua) * 19.6} cy={20 + Math.sin(ua) * 19.6} r="0.9" fill="#f2eee4" />}
-      {/* corpo serrilhado */}
-      <circle cx="20" cy="20.8" r="13.6" fill="#000" opacity="0.45" />
-      <circle cx="20" cy="20" r="13.2" fill={`url(#${uid}-skirt)`} stroke="#0a0b0d" strokeWidth="0.7" />
-      <circle cx="20" cy="20" r="12.2" fill="none" stroke="#0d0f12" strokeOpacity="0.8" strokeWidth="1.6" strokeDasharray="0.8 1" />
+      {/* sombra que o knob joga no painel */}
+      <circle cx="21" cy="22" r="13.6" fill="#000" opacity="0.5" />
+      {/* saia de metal serrilhada */}
+      <circle cx="20" cy="20" r="13.2" fill={`url(#${uid}-skirt)`} stroke="#141517" strokeWidth="0.7" />
+      <circle cx="20" cy="20" r="12.3" fill="none" stroke="#1d1e21" strokeOpacity="0.55" strokeWidth="1.8" strokeDasharray="0.55 0.75" />
       <circle cx="20" cy="20" r="13.2" fill="none" stroke={`url(#${uid}-rim)`} strokeWidth="0.6" />
       {/* tampa côncava */}
+      <circle cx="20" cy="20.5" r="10" fill="#000" opacity="0.45" />
       <circle cx="20" cy="20" r="9.6" fill={`url(#${uid}-cap)`} stroke="#08090b" strokeWidth="0.6" />
       <ellipse cx="18" cy="15.6" rx="5.6" ry="2.6" fill="#fff" opacity="0.1" />
       {/* ponteiro */}

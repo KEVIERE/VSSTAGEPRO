@@ -10,6 +10,8 @@ import OutputMenu from '@/components/OutputMenu';
 import TrackContextMenu from '@/components/TrackContextMenu';
 import type { Track } from '@/types';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
+import MasterVuPanel from '@/components/VuMeter';
+import BrandPlate from '@/components/BrandPlate';
 import { useMeterLevel } from '@/lib/meterBus';
 import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
@@ -785,11 +787,15 @@ export default function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
 
       {/* Canais */}
       <div className={`console-bed flex-1 flex ${fitBox ? 'overflow-hidden' : 'overflow-x-auto overflow-y-hidden logic-scroll'} min-h-0`}>
+        {/* sobra à esquerda: painel do aparelho, a lateral de metal colada nos canais e a placa da marca */}
+        <div className="vs-bed-side is-left flex-1 min-w-0 flex items-center justify-center">
+          {skin === 'analogica' && <BrandPlate />}
+        </div>
         {/* no Modo Show os canais ficam no tamanho natural e são escalados para caber certinho */}
-        <div className="mx-auto shrink-0" style={fitBox ? { width: fitBox.w * fitBox.scale, height: BED_H * fitBox.scale } : { display: 'contents' }}>
+        <div className="shrink-0" style={fitBox ? { width: fitBox.w * fitBox.scale, height: BED_H * fitBox.scale } : { display: 'contents' }}>
         <div
           ref={channelsRef}
-          className={`flex mx-auto min-w-fit border-l border-r border-logic-border-dark ${fit ? 'w-max origin-top-left' : ''}`}
+          className={`vs-plate flex min-w-fit border-l border-r border-logic-border-dark ${fit ? 'w-max origin-top-left' : ''}`}
           style={fit ? { height: BED_H, transform: fitBox ? `scale(${fitBox.scale})` : undefined } : undefined}
         >
           {skin === 'estudio' && <EsRowLabels />}
@@ -1028,6 +1034,10 @@ export default function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
           </div>
           )}
         </div>
+        </div>
+        {/* sobra à direita: na skin padrão, os VUs de ponteiro do master e o relógio (só com espaço) */}
+        <div className="vs-bed-side is-right flex-1 min-w-0 flex items-center justify-center">
+          {skin === 'analogica' && <MasterVuPanel />}
         </div>
       </div>
       {trackMenu && (

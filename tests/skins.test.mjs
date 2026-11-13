@@ -25,7 +25,8 @@ const defaultCss = css.slice(defaultAt);
 
 /** Cada regra da seção começa por um dos prefixos (presa à marca da skin ou peça só dela). */
 function scopedOnly(section, prefixes) {
-  const selectors = [...section.matchAll(/^\s*([^@/{}\n][^{}\n]*)\{/gm)].map((m) => m[1].trim());
+  // at-rules (@media, @container) ficam de fora: o que vale é o seletor de dentro
+  const selectors = [...section.matchAll(/^\s*([^@/{}\s][^{}\n]*)\{/gm)].map((m) => m[1].trim());
   assert.ok(selectors.length > 30);
   for (const sel of selectors) {
     for (const part of sel.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean)) {
@@ -252,7 +253,7 @@ test('skin padrão: o mesmo knob no volume e no balanço, capa cromada em pé e 
   assert.match(analog, /export function VsKnobFace/);
   assert.match(analog, /<VsKnobFace value=\{pct\} \/>/, 'knob de volume das faixas');
   assert.match(mixer, /<VsKnobFace value=\{[^}]+\} bipolar \/>/, 'balanço do mixer com o mesmo knob');
-  assert.match(analog, /stroke=\{on \? color : '#38393e'\}/, 'os LEDs apagados aparecem: o anel inteiro fica visível');
+  assert.match(analog, /stroke=\{on \? color : '#141415'\}/, 'os LEDs apagados aparecem: o anel inteiro fica visível');
   assert.match(analog, /export const VS_CAP_W = 20;\nexport const VS_CAP_H = 32;/, 'capa mais alta que larga');
   assert.match(analog, /CAP_GAP/, 'capa em sela, com o vão entre os pés');
   assert.match(analog, /feTurbulence/, 'alumínio acetinado');
@@ -267,4 +268,53 @@ test('timecode anda no BPM ajustado, nunca no tuner', () => {
   assert.doesNotMatch(tc, /cents|pitchFromCents|tuner\s*\*/);
   assert.match(engine, /player\.setRate\(1 \/ \(this\.playbackAlpha \|\| 1\)\);/);
   assert.match(engine, /this\.timecode\?\.retime\(1 \/ newAlpha, at\);/);
+});
+
+test('skin padrão com cara de equipamento: chassi, placa saltada, trilho de alumínio, VU e relógio', async () => {
+  const css = read('src', 'index.css');
+  const def = css.slice(css.indexOf('Skin padrão: VS Stage, equipamento'));
+  assert.match(def, /\.vs-plate \{/, 'placa dos canais saltada do chassi');
+  assert.match(def, /\.console-rail \{\n\s+color: #1f2023;/, 'trilho de alumínio com letra escura');
+  assert.match(def, /\.vs-bed-side\.is-left/);
+  assert.match(def, /--vs-lime: #b8e85c;/);
+  assert.match(def, /--vs-purple: #bd84ff;/);
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.match(mixer, /\{skin === 'analogica' && <MasterVuPanel \/>\}/, 'VU só na skin padrão');
+  const { vuPosition, levelToVu, vuStep } = await import('../src/components/VuMeter.tsx').catch(() => ({}));
+  if (vuPosition) {
+    assert.equal(vuPosition(-20), 0);
+    assert.ok(Math.abs(vuPosition(3) - 1) < 1e-9);
+    assert.ok(vuPosition(0) > 0.6 && vuPosition(0) < 0.75, '0 VU perto de 70% da escala, como nos VUs de verdade');
+    assert.ok(Math.abs(levelToVu(Math.pow(10, -18 / 20))) < 1e-9, '0 VU = -18 dBFS');
+    assert.ok(vuStep(0, 1, 0.09) > 0.6 && vuStep(0, 1, 0.09) < 0.65, 'balística: ~63% em 90 ms');
+  }
+});
+
+test('loudness do master, sem masterização no master', async () => {
+  const m = await import('../src/lib/loudnessMeter.ts');
+  assert.equal(m.lufsFromMeanSquare(0), -Infinity);
+  assert.ok(Math.abs(m.lufsFromMeanSquare(0.5) - (-0.691 + 10 * Math.log10(0.5))) < 1e-9);
+  const w = new m.LoudnessWindow();
+  for (let i = 0; i <= 30; i++) w.push(i * 0.1, i < 26 ? 0.001 : 0.1);
+  const r = w.read(3);
+  assert.ok(r.momentary > r.shortTerm, 'o momentâneo pega o trecho alto do fim; o curto, os 3 s');
+  const engine = read('src', 'lib', 'audioEngine.ts');
+  assert.match(engine, /this\.masterGain\.connect\(this\.masterLimiter\);/, 'o master vai direto ao limiter');
+  assert.doesNotMatch(engine, /MasteringInsert|liveMastering/);
+  const vu = read('src', 'components', 'VuMeter.tsx');
+  assert.match(vu, /<LoudnessClock \/>/);
+  assert.doesNotMatch(vu, /MasteringKey/);
+});
+
+test('placa de alumínio com a marca na sobra esquerda (sem o ícone quadrado)', () => {
+  const plate = read('src', 'components', 'BrandPlate.tsx');
+  const logo = read('src', 'components', 'VsLogo.tsx');
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.match(logo, /export const VS_WAVE_D = /);
+  assert.match(logo, /export const VS_PLAY_D = /);
+  assert.match(logo, /d=\{VS_WAVE_D\}/, 'a logo usa a mesma onda');
+  assert.match(plate, /import \{ VS_PLAY_D, VS_WAVE_D \} from '@\/components\/VsLogo';/);
+  assert.doesNotMatch(plate, /squircle/);
+  assert.match(plate, /className="vs-brand vs-brand-name">VS Stage Pro</);
+  assert.match(mixer, /\{skin === 'analogica' && <BrandPlate \/>\}/, 'só na skin padrão');
 });

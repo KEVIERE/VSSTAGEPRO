@@ -15,6 +15,7 @@ import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJu
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import { TimecodePlayer } from '@/lib/timecodePlayer';
+import { LoudnessWindow, kWeightingNodes } from '@/lib/loudnessMeter';
 import { AntiClipInsert, antiClipActive, loadPeakLimiter } from '@/lib/antiClip';
 import { isUserInteracting } from '@/lib/interactionTracker';
 import { MAESTRO_IA_TRACK_ID } from '@/lib/narrations';
@@ -563,6 +564,9 @@ class AudioEngine {
       this.masterLimitOut = this.ctx.createGain();
       this.masterGain.connect(this.masterLimiter);
       this.masterLimiter.connect(this.masterLimitOut);
+      this.loudness.clear();
+      this.loudL = null;
+      this.loudR = null;
       this.applyLimiterMode();
       this.masterAntiClipSplit = null;
       this.applyMasterAntiClip();
@@ -622,6 +626,8 @@ class AudioEngine {
     this.limiterNodes = [];
     this.limiterSplit = false;
     this.masterLimitOut = null;
+    this.loudL = null;
+    this.loudR = null;
     this.masterAntiClip = [];
     this.masterAntiClipNodes = [];
     this.masterAntiClipSplit = null;
@@ -1138,6 +1144,7 @@ class AudioEngine {
     this.masterSplitter.connect(this.masterMeterR, 1);
     this.masterSplitter.connect(this.outputMerger, 0, 0);
     this.masterSplitter.connect(this.outputMerger, 1, 1);
+    this.connectLoudness(ctx);
     this.outputMerger.connect(dest);
     this.routedTo.clear();
     this.channels.forEach((_, id) => this.routeChannel(id));
@@ -2421,6 +2428,53 @@ class AudioEngine {
   private limiterSplit = false;
   private masterLimiterR: DynamicsCompressorNode | null = null;
   private limiterNodes: AudioNode[] = [];
+
+  // Medidor de loudness do master
+  private loudL: AnalyserNode | null = null;
+  private loudR: AnalyserNode | null = null;
+  private loudness = new LoudnessWindow();
+  private loudScratch: Float32Array<ArrayBuffer> | null = null;
+  private loudLastAt = 0;
+
+  // Filtro K na saída do master (o que vai para as saídas 1-2), um medidor por lado
+  private connectLoudness(ctx: AudioContext) {
+    if (!this.masterSplitter) return;
+    const fftSize = 4096;
+    const make = (ch: number) => {
+      const [first, last] = kWeightingNodes(ctx);
+      const an = ctx.createAnalyser();
+      an.fftSize = fftSize;
+      this.masterSplitter!.connect(first, ch);
+      last.connect(an);
+      return an;
+    };
+    this.loudL = make(0);
+    this.loudR = make(1);
+    this.loudScratch = new Float32Array(fftSize);
+    this.loudness.clear();
+  }
+
+  /**
+   * Loudness do master em LUFS: momentâneo (400 ms) e curto (3 s). Quem mostra chama de tempos
+   * em tempos (a cada ~50 ms); parado e em silêncio dá -Infinity.
+   */
+  getMasterLoudness(): { momentary: number; shortTerm: number } {
+    const now = this.ctx?.currentTime ?? 0;
+    if (!this.loudL || !this.loudR || !this.loudScratch) return { momentary: -Infinity, shortTerm: -Infinity };
+    if (now - this.loudLastAt >= 0.04) {
+      this.loudLastAt = now;
+      let sum = 0;
+      for (const an of [this.loudL, this.loudR]) {
+        an.getFloatTimeDomainData(this.loudScratch);
+        let ms = 0;
+        const d = this.loudScratch;
+        for (let i = 0; i < d.length; i++) ms += d[i] * d[i];
+        sum += ms / d.length;
+      }
+      this.loudness.push(now, sum);
+    }
+    return this.loudness.read(now);
+  }
 
   private applyLimiterMode() {
     const ctx = this.ctx;

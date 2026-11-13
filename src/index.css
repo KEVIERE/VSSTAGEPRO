@@ -2886,87 +2886,113 @@
   }
 }
 
-/* ================= Skin padrão: VS Stage, mesa digital de última geração =================
-   Preto fosco nos painéis e preto piano (brilhante, com reflexo) nas peças: teclas, visores,
-   capas de fader e knobs. Detalhes em cinza escuro e cinza claro; as luzes de estado acendem em
-   neon (laranja, verde, vermelho) e o resto brilha em branco. Visores pretos tipo OLED com o nome
-   em branco; fader com rastro de luz branca do volume; medidores estéreo.
+/* ================= Skin padrão: VS Stage, equipamento de estúdio =================
+   Painéis em grafite com textura de pintura eletrostática (o pó granulado dos equipamentos de
+   rack), peças em preto (teclas, visores, knobs) e duas cores de destaque: verde-limão nas luzes
+   e nos LEDs, roxo nos valores e leitores. Capa do fader em alumínio prateado.
    Vale só sem skin escolhida (:root sem data-skin). As regras usam :where() para pesar o mesmo
    que as da base: vencem as dela e perdem para as classes do Tailwind. */
 @layer base {
   :root:not([data-skin]) {
-    --lg-bg: 13 14 16;
-    --lg-bg-deep: 8 9 11;
-    --lg-bg-panel: 17 18 21;
-    --lg-bg-panel-light: 26 27 31;
-    --lg-bg-elevated: 36 37 42;
-    --lg-border: 38 40 45;
-    --lg-border-light: 60 62 68;
-    --lg-border-dark: 3 3 4;
-    --lg-text: 235 237 241;
-    --lg-text-dim: 160 164 172;
-    --lg-text-muted: 102 106 114;
-    --lg-accent: 112 112 120;
-    --lg-accent-hover: 146 146 154;
-    --lg-accent-dim: 84 84 90;
-    --lg-lcd-bg: 6 6 7;
+    --lg-bg: 33 33 35;
+    --lg-bg-deep: 24 24 26;
+    --lg-bg-panel: 40 40 42;
+    --lg-bg-panel-light: 50 50 53;
+    --lg-bg-elevated: 60 60 64;
+    --lg-border: 58 58 62;
+    --lg-border-light: 82 82 87;
+    --lg-border-dark: 14 14 15;
+    --lg-text: 234 234 236;
+    --lg-text-dim: 172 172 178;
+    --lg-text-muted: 122 122 128;
+    --lg-accent: 168 104 232;
+    --lg-accent-hover: 190 136 245;
+    --lg-accent-dim: 120 74 168;
+    --lg-lcd-bg: 22 22 24;
     --lg-lcd-text: 236 236 240;
-    --lg-lcd-amber: 255 146 44;
-    --lg-lcd-green: 54 240 140;
-    --lg-lcd-red: 255 72 72;
-    --lg-lcd-yellow: 255 214 64;
+    --lg-lcd-amber: 255 150 50;
+    --lg-lcd-green: 184 232 92;
+    --lg-lcd-red: 255 76 76;
+    --lg-lcd-yellow: 240 222 90;
+    --vs-lime: #b8e85c;
+    --vs-purple: #bd84ff;
   }
 }
 
 @layer components {
   .console-faderfill { display: none; }
 
-  /* ---------- painéis em preto fosco ---------- */
+  /* ---------- painéis em grafite com pintura eletrostática (pó granulado) ---------- */
+  /* chassi em preto fosco texturizado (pintura eletrostática), um pouco mais claro em cima */
   :where(:root:not([data-skin])) .console-face {
-    background-color: #0d0e10;
+    background-color: #1c1c1e;
     background-image:
-      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.035 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(0, 0, 0, 0.2));
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse at 50% 0%, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 65%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.2));
   }
-  /* trilho em preto piano: brilho em cima e um fio cinza embaixo */
+  /* placa dos canais: chapa cinza grafite saltada do chassi, com chanfro de luz e sombra */
+  :where(:root:not([data-skin])) .vs-plate {
+    background-color: #313134;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(0, 0, 0, 0.12));
+    border-color: #0b0b0c;
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.12),
+      inset -1px -1px 0 rgba(0, 0, 0, 0.55),
+      0 0 0 1px #0b0b0c,
+      0 6px 14px rgba(0, 0, 0, 0.55);
+  }
+  :where(:root:not([data-skin])) .console-screws {
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09), inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  }
+  /* trilho de cima: alumínio escovado claro, com a letra escura gravada */
   :where(:root:not([data-skin])) .console-rail {
-    background-color: #0a0b0d;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 45%, rgba(0, 0, 0, 0.3) 100%);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 #2c2c2f;
+    color: #1f2023;
+    background-color: #b3b5b9;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='60'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.002 0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, #d9dadd 0%, #bfc1c5 45%, #a4a6ab 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 #5c5e62, 0 1px 0 #0b0b0c;
   }
+  :root:not([data-skin]) .console-rail :is(.text-logic-text, .text-logic-text-dim, .text-logic-text-muted) {
+    color: #232427;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.45);
+  }
+  :root:not([data-skin]) .console-rail .console-legend { color: #3a3b3f; }
   :where(:root:not([data-skin])) .console-strip {
-    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.05);
+    box-shadow: inset -1px 0 0 rgba(0, 0, 0, 0.45), inset -2px 0 0 rgba(255, 255, 255, 0.04);
   }
   :where(:root:not([data-skin])) .console-strip:hover {
     background-color: rgba(255, 255, 255, 0.025);
   }
   :where(:root:not([data-skin])) .console-strip.is-selected {
     background-color: rgba(255, 255, 255, 0.05);
-    box-shadow: inset 0 2px 0 #d9d9de, inset 0 0 16px rgba(255, 255, 255, 0.05), inset -1px 0 0 rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 2px 0 var(--vs-lime), inset 0 0 16px rgba(184, 232, 92, 0.06), inset -1px 0 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* ---------- visor do nome: preto piano tipo OLED, letra branca acesa ---------- */
+  /* ---------- visor do nome: janela preta embutida no painel, letra clara ---------- */
   :root:not([data-skin]) .console-lcdname {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
     font-weight: 600;
-    font-size: 10.5px;
-    letter-spacing: 0.04em;
+    font-size: 10px;
+    letter-spacing: 0.05em;
     color: #f4f4f6;
     text-shadow: 0 0 6px rgba(255, 255, 255, 0.35);
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.015) 45%, rgba(255, 255, 255, 0) 46%),
-      #050505;
+      #18181a;
     border-radius: 4px;
-    box-shadow: inset 0 0 0 1px #2e2e31, inset 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 0 1px #000, 0 1px 0 1px rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 0 1px #0c0c0d, inset 0 2px 3px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07);
   }
 
-  /* ---------- visores e leitores: preto piano ---------- */
+  /* ---------- visores e leitores: janelas pretas embutidas ---------- */
   :where(:root:not([data-skin])) .logic-lcd,
   :where(:root:not([data-skin])) .console-display {
     border-color: #000;
     border-radius: 8px;
     background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.01) 40%, rgba(255, 255, 255, 0) 41%);
-    box-shadow: inset 0 0 0 1px #2a2a2d, inset 0 2px 6px rgba(0, 0, 0, 0.8), 0 1px 0 rgba(255, 255, 255, 0.06);
+    background-color: #161618;
+    box-shadow: inset 0 0 0 1px #0c0c0d, inset 0 2px 6px rgba(0, 0, 0, 0.75), 0 1px 0 rgba(255, 255, 255, 0.07);
   }
   :where(:root:not([data-skin])) .console-bezel {
     padding: 2px;
@@ -2974,39 +3000,44 @@
     background: linear-gradient(180deg, #4a4a4f, #1a1a1c 50%, #0c0c0d);
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   }
+  /* leitores de valor: caixinha preta com o número em roxo (o verde, o laranja e o vermelho
+     do nível continuam valendo quando a tela pede) */
   :where(:root:not([data-skin])) .console-readout {
-    background-color: #050505;
+    color: var(--vs-purple);
+    background-color: #1a1a1c;
     border-radius: 3px;
-    box-shadow: inset 0 0 0 1px #2a2a2d;
+    box-shadow: inset 0 0 0 1px #0d0d0e, inset 0 1px 2px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.06);
   }
   .segment-display.is-tft {
     filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 40%, transparent));
   }
   :where(:root:not([data-skin])) .console-legend {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Montserrat', 'Inter', system-ui, sans-serif;
+    font-weight: 600;
     letter-spacing: 0.1em;
-    color: #8a8a90;
+    color: #c9c9ce;
   }
 
-  /* ---------- teclas em preto piano; acesas em neon ---------- */
+  /* ---------- teclas pretas; acesas em verde-limão, laranja ou vermelho ---------- */
   :where(:root:not([data-skin])) .console-key,
   :where(:root:not([data-skin])) .logic-btn,
   :where(:root:not([data-skin])) .logic-btn-transport {
     font-family: 'Inter', system-ui, sans-serif;
     font-weight: 600;
-    color: #c4c4ca;
-    background-color: #111215;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.03) 46%, rgba(255, 255, 255, 0) 47%, rgba(0, 0, 0, 0.25) 100%);
-    border: 1px solid #333336;
-    border-radius: 6px;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 2px 5px rgba(0, 0, 0, 0.6);
+    color: #d4d4d8;
+    background-color: #1c1c1e;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.02) 50%, rgba(0, 0, 0, 0.22) 100%);
+    border: 1px solid #0f0f10;
+    border-radius: 5px;
+    /* espessura da tecla: a borda de baixo aparece e ela joga sombra no painel */
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 1px 0 #0a0a0b, 0 2px 0 #050505, 0 3px 5px rgba(0, 0, 0, 0.55);
   }
   :where(:root:not([data-skin])) .console-key:hover,
   :where(:root:not([data-skin])) .logic-btn:hover,
   :where(:root:not([data-skin])) .logic-btn-transport:hover {
     color: #ffffff;
-    background-color: #1a1b1f;
-    border-color: #4a4a4f;
+    background-color: #242426;
+    border-color: #0f0f10;
   }
   :where(:root:not([data-skin])) .console-key.is-lit-amber {
     color: #ffc58a;
@@ -3017,12 +3048,12 @@
     text-shadow: 0 0 6px rgba(255, 138, 30, 0.8);
   }
   :where(:root:not([data-skin])) .console-key.is-lit-green {
-    color: #9dffcb;
-    background-color: rgba(54, 240, 140, 0.14);
+    color: #e2f8b8;
+    background-color: rgba(184, 232, 92, 0.14);
     background-image: none;
-    border-color: #36f08c;
-    box-shadow: 0 0 12px rgba(54, 240, 140, 0.4), inset 0 0 8px rgba(54, 240, 140, 0.2);
-    text-shadow: 0 0 6px rgba(54, 240, 140, 0.8);
+    border-color: var(--vs-lime);
+    box-shadow: 0 0 12px rgba(184, 232, 92, 0.4), inset 0 0 8px rgba(184, 232, 92, 0.2);
+    text-shadow: 0 0 6px rgba(184, 232, 92, 0.8);
   }
   :where(:root:not([data-skin])) .console-key.is-lit-red {
     color: #ffb1b1;
@@ -3033,23 +3064,27 @@
     text-shadow: 0 0 6px rgba(255, 72, 72, 0.8);
   }
   :where(:root:not([data-skin])) .console-key.is-lit-blue {
-    color: #ffffff;
-    background-color: rgba(255, 255, 255, 0.12);
+    color: #ead6ff;
+    background-color: rgba(189, 132, 255, 0.16);
     background-image: none;
-    border-color: #d9d9de;
-    box-shadow: 0 0 12px rgba(255, 255, 255, 0.25), inset 0 0 8px rgba(255, 255, 255, 0.12);
-    text-shadow: 0 0 6px rgba(255, 255, 255, 0.6);
+    border-color: var(--vs-purple);
+    box-shadow: 0 0 12px rgba(189, 132, 255, 0.4), inset 0 0 8px rgba(189, 132, 255, 0.2);
+    text-shadow: 0 0 6px rgba(189, 132, 255, 0.8);
+  }
+  :where(:root:not([data-skin])) .console-key:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 1px 0 #050505, 0 1px 3px rgba(0, 0, 0, 0.5);
   }
   :where(:root:not([data-skin])) .console-key.is-big { border-radius: 10px; }
   :where(:root:not([data-skin])) .console-key.is-big.is-lit-green {
-    box-shadow: 0 0 22px rgba(54, 240, 140, 0.45), inset 0 0 12px rgba(54, 240, 140, 0.25);
+    box-shadow: 0 0 22px rgba(184, 232, 92, 0.45), inset 0 0 12px rgba(184, 232, 92, 0.25);
   }
   :where(:root:not([data-skin])) .console-flatkey {
     font-family: 'Inter', system-ui, sans-serif;
-    color: #a6a6ad;
-    background-color: #121316;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.2));
-    border: 1px solid #2e2e31;
+    color: #c8c8cd;
+    background-color: #1c1c1e;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(0, 0, 0, 0.2));
+    border: 1px solid #0f0f10;
     border-radius: 4px;
   }
   :where(:root:not([data-skin])) .console-flatkey.is-lit-amber {
@@ -3058,20 +3093,20 @@
     border-color: #ff8a1e;
     box-shadow: 0 0 8px rgba(255, 138, 30, 0.4);
   }
-  :where(:root:not([data-skin])) .console-led.is-on-green { background: #36f08c; box-shadow: 0 0 6px 1px rgba(54, 240, 140, 0.8); }
+  :where(:root:not([data-skin])) .console-led.is-on-green { background: var(--vs-lime); box-shadow: 0 0 6px 1px rgba(184, 232, 92, 0.8); }
   :where(:root:not([data-skin])) .console-led.is-on-amber { background: #ff8a1e; box-shadow: 0 0 6px 1px rgba(255, 138, 30, 0.8); }
 
-  /* ---------- fader: capa em preto piano, linha clara e o rastro de luz branca ---------- */
+  /* ---------- fader: fenda preta e o rastro de luz verde-limão ---------- */
   :where(:root:not([data-skin])) .console-slot {
-    background: #000;
-    box-shadow: inset 0 0 0 1px #2a2a2d;
+    background: #0b0b0c;
+    box-shadow: inset 0 0 0 1px #050505, 0 1px 0 rgba(255, 255, 255, 0.08);
   }
   :where(:root:not([data-skin])) .console-faderfill {
     display: block;
     width: 2px;
     border-radius: 1px;
-    background: linear-gradient(to top, rgba(255, 255, 255, 0.04), #e6e6ea);
-    box-shadow: 0 0 6px rgba(255, 255, 255, 0.55);
+    background: linear-gradient(to top, rgba(184, 232, 92, 0.05), var(--vs-lime));
+    box-shadow: 0 0 6px rgba(184, 232, 92, 0.6);
   }
   :where(:root:not([data-skin])) .console-cap {
     border-radius: 4px;
@@ -3090,49 +3125,214 @@
   :where(:root:not([data-skin])) .console-cap--band { --vs-line: #a3a3aa; }
   :where(:root:not([data-skin])) .console-cap--master { --vs-line: #ff4848; }
   :where(:root:not([data-skin])) .console-cap--tc { --vs-line: #ff922c; }
-  :where(:root:not([data-skin])) .console-scale { color: #6c6c73; font-family: 'Inter', system-ui, sans-serif; }
-  :where(:root:not([data-skin])) .console-scale.is-unity { color: #e6e6ea; }
+  :where(:root:not([data-skin])) .console-scale { color: #a2a2a8; font-family: 'Inter', system-ui, sans-serif; }
+  :where(:root:not([data-skin])) .console-scale.is-unity { color: var(--vs-lime); }
   :where(:root:not([data-skin])) .console-tick {
-    background: linear-gradient(to right, rgba(255, 255, 255, 0.2) 0 5px, transparent 5px calc(100% - 5px), rgba(255, 255, 255, 0.2) calc(100% - 5px));
+    background: linear-gradient(to right, rgba(255, 255, 255, 0.28) 0 5px, transparent 5px calc(100% - 5px), rgba(255, 255, 255, 0.28) calc(100% - 5px));
   }
   :where(:root:not([data-skin])) .console-tick.is-unity {
     background: linear-gradient(to right, rgba(255, 255, 255, 0.75) 0 6px, transparent 6px calc(100% - 6px), rgba(255, 255, 255, 0.75) calc(100% - 6px));
   }
   :where(:root:not([data-skin])) .console-well {
-    background-color: #050505;
+    background-color: #111112;
     border-radius: 2px;
-    box-shadow: inset 0 0 0 1px #232326;
+    box-shadow: inset 0 0 0 1px #070707, 0 1px 0 rgba(255, 255, 255, 0.07);
   }
   :where(:root:not([data-skin])) .console-meter-segments {
-    background: repeating-linear-gradient(to top, transparent 0 2px, #050505 2px 3px);
+    background: repeating-linear-gradient(to top, transparent 0 2px, #111112 2px 3px);
   }
 
-  /* ---------- faixas da timeline: preto fosco, a selecionada em cinza ---------- */
+  /* ---------- sobras dos lados do mixer: o painel do aparelho ----------
+     Grafite granulado, um parafuso em cima e um embaixo, e a lateral de metal escuro (perfil
+     com a quina clara) encostada nos canais, como as laterais dos equipamentos de estúdio. */
+  :where(:root:not([data-skin])) .vs-bed-side {
+    background-color: #1c1c1e;
+    background-image:
+      radial-gradient(circle at 50% 50%, #9a9aa0 0 1px, #5a5a5f 1.6px, #2a2a2c 3.2px, #121213 4.4px, rgba(0, 0, 0, 0.5) 5px, transparent 5.6px), radial-gradient(circle at 50% 50%, #9a9aa0 0 1px, #5a5a5f 1.6px, #2a2a2c 3.2px, #121213 4.4px, rgba(0, 0, 0, 0.5) 5px, transparent 5.6px),
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.2));
+    background-repeat: no-repeat, no-repeat, repeat, no-repeat;
+    background-size: 12px 12px, 12px 12px, auto, 100% 100%;
+    background-position: center 12px, center calc(100% - 12px), 0 0, 0 0;
+  }
+  :where(:root:not([data-skin])) .vs-bed-side.is-left {
+    /* a primeira sombra fica por cima: da mais estreita (quina) para a mais larga (perfil) */
+    box-shadow:
+      inset -1px 0 0 #050505,
+      inset -2px 0 0 #121213,
+      inset -5px 0 0 #2c2c2f,
+      inset -8px 0 0 #222224,
+      inset -9px 0 0 #4a4a4f,
+      inset -15px 0 0 #18181a,
+      inset -16px 0 0 rgba(0, 0, 0, 0.6);
+  }
+  :where(:root:not([data-skin])) .vs-bed-side.is-right {
+    box-shadow:
+      inset 1px 0 0 #050505,
+      inset 2px 0 0 #121213,
+      inset 5px 0 0 #2c2c2f,
+      inset 8px 0 0 #222224,
+      inset 9px 0 0 #4a4a4f,
+      inset 15px 0 0 #18181a,
+      inset 16px 0 0 rgba(0, 0, 0, 0.6);
+  }
+  /* Placa da marca na sobra da esquerda: alumínio escovado rebitado, marca gravada a laser.
+     Com pouco espaço, só a onda e o play gravados direto no chassi; bem estreito, nada. */
+  :where(:root:not([data-skin])) .vs-bed-side.is-left { container-type: inline-size; }
+  :where(:root:not([data-skin])) .vs-brand-side { display: none; }
+  :where(:root:not([data-skin])) .vs-brand-plate { display: none; }
+  :where(:root:not([data-skin])) .vs-brand-etched { display: none; }
+  @container (min-width: 60px) {
+    :where(:root:not([data-skin])) .vs-brand-side { display: flex; align-items: center; justify-content: center; padding-right: 16px; }
+    :where(:root:not([data-skin])) .vs-brand-etched { display: block; width: 40px; height: 28px; }
+  }
+  @container (min-width: 196px) {
+    :where(:root:not([data-skin])) .vs-brand-plate { display: flex; }
+    :where(:root:not([data-skin])) .vs-brand-etched { display: none; }
+  }
+  :where(:root:not([data-skin])) .vs-brand-plate {
+    position: relative;
+    align-items: center;
+    gap: 9px;
+    width: 168px;
+    height: 58px;
+    box-sizing: border-box;
+    padding: 0 14px 0 16px;
+    border-radius: 3px;
+    background-color: #b9bbbf;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='60'%3E%3Cfilter id='b'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.002 0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23b)'/%3E%3C/svg%3E"),
+      linear-gradient(180deg, #dcdde0 0%, #c3c5c9 40%, #a7a9ae 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.75),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.35),
+      inset 1px 0 0 rgba(255, 255, 255, 0.35),
+      inset -1px 0 0 rgba(0, 0, 0, 0.2),
+      0 0 0 1px #0d0d0e,
+      0 3px 6px rgba(0, 0, 0, 0.55);
+  }
+  :where(:root:not([data-skin])) .vs-brand-plate .vs-brand-mark { width: 40px; height: 28px; flex: none; }
+  :where(:root:not([data-skin])) .vs-brand-name {
+    font-size: 15px;
+    line-height: 1;
+    white-space: nowrap;
+    color: #55575c;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6), 0 -1px 0 rgba(0, 0, 0, 0.28);
+  }
+  /* gravação: corte escuro no alumínio, com a quina de sombra em cima e a de luz embaixo */
+  :where(:root:not([data-skin])) .vs-brand-mark .is-cut { stroke: #55575c; }
+  :where(:root:not([data-skin])) .vs-brand-mark .is-shadow { stroke: rgba(0, 0, 0, 0.3); }
+  :where(:root:not([data-skin])) .vs-brand-mark .is-light { stroke: rgba(255, 255, 255, 0.65); }
+  /* direto no chassi preto: a gravação fica clara e bem sutil */
+  :where(:root:not([data-skin])) .vs-brand-etched .is-cut { stroke: rgba(255, 255, 255, 0.16); }
+  :where(:root:not([data-skin])) .vs-brand-etched .is-shadow { stroke: rgba(0, 0, 0, 0.6); }
+  :where(:root:not([data-skin])) .vs-brand-etched .is-light { stroke: rgba(255, 255, 255, 0.06); }
+  /* rebites: cabeça abaulada, luz em cima e sombra embaixo */
+  :where(:root:not([data-skin])) .vs-rivet {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: radial-gradient(circle at 40% 35%, #ffffff 0, #d8dadd 30%, #8d9095 70%, #4d4f53 100%);
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.55), 0 0 0 0.5px rgba(0, 0, 0, 0.35);
+  }
+  :where(:root:not([data-skin])) .vs-rivet.is-tl { top: 4px; left: 4px; }
+  :where(:root:not([data-skin])) .vs-rivet.is-tr { top: 4px; right: 4px; }
+  :where(:root:not([data-skin])) .vs-rivet.is-bl { bottom: 4px; left: 4px; }
+  :where(:root:not([data-skin])) .vs-rivet.is-br { bottom: 4px; right: 4px; }
+
+  /* VUs de ponteiro e relógio na sobra da direita: só aparecem quando cabem */
+  :where(:root:not([data-skin])) .vs-bed-side.is-right { container-type: inline-size; }
+  :where(:root:not([data-skin])) .vs-side-gear {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 0 14px;
+  }
+  :where(:root:not([data-skin])) .vs-side-gear .vu-pair { display: flex; flex-direction: column; gap: 6px; }
+  /* estreito: os dois VUs um embaixo do outro; largo: lado a lado */
+  @container (min-width: 160px) {
+    :where(:root:not([data-skin])) .vs-side-gear { display: flex; }
+  }
+  @container (min-width: 300px) {
+    :where(:root:not([data-skin])) .vs-side-gear .vu-pair { flex-direction: row; gap: 10px; }
+  }
+  :where(:root:not([data-skin])) .vu-bezel {
+    width: 120px;
+    height: 74px;
+    padding: 4px;
+    border-radius: 6px;
+    background: linear-gradient(180deg, #3a3a3e, #121213 55%, #0a0a0b);
+    box-shadow: 0 0 0 1px #050505, 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    box-sizing: content-box;
+  }
+  :where(:root:not([data-skin])) .vu-bezel svg { border-radius: 3px; box-shadow: inset 0 0 0 1px #000; }
+  :where(:root:not([data-skin])) .vu-clock {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 3px;
+    width: 128px;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: #141416;
+    box-shadow: inset 0 0 0 1px #0a0a0b, inset 0 2px 4px rgba(0, 0, 0, 0.7), 0 1px 0 rgba(255, 255, 255, 0.07);
+  }
+  :where(:root:not([data-skin])) .vu-clock-label {
+    font: 600 8px/1 'Montserrat', 'Inter', system-ui, sans-serif;
+    letter-spacing: 0.14em;
+    color: #8c8c92;
+  }
+  :where(:root:not([data-skin])) .vu-clock-time {
+    font: 600 15px/1 'Inter', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+    color: var(--vs-lime, #b8e85c);
+    text-shadow: 0 0 8px rgba(184, 232, 92, 0.45);
+  }
+  :where(:root:not([data-skin])) .vu-clock-time small { font-size: 11px; opacity: 0.75; }
+  :where(:root:not([data-skin])) .vu-lufs, :where(:root:not([data-skin])) .vu-time { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+  :where(:root:not([data-skin])) .vu-lufs-item {
+    font: 600 8px/1 'Montserrat', 'Inter', system-ui, sans-serif;
+    color: #8c8c92;
+  }
+  :where(:root:not([data-skin])) .vu-lufs-item b {
+    font: 600 12px/1 'Inter', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
+    color: #5c5c62;
+  }
+  :where(:root:not([data-skin])) .vu-lufs-item b.is-ok { color: var(--vs-purple, #bd84ff); text-shadow: 0 0 6px rgba(189, 132, 255, 0.45); }
+  :where(:root:not([data-skin])) .vu-lufs-item b.is-hot { color: #ff9a2e; text-shadow: 0 0 6px rgba(255, 154, 46, 0.5); }
+  :where(:root:not([data-skin])) .vu-lufs-item b.is-over { color: #ff4c4c; text-shadow: 0 0 6px rgba(255, 76, 76, 0.5); }
+
+  /* ---------- faixas da timeline: o mesmo grafite granulado; a selecionada mais clara ---------- */
   :where(:root:not([data-skin])) .console-row {
-    background-color: #111215;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.2));
-    box-shadow: inset 0 -1px 0 #000, inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    background-color: #29292b;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0 0.5 0 0 0 0.16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"), linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(0, 0, 0, 0.16));
+    box-shadow: inset 0 -1px 0 #131314, inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
-  :where(:root:not([data-skin])) .console-row:hover { background-color: #16171a; }
+  :where(:root:not([data-skin])) .console-row:hover { background-color: #2e2e30; }
   :where(:root:not([data-skin])) .console-row.is-selected {
-    background-color: #1e1f23;
-    box-shadow: inset 0 0 0 1px #6e6e75, inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    background-color: #38383b;
+    box-shadow: inset 0 0 0 1px rgba(184, 232, 92, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
-  :where(:root:not([data-skin])) .console-row-child { background-color: #0b0c0e; }
-  :where(:root:not([data-skin])) .console-row-child.is-selected { background-color: #1c1c1f; }
+  :where(:root:not([data-skin])) .console-row-child { background-color: #232325; }
+  :where(:root:not([data-skin])) .console-row-child.is-selected { background-color: #333336; }
   .an-edge-meter {
-    background: #050505;
-    box-shadow: inset 0 0 0 1px #232326;
+    background: #111112;
+    box-shadow: inset 0 0 0 1px #070707;
   }
 
   /* ---------- playlist, pads e o resto ---------- */
   :where(:root:not([data-skin])) .cue-row.is-current {
-    background-color: rgba(54, 240, 140, 0.09);
-    box-shadow: inset 3px 0 0 #36f08c;
+    background-color: rgba(184, 232, 92, 0.09);
+    box-shadow: inset 3px 0 0 var(--vs-lime);
   }
   :where(:root:not([data-skin])) .cue-row.is-next {
-    background-color: rgba(255, 138, 30, 0.08);
-    box-shadow: inset 3px 0 0 #ff8a1e;
+    background-color: rgba(189, 132, 255, 0.1);
+    box-shadow: inset 3px 0 0 var(--vs-purple);
   }
   /* música selecionada: bem destacada (barra branca grossa, fundo claro e contorno) */
   :where(:root:not([data-skin])) .cue-row.is-selected {
@@ -3142,18 +3342,18 @@
   }
   :where(:root:not([data-skin])) .console-pad {
     border-radius: 8px;
-    border-color: #2e2e31;
-    background-color: #111215;
-    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.02) 46%, rgba(0, 0, 0, 0.25));
+    border-color: #0f0f10;
+    background-color: #1c1c1e;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02) 46%, rgba(0, 0, 0, 0.25));
   }
   :where(:root:not([data-skin])) .console-pad.is-active {
     border-color: var(--pad-color);
-    background-color: color-mix(in srgb, var(--pad-color) 18%, #111215);
+    background-color: color-mix(in srgb, var(--pad-color) 18%, #1c1c1e);
     box-shadow: 0 0 16px color-mix(in srgb, var(--pad-color) 50%, transparent);
   }
-  :where(:root:not([data-skin])) .sk-tc-row { background-color: #121316; }
-  :root:not([data-skin]) .sk-narration-head { background-color: #141416; }
-  :root:not([data-skin]) .sk-narration-lane { background-color: #0d0d0e; }
+  :where(:root:not([data-skin])) .sk-tc-row { background-color: #232325; }
+  :root:not([data-skin]) .sk-narration-head { background-color: #262628; }
+  :root:not([data-skin]) .sk-narration-lane { background-color: #1e1e20; }
   :root:not([data-skin]) .font-mono { font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
   :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 9999px; }
   :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -3161,5 +3361,5 @@
   :root:not([data-skin]) .console-strip[class*='bg-logic-lcd-amber'] {
     background-color: rgba(255, 255, 255, 0.02);
   }
-  :root:not([data-skin]) .sk-tc-row { background-color: #121316; }
+  :root:not([data-skin]) .sk-tc-row { background-color: #232325; }
 }
