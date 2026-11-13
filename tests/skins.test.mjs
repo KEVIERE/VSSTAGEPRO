@@ -253,7 +253,9 @@ test('skin padrão: o mesmo knob no volume e no balanço, capa cromada em pé e 
   assert.match(analog, /<VsKnobFace value=\{pct\} \/>/, 'knob de volume das faixas');
   assert.match(mixer, /<VsKnobFace value=\{[^}]+\} bipolar \/>/, 'balanço do mixer com o mesmo knob');
   assert.match(analog, /stroke=\{on \? color : '#38393e'\}/, 'os LEDs apagados aparecem: o anel inteiro fica visível');
-  assert.match(analog, /export const VS_CAP_W = 18;\nexport const VS_CAP_H = 30;/, 'capa mais alta que larga');
+  assert.match(analog, /export const VS_CAP_W = 20;\nexport const VS_CAP_H = 32;/, 'capa mais alta que larga');
+  assert.match(analog, /CAP_GAP/, 'capa em sela, com o vão entre os pés');
+  assert.match(analog, /feTurbulence/, 'alumínio acetinado');
   assert.match(mixer, /<VsCap\n/);
   assert.equal((mixer.match(/vs-wide-key[^`]*w-\[52px\][^`]*whitespace-nowrap/g) ?? []).length, 3, 'ANTI-CLIP e IGUALAR na largura do par M e S, sem quebrar');
 });

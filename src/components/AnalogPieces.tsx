@@ -173,66 +173,96 @@ export function AnEdgeMeter({ id, off, title, stereo = true }: { id: string; off
   );
 }
 
-/** Capa do fader da skin padrão: em pé (mais alta que larga), de metal cromado. */
-export const VS_CAP_W = 18;
-export const VS_CAP_H = 30;
+/** Capa do fader da skin padrão: em pé (comprida no sentido do curso), de metal prateado. */
+export const VS_CAP_W = 20;
+export const VS_CAP_H = 32;
 
 export type VsCapTone = 'cue' | 'band' | 'master' | 'tc';
-// linha do meio: diz a função do canal (branca = guia/click/maestro, grafite = banda,
-// vermelha = master, laranja = timecode)
-const VS_CAP_LINE: Record<VsCapTone, string> = { cue: '#ffffff', band: '#1c1d20', master: '#ff3b30', tc: '#ff9a1f' };
+// risco do meio: escuro nos canais, vermelho no master e laranja no timecode
+const VS_CAP_LINE: Record<VsCapTone, string> = { cue: '#17181b', band: '#17181b', master: '#ff3b30', tc: '#ff9a1f' };
+
+// Contorno visto de cima: as pontas abrem nos pés e as laterais fazem a curva para dentro no meio.
+const CAP_OUTLINE = 'M2 0.6 H18 Q19.6 0.6 19.6 2.2 Q16.4 15 19.6 28 L19.6 30 Q19.6 31.4 18.2 31.4 H1.8 Q0.4 31.4 0.4 30 L0.4 28 Q3.6 15 0.4 2.2 Q0.4 0.6 2 0.6 Z';
+// Tampo em sela, um pouco para dentro do contorno
+const CAP_TOP = 'M3 1.6 H17 Q18.2 1.6 18.2 2.8 Q15.4 14.6 18.2 26.6 Q18.2 27.6 17.4 27.6 H2.6 Q1.8 27.6 1.8 26.6 Q4.6 14.6 1.8 2.8 Q1.8 1.6 3 1.6 Z';
+// Ponta de baixo vista de frente: a face curva da capa, com o vão entre os pés no meio
+const CAP_FACE = 'M1.2 27.6 H18.8 Q19.5 27.6 19.5 28.4 V30.2 Q19.5 31.3 18.4 31.3 H1.6 Q0.5 31.3 0.5 30.2 V28.4 Q0.5 27.6 1.2 27.6 Z';
+const CAP_GAP = 'M6.4 31.3 Q10 27.6 13.6 31.3 Z';
 
 /**
- * Capa cromada: corpo de metal com reflexos verticais (o cromo espelha a luz em faixas), topo
- * côncavo com frisos, bordas chanfradas e a linha da função no meio, entre dois frisos escuros.
+ * Capa de fader em sela, de alumínio prateado acetinado: as duas pontas altas brilham, o meio
+ * afunda e escurece (onde o dedo apoia), as laterais curvas mostram os pés e o risco escuro
+ * atravessa o meio, marcando a posição.
  */
 export function VsCap({ tone, className = '', style }: { tone: VsCapTone; className?: string; style?: React.CSSProperties }) {
   const uid = useId().replace(/:/g, '');
   const line = VS_CAP_LINE[tone];
   return (
-    <svg viewBox="0 0 18 30" preserveAspectRatio="none" className={`vs-cap ${className}`} style={style} aria-hidden="true">
+    <svg viewBox="0 0 20 32" preserveAspectRatio="none" className={`vs-cap ${className}`} style={style} aria-hidden="true">
       <defs>
-        {/* reflexos do cromo, da esquerda para a direita */}
-        <linearGradient id={`${uid}-chrome`} x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#3c3f44" />
-          <stop offset="0.1" stopColor="#a9adb4" />
-          <stop offset="0.24" stopColor="#f6f7f9" />
-          <stop offset="0.38" stopColor="#c3c6cc" />
-          <stop offset="0.52" stopColor="#6d7178" />
-          <stop offset="0.66" stopColor="#b9bcc2" />
-          <stop offset="0.8" stopColor="#eceef1" />
-          <stop offset="0.92" stopColor="#8a8e95" />
-          <stop offset="1" stopColor="#33363a" />
+        {/* pés e laterais: metal na sombra */}
+        <linearGradient id={`${uid}-body`} x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#5d6066" />
+          <stop offset="0.18" stopColor="#a4a7ad" />
+          <stop offset="0.5" stopColor="#c4c7cc" />
+          <stop offset="0.82" stopColor="#9a9da3" />
+          <stop offset="1" stopColor="#4f5257" />
         </linearGradient>
-        {/* luz de cima, sombra embaixo */}
-        <linearGradient id={`${uid}-shade`} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#fff" stopOpacity="0.35" />
-          <stop offset="0.18" stopColor="#fff" stopOpacity="0" />
-          <stop offset="0.75" stopColor="#000" stopOpacity="0.05" />
-          <stop offset="1" stopColor="#000" stopOpacity="0.45" />
+        {/* sela côncava com a luz de cima: a rampa de cima (virada para a luz) clara, o fundo
+            escuro, a rampa de baixo na sombra e o fio claro na ponta de baixo */}
+        <linearGradient id={`${uid}-saddle`} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="#c9ccd1" />
+          <stop offset="0.05" stopColor="#ffffff" />
+          <stop offset="0.16" stopColor="#eceef0" />
+          <stop offset="0.4" stopColor="#b3b6bc" />
+          <stop offset="0.56" stopColor="#8b8f96" />
+          <stop offset="0.78" stopColor="#979ba1" />
+          <stop offset="0.92" stopColor="#c3c6cb" />
+          <stop offset="0.975" stopColor="#f3f4f6" />
+          <stop offset="1" stopColor="#a4a7ad" />
         </linearGradient>
-        {/* topo côncavo: o meio afunda e escurece um pouco */}
-        <radialGradient id={`${uid}-dish`} cx="50%" cy="50%" r="55%">
-          <stop offset="0" stopColor="#000" stopOpacity="0.22" />
-          <stop offset="1" stopColor="#000" stopOpacity="0" />
+        {/* face da ponta de baixo, mais escura (fica de lado para a luz) */}
+        <linearGradient id={`${uid}-face`} x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="#9fa2a8" />
+          <stop offset="1" stopColor="#6c6f75" />
+        </linearGradient>
+        {/* laterais do tampo um pouco mais escuras (a sela curva para baixo nas beiradas) */}
+        <linearGradient id={`${uid}-edge`} x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#000" stopOpacity="0.32" />
+          <stop offset="0.2" stopColor="#000" stopOpacity="0" />
+          <stop offset="0.8" stopColor="#000" stopOpacity="0" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.32" />
+        </linearGradient>
+        {/* reflexo macio da luz no fundo da sela */}
+        <radialGradient id={`${uid}-sheen`} cx="42%" cy="30%" r="45%">
+          <stop offset="0" stopColor="#fff" stopOpacity="0.45" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0" />
         </radialGradient>
+        {/* acetinado: grão fino do alumínio */}
+        <filter id={`${uid}-satin`} x="0" y="0" width="100%" height="100%">
+          <feTurbulence type="fractalNoise" baseFrequency="1.6" numOctaves="1" seed="7" result="n" />
+          <feColorMatrix in="n" type="matrix" values="0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0 0.5  0 0 0 0.10 0" result="g" />
+          <feComposite in="g" in2="SourceGraphic" operator="in" />
+        </filter>
       </defs>
-      <rect x="0.4" y="0.4" width="17.2" height="29.2" rx="2.6" fill={`url(#${uid}-chrome)`} stroke="#141518" strokeWidth="0.8" />
-      <rect x="0.4" y="0.4" width="17.2" height="29.2" rx="2.6" fill={`url(#${uid}-shade)`} />
-      <ellipse cx="9" cy="15" rx="7.6" ry="12.5" fill={`url(#${uid}-dish)`} />
-      {/* chanfro de cima e de baixo */}
-      <rect x="1.4" y="1" width="15.2" height="0.8" rx="0.4" fill="#fff" opacity="0.85" />
-      <rect x="1.4" y="28.2" width="15.2" height="0.8" rx="0.4" fill="#000" opacity="0.45" />
-      {/* frisos de pegada */}
-      {[4.2, 6.4, 8.6, 21.4, 23.6, 25.8].map((y) => (
-        <g key={y}>
-          <rect x="2" y={y} width="14" height="0.7" fill="#000" opacity="0.32" />
-          <rect x="2" y={y + 0.7} width="14" height="0.5" fill="#fff" opacity="0.55" />
-        </g>
-      ))}
-      {/* linha da função, entre dois frisos escuros */}
-      <rect x="1" y="13.3" width="16" height="3.4" fill="#0c0d0f" opacity="0.85" />
-      <rect x="1" y="14.15" width="16" height="1.7" fill={line} />
+      {/* corpo com os pés */}
+      <path d={CAP_OUTLINE} fill={`url(#${uid}-body)`} stroke="#2c2e32" strokeWidth="0.6" />
+      {/* face da ponta de baixo e o vão entre os pés */}
+      <path d={CAP_FACE} fill={`url(#${uid}-face)`} />
+      <path d={CAP_GAP} fill="#141518" />
+      {/* tampo em sela */}
+      <path d={CAP_TOP} fill={`url(#${uid}-saddle)`} />
+      <path d={CAP_TOP} fill={`url(#${uid}-edge)`} />
+      <path d={CAP_TOP} fill={`url(#${uid}-sheen)`} />
+      <path d={CAP_TOP} fill="#808080" filter={`url(#${uid}-satin)`} />
+      {/* fio de luz nas duas pontas altas */}
+      <path d="M3.2 2.3 H16.8" stroke="#fff" strokeWidth="0.7" strokeLinecap="round" opacity="0.95" />
+      <path d="M2.8 27.2 H17.2" stroke="#fff" strokeWidth="0.55" strokeLinecap="round" opacity="0.75" />
+      {/* beirada das pontas: a quina que vira para os pés */}
+      <path d="M2.4 1.2 H17.6" stroke="#6a6d73" strokeWidth="0.5" opacity="0.6" />
+      {/* risco do meio, cavado no metal */}
+      <rect x="3.6" y="13.9" width="12.8" height="1.4" rx="0.3" fill={line} />
+      <rect x="3.6" y="15.3" width="12.8" height="0.45" fill="#fff" opacity="0.4" />
     </svg>
   );
 }
