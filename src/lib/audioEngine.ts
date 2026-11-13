@@ -290,6 +290,10 @@ interface ChannelNode {
   source: AudioBufferSourceNode | null;
   /** Separa L/R do canal quando ele sai num par estéreo da interface */
   splitter?: ChannelSplitterNode;
+  /** Medidor estéreo: o sinal do canal separado em L e R, cada lado com o seu analisador */
+  meterSplit: ChannelSplitterNode;
+  meterL: AnalyserNode;
+  meterR: AnalyserNode;
 }
 
 interface ActiveClip {
@@ -419,6 +423,8 @@ class AudioEngine {
   private partialTimer: number | null = null;
   private outputMerger: ChannelMergerNode | null = null;
   private masterSplitter: ChannelSplitterNode | null = null;
+  private masterMeterL: AnalyserNode | null = null;
+  private masterMeterR: AnalyserNode | null = null;
   private outputCount = 2;
   private routedTo = new Map<string, string>();
   private timecode: TimecodePlayer | null = null;
@@ -1087,7 +1093,15 @@ class AudioEngine {
     panner.connect(level);
     const antiClip = new AntiClipInsert(ctx, level, analyser);
     antiClip.set(antiClipActive(useStore.getState().tracks.find((t) => t.id === trackId)), true);
-    const node: ChannelNode = { gain, panner, level, antiClip, analyser, source: null };
+    // medidor estéreo: um galho do sinal (depois do anti-clip) separado em L e R
+    const meterSplit = ctx.createChannelSplitter(2);
+    const meterL = ctx.createAnalyser();
+    const meterR = ctx.createAnalyser();
+    meterL.fftSize = METER_FFT;
+    meterR.fftSize = METER_FFT;
+    meterSplit.connect(meterL, 0);
+    meterSplit.connect(meterR, 1);
+    const node: ChannelNode = { gain, panner, level, antiClip, analyser, source: null, meterSplit, meterL, meterR };
     this.channels.set(trackId, node);
     this.routeChannel(trackId);
     return node;
@@ -1115,6 +1129,13 @@ class AudioEngine {
     this.outputMerger = ctx.createChannelMerger(actual);
     this.masterSplitter = ctx.createChannelSplitter(2);
     this.masterAnalyser.connect(this.masterSplitter);
+    // medidor estéreo do master: L e R da saída 1-2
+    this.masterMeterL ??= ctx.createAnalyser();
+    this.masterMeterR ??= ctx.createAnalyser();
+    this.masterMeterL.fftSize = METER_FFT;
+    this.masterMeterR.fftSize = METER_FFT;
+    this.masterSplitter.connect(this.masterMeterL, 0);
+    this.masterSplitter.connect(this.masterMeterR, 1);
     this.masterSplitter.connect(this.outputMerger, 0, 0);
     this.masterSplitter.connect(this.outputMerger, 1, 1);
     this.outputMerger.connect(dest);
@@ -1140,6 +1161,8 @@ class AudioEngine {
     if (this.routedTo.get(trackId) === key) return;
     try { ch.analyser.disconnect(); } catch { /* ignore */ }
     if (ch.splitter) { try { ch.splitter.disconnect(); } catch { /* ignore */ } }
+    // o galho do medidor estéreo continua ligado em qualquer saída
+    ch.analyser.connect(ch.meterSplit);
     if (key === 'master') {
       ch.analyser.connect(this.masterGain);
     } else if (direct && stereo) {
@@ -2514,21 +2537,44 @@ class AudioEngine {
   getMeterLevel(trackId: string): number {
     const channel = this.channels.get(trackId);
     if (!channel) return 0;
+    return this.smoothMeter(trackId, this.peakOf(channel.analyser));
+  }
+
+  /** Pico agora (linear) de um analisador. */
+  private peakOf(analyser: AnalyserNode): number {
     const data = this.meterScratch;
-    channel.analyser.getFloatTimeDomainData(data);
+    analyser.getFloatTimeDomainData(data);
     let peak = 0;
     for (let i = 0; i < data.length; i++) {
       const abs = Math.abs(data[i]);
       if (abs > peak) peak = abs;
     }
+    return peak;
+  }
+
+  /** Queda de 24 dB/s, como os medidores de mesa: sobe na hora, desce devagar. */
+  private smoothMeter(key: string, peak: number): number {
     const now = performance.now();
-    const prev = this.meterSmoothed.get(trackId) ?? 0;
-    const elapsed = Math.min(100, now - (this.meterLastUpdate.get(trackId) ?? now)) / 1000;
-    this.meterLastUpdate.set(trackId, now);
+    const prev = this.meterSmoothed.get(key) ?? 0;
+    const elapsed = Math.min(100, now - (this.meterLastUpdate.get(key) ?? now)) / 1000;
+    this.meterLastUpdate.set(key, now);
     const released = prev * Math.pow(10, (-24 * elapsed) / 20);
     const smoothed = Math.max(peak, released);
-    this.meterSmoothed.set(trackId, smoothed);
+    this.meterSmoothed.set(key, smoothed);
     return smoothed;
+  }
+
+  /** Medidor estéreo do canal: níveis do lado esquerdo e do direito. */
+  getMeterLevelsLR(trackId: string): [number, number] | null {
+    const channel = this.channels.get(trackId);
+    if (!channel) return null;
+    return [this.smoothMeter(`${trackId}:L`, this.peakOf(channel.meterL)), this.smoothMeter(`${trackId}:R`, this.peakOf(channel.meterR))];
+  }
+
+  /** Medidor estéreo do master (saída 1-2). */
+  getMasterMeterLevelsLR(): [number, number] | null {
+    if (!this.masterMeterL || !this.masterMeterR) return null;
+    return [this.smoothMeter('master:L', this.peakOf(this.masterMeterL)), this.smoothMeter('master:R', this.peakOf(this.masterMeterR))];
   }
 
   private startMetering() {
@@ -2546,10 +2592,15 @@ class AudioEngine {
         for (const t of store.tracks) {
           const level = this.getMeterLevel(t.id);
           levels.set(t.id, level);
+          // medidor estéreo: cada lado separado (ID:L e ID:R)
+          const lr = this.getMeterLevelsLR(t.id);
+          if (lr) { levels.set(`${t.id}:L`, lr[0]); levels.set(`${t.id}:R`, lr[1]); }
           if (level >= 1 && !t.clipIndicator) store.updateMeter(t.id, level);
         }
         const masterLevel = this.getMasterMeterLevel();
         levels.set('master', masterLevel);
+        const masterLR = this.getMasterMeterLevelsLR();
+        if (masterLR) { levels.set('master:L', masterLR[0]); levels.set('master:R', masterLR[1]); }
         // com o anti-clip do master ligado a saída não passa do teto: o indicador de clip fica apagado
         const masterPre = store.masterAntiClip ? 0 : this.getMasterPrePeak();
         if (masterPre >= 1 && store.masterClipPeak < masterPre) store.updateMasterMeter(masterPre);

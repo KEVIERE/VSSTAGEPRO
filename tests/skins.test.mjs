@@ -19,7 +19,9 @@ const oficinaAt = css.indexOf('/* ================= Skin Oficina');
 const ambientAt = css.indexOf('/* ================= Ambientação completa das skins');
 const estudioCss = css.slice(estudioAt, oficinaAt);
 const oficinaCss = css.slice(oficinaAt, ambientAt);
-const ambientCss = css.slice(ambientAt);
+const defaultAt = css.indexOf('/* ================= Skin padrão: VS Stage');
+const ambientCss = css.slice(ambientAt, defaultAt);
+const defaultCss = css.slice(defaultAt);
 
 /** Cada regra da seção começa por um dos prefixos (presa à marca da skin ou peça só dela). */
 function scopedOnly(section, prefixes) {
@@ -102,6 +104,9 @@ test('Grafite e Estúdio só valem com a marca na página: nada delas vaza para 
   // a ambientação completa (paleta, números, rolagem, playlist...) também só vale com uma skin
   assert.ok(ambientAt > oficinaAt);
   scopedOnly(ambientCss, ['grafite', 'estudio', 'oficina'].flatMap((k) => [`:where([data-skin='${k}'])`, `:root[data-skin='${k}']`]));
+  // a padrão (VS Stage) só vale sem skin escolhida
+  assert.ok(defaultAt > ambientAt);
+  scopedOnly(defaultCss, [':where(:root:not([data-skin]))', ':root:not([data-skin])', '.console-faderfill', '.segment-display.is-tft', '.an-edge-meter']);
   // as classes novas que a Analógica também carrega não têm desenho nela
   for (const cls of ['console-faderbed', 'console-bed', 'console-screws']) {
     assert.doesNotMatch(analogCss, new RegExp(`\\.${cls}\\b`), cls);
@@ -126,7 +131,7 @@ test('Grafite tem peças próprias no mixer, no timecode, nos visores e nos pads
   for (const k of ['SOLO', 'MUTE', 'CLIP']) assert.match(mixer, new RegExp(`label="${k}"`));
   assert.match(mixer, /name="MASTER"/);
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<GfCap\s+tone="tc"/);
-  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin !== 'analogica'\) \{/);
+  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin\) \{/);
   assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<GfKnob value=\{pct \* 2 - 1\} bipolar=\{false\} color=\{color\}/);
 });
 
@@ -148,7 +153,7 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(mixer, /const color = esTrackColor\(track\.color, index\);/);
   assert.match(mixer, /\{skin === 'estudio' && <EsRowLabels \/>\}/, 'nomes das linhas na lateral do mixer');
   assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<EsKnob value=\{pct \* 2 - 1\} bipolar=\{false\}/);
-  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin !== 'analogica'\) \{/);
+  assert.match(read('src', 'components', 'SegmentDisplay.tsx'), /if \(skin\) \{/);
   // cores: a da faixa fica viva; a onda é a mesma cor bem mais escura
   const pieces = read('src', 'components', 'EstudioPieces.tsx');
   assert.match(pieces, /const DEFAULT_TRACK_COLORS = new Set\(\['#5b8db8', '#5bb87a'\]\);/, 'só a cor de fábrica vira degradê');
@@ -213,5 +218,18 @@ test('Analógica: faixas da timeline com knob de volume depois do visor e medido
   assert.match(tl, /<AnEdgeMeter\s+id=\{isRecording \? 'input-maestro' : track\.id\}/);
   const pieces = read('src', 'components', 'AnalogPieces.tsx');
   assert.match(pieces, /onDoubleClick=\{\(e\) => \{ e\.stopPropagation\(\); if \(!disabled\) onReset\(\); \}\}/, 'duplo clique volta ao 0 dB');
+});
+
+test('padrão (VS Stage): mesa digital, com medidor estéreo e rastro de luz no fader', () => {
+  assert.equal(SKINS[0].label, 'VS Stage (padrão)');
+  const mixer = read('src', 'components', 'MixerPanel.tsx');
+  assert.match(mixer, /<LedMeter\s+stereo\s+id=\{track\.id\}/, 'medidor estéreo nos canais');
+  assert.match(mixer, /<LedMeter\s+stereo\s+id="master"/, 'e no master');
+  assert.match(mixer, /className="console-faderfill absolute/);
+  const meter = read('src', 'components', 'MeterMask.tsx');
+  assert.match(meter, /<MeterMask id=\{`\$\{id\}:\$\{side\}`\}/, 'cada lado lê o seu nível (ID:L e ID:R)');
+  const engine = read('src', 'lib', 'audioEngine.ts');
+  assert.match(engine, /if \(lr\) \{ levels\.set\(`\$\{t\.id\}:L`, lr\[0\]\); levels\.set\(`\$\{t\.id\}:R`, lr\[1\]\); \}/, 'o motor publica L e R');
+  assert.match(engine, /ch\.analyser\.connect\(ch\.meterSplit\);/, 'o medidor estéreo continua ligado ao trocar a saída');
 });
 

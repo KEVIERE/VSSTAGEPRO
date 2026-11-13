@@ -480,7 +480,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
     <div
       data-selectable="track"
       data-track-row={track.id}
-      className={`console-row group relative flex items-center gap-1 pl-2 ${analogica ? 'pr-[9px]' : 'pr-1.5'} cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
+      className={`console-row group relative flex items-center gap-1 pl-2 ${analogica ? 'pr-[12px]' : 'pr-1.5'} cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
       style={{ height: `${trackHeight}px`, '--ch': rowColor } as React.CSSProperties}
       onClick={onPick}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
@@ -528,12 +528,15 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
 
       {showFader && analogica && (
         // Analógica: knob de volume moderno logo depois do visor (o medidor fica na borda direita)
-        <AnVolumeKnob
-          value={track.volume}
-          onChange={(v) => setVolume(track.id, v)}
-          onReset={() => setVolume(track.id, 0.8)}
-          size={compact ? 22 : 30}
-        />
+        // no meio do espaço entre o visor do nome e os botões M / S
+        <div className="flex-1 min-w-[34px] flex items-center justify-center">
+          <AnVolumeKnob
+            value={track.volume}
+            onChange={(v) => setVolume(track.id, v)}
+            onReset={() => setVolume(track.id, 0.8)}
+            size={compact ? 22 : 30}
+          />
+        </div>
       )}
       {showFader && !analogica && (
         <div className="flex flex-col gap-[3px] shrink-0">
@@ -572,6 +575,7 @@ function TrackRow({ track, depth = 0, expanded = true, onToggle, onContextMenu, 
       {analogica && (
         <AnEdgeMeter
           id={isRecording ? 'input-maestro' : track.id}
+          stereo={!isRecording}
           off={!isRecording && track.mute}
           title={isRecording ? 'Sinal da entrada da gravação' : 'Nível do sinal deste canal'}
         />

@@ -75,7 +75,8 @@ export default function SegmentDisplay({
 }) {
   const { cells, width } = layout(text);
   const skin = useSkin();
-  if (skin !== 'analogica') {
+  // todas as skins usam a tela lisa (a padrão também: mesa digital de última geração)
+  if (skin) {
     return (
       <svg
         viewBox={`${-SKEW_PAD - 0.5} -0.5 ${width + SKEW_PAD + 1} 21`}

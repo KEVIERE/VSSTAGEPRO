@@ -67,18 +67,18 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
       <svg viewBox="0 0 40 40" className="absolute inset-0 w-full h-full" aria-hidden="true">
         <defs>
           <radialGradient id="an-knob-skirt" cx="50%" cy="38%" r="65%">
-            <stop offset="0" stopColor="#6b727b" />
-            <stop offset="0.6" stopColor="#3a3f46" />
-            <stop offset="1" stopColor="#16181b" />
+            <stop offset="0" stopColor="#3a4458" />
+            <stop offset="0.6" stopColor="#171c27" />
+            <stop offset="1" stopColor="#07090e" />
           </radialGradient>
           <radialGradient id="an-knob-cap" cx="44%" cy="34%" r="70%">
-            <stop offset="0" stopColor="#4c525a" />
-            <stop offset="0.55" stopColor="#262a2f" />
-            <stop offset="1" stopColor="#14161a" />
+            <stop offset="0" stopColor="#2c3445" />
+            <stop offset="0.55" stopColor="#121722" />
+            <stop offset="1" stopColor="#07090e" />
           </radialGradient>
           <linearGradient id="an-knob-rim" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor="#c9ced4" stopOpacity="0.8" />
-            <stop offset="1" stopColor="#000" stopOpacity="0.4" />
+            <stop offset="0" stopColor="#7fb2ff" stopOpacity="0.6" />
+            <stop offset="1" stopColor="#1f7bff" stopOpacity="0.1" />
           </linearGradient>
         </defs>
         {/* anel de LEDs */}
@@ -91,10 +91,10 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
               key={i}
               x1={20 + Math.cos(a) * 16.2} y1={20 + Math.sin(a) * 16.2}
               x2={20 + Math.cos(a) * 18.6} y2={20 + Math.sin(a) * 18.6}
-              stroke={on ? (hot ? '#ff7a2f' : '#ffab1f') : '#2b2f35'}
+              stroke={on ? (hot ? '#ff8a1e' : '#2e8bff') : '#1a2130'}
               strokeWidth={1.7}
               strokeLinecap="round"
-              style={on ? { filter: `drop-shadow(0 0 1.4px ${hot ? '#ff7a2f' : '#ffab1f'})` } : undefined}
+              style={on ? { filter: `drop-shadow(0 0 1.6px ${hot ? '#ff8a1e' : '#2e8bff'})` } : undefined}
             />
           );
         })}
@@ -110,7 +110,7 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
         <ellipse cx="18" cy="15.6" rx="5.6" ry="2.6" fill="#fff" opacity="0.1" />
         {/* ponteiro */}
         <g transform={`rotate(${angle} 20 20)`}>
-          <rect x="19.15" y="9.6" width="1.7" height="6.4" rx="0.85" fill="#ffab1f" style={{ filter: 'drop-shadow(0 0 1.2px #ffab1f)' }} />
+          <rect x="19.15" y="9.6" width="1.7" height="6.4" rx="0.85" fill="#d6e7ff" style={{ filter: 'drop-shadow(0 0 1.4px #2e8bff)' }} />
         </g>
       </svg>
     </div>
@@ -119,15 +119,30 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
 
 const METER = 'linear-gradient(to top, #3ee26e 0%, #3ee26e 62%, #ffd83d 78%, #ffd83d 93%, #ff4136 97%, #ff4136 100%)';
 
-/** Medidor vertical colado na borda direita da faixa (escala de -48 a 0 dBFS). */
-export function AnEdgeMeter({ id, off, title }: { id: string; off?: boolean; title?: string }) {
+function EdgeBar({ id, off }: { id: string; off?: boolean }) {
   const level = useMeterLevel(id);
   const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
   const pct = off || db <= -48 ? 0 : Math.min(1, (db + 48) / 48);
   return (
-    <div className="an-edge-meter absolute right-0 top-[3px] bottom-[3px] w-[5px] pointer-events-none" title={title}>
+    <div className="relative flex-1 overflow-hidden">
       <div className="absolute inset-0" style={{ background: off ? '#3a3d42' : METER, clipPath: `inset(${(1 - pct) * 100}% 0 0 0)` }} />
       <div className="an-edge-meter-segments absolute inset-0" />
+    </div>
+  );
+}
+
+/** Medidor estéreo (L e R) colado na borda direita da faixa (escala de -48 a 0 dBFS). */
+export function AnEdgeMeter({ id, off, title, stereo = true }: { id: string; off?: boolean; title?: string; stereo?: boolean }) {
+  return (
+    <div className="an-edge-meter absolute right-0 top-[3px] bottom-[3px] w-[7px] flex gap-px pointer-events-none" title={title}>
+      {stereo ? (
+        <>
+          <EdgeBar id={`${id}:L`} off={off} />
+          <EdgeBar id={`${id}:R`} off={off} />
+        </>
+      ) : (
+        <EdgeBar id={id} off={off} />
+      )}
     </div>
   );
 }

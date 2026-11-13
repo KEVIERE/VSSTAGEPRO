@@ -310,6 +310,8 @@ export function Fader({
           className="console-slot absolute left-1/2 -translate-x-1/2"
           style={{ top: `${capHeight / 2 - 2}px`, bottom: `${capHeight / 2 - 2}px` }}
         />
+        {/* rastro de luz do volume na fenda (só a skin padrão desenha) */}
+        <div className="console-faderfill absolute left-1/2 -translate-x-1/2" style={{ bottom: `${capHeight / 2}px`, height: `${bottomPx}px` }} />
         {/* Capa do fader */}
         <div
           className={`console-cap ${CAP_CLASS[tone]} absolute left-0 right-0`}
@@ -633,6 +635,7 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
           tone={track.isSubgroup && track.id !== 'track-guia' ? 'band' : 'cue'}
         />
         <LedMeter
+          stereo
           id={track.id}
           off={track.mute}
           clipping={isClipping}
@@ -677,33 +680,46 @@ function MixerChannel({ trackId, index, onMenu: openMenu }: {
   );
 }
 
-// Knob de pan de mesa: marcas impressas em volta, saia serrilhada e capa azul com o ponteiro.
-const PAN_TICKS = Array.from({ length: 11 }, (_, i) => -135 + i * 27);
+// Knob de pan da skin padrão: anel de LEDs azuis acendendo do centro até o pan (laranja quando
+// passa do meio para um lado), corpo de vidro escuro com aro de luz e o ponteiro aceso.
+const PAN_LEDS = 13;
 
 function PanKnob({ pan }: { pan: number }) {
+  const v = Math.max(-1, Math.min(1, pan));
+  const pos = ((v + 1) / 2) * (PAN_LEDS - 1);
+  const mid = (PAN_LEDS - 1) / 2;
   return (
-    <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none">
-      {PAN_TICKS.map((deg) => {
-        const rad = ((deg - 90) * Math.PI) / 180;
-        const center = deg === 0;
-        const r1 = 11.6;
-        const r2 = center ? 13.8 : 13.2;
+    <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
+      <defs>
+        <radialGradient id="vs-pan-body" cx="45%" cy="32%" r="72%">
+          <stop offset="0" stopColor="#2c3445" />
+          <stop offset="0.6" stopColor="#121722" />
+          <stop offset="1" stopColor="#07090e" />
+        </radialGradient>
+        <linearGradient id="vs-pan-rim" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stopColor="#7fb2ff" stopOpacity="0.55" />
+          <stop offset="1" stopColor="#1f7bff" stopOpacity="0.08" />
+        </linearGradient>
+      </defs>
+      {Array.from({ length: PAN_LEDS }, (_, i) => {
+        const a = ((-135 + (i / (PAN_LEDS - 1)) * 270 - 90) * Math.PI) / 180;
+        const lit = i === mid || (pos >= mid ? i >= mid && i <= pos + 0.01 : i <= mid && i >= pos - 0.01);
+        const color = i === mid ? '#9cc8ff' : '#2e8bff';
         return (
-          <line
-            key={deg}
-            x1={14 + r1 * Math.cos(rad)} y1={14 + r1 * Math.sin(rad)}
-            x2={14 + r2 * Math.cos(rad)} y2={14 + r2 * Math.sin(rad)}
-            stroke="#e7e2d6" strokeOpacity={center ? 0.85 : 0.35} strokeWidth={center ? 1.2 : 0.8}
+          <circle
+            key={i}
+            cx={14 + 12.6 * Math.cos(a)} cy={14 + 12.6 * Math.sin(a)} r={0.95}
+            fill={lit ? color : '#1a2130'}
+            style={lit ? { filter: `drop-shadow(0 0 1.5px ${color})` } : undefined}
           />
         );
       })}
-      <circle cx="14" cy="14" r="10" fill="#141619" stroke="#050607" strokeWidth="0.8" />
-      <circle cx="14" cy="14" r="9.1" fill="none" stroke="#3b4047" strokeWidth="1.2" strokeDasharray="0.9 1.1" />
-      <circle cx="14" cy="14" r="6.6" fill="#5b84ad" />
-      <circle cx="14" cy="12.7" r="5" fill="#ffffff" opacity="0.13" />
-      <circle cx="14" cy="14" r="6.6" fill="none" stroke="#000" strokeOpacity="0.45" strokeWidth="0.6" />
-      <g transform={`rotate(${pan * 135} 14 14)`}>
-        <line x1="14" y1="13" x2="14" y2="4.8" stroke="#f4f0e6" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="14" cy="14.7" r="9.4" fill="#000" opacity="0.55" />
+      <circle cx="14" cy="14" r="9.2" fill="url(#vs-pan-body)" />
+      <circle cx="14" cy="14" r="9.2" fill="none" stroke="url(#vs-pan-rim)" strokeWidth="0.8" />
+      <ellipse cx="12.6" cy="10.4" rx="4.4" ry="2.1" fill="#fff" opacity="0.07" />
+      <g transform={`rotate(${v * 135} 14 14)`}>
+        <rect x="13.35" y="5.8" width="1.3" height="5.2" rx="0.65" fill="#cfe3ff" style={{ filter: 'drop-shadow(0 0 1.4px #2e8bff)' }} />
       </g>
     </svg>
   );
@@ -976,6 +992,7 @@ export default function MixerPanel() {
             />
             {/* mesma escala dos canais */}
             <LedMeter
+              stereo
               id="master"
               clipping={masterIsClipping}
               onClick={() => { if (masterIsClipping) clearMasterClipIndicator(); }}

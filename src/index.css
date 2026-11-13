@@ -2886,3 +2886,276 @@
   }
 }
 
+/* ================= Skin padrão: VS Stage, mesa digital de última geração =================
+   Vidro escuro azul-meia-noite com trama de pontos e fios de luz azul nas bordas; teclas de vidro
+   que acendem em neon (laranja da marca, verde, vermelho, azul); visores pretos tipo OLED com o
+   nome em branco-azulado; fader de vidro preto com linha de luz e o rastro azul do volume na
+   fenda; medidores estéreo. Vale só sem skin escolhida (:root sem data-skin). As regras usam
+   :where() para pesar o mesmo que as da base: vencem as dela e perdem para as do Tailwind. */
+@layer base {
+  :root:not([data-skin]) {
+    --lg-bg: 12 15 21;
+    --lg-bg-deep: 7 9 13;
+    --lg-bg-panel: 16 20 28;
+    --lg-bg-panel-light: 23 28 38;
+    --lg-bg-elevated: 31 37 50;
+    --lg-border: 30 37 50;
+    --lg-border-light: 46 55 72;
+    --lg-border-dark: 3 4 6;
+    --lg-text: 233 238 246;
+    --lg-text-dim: 156 168 186;
+    --lg-text-muted: 96 108 128;
+    --lg-accent: 31 123 255;
+    --lg-accent-hover: 77 154 255;
+    --lg-accent-dim: 14 90 214;
+    --lg-lcd-bg: 5 7 11;
+    --lg-lcd-text: 220 232 255;
+    --lg-lcd-amber: 255 146 44;
+    --lg-lcd-green: 54 240 140;
+    --lg-lcd-red: 255 72 72;
+    --lg-lcd-yellow: 255 214 64;
+  }
+}
+
+@layer components {
+  .console-faderfill { display: none; }
+
+  /* ---------- painéis de vidro escuro ---------- */
+  :where(:root:not([data-skin])) .console-face {
+    background-color: #0b0f17;
+    background-image:
+      radial-gradient(rgba(120, 160, 255, 0.055) 0.6px, transparent 0.7px),
+      radial-gradient(140% 90% at 50% -20%, rgba(46, 139, 255, 0.1), transparent 60%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(0, 0, 0, 0.25));
+    background-size: 12px 12px, 100% 100%, 100% 100%;
+  }
+  :where(:root:not([data-skin])) .console-rail {
+    background-color: #080b11;
+    background-image: linear-gradient(180deg, rgba(46, 139, 255, 0.06), rgba(0, 0, 0, 0.3));
+    box-shadow: inset 0 -1px 0 rgba(46, 139, 255, 0.22), 0 1px 0 rgba(0, 0, 0, 0.8);
+  }
+  :where(:root:not([data-skin])) .console-strip {
+    box-shadow: inset -1px 0 0 rgba(120, 160, 255, 0.07);
+  }
+  :where(:root:not([data-skin])) .console-strip:hover {
+    background-color: rgba(46, 139, 255, 0.035);
+  }
+  :where(:root:not([data-skin])) .console-strip.is-selected {
+    background-color: rgba(46, 139, 255, 0.08);
+    box-shadow: inset 0 2px 0 #2e8bff, inset 0 0 18px rgba(46, 139, 255, 0.14), inset -1px 0 0 rgba(120, 160, 255, 0.07);
+  }
+
+  /* ---------- visor do nome: preto tipo OLED, letra branco-azulada acesa ---------- */
+  :root:not([data-skin]) .console-lcdname {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    color: #eaf3ff;
+    text-shadow: 0 0 6px rgba(90, 165, 255, 0.75), 0 0 1px rgba(200, 225, 255, 0.9);
+    background:
+      linear-gradient(180deg, rgba(120, 170, 255, 0.1), rgba(120, 170, 255, 0) 45%),
+      #04060a;
+    border-radius: 4px;
+    box-shadow:
+      inset 0 0 0 1px rgba(90, 150, 255, 0.28),
+      inset 0 0 10px rgba(46, 139, 255, 0.16),
+      0 0 0 1px #020305,
+      0 0 10px rgba(46, 139, 255, 0.12);
+  }
+
+  /* ---------- visores e leitores ---------- */
+  :where(:root:not([data-skin])) .logic-lcd,
+  :where(:root:not([data-skin])) .console-display {
+    border-color: #020305;
+    border-radius: 8px;
+    background-image: linear-gradient(180deg, rgba(120, 170, 255, 0.07), rgba(120, 170, 255, 0) 35%);
+    box-shadow: inset 0 0 0 1px rgba(90, 150, 255, 0.2), inset 0 0 22px rgba(46, 139, 255, 0.08), 0 0 16px rgba(46, 139, 255, 0.06);
+  }
+  :where(:root:not([data-skin])) .console-bezel {
+    padding: 2px;
+    border-radius: 11px;
+    background: linear-gradient(180deg, rgba(90, 150, 255, 0.5), rgba(46, 139, 255, 0.08));
+    box-shadow: 0 0 24px rgba(46, 139, 255, 0.15);
+  }
+  :where(:root:not([data-skin])) .console-readout {
+    background-color: #04060a;
+    border-radius: 3px;
+    box-shadow: inset 0 0 0 1px rgba(90, 150, 255, 0.18);
+  }
+  .segment-display.is-tft {
+    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 45%, transparent));
+  }
+  :where(:root:not([data-skin])) .console-legend {
+    font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: 0.1em;
+    color: #7f8ea8;
+  }
+
+  /* ---------- teclas de vidro que acendem em neon ---------- */
+  :where(:root:not([data-skin])) .console-key,
+  :where(:root:not([data-skin])) .logic-btn,
+  :where(:root:not([data-skin])) .logic-btn-transport {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    color: #b8c6dc;
+    background-color: #111622;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.01) 50%, rgba(0, 0, 0, 0.2));
+    border: 1px solid rgba(140, 180, 255, 0.16);
+    border-radius: 6px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 6px rgba(0, 0, 0, 0.45);
+  }
+  :where(:root:not([data-skin])) .console-key:hover,
+  :where(:root:not([data-skin])) .logic-btn:hover,
+  :where(:root:not([data-skin])) .logic-btn-transport:hover {
+    color: #ffffff;
+    background-color: #161d2b;
+    border-color: rgba(140, 180, 255, 0.32);
+  }
+  :where(:root:not([data-skin])) .console-key.is-lit-amber {
+    color: #ffc58a;
+    background-color: rgba(255, 138, 30, 0.16);
+    background-image: none;
+    border-color: #ff8a1e;
+    box-shadow: 0 0 12px rgba(255, 138, 30, 0.45), inset 0 0 8px rgba(255, 138, 30, 0.25);
+    text-shadow: 0 0 6px rgba(255, 138, 30, 0.8);
+  }
+  :where(:root:not([data-skin])) .console-key.is-lit-green {
+    color: #9dffcb;
+    background-color: rgba(54, 240, 140, 0.14);
+    background-image: none;
+    border-color: #36f08c;
+    box-shadow: 0 0 12px rgba(54, 240, 140, 0.4), inset 0 0 8px rgba(54, 240, 140, 0.2);
+    text-shadow: 0 0 6px rgba(54, 240, 140, 0.8);
+  }
+  :where(:root:not([data-skin])) .console-key.is-lit-red {
+    color: #ffb1b1;
+    background-color: rgba(255, 72, 72, 0.16);
+    background-image: none;
+    border-color: #ff4848;
+    box-shadow: 0 0 12px rgba(255, 72, 72, 0.45), inset 0 0 8px rgba(255, 72, 72, 0.25);
+    text-shadow: 0 0 6px rgba(255, 72, 72, 0.8);
+  }
+  :where(:root:not([data-skin])) .console-key.is-lit-blue {
+    color: #b9d8ff;
+    background-color: rgba(46, 139, 255, 0.18);
+    background-image: none;
+    border-color: #2e8bff;
+    box-shadow: 0 0 12px rgba(46, 139, 255, 0.45), inset 0 0 8px rgba(46, 139, 255, 0.25);
+    text-shadow: 0 0 6px rgba(46, 139, 255, 0.8);
+  }
+  :where(:root:not([data-skin])) .console-key.is-big { border-radius: 10px; }
+  :where(:root:not([data-skin])) .console-key.is-big.is-lit-green {
+    box-shadow: 0 0 22px rgba(54, 240, 140, 0.45), inset 0 0 12px rgba(54, 240, 140, 0.25);
+  }
+  :where(:root:not([data-skin])) .console-flatkey {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: #9fb0c8;
+    background-color: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(140, 180, 255, 0.14);
+    border-radius: 4px;
+  }
+  :where(:root:not([data-skin])) .console-flatkey.is-lit-amber {
+    color: #ffc58a;
+    background-color: rgba(255, 138, 30, 0.16);
+    border-color: #ff8a1e;
+    box-shadow: 0 0 8px rgba(255, 138, 30, 0.4);
+  }
+  :where(:root:not([data-skin])) .console-led.is-on-green { background: #36f08c; box-shadow: 0 0 6px 1px rgba(54, 240, 140, 0.8); }
+  :where(:root:not([data-skin])) .console-led.is-on-amber { background: #ff8a1e; box-shadow: 0 0 6px 1px rgba(255, 138, 30, 0.8); }
+
+  /* ---------- fader: vidro preto com linha de luz e o rastro azul do volume ---------- */
+  :where(:root:not([data-skin])) .console-slot {
+    background: #020305;
+    box-shadow: inset 0 0 0 1px rgba(120, 160, 255, 0.12);
+  }
+  :where(:root:not([data-skin])) .console-faderfill {
+    display: block;
+    width: 2px;
+    border-radius: 1px;
+    background: linear-gradient(to top, rgba(46, 139, 255, 0.05), #3d9bff);
+    box-shadow: 0 0 6px rgba(46, 139, 255, 0.85);
+  }
+  :where(:root:not([data-skin])) .console-cap {
+    border-radius: 4px;
+    background:
+      linear-gradient(to bottom, transparent calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% + 1px), transparent calc(50% + 1px)),
+      linear-gradient(180deg, #2b3446 0%, #141a26 45%, #0b0f17 100%);
+    box-shadow: 0 0 0 1px rgba(140, 180, 255, 0.22), 0 4px 10px rgba(0, 0, 0, 0.7), 0 0 10px color-mix(in srgb, var(--vs-line, #3d9bff) 30%, transparent), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+  :where(:root:not([data-skin])) .console-cap.is-horizontal {
+    background:
+      linear-gradient(to right, transparent calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% - 1px), var(--vs-line, #3d9bff) calc(50% + 1px), transparent calc(50% + 1px)),
+      linear-gradient(180deg, #2b3446, #0b0f17);
+  }
+  :where(:root:not([data-skin])) .console-cap--cue { --vs-line: #37d4ff; }
+  :where(:root:not([data-skin])) .console-cap--band { --vs-line: #3d9bff; }
+  :where(:root:not([data-skin])) .console-cap--master { --vs-line: #ff4848; }
+  :where(:root:not([data-skin])) .console-cap--tc { --vs-line: #ff922c; }
+  :where(:root:not([data-skin])) .console-scale { color: #64748e; font-family: 'Inter', system-ui, sans-serif; }
+  :where(:root:not([data-skin])) .console-scale.is-unity { color: #cfe0ff; }
+  :where(:root:not([data-skin])) .console-tick {
+    background: linear-gradient(to right, rgba(140, 180, 255, 0.25) 0 5px, transparent 5px calc(100% - 5px), rgba(140, 180, 255, 0.25) calc(100% - 5px));
+  }
+  :where(:root:not([data-skin])) .console-tick.is-unity {
+    background: linear-gradient(to right, rgba(160, 200, 255, 0.8) 0 6px, transparent 6px calc(100% - 6px), rgba(160, 200, 255, 0.8) calc(100% - 6px));
+  }
+  :where(:root:not([data-skin])) .console-well {
+    background-color: #04060a;
+    border-radius: 2px;
+    box-shadow: inset 0 0 0 1px rgba(120, 160, 255, 0.1);
+  }
+  :where(:root:not([data-skin])) .console-meter-segments {
+    background: repeating-linear-gradient(to top, transparent 0 2px, #04060a 2px 3px);
+  }
+
+  /* ---------- faixas da timeline ---------- */
+  :where(:root:not([data-skin])) .console-row {
+    background-color: #0f141e;
+    background-image: linear-gradient(180deg, rgba(120, 160, 255, 0.05), rgba(0, 0, 0, 0.2));
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.8), inset 0 1px 0 rgba(120, 160, 255, 0.06);
+  }
+  :where(:root:not([data-skin])) .console-row:hover { background-color: #131a26; }
+  :where(:root:not([data-skin])) .console-row.is-selected {
+    background-color: #11203a;
+    box-shadow: inset 0 0 0 1px rgba(46, 139, 255, 0.65), inset 0 0 16px rgba(46, 139, 255, 0.15);
+  }
+  :where(:root:not([data-skin])) .console-row-child { background-color: #0a0d14; }
+  :where(:root:not([data-skin])) .console-row-child.is-selected { background-color: rgba(46, 139, 255, 0.14); }
+  .an-edge-meter {
+    background: #04060a;
+    box-shadow: inset 0 0 0 1px rgba(120, 160, 255, 0.12);
+  }
+
+  /* ---------- playlist, pads e o resto ---------- */
+  :where(:root:not([data-skin])) .cue-row.is-current {
+    background-color: rgba(54, 240, 140, 0.1);
+    box-shadow: inset 3px 0 0 #36f08c, 0 0 0 0 transparent;
+  }
+  :where(:root:not([data-skin])) .cue-row.is-next {
+    background-color: rgba(255, 138, 30, 0.09);
+    box-shadow: inset 3px 0 0 #ff8a1e;
+  }
+  :where(:root:not([data-skin])) .cue-row.is-selected {
+    background-color: rgba(46, 139, 255, 0.1);
+    box-shadow: inset 3px 0 0 #2e8bff;
+  }
+  :where(:root:not([data-skin])) .console-pad {
+    border-radius: 8px;
+    border-color: rgba(140, 180, 255, 0.16);
+    background-color: #111622;
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.2));
+  }
+  :where(:root:not([data-skin])) .console-pad.is-active {
+    border-color: var(--pad-color);
+    background-color: color-mix(in srgb, var(--pad-color) 18%, #111622);
+    box-shadow: 0 0 16px color-mix(in srgb, var(--pad-color) 50%, transparent);
+  }
+  :where(:root:not([data-skin])) .sk-tc-row { background-color: #17130c; }
+  :root:not([data-skin]) .sk-narration-head { background-color: #0d1420; }
+  :root:not([data-skin]) .sk-narration-lane { background-color: #090e17; }
+  :root:not([data-skin]) .font-mono { font-family: 'Inter', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+  :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-thumb { background: rgba(120, 160, 255, 0.22); border-radius: 9999px; }
+  :root:not([data-skin]) .logic-scroll::-webkit-scrollbar-track { background: transparent; }
+}
+
