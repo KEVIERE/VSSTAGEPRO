@@ -44,8 +44,8 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempo
   const [menu, setMenu] = useState<{ x: number; y: number; time: number; bpm: number } | null>(null);
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
 
-  // Arrastar a placa leva a mudança de andamento junto. Com o imã ligado ela gruda na grade do
-  // trecho de antes (Alt solta). Só grava ao soltar, então o Desfazer volta tudo de uma vez.
+  // Arrastar a placa leva a mudança de andamento junto, grudando no início dos compassos do trecho
+  // de antes (Alt solta). Só grava ao soltar, então o Desfazer volta tudo de uma vez.
   const startTempoDrag = (e: React.PointerEvent, time: number) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -60,7 +60,7 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempo
       if (!moved && Math.abs(dx) < 3) return;
       moved = true;
       const raw = time + dx / zoomH;
-      const snapped = ev.altKey || snapStep === 'off' ? raw : snapTempoChange(segs, index, raw, grid.beatsPerBar, snapStep);
+      const snapped = ev.altKey ? raw : snapTempoChange(segs, index, raw, grid.beatsPerBar, 'bar');
       to = moveTempoChange(segs, index, snapped)[index].startTime;
       onTempoDrag?.({ from: time, to });
     };
@@ -176,7 +176,7 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
 
   const segs = grid.tempoSegments ?? [];
   const index = tempoChangeIndex(segs, time);
-  const onBeat = index > 0 ? moveTempoChange(segs, index, snapTempoChange(segs, index, time, grid.beatsPerBar, 'beat'))[index].startTime : time;
+  const onBeat = index > 0 ? moveTempoChange(segs, index, snapTempoChange(segs, index, time, grid.beatsPerBar, 'bar'))[index].startTime : time;
   const offMs = Math.round((onBeat - time) * 1000);
 
   const item = 'w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-40 disabled:pointer-events-none';
@@ -198,9 +198,9 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
         className={item}
         disabled={index < 1 || offMs === 0}
         onClick={() => { onClose(); moveTempoAt(song.id, time, onBeat); }}
-        title="Leva a mudança de andamento para o tempo (beat) mais perto da grade de antes dela"
+        title="Leva a mudança de andamento para o início do compasso mais perto, na grade de antes dela"
       >
-        <span>Ajustar no beat da grade</span>
+        <span>Ajustar no compasso da grade</span>
         <span className="text-[10px] opacity-60 font-mono">{offMs === 0 ? 'já está' : `${offMs > 0 ? '+' : ''}${offMs} ms`}</span>
       </button>
       <div className="h-px bg-logic-border-dark my-1" />

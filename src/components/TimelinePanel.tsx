@@ -2607,7 +2607,10 @@ function TimelinePanel() {
                 // Botão direito simples: último recurso manual — abre o campo para cravar o
                 // andamento (BPM) a partir deste ponto exato da régua (ideal para medleys).
                 const rect = e.currentTarget.getBoundingClientRect();
-                const clickTime = Math.max(0, (e.clientX - rect.left) / zoomH);
+                // a mudança de andamento crava no início do compasso mais perto, na grade do
+                // trecho onde o clique caiu (Alt: no ponto exato)
+                const rawTime = Math.max(0, (e.clientX - rect.left) / zoomH);
+                const clickTime = e.altKey ? rawTime : snapTime(rawTime, grid, 'bar');
                 const segs = grid.tempoSegments;
                 const existingBpm = segs?.find((s) => clickTime >= s.startTime && clickTime < s.endTime)?.bpm ?? song.bpm;
                 setManualTempoPoint({ time: clickTime, x: e.clientX, y: e.clientY, existingBpm });

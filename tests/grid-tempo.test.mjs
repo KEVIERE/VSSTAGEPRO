@@ -29,3 +29,21 @@ test('contagem de compassos segue a régua', () => {
   assert.equal(barBeatLabel(8, grid), '5');
   assert.equal(barBeatLabel(8 + (60 / 90) * 4, grid), '6');
 });
+
+test('marcador de BPM crava e gruda no início do compasso', async () => {
+  const { snapTempoChange } = await import('../src/lib/grid.ts');
+  const fs = await import('node:fs');
+  const segs = [
+    { startTime: 0, endTime: 8, bpm: 120, downbeat: 0 },
+    { startTime: 8, endTime: 40, bpm: 90, downbeat: 8 },
+  ];
+  // compasso de 2 s a 120 BPM: arrastar para 9,3 s gruda em 10 s, para 8,8 s volta a 8 s
+  assert.equal(snapTempoChange(segs, 1, 9.3, 4, 'bar'), 10);
+  assert.equal(snapTempoChange(segs, 1, 8.8, 4, 'bar'), 8);
+  // criar no meio do compasso 3 (5,2 s) crava no início dele (4 s)
+  assert.equal(snapTime(5.2, grid, 'bar'), 4);
+  const ruler = fs.readFileSync(new URL('../src/components/TimelineGrid.tsx', import.meta.url), 'utf8');
+  const panel = fs.readFileSync(new URL('../src/components/TimelinePanel.tsx', import.meta.url), 'utf8');
+  assert.match(ruler, /ev\.altKey \? raw : snapTempoChange\(segs, index, raw, grid\.beatsPerBar, 'bar'\)/, 'arrastar gruda no compasso');
+  assert.match(panel, /const clickTime = e\.altKey \? rawTime : snapTime\(rawTime, grid, 'bar'\);/, 'criar crava no compasso');
+});
