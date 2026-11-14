@@ -581,8 +581,8 @@ function FaderVideo() {
   return (
     <video
       ref={ref}
-      src="/site/faders.mp4?v=3"
-      poster="/site/faders-poster.jpg?v=3"
+      src="/site/faders.mp4?v=4"
+      poster="/site/faders-poster.jpg?v=4"
       width={2036}
       height={536}
       muted

@@ -127,6 +127,13 @@ function seek(t: number) {
   }
   levels.set('master', ballistic('master', Math.min(0.95, Math.sqrt(power) * 0.6), dt));
   levels.set(TIMECODE_TRACK_ID, 0);
+  // O mixer novo tem medidor estéreo (colunas "ID:L" e "ID:R"): o lado direito fica um pouco
+  // diferente do esquerdo, como num sinal de verdade.
+  for (const [id, v] of [...levels]) {
+    const r = 0.86 + 0.14 * Math.sin(TAU * (p / 3) + id.length);
+    levels.set(`${id}:L`, v);
+    levels.set(`${id}:R`, v * r);
+  }
 
   flushSync(() => {
     useStore.setState((s) => ({
