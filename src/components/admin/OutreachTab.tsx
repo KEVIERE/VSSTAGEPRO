@@ -4,8 +4,6 @@ import {
   AtSign, Pause, Play, RefreshCw, Send, Users, X,
 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
-import { personWhatsAppUrl } from '@/lib/support';
-import { fillVars } from '../../../supabase/functions/_shared/outreach';
 import { renderEmailHtml } from '../../../supabase/functions/_shared/outreach';
 import {
   adminApi, CAMPAIGN_LABEL, dateTime, num,
@@ -16,13 +14,12 @@ import type {
 } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
 import OutreachTemplates from '@/components/admin/OutreachTemplates';
-import WhatsAppSender from '@/components/admin/WhatsAppSender';
 import DirectEmail from '@/components/admin/DirectEmail';
 import { runCampaign, whatsappEtaText } from '@/components/admin/outreachRunner';
 import type { RunHandle } from '@/components/admin/outreachRunner';
 
-// Área de Comunicação: e-mail em massa pelo Resend e WhatsApp (em massa ou individual) pela
-// Twilio.
+// Área de Comunicação: e-mail em massa pelo Resend. O WhatsApp saiu do admin em 14/11/2026:
+// as mensagens de WhatsApp agora saem pelo robô de atendimento, fora do VS Stage.
 //
 // Três coisas que a tela deixa explícitas porque mudam a decisão de quem envia:
 //  - quantas pessoas realmente vão receber, e quantas ficaram de fora por motivo;
@@ -43,7 +40,8 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
   composeTo?: OutreachPerson | null;
   onClearCompose?: () => void;
 }) {
-  const [channel, setChannel] = useState<OutreachChannel>('email');
+  // Só e-mail. O tipo continua OutreachChannel porque o resto da tela e o servidor aceitam os dois.
+  const channel = 'email' as OutreachChannel;
   /** Campanha para a base, ou e-mail avulso para endereços digitados à mão. */
   const [view, setView] = useState<'campaign' | 'direct'>('campaign');
   const [state, setState] = useState('');
@@ -80,7 +78,6 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
     if (composeTo) {
       setIndividual(composeTo);
       setView('campaign');
-      setChannel(composeTo.address.includes('@') ? 'email' : 'whatsapp');
       setMsg(null);
     }
   }, [composeTo]);
@@ -220,7 +217,6 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
   // Quantos vão receber: a seleção manda. Sem seleção mexida, é a contagem do filtro.
   const targetCount = individual ? 1 : selectedCount;
   // Só bloqueia quando a Twilio disse de fato que o remetente não está liberado.
-  const blockedBySender = channel === 'whatsapp' && senderOnline === false;
   // No WhatsApp só libera o botão quando a Twilio confirmou que o remetente está online.
   // "Não consegui consultar" não é "pode enviar": o envio falharia no primeiro lote.
   const senderReady = channel !== 'whatsapp' || senderOnline === true;
@@ -357,13 +353,13 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
         <div>
           <h2 className="text-lg font-semibold">Comunicação com os usuários</h2>
           <p className="text-xs text-logic-text-dim">
-            E-mail e WhatsApp para quem tem conta no VS Stage Pro. Escolha o público, escreva a mensagem e o sistema entrega,
+            E-mail para quem tem conta no VS Stage Pro. Escolha o público, escreva a mensagem e o sistema entrega,
             registra falha e tira da lista quem pediu para sair.
           </p>
         </div>
         <div className="flex p-0.5 rounded-md bg-logic-bg-deep border border-logic-border-dark">
-          {([['email', 'E-mail', Mail], ['whatsapp', 'WhatsApp', MessageCircle]] as const).map(([id, label, Icon]) => (
-            <button key={id} type="button" onClick={() => { setView('campaign'); setChannel(id); setTemplateId(''); }}
+          {([['email', 'E-mail', Mail]] as const).map(([id, label, Icon]) => (
+            <button key={id} type="button" onClick={() => { setView('campaign'); setTemplateId(''); }}
               className={`flex items-center gap-1.5 px-3 h-8 rounded text-xs font-semibold transition ${view === 'campaign' && channel === id ? 'bg-logic-bg-elevated text-logic-text' : 'text-logic-text-muted hover:text-logic-text'}`}>
               <Icon size={13} /> {label}
             </button>
@@ -383,7 +379,6 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
       )}
 
       {view === 'direct' ? <DirectEmail /> : (<>
-      {channel === 'whatsapp' && <WhatsAppSender />}
 
       {individual && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-logic-accent/40 bg-logic-accent/10 text-xs">
@@ -562,10 +557,6 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
                   {shownPeople.length === 0 ? (
                     <p className="px-3 py-6 text-center text-2xs text-logic-text-muted">Ninguém com contato válido neste filtro.</p>
                   ) : shownPeople.map((p) => {
-                    // Caminho sem custo: abre a conversa desta pessoa no WhatsApp com o texto
-                    // preenchido, para conferir e enviar na mão. Só aparece no canal WhatsApp
-                    // e quando a pessoa tem telefone.
-                    const manual = channel === 'whatsapp' ? personWhatsAppUrl(p.address, manualText(p, body)) : null;
                     return (
                       <div key={p.user_id} className={`flex items-center gap-2 px-3 py-1.5 text-2xs ${isChecked(p.user_id) ? '' : 'opacity-45'}`}>
                         {!individual && (
@@ -579,39 +570,12 @@ export default function OutreachTab({ composeTo, onClearCompose }: {
                         )}
                         <span className="truncate text-logic-text">{p.name ?? 'Sem nome'}</span>
                         <span className="truncate text-logic-text-muted">{p.address}</span>
-                        {manual && (
-                          <a
-                            href={manual} target="_blank" rel="noopener noreferrer"
-                            className="ml-auto shrink-0 inline-flex items-center gap-1 px-2 h-6 rounded bg-logic-bg-elevated text-[10px] font-semibold text-logic-text hover:bg-logic-bg-panel-light transition"
-                            title="Abre esta conversa no WhatsApp com o texto pronto, para você enviar"
-                          >
-                            <MessageCircle size={10} className="text-[#25d366]" /> Abrir no WhatsApp
-                          </a>
-                        )}
                       </div>
                     );
                   })}
                 </div>
-                {channel === 'whatsapp' && (
-                  <p className="text-[10px] text-logic-text-muted leading-snug">
-                    Com o botão <span className="text-logic-text">Abrir no WhatsApp</span> você envia pelo seu próprio
-                    WhatsApp, sem custo por mensagem e sem precisar de conta de API. É o caminho indicado para poucas pessoas.
-                    O botão acima, para todos, depende do número liberado no Twilio.
-                  </p>
-                )}
                 {(people?.length ?? 0) > 40 && !individual && (
                   <p className="text-[10px] text-logic-text-muted">Mostrando 40 de {num(people!.length)}. Todos entram no envio.</p>
-                )}
-
-                {blockedBySender && (
-                  <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-logic-border bg-logic-bg-deep/40 text-xs text-logic-text-dim">
-                    <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-                    <span>
-                      O envio automático para todos depende da Twilio, que está desligada. Use o botão{' '}
-                      <span className="text-logic-text">Abrir no WhatsApp</span> em cada pessoa da lista acima: sem custo
-                      e sem configuração.
-                    </span>
-                  </div>
                 )}
                 {senderCheckFailed && (
                   <div className="flex items-start gap-2 px-3 py-2 rounded-lg border border-logic-border bg-logic-bg-deep/40 text-xs text-logic-text-dim">
@@ -762,10 +726,6 @@ function MiniStat({ label, value }: { label: string; value: number }) {
  * Texto que vai para a conversa manual: o mesmo do composer, com as variáveis já trocadas
  * pelo dado da pessoa. Sem isso, o admin abriria a conversa com "{{nome}}" no lugar do nome.
  */
-function manualText(p: OutreachPerson, body: string): string {
-  const vars = { nome: p.name ?? 'você' };
-  return fillVars(body, vars);
-}
 
 /** Código de erro do provedor em uma frase que o dono do projeto entende. */
 function plainRecipientError(code: string): string {

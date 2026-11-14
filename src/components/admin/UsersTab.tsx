@@ -408,7 +408,7 @@ function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: Ad
                 <span className="truncate">{user.email}</span>
                 <span className="text-logic-text-muted">Telefone</span>
                 <span className={user.phone ? '' : 'text-logic-text-muted'}>
-                  {user.phone ?? 'não cadastrado, então o WhatsApp não tem para onde enviar'}
+                  {user.phone ?? 'não cadastrado'}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5">
@@ -417,13 +417,6 @@ function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: Ad
                   onClick={() => { onCompose?.({ user_id: user.id, address: user.email, name: user.name, state: user.state }); onClose(); }}
                 >
                   <Mail size={13} /> Enviar e-mail
-                </button>
-                <button
-                  className={btnGhost} disabled={!onCompose || !user.phone}
-                  title={user.phone ? undefined : 'Esta conta não tem telefone no cadastro'}
-                  onClick={() => { onCompose?.({ user_id: user.id, address: user.phone!, name: user.name, state: user.state }); onClose(); }}
-                >
-                  <MessageCircle size={13} /> Enviar no WhatsApp
                 </button>
                 {user.phone && (
                   // Caminho sem custo: abre a conversa no WhatsApp com o texto pronto. Não

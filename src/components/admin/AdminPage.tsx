@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, BarChart3, TrendingUp, FlaskConical, HandCoins, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare } from 'lucide-react';
+import { Activity, BarChart3, TrendingUp, FlaskConical, HandCoins, History, Loader2, Lock, LogOut, Mail, ShieldAlert, Tag, Users, GitBranch, MessageSquare, BookUser } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
@@ -7,6 +7,7 @@ import VsLogo from '@/components/VsLogo';
 import { adminApi } from '@/components/admin/adminApi';
 import OverviewTab from '@/components/admin/OverviewTab';
 import UsersTab from '@/components/admin/UsersTab';
+import ContactsTab from '@/components/admin/ContactsTab';
 import PromoTab from '@/components/admin/PromoTab';
 import UsageTab from '@/components/admin/UsageTab';
 import AuditTab from '@/components/admin/AuditTab';
@@ -24,6 +25,7 @@ const TABS = [
   { id: 'access', label: 'Acessos', icon: TrendingUp },
   { id: 'monitoring', label: 'Monitoramento & Crack', icon: ShieldAlert },
   { id: 'users', label: 'Usuários', icon: Users },
+  { id: 'contacts', label: 'Listas de contatos', icon: BookUser },
   { id: 'outreach', label: 'Comunicação', icon: MessageSquare },
   { id: 'promo', label: 'Códigos promocionais', icon: Tag },
   { id: 'affiliates', label: 'Afiliados', icon: HandCoins },
@@ -200,6 +202,7 @@ export default function AdminPage() {
           {tab === 'access' && <AccessTab />}
           {tab === 'monitoring' && <MonitoringTab />}
           {tab === 'users' && <UsersTab onCompose={composeTo} />}
+          {tab === 'contacts' && <ContactsTab />}
           {tab === 'outreach' && (
             <OutreachTab composeTo={composeTarget} onClearCompose={() => setComposeTarget(null)} />
           )}
