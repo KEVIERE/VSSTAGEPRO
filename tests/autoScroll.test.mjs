@@ -76,6 +76,10 @@ test('velocidades: guardada no aparelho, − e + andam pela lista e param nas po
   assert.equal(parseScrollSpeed('abc'), DEFAULT_SCROLL_SPEED);
   assert.equal(stepScrollSpeed(1, 1), 1.25);
   assert.equal(stepScrollSpeed(1, -1), 0.75);
+  // mínimo bem mais lento que o antigo 0,5x
+  assert.equal(SCROLL_SPEEDS[0], 0.1);
+  assert.equal(stepScrollSpeed(0.5, -1), 0.4);
+  assert.equal(scrollSpeedLabel(0.15), '0,15x');
   assert.equal(stepScrollSpeed(SCROLL_SPEEDS[0], -1), SCROLL_SPEEDS[0]);
   assert.equal(stepScrollSpeed(SCROLL_SPEEDS.at(-1), 1), SCROLL_SPEEDS.at(-1));
   assert.equal(stepScrollSpeed(1.1, 1), 1.25); // valor fora da lista volta para o 1x e anda

@@ -2,8 +2,12 @@
 // estar em cada ponto da música, na velocidade que o músico escolheu.
 // Código puro (sem React), para rodar nos testes.
 
-/** Velocidades da tecla − / +. 1x: a cifra inteira passa ao longo da música. */
-export const SCROLL_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
+/**
+ * Velocidades da tecla − / +. 1x: a cifra inteira passa ao longo da música. Embaixo há passos
+ * bem mais lentos (até 0,1x): o mínimo antigo, 0,5x, ainda rolava rápido demais para quem lê
+ * uma cifra curta numa música longa.
+ */
+export const SCROLL_SPEEDS = [0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3] as const;
 export const DEFAULT_SCROLL_SPEED = 1;
 
 /** A linha que está tocando fica a um terço da tela: dá para ler o que vem logo abaixo. */

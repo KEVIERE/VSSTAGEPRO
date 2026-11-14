@@ -334,7 +334,7 @@ export default function StageView({
                 disabled={speed <= SCROLL_SPEEDS[0]}
                 aria-label="Rolar mais devagar"
               ><Turtle size={14} /></button>
-              <span className={`console-display ${lcdH} min-w-[48px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`} aria-live="polite">
+              <span className={`console-display ${lcdH} min-w-[54px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`} aria-live="polite">
                 {scrollSpeedLabel(speed)}
               </span>
               <button
