@@ -327,7 +327,7 @@ function toggleShowMode() {
   useStore.getState().togglePlaylistMaximized();
 }
 
-function DirectorApp({ license }: { license: License }) {
+export function DirectorApp({ license }: { license: License }) {
   const [showManagerOpen, setShowManagerOpen] = useState(false);
   const [prompterOpen, setPrompterOpen] = useState(false);
   const [localOpen, setLocalOpen] = useState(false);

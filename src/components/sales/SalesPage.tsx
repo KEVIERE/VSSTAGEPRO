@@ -11,7 +11,7 @@ import { useScrollReveal } from './useScrollReveal';
 import { prefersReducedMotion, useScrollScene } from './useScrollScene';
 import {
   AI_STEPS, BAND_POINTS, COMPARISON, FAQS, HIGHLIGHTS, MANIFESTO, MIXER_POINTS, NEWS, NUMBERS,
-  PRICES, SHOW_STEPS, SPOTS, STEMS, TIMELINE_POINTS, TOOLS, TV_POINTS, type ShowStep,
+  PADS_POINTS, PRICES, SHOW_STEPS, SPOTS, STEMS, TIMELINE_POINTS, TOOLS, TV_POINTS, type ShowStep,
 } from './siteContent';
 import './sales.css';
 
@@ -62,6 +62,7 @@ export default function SalesPage() {
         <TimelineSection />
         <MaestroSection />
         <MixerSection />
+        <PadsSection />
         <BandSection />
         <TvSection />
         <OfflineSection />
@@ -132,8 +133,8 @@ function Hero({ on }: { on: boolean }) {
         </h1>
         <p className="vs-lead mt-7 mx-auto vs-rise" style={{ '--d': '220ms' } as CSSProperties}>
           Esqueça DAWs de estúdio que travam. Suba uma faixa pronta: a <strong className="text-[color:var(--cream)]">Inteligência Artificial</strong> separa
-          os stems, acerta o BPM e devolve um <strong className="text-[color:var(--cream)]">VS Stage Pro</strong> completo — com timeline por música,
-          controle de tom, mixer com Timecode LTC, cifras no celular da banda e teleprompter na TV do palco.
+          os stems, acerta o BPM e devolve um <strong className="text-[color:var(--cream)]">VS Stage Pro</strong> completo: timeline por música,
+          controle de tom, mesa de som com Timecode LTC, pads ao vivo, cifras no celular da banda e teleprompter na TV do palco.
         </p>
         <div className="mt-9 flex flex-col sm:flex-row items-center gap-3 vs-rise" style={{ '--d': '320ms' } as CSSProperties}>
           <button type="button" onClick={goDownload} className="vs-key vs-key-amber w-full sm:w-auto">
@@ -148,16 +149,16 @@ function Hero({ on }: { on: boolean }) {
 
       <div ref={tilt} className="vs-devices" role="group" aria-label="O VS Stage Pro no computador de mesa, no notebook, no celular e no tablet">
         <div className="vs-dev vs-dev-imac"><div style={{ '--dd': '380ms' } as CSSProperties}>
-          <IMac src="/site/imac.jpg" width={3200} height={1800} eager alt="Computador de mesa com o VS Stage Pro: playlist, linha do tempo com as faixas e o mixer" />
+          <IMac src="/site/imac.jpg?v=3" width={3200} height={1800} eager alt="Computador de mesa com o VS Stage Pro tocando: playlist, linha do tempo com as partes coloridas, a mesa de som com knobs de LED e os VUs" />
         </div></div>
         <div className="vs-dev vs-dev-tab"><div style={{ '--dd': '560ms' } as CSSProperties}>
-          <Tablet src="/site/tablet.jpg" width={2732} height={2048} alt="Tablet com a Área do Produtor do teleprompter: prévia da TV do palco com um aviso no ar, o que aparece na tela e os avisos prontos" />
+          <Tablet src="/site/tablet.jpg?v=3" width={2732} height={2048} alt="Tablet com a Área do Produtor do teleprompter: prévia da TV do palco com um aviso no ar, o que aparece na tela e os avisos prontos" />
         </div></div>
         <div className="vs-dev vs-dev-mbook"><div style={{ '--dd': '480ms' } as CSSProperties}>
-          <MacBook src="/site/show.jpg" width={3200} height={2000} alt="Notebook no Modo Show do Show Prefeitura, com o relógio de LED" />
+          <MacBook src="/site/show.jpg?v=3" width={3200} height={2000} alt="Notebook no Modo Show do Show Prefeitura: a playlist com as partes da música, o relógio de LED e a mesa de som" />
         </div></div>
         <div className="vs-dev vs-dev-phone"><div style={{ '--dd': '660ms' } as CSSProperties}>
-          <IPhone src="/site/iphone-palco.jpg" width={1179} height={2556} alt="Celular com a Área do Músico e a partitura da música no ar" />
+          <IPhone src="/site/iphone-palco.jpg?v=3" width={1179} height={2556} alt="Celular com a Área do Músico no Modo show: a música no ar, a próxima e a cifra rolando sozinha" />
         </div></div>
       </div>
     </section>
@@ -354,7 +355,7 @@ function ShowScene() {
               <div className="vs-zoom-frame">
                 <img
                   className="vs-zoom-img"
-                  src="/site/show.jpg"
+                  src="/site/show.jpg?v=3"
                   width={3200}
                   height={2000}
                   alt="Modo Show: playlist em tela cheia, displays de Tocando e Próxima e o relógio de LED"
@@ -552,7 +553,7 @@ function TimelineSection() {
         </div>
         <div ref={grow} className="vs-grow mt-12">
           <div className="vs-screen">
-            <img src="/site/timeline.jpg" width={2480} height={1264} alt="Linha do tempo com as partes da música coloridas e as faixas de cada instrumento" loading="lazy" decoding="async" />
+            <img src="/site/timeline.jpg?v=3" width={2480} height={1264} alt="Linha do tempo com as partes da música coloridas e as faixas de cada instrumento" loading="lazy" decoding="async" />
           </div>
         </div>
         <Points items={TIMELINE_POINTS} led="green" className="mt-12 md:grid-cols-3" />
@@ -580,10 +581,10 @@ function FaderVideo() {
   return (
     <video
       ref={ref}
-      src="/site/faders.mp4?v=2"
-      poster="/site/faders-poster.jpg?v=2"
+      src="/site/faders.mp4?v=3"
+      poster="/site/faders-poster.jpg?v=3"
       width={2036}
-      height={534}
+      height={536}
       muted
       loop
       playsInline
@@ -600,8 +601,8 @@ function MixerSection() {
     <section id="mixer" className="vs-section pt-0" aria-labelledby="mixer-title">
       <div className="vs-wrap">
         <SectionHead id="mixer-title" kicker="Mixer" n={7} title="Uma mesa de som de verdade.">
-          Faders, medidores em dB, master e timecode com o visual de uma mesa analógica: qualquer técnico entende de primeira, e
-          qualquer músico aprende em minutos.
+          Faders, knobs com anel de LED, medidores em dB, VUs de ponteiro, loudness em LUFS e timecode, com o visual de uma mesa
+          analógica: qualquer técnico entende de primeira, e qualquer músico aprende em minutos.
         </SectionHead>
         <div ref={pan} className="vs-console mt-12">
           <div className="vs-console-inner"><FaderVideo /></div>
@@ -633,16 +634,39 @@ function MaestroSection() {
       <div className="vs-wrap">
         <SectionHead id="maestro-title" kicker="Maestro com IA" n={6} title="Um maestro que fala por você.">
           Escreva a regência e a inteligência artificial transforma o texto em voz, encaixada no tempo da música: a contagem, as
-          preparações, as viradas e os avisos que a banda precisa ouvir no fone. Você dirige o show sem tirar as mãos do teclado.
+          preparações, as viradas e os avisos que a banda precisa ouvir no fone. Ou escolha entre mais de mil falas prontas, em
+          botões por assunto, nas vozes Felipe e Bianca. Você dirige o show sem tirar as mãos do teclado.
         </SectionHead>
         <div ref={box.ref} className="mt-10 max-w-[40rem]">
           <MaestroTyping active={box.revealed} big />
         </div>
         <div ref={grow} className="vs-grow mt-10">
           <div className="vs-screen">
-            <img src="/site/maestro.jpg" width={3200} height={720} alt="Faixa Maestro IA na linha do tempo, com as falas em azul: um, dois, três, quatro e prepara o verso" loading="lazy" decoding="async" />
+            <img src="/site/maestro.jpg?v=3" width={2560} height={576} alt="Faixa Maestro IA na linha do tempo, com as falas marcadas: um, dois, três, quatro e prepara o verso" loading="lazy" decoding="async" />
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function PadsSection() {
+  const grow = useScrollScene<HTMLDivElement>();
+  return (
+    <section id="pads" className="vs-section pt-0" aria-labelledby="pads-title">
+      <div className="vs-wrap">
+        <SectionHead id="pads-title" kicker="Pads ao vivo" n={7} title="Vinhetas e efeitos na ponta dos dedos.">
+          No Modo Show, a tecla P troca a mesa pelos pads: 9 por banco, em 10 bancos, para soltar a vinheta de abertura, os
+          aplausos, a subida e o efeito de voz na hora certa, com reverb, delay, roll no tempo da música e saída própria.
+        </SectionHead>
+        <div ref={grow} className="vs-grow mt-12">
+          <div className="vs-screen">
+            <img src="/site/pads.jpg?v=3" width={3200} height={2000} alt="Modo Show com os pads abertos: nove pads coloridos no banco A, um tocando a vinheta de abertura, os efeitos e o relógio de LED do show" loading="lazy" decoding="async" />
+          </div>
+        </div>
+        <Points items={PADS_POINTS} className="mt-12 md:grid-cols-2" />
       </div>
     </section>
   );
@@ -658,16 +682,16 @@ function BandSection() {
         <div className="vs-band-head">
           <SectionHead id="banda-title" kicker="Área do Músico" n={8} title="A banda inteira na mesma página.">
             Cada músico abre a Área do Músico no próprio celular ou tablet e acompanha você em tempo real: a música no ar, a
-            próxima, o tom e o BPM. No Modo show, a partitura dele ocupa a tela inteira e troca sozinha quando a música muda. Sem
-            papel voando, sem pasta, sem ninguém perguntando qual é a próxima.
+            próxima, o tom e o BPM. No Modo show, a cifra dele ocupa a tela, troca sozinha quando a música muda e rola sozinha na
+            velocidade que ele escolher. Sem papel voando, sem pasta, sem ninguém perguntando qual é a próxima.
           </SectionHead>
         </div>
         <div ref={ref} className="vs-band-phones flex justify-center gap-[4vw] lg:gap-8 pb-16">
           <div className="vs-phone-slot vs-phone-a">
-            <IPhone src="/site/iphone-palco.jpg" width={1179} height={2556} alt="Modo show do músico: displays de Tocando e Próxima e a partitura em foto" />
+            <IPhone src="/site/iphone-palco.jpg?v=3" width={1179} height={2556} alt="Modo show do músico: displays de Tocando e Próxima, o botão Rolar sozinho e a cifra da música no ar" />
           </div>
           <div className="vs-phone-slot vs-phone-b">
-            <IPhone src="/site/iphone-lista.jpg" width={1179} height={2556} time="20:46" alt="Área do Músico com a playlist do show, tom e BPM" />
+            <IPhone src="/site/iphone-lista.jpg?v=3" width={1179} height={2556} time="20:46" alt="Área do Músico com a playlist do show, tom e BPM" />
           </div>
         </div>
         <div className="vs-band-points"><Points items={BAND_POINTS} led="green" /></div>
@@ -685,13 +709,13 @@ function TvSection() {
       <div className="vs-wrap">
         <SectionHead id="tv-title" kicker="TV do palco" n={9} title="A letra na TV, um instante antes de cantar.">
           O teleprompter usa os mesmos displays do programa: relógio, tempo de show, a música no ar e a próxima com tom e BPM, a
-          playlist do show e a letra, que aparece um instante antes da hora de cantar. O produtor técnico controla tudo pelo
-          tablet, conectado direto ao computador do diretor.
+          playlist do show e a letra, que aparece um instante antes da hora de cantar. A IA lê a letra da música e marca cada
+          trecho sozinha, e o produtor técnico controla tudo pelo tablet, conectado direto ao computador do diretor.
         </SectionHead>
         <div ref={ref} className="vs-tv-wrap mt-12">
           <div className="vs-tv">
             <div className="vs-tv-screen">
-              <img src="/site/tv.jpg" width={3200} height={1800} alt="Teleprompter na TV: playlist do show, relógio, tempo de show e a letra do refrão" loading="lazy" decoding="async" />
+              <img src="/site/tv.jpg?v=3" width={3200} height={1800} alt="Teleprompter na TV: playlist do show, relógio, tempo de show e a letra do refrão" loading="lazy" decoding="async" />
               <div className="vs-notice" aria-label="Exemplo de aviso ao vivo na TV">
                 <b>ATENÇÃO</b>
                 <span>Mais uma vez o refrão</span>

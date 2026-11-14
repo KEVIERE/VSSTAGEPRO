@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { ListMusic, MonitorPlay, Plus, Smartphone, Wand2, Wifi, Zap } from 'lucide-react';
+import { Grid3x3, ListMusic, Mic, MonitorPlay, Palette, Plus, ScrollText, Smartphone, SlidersHorizontal, Wand2, Wifi, Zap } from 'lucide-react';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import { prefersReducedMotion } from './useScrollScene';
 
@@ -196,14 +196,16 @@ function Drag() {
   );
 }
 
-function Icon({ name }: { name: 'timeline' | 'musico' | 'palco' | 'tv' | 'rede' | 'master' | 'mais' }) {
-  const Comp = { timeline: ListMusic, musico: Smartphone, palco: Zap, tv: MonitorPlay, rede: Wifi, master: Wand2, mais: Plus }[name];
+type IconName = 'timeline' | 'musico' | 'palco' | 'tv' | 'rede' | 'master' | 'mais' | 'pads' | 'skins' | 'letra' | 'remote' | 'rec';
+function Icon({ name }: { name: IconName }) {
+  const Comp = { timeline: ListMusic, musico: Smartphone, palco: Zap, tv: MonitorPlay, rede: Wifi, master: Wand2, mais: Plus, pads: Grid3x3, skins: Palette, letra: ScrollText, remote: SlidersHorizontal, rec: Mic }[name];
   return <span className="vs-cell-icon"><Comp size={22} /></span>;
 }
 
 export type ToolViz =
   | 'routing' | 'timecode' | 'equal' | 'anticlip' | 'maestro' | 'bpm' | 'tune' | 'stems' | 'medley' | 'loops' | 'lr' | 'export' | 'drag'
-  | 'i-timeline' | 'i-musico' | 'i-palco' | 'i-tv' | 'i-rede' | 'i-master' | 'i-mais';
+  | 'i-timeline' | 'i-musico' | 'i-palco' | 'i-tv' | 'i-rede' | 'i-master' | 'i-mais'
+  | 'i-pads' | 'i-skins' | 'i-letra' | 'i-remote' | 'i-rec';
 
 export function ToolVisual({ viz, active }: { viz: ToolViz; active: boolean }) {
   switch (viz) {
@@ -226,6 +228,11 @@ export function ToolVisual({ viz, active }: { viz: ToolViz; active: boolean }) {
     case 'i-tv': return <Icon name="tv" />;
     case 'i-rede': return <Icon name="rede" />;
     case 'i-master': return <Icon name="master" />;
+    case 'i-pads': return <Icon name="pads" />;
+    case 'i-skins': return <Icon name="skins" />;
+    case 'i-letra': return <Icon name="letra" />;
+    case 'i-remote': return <Icon name="remote" />;
+    case 'i-rec': return <Icon name="rec" />;
     default: return <Icon name="mais" />;
   }
 }

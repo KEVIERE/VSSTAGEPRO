@@ -16,32 +16,32 @@ export const HIGHLIGHTS: Highlight[] = [
   {
     title: 'A IA monta o seu VS enquanto você toma um café.',
     text: 'Separa os instrumentos, acerta o BPM, cria o click e deixa tudo na grade, sincronizado.',
-    img: '/site/timeline.jpg', alt: 'Linha do tempo com as faixas separadas e as partes da música marcadas', position: 'left top',
+    img: '/site/timeline.jpg?v=3', alt: 'Linha do tempo com as faixas separadas e as partes da música marcadas', position: 'left top',
   },
   {
     title: 'Displays de LED que se leem do fundo do palco.',
     text: 'O tempo que falta, o que toca agora e o que vem depois, sem forçar a vista.',
-    img: '/site/show-painel.jpg', alt: 'Display de LED verde mostrando o tempo que falta da música',
+    img: '/site/show-painel.jpg?v=3', alt: 'Display de LED verde mostrando o tempo que falta da música',
   },
   {
     title: 'A partitura de cada músico, no celular dele.',
     text: 'Troca sozinha a cada música. Ninguém mais folheia papel no meio da música.',
-    img: '/site/iphone-palco.jpg', alt: 'Celular com a Área do Músico mostrando a partitura da música no ar', phone: true,
+    img: '/site/iphone-palco.jpg?v=3', alt: 'Celular com a Área do Músico mostrando a partitura da música no ar', phone: true,
   },
   {
     title: 'A letra na TV, um instante antes de cantar.',
     text: 'Com os mesmos displays do programa, a playlist do show e avisos ao vivo.',
-    img: '/site/tv.jpg', alt: 'Teleprompter na TV com a letra e a playlist do show',
+    img: '/site/tv.jpg?v=3', alt: 'Teleprompter na TV com a letra e a playlist do show',
   },
   {
     title: 'Uma mesa de som de verdade, dentro do seu Mac.',
     text: 'Medidores em dB, anti-clip em cada canal e a IA igualando o volume dos VS.',
-    img: '/site/mixer.jpg', alt: 'Mixer com faders, medidores e o master', position: 'left center',
+    img: '/site/mixer.jpg?v=3', alt: 'Mixer com faders, medidores e o master', position: 'left center',
   },
   {
     title: 'Sem internet? O show continua.',
     text: 'Computador, celulares, tablets e TV conversam pelo Wi-Fi do palco, sem depender de sinal.',
-    img: '/site/iphone-lista.jpg', alt: 'Celular com a playlist do show na Área do Músico', phone: true,
+    img: '/site/iphone-lista.jpg?v=3', alt: 'Celular com a playlist do show na Área do Músico', phone: true,
   },
 ];
 
@@ -110,19 +110,29 @@ export const MIXER_POINTS = [
   { title: 'LR mágico', text: 'Um clique e o show vira LR: click, maestro e guia no L, o resto da banda no R. Outro clique desfaz.' },
   { title: 'Saídas da placa em pares estéreo', text: 'Click e guia só no fone da banda, a banda no PA: cada faixa vai para o par de saídas que você escolher.' },
   { title: 'Masterização com IA', text: 'Um botão trata o som da música e deixa tudo pronto para o PA.' },
+  { title: 'VU e loudness no master', text: 'Dois VUs de ponteiro e a medida em LUFS mostram o volume que o público ouve, não só o pico.' },
+  { title: 'Cara de equipamento', text: 'Escolha a skin do programa: Analógica, Grafite, Estúdio ou Oficina. O show inteiro muda de cara.' },
+];
+
+// Pads ao vivo no Modo Show (seção própria, com a foto public/site/pads.jpg).
+export const PADS_POINTS = [
+  { title: '90 pads prontos', text: '9 pads em 10 bancos, de A a J. Cada pad toca com o mouse ou pelas teclas 1 a 9.' },
+  { title: 'Efeitos em cada pad', text: 'Reverb, delay, reverso, loop, roll no tempo da música, pitch e filtro, sem plugin nenhum.' },
+  { title: 'Do jeito do show', text: 'Um por vez, segurar para tocar, fade e stop geral. Corta o silêncio do começo sozinho.' },
+  { title: 'Saída própria', text: 'Mande os pads para o master ou para outra saída da placa, com volume e medidor só deles.' },
 ];
 
 export const SPOTS = [
   {
     title: 'Uma faixa só para o timecode',
     text: 'O timecode LTC ganhou faixa, fader e saída próprios, com trava para ninguém mexer sem querer. A mesa de luz e os painéis de LED seguem cada música do começo ao fim, sem o sinal vazar no som principal.',
-    img: '/site/fader-timecode.jpg?v=2', w: 240, h: 801, glow: 'rgba(255,171,31,0.35)',
+    img: '/site/fader-timecode.jpg?v=3', w: 240, h: 804, glow: 'rgba(255,171,31,0.35)',
     alt: 'Fader de timecode LTC do VS Stage, com a capa âmbar e a trava ligada',
   },
   {
     title: 'Master com IA que iguala os VS',
     text: 'Um toque no IGUALAR e a IA analisa todos os VS do projeto: as músicas mais baixas sobem, as mais altas descem, e o show inteiro soa por igual. Nada de correr para o fader a cada música.',
-    img: '/site/fader-master.jpg?v=2', w: 216, h: 801, glow: 'rgba(255,65,54,0.3)',
+    img: '/site/fader-master.jpg?v=3', w: 216, h: 804, glow: 'rgba(255,65,54,0.3)',
     alt: 'Fader master do VS Stage, com a capa vermelha e o botão IGUALAR',
   },
 ];
@@ -132,26 +142,30 @@ export const BAND_POINTS = [
   { title: 'Foto do caderno', text: 'Fotografe a partitura ou a cifra de papel e ela aparece em tela cheia na hora do show.' },
   { title: 'Medley organizado', text: 'Cada parte do medley tem o próprio caderno, que entra sozinho na hora certa.' },
   { title: 'Entrada fácil', text: 'O músico entra pelo QR code ou pelo link, com um código só dele.' },
+  { title: 'Rola sozinha', text: 'No Modo show a cifra desce sozinha na velocidade que o músico escolher, com zoom e página inteira.' },
 ];
 
 export const TV_POINTS = [
   { title: 'Avisos ao vivo', text: 'Mande "mais uma vez o refrão" ou "últimas 2 músicas" para a tela, em três níveis de urgência.' },
   { title: 'A cara da sua banda', text: 'Logo da banda ou do artista na tela e QR code para os músicos entrarem no show.' },
   { title: 'Pronto para teleprompter de vidro', text: 'Espelhe a imagem com um toque e use no vidro à frente do cantor.' },
+  { title: 'Letra automática', text: 'A IA separa a voz, lê a letra palavra por palavra e marca cada trecho na onda. Você só confere.' },
+  { title: 'Editor de letras', text: 'Página por página, com cor, tamanho e tipo (verso, refrão, ponte), e a prévia da TV sempre à vista.' },
+  { title: 'Letra um pouco antes', text: 'Escolha quanto tempo antes cada trecho aparece, até 3 segundos, para a TV sem fio não atrasar.' },
 ];
 
 export const NEWS = [
-  { title: 'Cara nova de mesa analógica', text: 'Displays de LED, teclas iluminadas e textos que se leem no escuro do palco.' },
-  { title: 'Saídas da placa em pares estéreo', text: 'Roteie cada faixa para qualquer par de saídas da sua placa de som.' },
-  { title: 'Anti-clip em cada canal', text: 'Limita a saída em −0,1 dBFS sem distorcer o som.' },
-  { title: 'Modo show do músico', text: 'A partitura ocupa a tela do celular e troca sozinha a cada música.' },
-  { title: 'IA que descobre o tom', text: 'O tom de cada música aparece na playlist, na Área do Músico e na TV.' },
-  { title: 'Volume igual entre os VS', text: 'Todas as músicas do show no mesmo nível, sem mexer no fader.' },
-  { title: 'Teleprompter com logo e QR code', text: 'A logo da banda na TV e o QR code para os músicos entrarem.' },
-  { title: 'Maestro com IA', text: 'Digite a regência e a IA transforma em voz, no tempo certo da música.' },
-  { title: 'Caderno mais esperto', text: 'Cole cifra de site, use qualquer acorde e baixo invertido.' },
-  { title: 'Medley com caderno por parte', text: 'Cada trecho do medley mostra a cifra certa para o músico.' },
-];
+  { title: 'Cara de equipamento de verdade', text: 'Skins Analógica, Grafite, Estúdio e Oficina, com knobs de LED, VUs de ponteiro, loudness e a placa da marca.' },
+  { title: 'Pads ao vivo no Modo Show', text: '9 pads em 10 bancos com reverb, delay, roll no tempo, loop e saída própria. Tecla P abre na hora.' },
+  { title: 'Mais de mil falas prontas do Maestro', text: 'Botões por assunto, com intensidade Calma, Normal ou Forte, nas vozes Felipe e Bianca.' },
+  { title: 'Letra automática na TV', text: 'A IA lê a letra da música e marca cada trecho na onda, no tempo certo de aparecer.' },
+  { title: 'Cifra que rola sozinha', text: 'No Modo show do músico a cifra desce na velocidade escolhida, de bem devagar até rápido.' },
+  { title: 'Gravar na faixa Maestro', text: 'REC e microfone direto na faixa, com a placa e o canal que você escolher.' },
+  { title: 'Recriar o metrônomo', text: 'Troque o som do click por outro pronto ou pelo seu próprio som.' },
+  { title: 'Separação de bateria em 5 peças', text: 'Motor novo de separação por IA, mais limpo, com a bateria aberta em peças.' },
+  { title: 'Masterização com perfis', text: 'A IA masteriza qualquer clipe ou fala do Maestro, com perfis para show e streaming.' },
+  { title: 'Faixas em grupo', text: 'Selecione várias faixas e mexa em todas juntas: volume, mute, solo e saída.' },
+]
 
 export const COMPARISON = [
   { topic: 'Trocar de música', studio: 'Abrir outro projeto ou rolar uma timeline enorme', vs: 'Cada música tem a sua timeline e a troca é instantânea' },
@@ -160,6 +174,7 @@ export const COMPARISON = [
   { topic: 'Banda e cantores', studio: 'Papel impresso ou outro aplicativo, sem sincronia', vs: 'Partitura no celular de cada músico e letra na TV, no tempo da música' },
   { topic: 'Na hora do show', studio: 'Telas cheias de botões pequenos e risco de clique errado', vs: 'Modo Show com displays grandes e trava contra toques sem querer' },
   { topic: 'Iluminação', studio: 'Gerador de timecode configurado à parte', vs: 'Faixa de timecode LTC pronta, com fader, trava e saída própria' },
+  { topic: 'Vinhetas e efeitos', studio: 'Sampler ou outro programa aberto junto', vs: 'Pads no Modo Show, com efeitos e saída própria, sem sair da tela do show' },
   { topic: 'Regência', studio: 'Gravar a voz do maestro à mão, música por música', vs: 'Maestro com IA: você digita, a IA fala no tempo certo' },
 ];
 
@@ -186,6 +201,11 @@ export const TOOLS: Tool[] = [
   { title: 'Exportar com um clique', text: 'Exporte a música em LR, em multipista ou o show inteiro com um clique, pronto para ensaio, backup ou outro sistema.', viz: 'export', wide: true },
   { title: 'Arraste e solte', text: 'Arraste as músicas para qualquer posição e monte uma nova playlist em poucos cliques. Mudou o roteiro em cima da hora? Leva segundos.', viz: 'drag', wide: true },
   { title: 'Masterização com IA', text: 'Um botão trata o som da música com inteligência artificial e entrega presença e volume prontos para o PA.', viz: 'i-master' },
+  { title: 'Pads ao vivo', text: 'Vinhetas, efeitos e loops em 9 pads por banco, com efeitos próprios e saída separada, direto no Modo Show.', viz: 'i-pads' },
+  { title: 'Letra automática', text: 'A IA lê a letra da música e marca cada trecho na onda para a TV do palco.', viz: 'i-letra' },
+  { title: 'Controle pelo celular', text: 'O Modo Show na palma da mão, pela rede local ou pela internet, com os medidores do show.', viz: 'i-remote' },
+  { title: 'Gravar e recriar o click', text: 'Grave a voz na faixa Maestro e troque o som do metrônomo pelo que você quiser.', viz: 'i-rec' },
+  { title: 'Skins de equipamento', text: 'Analógica, Grafite, Estúdio ou Oficina: escolha a cara do programa para o seu palco.', viz: 'i-skins' },
   { title: 'E muito mais', text: 'Uma infinidade de detalhes criados pensando no show: facilidade para quem opera, agilidade para quem dirige e tranquilidade para a banda.', viz: 'i-mais' },
 ];
 
@@ -216,11 +236,19 @@ export const FAQS = [
   },
   {
     q: 'Como funciona o Maestro com IA?',
-    a: 'Você marca na faixa Maestro o ponto da música e digita o que o maestro tem que falar: a contagem, "prepara o refrão", "último refrão" e qualquer aviso. A IA transforma o texto em voz e encaixa no tempo da música, saindo pelo canal do Maestro, com a mesma saída e o mesmo volume.',
+    a: 'Você marca na faixa Maestro o ponto da música e digita o que o maestro tem que falar: a contagem, "prepara o refrão", "último refrão" e qualquer aviso. A IA transforma o texto em voz e encaixa no tempo da música, saindo pelo canal do Maestro, com a mesma saída e o mesmo volume. Também há mais de mil falas prontas em botões por assunto, nas vozes Felipe e Bianca.',
   },
   {
     q: 'Como funciona o timecode para a iluminação?',
     a: 'O canal de timecode LTC já vem pronto na timeline e no mixer. Ele gera o sinal que as mesas de luz e os painéis de LED usam para seguir a música, com saída própria para não vazar no som principal.',
+  },
+  {
+    q: 'O que são os pads do Modo Show?',
+    a: 'São 9 botões por banco, em 10 bancos, para tocar vinhetas, efeitos, aplausos e loops durante o show. Cada pad tem reverb, delay, roll no tempo da música, loop e pitch, e os pads podem sair por uma saída própria da placa de som.',
+  },
+  {
+    q: 'Dá para mudar a aparência do programa?',
+    a: 'Sim. Em Visualizar > Skins você escolhe entre Analógica (a padrão, com cara de mesa de som), Grafite, Estúdio e Oficina. O programa inteiro muda de cara, e nada muda no seu show.',
   },
   {
     q: 'Posso cancelar quando quiser?',

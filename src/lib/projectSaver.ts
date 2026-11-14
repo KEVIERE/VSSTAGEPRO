@@ -1092,7 +1092,7 @@ export async function reopenProject(target: SaveTarget, onProgress: ProgressFn):
   }
 }
 
-async function readPackage(file: File, onProgress: ProgressFn, compact = true): Promise<LoadedProject> {
+export async function readPackage(file: File, onProgress: ProgressFn, compact = true): Promise<LoadedProject> {
   const dataStart = VSC_MAGIC.length;
   const tail = await readPackageTail(file);
   if (!tail) throw new Error('Este arquivo de projeto (.vss) está incompleto ou corrompido.');
