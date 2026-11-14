@@ -71,7 +71,7 @@ const COMPARISON_FEATURES = [
     category: 'Vantagens do Plano & Licenciamento',
     items: [
       { name: 'Suporte a Apple Silicon (M1 a M4) & Intel', monthly: true, yearly: true },
-      { name: 'Cancelamento a qualquer momento sem taxas', monthly: true, yearly: true },
+      { name: 'Sem fidelidade: você paga só quando quiser continuar', monthly: true, yearly: true },
       { name: 'Economia garantida de R$ 311,00 por ano', monthly: false, yearly: true, note: 'R$ 29,08/mês no anual' },
       { name: 'Acesso prioritário a novas atualizações da temporada', monthly: false, yearly: true, note: 'Incluso no anual' },
       { name: 'Canal de suporte técnico prioritário', monthly: false, yearly: true, note: 'Prioritário' },
@@ -86,7 +86,7 @@ const PRICING_FAQS = [
   },
   {
     q: 'Posso cancelar a assinatura quando eu quiser?',
-    a: 'Sim, com total liberdade! Não há fidelidade, multa ou contrato de permanência mínima. No plano mensal, você pode cancelar a qualquer momento diretamente pelo painel e o acesso continua liberado até o fim do período já pago.',
+    a: 'Sim. Não há fidelidade, multa nem cobrança automática. Cada pagamento libera 1 mês (mensal) ou 1 ano (anual); se não quiser continuar, basta não renovar. O acesso segue liberado até o fim do período pago.',
   },
   {
     q: 'Qual é a vantagem do Plano Anual?',
@@ -119,7 +119,7 @@ export default function PricingPage() {
   const [authSuccessMsg, setAuthSuccessMsg] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  // Plano do PIX aberto (mostra o QR Code)
+  // Plano escolhido com o pagamento aberto (link da InfinitePay)
   const [pixPlan, setPixPlan] = useState<Plan | null>(null);
   // Veio pelo link de um afiliado: cupom já aplicado no primeiro pagamento
   const [affiliateCoupon, setAffiliateCoupon] = useState<{ code: string; percent: number } | null>(null);
@@ -254,8 +254,7 @@ export default function PricingPage() {
         }
       }
 
-      // Sessão pronta: abre o checkout da InfinitePay, onde o cliente escolhe
-      // PIX ou cartão. Não há mais um segundo caminho pela Stripe.
+      // Sessão pronta: abre o checkout da InfinitePay, onde o cliente escolhe PIX ou cartão.
       setAuthModalOpen(false);
       setPixPlan(selectedPlan);
       return;
@@ -387,7 +386,7 @@ export default function PricingPage() {
                     <span className="text-sm font-medium text-apple-text-secondary">/mês</span>
                   </div>
                   <p className="text-xs text-apple-text-tertiary mt-2">
-                    Cobrança recorrente mensal no cartão. Cancele quando quiser com 1 clique.
+                    Pagamento único por mês, no PIX ou no cartão. Sem cobrança automática: para continuar, é só pagar o mês seguinte.
                   </p>
                 </div>
 
@@ -405,7 +404,7 @@ export default function PricingPage() {
                     'Rede local Wi-Fi sem internet (Área do Músico no celular)',
                     'Teleprompter em tela cheia na TV de palco',
                     'Suporte a Apple Silicon (M1 a M4) e Intel',
-                    'Cancelamento a qualquer momento sem multa',
+                    'Sem fidelidade: você paga só quando quiser continuar',
                   ].map((feat) => (
                     <div key={feat} className="flex items-start gap-2.5 text-sm text-[#d2d2d7]">
                       <div className="w-4 h-4 rounded-full bg-white/10 text-white flex items-center justify-center shrink-0 mt-0.5">
@@ -696,7 +695,7 @@ export default function PricingPage() {
 
       <WhatsAppButton message="Olá! Tenho dúvidas sobre os planos do VS Stage Pro." />
 
-      {/* PIX: QR Code e confirmação automática, no módulo da mesa (igual ao programa) */}
+      {/* Pagamento: link da InfinitePay e confirmação automática, no módulo da mesa (igual ao programa) */}
       {pixPlan && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md apple-fade-in overflow-y-auto"
@@ -713,7 +712,7 @@ export default function PricingPage() {
             )}
           >
             <div className="px-6 pt-6 pb-6">
-              <h2 className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">Pague com PIX, cartão ou Apple Pay</h2>
+              <h2 className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">Pague com PIX ou cartão</h2>
               <PixCheckout
                 key={`${pixPlan}-${affiliateCoupon?.code ?? ''}`}
                 plan={pixPlan}

@@ -3,22 +3,21 @@ import { CreditCard, Loader2, ShieldCheck, Tag, X } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { AccessCard, AccessNotice, AccessTitle } from '@/components/access/AccessChrome';
 import PixCheckout from '@/components/PixCheckout';
-import { refreshLicense } from '@/lib/licenseEvents';
 import { formatBRL } from '@/lib/pixFormat';
 import { resolveAffiliateCoupon } from '@/lib/affiliateApi';
 
 export type Plan = 'monthly' | 'yearly';
 
-const PLANS: Array<{ id: Plan; title: string; price: string; cents: number; period: string; note: string; pixNote: string; badge?: string }> = [
+// Os dois planos são pagamento único pela InfinitePay (PIX ou cartão), sem
+// renovação automática: para continuar, a pessoa paga de novo.
+const PLANS: Array<{ id: Plan; title: string; price: string; cents: number; period: string; pixNote: string; badge?: string }> = [
   {
     id: 'monthly', title: 'Mensal', price: 'R$ 55,00', cents: 5500, period: '/mês',
-    note: 'Cobrança recorrente todo mês. Cancele quando quiser.',
-    pixNote: '1 mês de acesso. Renove com outro PIX quando quiser.',
+    pixNote: '1 mês de acesso. Para continuar, pague de novo (PIX ou cartão).',
   },
   {
     id: 'yearly', title: 'Anual', price: 'R$ 349,00', cents: 34900, period: '/ano',
-    note: 'Pagamento único por ano — sai por R$ 29,08/mês.',
-    pixNote: '1 ano de acesso — sai por R$ 29,08/mês.',
+    pixNote: '1 ano de acesso, sai por R$ 29,08/mês.',
     badge: 'ECONOMIZE R$ 311',
   },
 ];
@@ -40,7 +39,7 @@ async function checkDiscount(code: string): Promise<{ valid: boolean; percent?: 
 
 export default function SubscribeDialog({
   onClose, embedded = false, label = 'Assinatura', status, title = 'Assine o VS Stage Pro',
-  subtitle = 'Escolha o plano e continue usando sem limite.', footer,
+  subtitle = 'Escolha o plano e continue usando sem limite.', footer, initialPlan, payLabel = 'Pagar',
 }: {
   onClose?: () => void;
   embedded?: boolean;
@@ -50,11 +49,14 @@ export default function SubscribeDialog({
   title?: string;
   subtitle?: string;
   footer?: React.ReactNode;
+  /** Plano já marcado ao abrir (ex.: o último plano de quem está renovando). Sem ele, anual. */
+  initialPlan?: Plan;
+  /** Primeira palavra do botão de pagar (ex.: "Renovar"). */
+  payLabel?: string;
 }) {
-  const [plan, setPlan] = useState<Plan>('yearly');
-  // PIX aberto: o cartão mostra o QR Code no lugar da escolha do plano
+  const [plan, setPlan] = useState<Plan>(initialPlan ?? 'yearly');
+  // Pagamento aberto: o cartão mostra o link da InfinitePay no lugar da escolha do plano
   const [pixOpen, setPixOpen] = useState(false);
-  const [waiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [couponOpen, setCouponOpen] = useState(false);
   const [coupon, setCoupon] = useState('');
@@ -71,7 +73,10 @@ export default function SubscribeDialog({
       const res = await checkDiscount(code);
       if (!res.valid || !res.percent) {
         setCouponError(res.error === 'coupon_first_payment_only' ? 'Esse cupom vale só no primeiro pagamento.'
-          : res.error === 'coupon_own' ? 'Você não pode usar o seu próprio cupom.' : 'Código inválido ou expirado.');
+          : res.error === 'coupon_own' ? 'Você não pode usar o seu próprio cupom.'
+          : res.error === 'promo_expired' ? 'Esse cupom venceu.'
+          : res.error === 'promo_used_up' ? 'Esse cupom já atingiu o limite de usos.'
+          : 'Código inválido ou expirado.');
         setAppliedCoupon(null);
         return;
       }
@@ -95,14 +100,6 @@ export default function SubscribeDialog({
     return () => { alive = false; };
   }, []);
 
-  // Enquanto o pagamento está aberto no navegador, confere a licença de tempos em tempos.
-  useEffect(() => {
-    if (!waiting) return;
-    const t = window.setInterval(refreshLicense, 5000);
-    const stop = window.setTimeout(() => window.clearInterval(t), 20 * 60 * 1000);
-    return () => { window.clearInterval(t); window.clearTimeout(stop); };
-  }, [waiting]);
-
   const selected = PLANS.find((p) => p.id === plan)!;
   // Só para o texto da tecla: o valor que vale é o que o servidor calcula com o cupom
   const pixCents = Math.round((selected.cents * (100 - (appliedCoupon?.percent ?? 0))) / 100);
@@ -123,7 +120,7 @@ export default function SubscribeDialog({
       >
         <div className="px-6 pt-6 pb-6">
           <h1 id="subscribe-title" className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">
-            Pague com PIX, cartão ou Apple Pay
+            Pague com PIX ou cartão
           </h1>
           <PixCheckout
             key={`${plan}-${appliedCoupon?.code ?? ''}`}
@@ -191,7 +188,7 @@ export default function SubscribeDialog({
           {appliedCoupon ? (
             <AccessNotice tone="green">
               <div className="flex items-center gap-2">
-                <span className="flex-1 font-semibold">Cupom {appliedCoupon.code} aplicado — {appliedCoupon.percent}% de desconto.</span>
+                <span className="flex-1 font-semibold">Cupom {appliedCoupon.code} aplicado: {appliedCoupon.percent}% de desconto.</span>
                 <button
                   type="button" aria-label="Tirar cupom" onClick={() => { setAppliedCoupon(null); setCoupon(''); }}
                   className="text-logic-text-muted hover:text-logic-text transition"
@@ -227,14 +224,12 @@ export default function SubscribeDialog({
 
         {error && <div className="mt-4"><AccessNotice tone="red"><p>{error}</p></AccessNotice></div>}
 
-        {/* Um caminho só: o pagamento abre na InfinitePay, onde o cliente escolhe
-            PIX ou cartão. Antes havia um botão por forma de pagamento e o do
-            cartão ia para a Stripe. */}
+        {/* Um caminho só: o pagamento abre na InfinitePay, onde o cliente escolhe PIX ou cartão. */}
         <button type="button" onClick={() => { setError(null); setPixOpen(true); }} className="access-key mt-5">
-          <CreditCard size={16} /> Pagar {formatBRL(pixCents)} — escolher forma
+          <CreditCard size={16} /> {payLabel} {formatBRL(pixCents)}: escolher forma
         </button>
         <p className="mt-3 text-2xs text-logic-text-muted text-center flex items-center justify-center gap-1">
-          <ShieldCheck size={10} /> PIX, cartão ou Apple Pay. Você escolhe na próxima tela. O programa libera sozinho assim que o pagamento cai.
+          <ShieldCheck size={10} /> PIX ou cartão. Você escolhe na próxima tela. O programa libera sozinho assim que o pagamento cai. Não renova sozinho: avisamos por e-mail antes de vencer.
         </p>
       </div>
       {footer}

@@ -3,13 +3,15 @@
 
 export type Plan = 'monthly' | 'yearly';
 
-// Mesmos preços do stripe-checkout e da página de planos (em centavos).
+// Mesmos preços da página de planos (em centavos). A descrição é o que o cliente vê
+// na página de pagamento da InfinitePay, onde ele escolhe PIX ou cartão.
 export const PIX_PLANS: Record<Plan, { cents: number; description: string }> = {
-  monthly: { cents: 5500, description: 'VS Stage Pro — Plano Mensal (PIX, 1 mês de acesso)' },
-  yearly: { cents: 34900, description: 'VS Stage Pro — Plano Anual (PIX, 1 ano de acesso)' },
+  monthly: { cents: 5500, description: 'VS Stage Pro, Plano Mensal (1 mês de acesso)' },
+  yearly: { cents: 34900, description: 'VS Stage Pro, Plano Anual (1 ano de acesso)' },
 };
 
-// O Asaas não aceita cobrança abaixo de R$ 5,00.
+// Valor mínimo de uma cobrança (regra herdada do Asaas e mantida na InfinitePay).
+// Cupom de desconto vai até 90%, então o menor valor possível é R$ 5,50.
 export const MIN_PIX_CENTS = 500;
 
 export const ASAAS_PRODUCTION_URL = 'https://api.asaas.com/v3';
@@ -86,15 +88,23 @@ export function pixLinkExpiresAt(now: Date): Date {
   return new Date(now.getTime() + PIX_LINK_TTL_MS);
 }
 
-type OpenLink = { plan: string; amount_cents: number; checkout_url: string | null; expires_at: string };
+type OpenLink = {
+  plan: string; amount_cents: number; checkout_url: string | null; expires_at: string;
+  coupon_code?: string | null;
+};
 
-/** Link aberto (mesmo plano e valor) que ainda pode ser mostrado em vez de gerar outro.
+/** Link aberto (mesmo plano, valor e cupom) que ainda pode ser mostrado em vez de gerar outro.
+ *  O cupom também precisa ser o mesmo: dois cupons com o mesmo desconto dão o mesmo valor, e
+ *  reaproveitar o link do outro contaria o uso no cupom errado.
  *  Links do prazo antigo (até o fim do dia seguinte) não entram: todo link mostrado vale no máximo 30 min. */
-export function reusableLink<T extends OpenLink>(open: T[], plan: string, amountCents: number, nowMs: number): T | undefined {
+export function reusableLink<T extends OpenLink>(
+  open: T[], plan: string, amountCents: number, nowMs: number, couponCode: string | null = null,
+): T | undefined {
+  const coupon = couponCode ?? null;
   return open.find((r) => {
     const left = Date.parse(r.expires_at) - nowMs;
-    return r.plan === plan && r.amount_cents === amountCents && !!r.checkout_url &&
-      left > PIX_REUSE_MARGIN_MS && left <= PIX_LINK_TTL_MS;
+    return r.plan === plan && r.amount_cents === amountCents && (r.coupon_code ?? null) === coupon &&
+      !!r.checkout_url && left > PIX_REUSE_MARGIN_MS && left <= PIX_LINK_TTL_MS;
   });
 }
 

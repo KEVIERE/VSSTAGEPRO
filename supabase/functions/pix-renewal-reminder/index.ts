@@ -4,7 +4,8 @@ import {
   dueReminders, isSendingHour, reminderEmail, reminderKey, type ReminderCandidate,
 } from "../_shared/pixReminder.ts";
 
-// Aviso por e-mail quando faltam 3, 2 e 1 dia para o PIX vencer (só para quem paga por PIX).
+// Aviso por e-mail quando faltam 3, 2 e 1 dia para o período pago vencer (PIX, cartão ou tempo
+// manual do admin: nenhum renova sozinho).
 //
 // Quem chama é o agendamento do banco (pg_cron, migração 20261110150000), de hora em hora das
 // 9h às 20h de Brasília, com a senha do Vault no cabeçalho x-cron-secret. Cada aviso é

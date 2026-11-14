@@ -23,13 +23,18 @@ import {
 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import BarChart from '@/components/admin/BarChart';
+import { LEGACY_PROVIDER } from '@/lib/legacyPayment';
 import {
   adminApi,
   dateTime,
   FEATURE_LABELS,
   money,
   num,
+  paymentMethodLabel,
+  paymentSourceLabel,
   relative,
+  SUB_PLAN_LABEL,
+  subscriberSource,
 } from '@/components/admin/adminApi';
 import type {
   FeatureUse,
@@ -40,6 +45,14 @@ import type {
   TrialInsight,
 } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, Kpi, Loading, Panel, PeriodPicker } from '@/components/admin/ui';
+
+/** Forma da venda: "Cartão (antigo)" para o provedor anterior (o servidor já manda
+ *  method = 'credit_card' nessas vendas, por isso o provedor é testado primeiro), ou
+ *  "PIX" / "Cartão" para as vendas da InfinitePay. */
+function saleMethodText(s: Overview['recent_sales'][number]): string | null {
+  if (s.provider === LEGACY_PROVIDER) return 'Cartão (antigo)';
+  return paymentMethodLabel(s.method);
+}
 
 function EmailStatusBadge({ confirmedAt }: { confirmedAt: string | null | undefined }) {
   if (confirmedAt) {
@@ -394,7 +407,7 @@ export default function OverviewTab() {
                       <tr className="border-b border-white/[0.08] bg-white/[0.02] text-2xs uppercase tracking-wider text-logic-text-muted font-bold">
                         <th className="py-3 px-4">Assinante / Contato</th>
                         <th className="py-3 px-4">Plano & Valor</th>
-                        <th className="py-3 px-4">Tempo Restante / Renovação</th>
+                        <th className="py-3 px-4">Tempo Restante / Vencimento</th>
                         <th className="py-3 px-4">IP do Computador</th>
                         <th className="py-3 px-4">Versão do App</th>
                         <th className="py-3 px-4">Último Acesso</th>
@@ -429,11 +442,29 @@ export default function OverviewTab() {
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             <span className="px-2 py-0.5 rounded text-2xs font-extrabold bg-logic-lcd-green/15 text-logic-lcd-green border border-logic-lcd-green/30">
-                              {sub.plan === 'yearly' ? 'Plano Anual' : 'Plano Mensal'}
+                              {SUB_PLAN_LABEL[sub.plan] ?? 'Plano Mensal'}
                             </span>
                             <div className="text-2xs text-white/90 font-bold mt-1">
                               {sub.priceFormatted}
                             </div>
+                            {(() => {
+                              const source = paymentSourceLabel(subscriberSource(sub), sub.paymentMethod, sub.installments);
+                              return source && (
+                                <div className="mt-1 flex items-center gap-1.5">
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/[0.06] border border-white/10 text-logic-text-dim">
+                                    {source}
+                                  </span>
+                                  {sub.receiptUrl && (
+                                    <a
+                                      href={sub.receiptUrl} target="_blank" rel="noreferrer"
+                                      className="text-[10px] text-logic-lcd-green hover:underline flex items-center gap-0.5 font-semibold"
+                                    >
+                                      Comprovante <ExternalLink size={9} />
+                                    </a>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
@@ -478,18 +509,6 @@ export default function OverviewTab() {
 
                           <td className="py-3.5 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
-                              {sub.stripeCustomerId && (
-                                <a
-                                  href={`https://dashboard.stripe.com/customers/${sub.stripeCustomerId}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white text-2xs font-bold transition flex items-center gap-1 border border-white/10"
-                                >
-                                  <CreditCard size={11} />
-                                  <span>Stripe</span>
-                                  <ExternalLink size={10} />
-                                </a>
-                              )}
                               <button
                                 type="button"
                                 onClick={() => handleBlockUser(sub.userId, sub.email)}
@@ -867,6 +886,7 @@ export default function OverviewTab() {
                           </span>
                           <span className="text-logic-text-dim">
                             {money(s.amount_cents)} · {s.plan === 'yearly' ? 'Anual' : 'Mensal'}
+                            {saleMethodText(s) && <> · {saleMethodText(s)}</>}
                           </span>
                           <span className="text-logic-text-muted tabular-nums w-24 text-right">
                             {dateTime(s.created_at)}

@@ -7,7 +7,9 @@
 // Rodar com: npm test
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { infinitePayClient, InfinitePayError } from '../supabase/functions/_shared/infinitepay.ts';
+import {
+  infinitePayClient, InfinitePayError, normalizeCaptureMethod, normalizeInstallments, safeReceiptUrl,
+} from '../supabase/functions/_shared/infinitepay.ts';
 import { handleInfinitePayWebhook } from '../supabase/functions/_shared/infinitepayWebhook.ts';
 
 /** fetch falso: registra a chamada e devolve o que o teste mandar. */
@@ -94,7 +96,7 @@ test('conferir pagamento: não pago devolve paid=false', async () => {
  */
 
 function fakeWorld() {
-  const db = new Map(); // order_nsu → { status, amount, grants, tx, slug }
+  const db = new Map(); // order_nsu → { status, amount, grants, tx, slug, method, installments, receipt }
   const pagos = new Map(); // order_nsu → resposta do /payment_check
   const checks = [];
   const deps = {
@@ -103,20 +105,27 @@ function fakeWorld() {
       const row = db.get(orderNsu);
       return row ? { status: row.status } : null;
     },
-    saveIds: async (orderNsu, tx, slug) => {
-      const row = db.get(orderNsu);
-      if (row) { row.tx = tx ?? row.tx; row.slug = slug ?? row.slug; }
-    },
     checkPayment: async (input) => {
       checks.push(input);
       const r = pagos.get(input.order_nsu);
       if (r instanceof Error) throw r;
       return r ?? { success: true, paid: false };
     },
-    applyPayment: async (orderNsu, cents) => {
+    // Mesma regra de pix_confirm_payment: transação que já pagou outro pedido não libera.
+    applyPayment: async (orderNsu, cents, conf) => {
       const row = db.get(orderNsu);
       if (!row) return { result: 'unknown_payment' };
       if (row.status === 'paid') return { result: 'already_paid' };
+      for (const [nsu, outro] of db) {
+        if (nsu !== orderNsu && outro.status === 'paid' && conf.transactionNsu && outro.tx === conf.transactionNsu) {
+          return { result: 'transaction_reused' };
+        }
+      }
+      row.tx = conf.transactionNsu ?? row.tx;
+      row.slug = conf.slug ?? row.slug;
+      row.method = conf.captureMethod;
+      row.installments = conf.installments;
+      row.receipt = conf.receiptUrl;
       if (cents < row.amount) { row.status = 'amount_mismatch'; return { result: 'amount_mismatch', expected_cents: row.amount, paid_cents: cents }; }
       row.status = 'paid'; row.grants += 1; row.paid = cents;
       return { result: 'activated', access_until: '2026-12-10T17:00:00Z' };
@@ -217,4 +226,99 @@ test('webhook: InfinitePay fora do ar responde 400 para ela tentar de novo', asy
   assert.equal(res.status, 400);
   assert.deepEqual(await res.json(), { error: 'confirm_failed' });
   assert.equal(w.db.get('vs-1').grants, 0);
+});
+
+// ─── Forma de pagamento, transação reaproveitada e estorno ───────────────────
+
+test('webhook: forma de pagamento e parcelas vêm da conferência, não do aviso', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  // o aviso diz PIX à vista; a InfinitePay confirma cartão em 3x
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5800, capture_method: 'credit_card', installments: 3 });
+  const res = await hook(w.deps, { ...aviso, capture_method: 'pix', installments: 1 });
+  assert.deepEqual(await res.json(), { result: 'activated' });
+  const row = w.db.get('vs-1');
+  assert.equal(row.method, 'credit_card');
+  assert.equal(row.installments, 3);
+});
+
+test('webhook: forma desconhecida na conferência fica vazia', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5500, capture_method: 'boleto?' });
+  await hook(w.deps, aviso);
+  assert.equal(w.db.get('vs-1').method, null);
+  assert.equal(w.db.get('vs-1').installments, null);
+});
+
+test('webhook: transação que já pagou outro pedido não libera e responde 200', async () => {
+  const w = fakeWorld();
+  // pedido antigo, já pago com a transação tx-1
+  w.db.set('vs-antigo', { status: 'paid', amount: 5500, grants: 1, tx: 'tx-1', slug: 'abc' });
+  // pedido novo: alguém tenta reaproveitar os códigos do pagamento antigo
+  w.db.set('vs-novo', { status: 'pending', amount: 5500, grants: 0 });
+  w.pagos.set('vs-novo', { success: true, paid: true, amount: 5500, paid_amount: 5500, capture_method: 'pix' });
+  const res = await hook(w.deps, { ...aviso, order_nsu: 'vs-novo' });
+  assert.equal(res.status, 200); // 200: a InfinitePay não precisa reenviar
+  assert.deepEqual(await res.json(), { result: 'transaction_reused' });
+  assert.equal(w.db.get('vs-novo').grants, 0);
+  assert.equal(w.db.get('vs-novo').status, 'pending');
+  assert.equal(w.db.get('vs-novo').tx, undefined);
+});
+
+test('webhook: aviso não confirmado não grava os códigos do aviso', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  await hook(w.deps, aviso);
+  assert.equal(w.db.get('vs-1').tx, undefined);
+  assert.equal(w.db.get('vs-1').slug, undefined);
+});
+
+test('webhook: pagamento estornado pelo admin não volta a liberar', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'refunded', amount: 5500, grants: 1 });
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5500 });
+  const res = await hook(w.deps, aviso);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { result: 'refunded' });
+  assert.equal(w.checks.length, 0);
+  assert.equal(w.db.get('vs-1').grants, 1);
+});
+
+test('webhook: comprovante só da própria InfinitePay', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  w.db.set('vs-2', { status: 'pending', amount: 5500, grants: 0 });
+  w.pagos.set('vs-1', { success: true, paid: true, amount: 5500, paid_amount: 5500 });
+  w.pagos.set('vs-2', { success: true, paid: true, amount: 5500, paid_amount: 5500 });
+  await hook(w.deps, { ...aviso, receipt_url: 'https://recibo.infinitepay.io/r/123' });
+  await hook(w.deps, { ...aviso, order_nsu: 'vs-2', transaction_nsu: 'tx-2', invoice_slug: 'def', receipt_url: 'https://golpe.example.com/infinitepay.io' });
+  assert.equal(w.db.get('vs-1').receipt, 'https://recibo.infinitepay.io/r/123');
+  assert.equal(w.db.get('vs-2').receipt, null);
+});
+
+test('webhook: códigos estranhos no aviso não seguem para a conferência', async () => {
+  const w = fakeWorld();
+  w.db.set('vs-1', { status: 'pending', amount: 5500, grants: 0 });
+  await hook(w.deps, { ...aviso, transaction_nsu: "x' OR 1=1 --", invoice_slug: { a: 1 } });
+  assert.deepEqual(w.checks, [{ handle: 'minhaloja', order_nsu: 'vs-1', transaction_nsu: undefined, slug: undefined }]);
+});
+
+test('normalização: forma de pagamento, parcelas e comprovante', () => {
+  assert.equal(normalizeCaptureMethod('pix'), 'pix');
+  assert.equal(normalizeCaptureMethod(' PIX '), 'pix');
+  assert.equal(normalizeCaptureMethod('credit_card'), 'credit_card');
+  assert.equal(normalizeCaptureMethod('debit'), null);
+  assert.equal(normalizeCaptureMethod(undefined), null);
+  assert.equal(normalizeInstallments(12), 12);
+  assert.equal(normalizeInstallments('3'), 3);
+  assert.equal(normalizeInstallments(0), null);
+  assert.equal(normalizeInstallments(99), null);
+  assert.equal(normalizeInstallments(null), null);
+  assert.equal(safeReceiptUrl('https://infinitepay.io/recibo/1'), 'https://infinitepay.io/recibo/1');
+  assert.equal(safeReceiptUrl('https://comprovante.infinitepay.com.br/x'), 'https://comprovante.infinitepay.com.br/x');
+  assert.equal(safeReceiptUrl('http://infinitepay.io/recibo/1'), null);
+  assert.equal(safeReceiptUrl('https://infinitepay.io.golpe.com/x'), null);
+  assert.equal(safeReceiptUrl('javascript:alert(1)'), null);
+  assert.equal(safeReceiptUrl(42), null);
 });

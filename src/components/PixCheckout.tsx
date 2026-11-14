@@ -1,6 +1,6 @@
 // Pagamento da assinatura pela InfinitePay: abre o link de checkout e confere
-// sozinho até o pagamento ser confirmado. A InfinitePay não devolve QR Code:
-// o PIX e o cartão são escolhidos na página dela. O link vale 30 minutos, com
+// sozinho até o pagamento ser confirmado. O PIX e o cartão são escolhidos na
+// página dela, e o pagamento é único (não renova sozinho). O link vale 30 minutos, com
 // contagem regressiva; ao vencer, a tela oferece gerar outro. Visual da mesa de
 // som (console-*, access-*), igual ao SubscribeDialog.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -24,6 +24,13 @@ const LATE_WATCH_MS = 5 * 60_000;
 const HURRY_MS = 5 * 60_000;
 // Tempo mostrando "Pagamento confirmado" antes de liberar o programa.
 const PAID_HOLD_MS = 4000;
+
+/** "no PIX", "no cartão" ou "no cartão em 3x", pelo que a InfinitePay confirmou. */
+function methodText(c: PixCharge): string | null {
+  if (c.capture_method === 'pix') return 'no PIX';
+  if (c.capture_method === 'credit_card') return c.installments && c.installments > 1 ? `no cartão em ${c.installments}x` : 'no cartão';
+  return null;
+}
 
 type Phase = 'loading' | 'cpf' | 'waiting' | 'paid' | 'closed' | 'mismatch' | 'error';
 
@@ -198,6 +205,7 @@ export default function PixCheckout({
             {charge.access_until && (
               <span className="text-xs text-logic-text-dim">Assinatura liberada até {formatBrasiliaDate(charge.access_until)}.</span>
             )}
+            {methodText(charge) && <span className="text-2xs text-logic-text-muted">Pago {methodText(charge)}.</span>}
           </div>
         </div>
         <div className="mt-3 text-xs text-logic-text-dim">
@@ -217,7 +225,7 @@ export default function PixCheckout({
           <p>Fale com o suporte que resolvemos.</p>
         </AccessNotice>
         <a
-          href={supportWhatsAppUrl(`Olá! Paguei o PIX da assinatura do VS Stage Pro com valor diferente. Código do PIX: ${charge.id}`)}
+          href={supportWhatsAppUrl(`Olá! Paguei a assinatura do VS Stage Pro com valor diferente. Código do pagamento: ${charge.id}`)}
           target="_blank" rel="noreferrer" className="access-key mt-4"
         >
           <MessageCircle size={16} /> Falar com o suporte
@@ -235,7 +243,13 @@ export default function PixCheckout({
     return (
       <div>
         <AccessNotice tone="red">
-          <p>{expired ? 'Este link de pagamento venceu e não pode mais ser pago. Cada link vale 30 minutos.' : 'Este link foi trocado por outro e não vale mais.'}</p>
+          <p>
+            {expired
+              ? 'Este link de pagamento venceu e não pode mais ser pago. Cada link vale 30 minutos.'
+              : charge.status === 'refunded'
+                ? 'Este pagamento foi estornado e não libera mais o acesso.'
+                : 'Este link foi trocado por outro e não vale mais.'}
+          </p>
           <p>Gere outro para continuar.</p>
         </AccessNotice>
         <button type="button" onClick={() => generate()} className="access-key mt-4">
@@ -266,20 +280,33 @@ export default function PixCheckout({
     );
   }
 
-  // Aguardando pagamento
+  // Aguardando pagamento. O valor cheio só aparece riscado quando o servidor
+  // informa o desconto (full_cents e discount_percent).
+  const hasDiscount = !!charge.discount_percent && charge.discount_percent > 0
+    && typeof charge.full_cents === 'number' && charge.full_cents > charge.amount_cents;
   return (
     <div>
       <div className="flex items-end justify-between gap-3">
         <span className="console-legend uppercase tracking-[0.12em] flex items-center gap-1.5">
           <span className="console-led is-on-amber" /> {charge.plan === 'yearly' ? 'Anual · 1 ano' : 'Mensal · 1 mês'}
         </span>
-        <span className="font-stage text-[1.65rem] font-bold leading-none tabular-nums text-logic-lcd-amber console-glow">
-          {formatBRL(charge.amount_cents)}
+        <span className="flex flex-col items-end gap-1">
+          {hasDiscount && (
+            <span className="text-2xs text-logic-text-muted tabular-nums line-through">{formatBRL(charge.full_cents!)}</span>
+          )}
+          <span className="font-stage text-[1.65rem] font-bold leading-none tabular-nums text-logic-lcd-amber console-glow">
+            {formatBRL(charge.amount_cents)}
+          </span>
         </span>
       </div>
+      {hasDiscount && (
+        <p className="mt-1.5 text-2xs text-logic-lcd-green text-right">
+          {charge.coupon_code ? `Cupom ${charge.coupon_code}, ` : 'Desconto de '}{charge.discount_percent}%
+        </p>
+      )}
 
       <p className="mt-4 text-xs text-logic-text-dim text-center leading-snug">
-        O pagamento abre na página segura da InfinitePay, onde você escolhe PIX, cartão ou Apple Pay.
+        O pagamento abre na página segura da InfinitePay, onde você escolhe PIX ou cartão.
         Depois de pagar, volte para cá: a liberação é automática.
       </p>
 

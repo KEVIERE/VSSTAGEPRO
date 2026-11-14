@@ -1,7 +1,7 @@
 import { adminApi } from '@/components/admin/adminApi';
 import { authRedirect } from '@/lib/authRedirect';
 import { useEffect, useRef, useState } from 'react';
-import { BadgeCheck, CheckCircle2, CloudOff, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, QrCode, RefreshCw, Tag, Timer, User, WifiOff, X } from 'lucide-react';
+import { BadgeCheck, CheckCircle2, CloudOff, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, WifiOff, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, emailLinkType, rpcWithStoredSession, storedSession, supabase } from '@/lib/supabaseClient';
 import { REFUSED_TEXT, REPLACED_TEXT, lastSeenText, otherDeviceLabel, readDeviceVerdict, type DeviceVerdict } from '@/lib/deviceLock';
@@ -12,10 +12,13 @@ import { friendlyError } from '@/lib/friendlyError';
 import SubscribeDialog from '@/components/SubscribeDialog';
 import { LICENSE_REFRESH_EVENT } from '@/lib/licenseEvents';
 import { maskPhone, normalizePhone } from '@/lib/authFlow';
+import { formatBrasiliaDate } from '@/lib/pixFormat';
 import { forgetVoices } from '@/lib/maestroVoice';
 
 export type License = {
   status: 'anonymous' | 'trial' | 'active' | 'expired' | 'blocked';
+  /** 'blocked': motivo do bloqueio. 'expired' (servidor novo): 'paid_period_over' (já pagou)
+   *  ou 'trial_over' (nunca pagou). */
   reason?: string | null;
   days_left?: number;
   hours_left?: number;
@@ -32,6 +35,14 @@ export type License = {
   offline_until?: number;
   /** Sem internet: o prazo normal passou nesta hora e o programa está na folga de 3 dias (ms) */
   offline_grace_from?: number;
+  /** Vencido: a conta já pagou alguma vez (servidor antigo não manda) */
+  paid_before?: boolean;
+  /** Mesmo valor de paid_before */
+  had_paid?: boolean;
+  /** Vencido: até quando valeu o último período pago */
+  paid_until?: string | null;
+  /** Vencido: o último plano pago */
+  last_plan?: 'monthly' | 'yearly' | null;
 };
 
 // Um Mac por vez: a conta está aberta em outro Mac (conflict) ou este foi desconectado (replaced).
@@ -847,14 +858,22 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   }
 
   if (license?.status === 'expired') {
+    // Quem já pagou e deixou vencer não vê "teste grátis terminou" (servidor antigo não manda esses campos).
+    const paidOver = license.reason === 'paid_period_over' || !!license.paid_before || !!license.had_paid;
+    const paidUntil = paidOver && license.paid_until && Number.isFinite(Date.parse(license.paid_until))
+      ? formatBrasiliaDate(license.paid_until) : null;
     return (
       <AccessStage>
         <SubscribeDialog
           embedded
-          label="Teste grátis encerrado"
+          label={paidOver ? 'Assinatura vencida' : 'Teste grátis encerrado'}
           status={<AccessStatus tone="red">0:00</AccessStatus>}
-          title="Seu teste grátis terminou"
-          subtitle="Faça sua assinatura para continuar usando o VS Stage Pro. Seus shows e projetos continuam salvos — ao assinar, tudo volta exatamente de onde parou."
+          title={paidOver ? (paidUntil ? `Sua assinatura venceu em ${paidUntil}` : 'Sua assinatura venceu') : 'Seu teste grátis terminou'}
+          subtitle={paidOver
+            ? 'Renove para continuar usando o VS Stage Pro. O pagamento (PIX ou cartão) não renova sozinho. Seus shows e projetos continuam salvos: ao renovar, tudo volta exatamente de onde parou.'
+            : 'Faça sua assinatura para continuar usando o VS Stage Pro. Seus shows e projetos continuam salvos: ao assinar, tudo volta exatamente de onde parou.'}
+          initialPlan={paidOver && license.last_plan ? license.last_plan : undefined}
+          payLabel={paidOver ? 'Renovar' : undefined}
           footer={(
             <>
               <PromoRedeem onRedeemed={() => { loadLicense().catch(() => {}); }} />
@@ -870,7 +889,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                     }
                   }}
                 >
-                  <RefreshCw size={14} /> Já assinei
+                  <RefreshCw size={14} /> {paidOver ? 'Já renovei' : 'Já assinei'}
                 </FootKey>
                 <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
               </AccessFoot>
@@ -1067,14 +1086,15 @@ function LicenseBadge({ license }: { license: License | null }) {
       </span>
     );
   }
-  // PIX não renova sozinho: nos últimos 7 dias mostra quanto falta e o atalho para renovar
+  // Período pago pela InfinitePay (PIX ou cartão) não renova sozinho: nos últimos 7 dias
+  // mostra quanto falta e o atalho para renovar. ('pix' é só o nome antigo do campo.)
   if (license?.status === 'active' && license.subscription === 'pix' && license.current_period_end) {
     const left = new Date(license.current_period_end).getTime() - now;
     if (left > 7 * 24 * 3600000) return null;
     return (
       <span className="inline-flex items-center gap-1.5">
         <span
-          title="A assinatura paga por PIX não renova sozinha"
+          title="O pagamento (PIX ou cartão) não renova sozinho"
           className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold tabular-nums"
         >
           <Timer size={11} /> Assinatura: {formatRemaining(left)}
@@ -1083,13 +1103,15 @@ function LicenseBadge({ license }: { license: License | null }) {
           type="button" onClick={() => setOpen(true)}
           className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber text-black text-2xs font-bold hover:brightness-110 transition"
         >
-          <QrCode size={11} /> Renovar
+          <RefreshCw size={11} /> Renovar
         </button>
         {open && (
           <SubscribeDialog
             onClose={() => setOpen(false)}
             title="Renove sua assinatura"
-            subtitle="O PIX não renova sozinho. O tempo novo entra depois do que ainda falta."
+            subtitle="O pagamento (PIX ou cartão) não renova sozinho. O tempo novo entra depois do que ainda falta."
+            initialPlan={license.plan === 'monthly' || license.plan === 'yearly' ? license.plan : undefined}
+            payLabel="Renovar"
           />
         )}
       </span>

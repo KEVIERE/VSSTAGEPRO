@@ -10,14 +10,16 @@ export type DiscountCheck = {
   first_payment_only?: boolean;
 } | null | undefined;
 
+/** Recusas do banco que a tela sabe explicar, passadas como vêm. */
+const COUPON_REFUSALS = new Set(['coupon_first_payment_only', 'coupon_own', 'promo_expired', 'promo_used_up']);
+
 /**
  * Por que o cupom não vale para esta conta, no código que a tela entende, ou null se vale.
- * Os dois casos do afiliado têm mensagem própria; o resto é "cupom inválido".
+ * Vencido, esgotado e os dois casos do afiliado têm mensagem própria; o resto é "cupom inválido".
  */
 export function couponRefusal(check: DiscountCheck): string | null {
   if (check?.valid && Number(check.percent) > 0) return null;
-  if (check?.error === 'coupon_first_payment_only') return 'coupon_first_payment_only';
-  if (check?.error === 'coupon_own') return 'coupon_own';
+  if (check?.error && COUPON_REFUSALS.has(check.error)) return check.error;
   return 'invalid_coupon';
 }
 

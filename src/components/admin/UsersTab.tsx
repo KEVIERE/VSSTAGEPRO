@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, BadgeCheck, Ban, CheckCircle2, ChevronLeft, ChevronRight, Clock, CreditCard, ExternalLink, Gift, Mail, MessageCircle, RefreshCw, Search, ShieldCheck, Trash2, Unlock, X } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import { personWhatsAppUrl } from '@/lib/support';
-import { adminApi, dateTime, num, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
-import type { AdminUser, OutreachPerson, UserState } from '@/components/admin/adminApi';
+import { adminApi, dateTime, money, num, paymentMethodLabel, relative, STATE_CLS, STATE_LABEL } from '@/components/admin/adminApi';
+import type { AdminUser, OutreachPerson, UserPayment, UserState } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, input, Loading, Panel } from '@/components/admin/ui';
 
 function EmailBadge({ confirmedAt }: { confirmedAt: string | null | undefined }) {
@@ -58,14 +58,59 @@ function PartnerBadge() {
   );
 }
 
+const isFuture = (iso: string | null | undefined) => !!iso && new Date(iso).getTime() > Date.now();
+
+/** Conta com subscription='active' (assinatura antiga no cartão ou ativação manual antiga). */
+const hasOldSubscription = (u: AdminUser) => u.subscription === 'active';
+
 function accessUntil(u: AdminUser, partner = false) {
   if (partner && !u.blocked_reason && u.state !== 'blocked') return 'parceiro, sem prazo';
-  if (u.state === 'active') return u.current_period_end ? `renova ${dateTime(u.current_period_end)}` : 'assinatura manual';
+  if (u.state === 'active') {
+    if (isFuture(u.pix_paid_until)) return `pago até ${dateTime(u.pix_paid_until)}`;
+    if (hasOldSubscription(u) && u.current_period_end) return `assinatura antiga, período até ${dateTime(u.current_period_end)}`;
+    return 'assinatura manual';
+  }
   if (u.state === 'promo') return `bônus até ${dateTime(u.comp_until)}`;
   if (u.state === 'trial') return `teste até ${dateTime(u.trial_ends_at)}`;
   if (u.state === 'expired') return `acabou ${relative(u.trial_ends_at)}`;
   return u.blocked_reason ? `motivo: ${u.blocked_reason}` : 'suspensa';
 }
+
+/** Como a conta paga, para a linha "Como paga" do detalhe. */
+function howPays(u: AdminUser, partner: boolean): string {
+  switch (u.payment_source) {
+    case 'infinitepay': {
+      const m = u.last_payment_method === 'pix' ? 'PIX' : u.last_payment_method === 'credit_card' ? 'cartão' : null;
+      return m ? `InfinitePay (${m})` : 'InfinitePay';
+    }
+    case 'manual': return 'Manual (pelo admin)';
+    case 'promo': return 'Bônus do admin';
+    case 'partner': return 'Parceiro';
+    case 'legacy': return 'Assinatura antiga no cartão';
+    default: break;
+  }
+  // Servidor ainda sem payment_source: deduz pelo que a conta tem.
+  if (partner || u.partner) return 'Parceiro';
+  if (u.pix_paid_until) return 'InfinitePay';
+  if (hasOldSubscription(u)) return u.current_period_end ? 'Assinatura antiga no cartão' : 'Manual (pelo admin)';
+  if (isFuture(u.comp_until)) return 'Bônus do admin';
+  return 'Nunca pagou';
+}
+
+/** "Pago até": o período pago novo, ou o da assinatura antiga. */
+function paidUntil(u: AdminUser): string | null {
+  if (u.pix_paid_until) return u.pix_paid_until;
+  return hasOldSubscription(u) ? u.current_period_end : null;
+}
+
+const PAYMENT_STATUS: Record<string, { label: string; cls: string }> = {
+  paid: { label: 'Pago', cls: 'bg-logic-lcd-green/15 text-logic-lcd-green' },
+  pending: { label: 'Aguardando', cls: 'bg-logic-lcd-amber/15 text-logic-lcd-amber' },
+  expired: { label: 'Link vencido', cls: 'bg-logic-bg-elevated text-logic-text-muted' },
+  canceled: { label: 'Link trocado', cls: 'bg-logic-bg-elevated text-logic-text-muted' },
+  amount_mismatch: { label: 'Valor diferente', cls: 'bg-logic-lcd-red/15 text-logic-lcd-red' },
+  refunded: { label: 'Estornado', cls: 'bg-logic-lcd-red/15 text-logic-lcd-red' },
+};
 
 /** Quanto tempo falta (ou já passou) até uma data, em dias+horas — o dado que o admin
  * precisa pra decidir, na hora, se estende o teste e quanto, sem fazer conta de cabeça. */
@@ -334,15 +379,16 @@ function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: Ad
               <dt className="text-logic-text-muted">Teste até</dt><dd>{dateTime(user.trial_ends_at)}</dd>
               <dt className="text-logic-text-muted">Bônus até</dt><dd>{dateTime(user.comp_until)}</dd>
               <dt className="text-logic-text-muted">Assinou em</dt><dd>{dateTime(user.subscribed_at)}</dd>
-              <dt className="text-logic-text-muted">Renovação</dt><dd>{dateTime(user.current_period_end)}</dd>
+              <dt className="text-logic-text-muted">Como paga</dt><dd>{howPays(user, partner)}</dd>
+              <dt className="text-logic-text-muted">Pago até</dt><dd>{dateTime(paidUntil(user))}</dd>
               <dt className="text-logic-text-muted">Usos (30 dias)</dt><dd className="tabular-nums">{num(user.uses_30d)}</dd>
             </dl>
-            {user.stripe_customer_id && (
+            {user.last_receipt_url && (
               <a
-                href={`https://dashboard.stripe.com/customers/${user.stripe_customer_id}`} target="_blank" rel="noreferrer"
+                href={user.last_receipt_url} target="_blank" rel="noreferrer"
                 className="mt-3 inline-flex items-center gap-1 text-xs text-logic-accent-hover hover:underline"
               >
-                <ExternalLink size={12} /> Ver no Stripe
+                <ExternalLink size={12} /> Ver comprovante
               </a>
             )}
           </div>
@@ -441,26 +487,45 @@ function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: Ad
             </form>
           </Section>
 
-          <Section icon={CreditCard} title="Assinatura manual" hint="Para quem pagou por fora do Stripe (Pix, transferência). Assinaturas do Stripe são atualizadas sozinhas.">
+          <Section icon={CreditCard} title="Assinatura manual"
+            hint="Para quem pagou por fora da InfinitePay (transferência, dinheiro). Soma 1 mês ou 1 ano ao período pago, igual a um pagamento: conta a partir de hoje ou do fim do período que ainda falta. Quem paga pela InfinitePay é liberado sozinho."
+          >
             <div className="flex flex-wrap gap-1.5">
-              {user.subscription !== 'active' ? (
-                <>
-                  <button className={btnGhost} disabled={!!busy} onClick={() => run('sm', () => adminApi.setSubscription(user.id, 'active', 'monthly'), 'Assinatura mensal ativada.')}>Ativar mensal</button>
-                  <button className={btnGhost} disabled={!!busy} onClick={() => run('sy', () => adminApi.setSubscription(user.id, 'active', 'yearly'), 'Assinatura anual ativada.')}>Ativar anual</button>
-                </>
-              ) : (
+              <button className={btnGhost} disabled={!!busy} onClick={() => run('gm', () => adminApi.grantPlan(user.id, 'monthly'), '1 mês somado ao período pago.')}>+1 mês</button>
+              <button className={btnGhost} disabled={!!busy} onClick={() => run('gy', () => adminApi.grantPlan(user.id, 'yearly'), '1 ano somado ao período pago.')}>+1 ano</button>
+              {isFuture(user.pix_paid_until) && (
                 <button
                   className={btnDanger} disabled={!!busy}
                   onClick={() => {
-                    if (!window.confirm(`Cancelar a assinatura de ${user.email}? Se ela for do Stripe, cancele também no painel do Stripe para parar a cobrança.`)) return;
-                    run('sc', () => adminApi.setSubscription(user.id, 'canceled'), 'Assinatura cancelada.');
+                    if (!window.confirm(`Cancelar a assinatura de ${user.email}? O programa para de liberar na hora. Não há cobrança automática a interromper: a InfinitePay só cobra quando a pessoa paga um link novo.`)) return;
+                    run('gr', () => adminApi.revokePlan(user.id), 'Período pago encerrado.');
                   }}
                 >
                   Cancelar assinatura
                 </button>
               )}
             </div>
+            {hasOldSubscription(user) && (
+              <div className="mt-3 pt-3 border-t border-logic-border space-y-2">
+                <p className="text-2xs text-logic-text-muted leading-snug">
+                  <span className="font-semibold text-logic-lcd-amber">Assinatura antiga</span>
+                  {user.current_period_end ? `, período até ${dateTime(user.current_period_end)}` : ', ativada à mão sem prazo'}.
+                  Ela vem do sistema de cobrança anterior. Para passar a pessoa para a InfinitePay, cancele aqui e some o tempo que ela já pagou.
+                </p>
+                <button
+                  className={btnDanger} disabled={!!busy}
+                  onClick={() => {
+                    if (!window.confirm(`Cancelar a assinatura antiga de ${user.email}? O programa para de liberar na hora (a não ser que ela tenha período pago pela InfinitePay). Se ainda houver cobrança no cartão pelo sistema antigo, cancele também lá.`)) return;
+                    run('sc', () => adminApi.setSubscription(user.id, 'canceled'), 'Assinatura antiga cancelada.');
+                  }}
+                >
+                  Cancelar assinatura antiga
+                </button>
+              </div>
+            )}
           </Section>
+
+          <PaymentsSection userId={user.id} busy={!!busy} onChanged={onChanged} />
 
           <Section icon={Ban} title={blocked ? 'Conta suspensa' : 'Derrubar usuário'} danger
             hint={blocked
@@ -518,5 +583,88 @@ function Section({ icon: Icon, title, hint, danger, children }: {
       {hint && <p className="text-2xs text-logic-text-muted mt-1 mb-3 leading-snug">{hint}</p>}
       {children}
     </section>
+  );
+}
+
+/** Pagamentos da conta pela InfinitePay, com o registro de estorno. */
+function PaymentsSection({ userId, busy, onChanged }: { userId: string; busy: boolean; onChanged: () => Promise<void> }) {
+  const [rows, setRows] = useState<UserPayment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [working, setWorking] = useState<string | null>(null);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = async () => {
+    setError(null);
+    try { setRows(await adminApi.userPayments(userId)); } catch (e) { setRows(null); setError(friendlyError((e as Error).message)); }
+  };
+  useEffect(() => { setRows(null); setMsg(null); load(); }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refund = async (p: UserPayment) => {
+    const reason = window.prompt(
+      `Registrar o estorno de ${money(p.paid_amount_cents ?? p.amount_cents)}? Faça o estorno primeiro no app da InfinitePay: aqui só tira o período da conta e cancela a comissão de afiliado ainda não paga. Motivo:`,
+    );
+    if (reason === null) return;
+    // Mesma regra do servidor (admin_pix_refund): o motivo precisa de pelo menos 3 letras.
+    if (reason.trim().length < 3) {
+      setMsg({ ok: false, text: friendlyError('reason_required') });
+      return;
+    }
+    setWorking(p.id);
+    setMsg(null);
+    try {
+      const res = await adminApi.refundPayment(p.id, reason.trim());
+      await Promise.all([load(), onChanged()]);
+      setMsg(res?.result === 'already_refunded'
+        ? { ok: true, text: 'Esse pagamento já estava estornado.' }
+        : { ok: true, text: 'Estorno registrado.' });
+    } catch (e) {
+      setMsg({ ok: false, text: friendlyError((e as Error).message) });
+    } finally {
+      setWorking(null);
+    }
+  };
+
+  return (
+    <Section icon={CreditCard} title="Pagamentos" hint="Pagamentos pela InfinitePay (PIX e cartão). O estorno é feito no app da InfinitePay; registre aqui para tirar o tempo da conta.">
+      {msg && <p className={`text-2xs mb-2 ${msg.ok ? 'text-logic-lcd-green' : 'text-logic-lcd-red'}`}>{msg.text}</p>}
+      {error ? (
+        <p className="text-2xs text-logic-text-muted">{error}</p>
+      ) : rows === null ? (
+        <p className="text-2xs text-logic-text-muted">Carregando…</p>
+      ) : rows.length === 0 ? (
+        <p className="text-2xs text-logic-text-muted">Nenhum pagamento pela InfinitePay.</p>
+      ) : (
+        <ul className="rounded-md border border-logic-border divide-y divide-logic-border/60 text-2xs">
+          {rows.map((p) => {
+            const st = PAYMENT_STATUS[p.status] ?? { label: p.status, cls: 'bg-logic-bg-elevated text-logic-text-muted' };
+            const method = paymentMethodLabel(p.capture_method, p.installments);
+            return (
+              <li key={p.id} className="px-3 py-2 space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className={`px-1.5 h-4 rounded text-[10px] font-bold inline-flex items-center ${st.cls}`}>{st.label}</span>
+                  <span className="font-semibold tabular-nums">{money(p.paid_amount_cents ?? p.amount_cents)}</span>
+                  <span className="text-logic-text-dim">{p.plan === 'yearly' ? 'Anual' : 'Mensal'}{method ? ` · ${method}` : ''}</span>
+                  <span className="ml-auto text-logic-text-muted">{dateTime(p.paid_at)}</span>
+                </div>
+                <div className="flex items-center gap-2 text-logic-text-muted">
+                  {p.coupon_code && <span>cupom {p.coupon_code}</span>}
+                  {p.access_until && <span>libera até {dateTime(p.access_until)}</span>}
+                  {p.receipt_url && (
+                    <a href={p.receipt_url} target="_blank" rel="noreferrer" className="text-logic-accent-hover hover:underline inline-flex items-center gap-0.5">
+                      comprovante <ExternalLink size={9} />
+                    </a>
+                  )}
+                  {p.status === 'paid' && (
+                    <button type="button" className={`${btnDanger} ml-auto h-6 px-2`} disabled={busy || !!working} onClick={() => refund(p)}>
+                      {working === p.id ? 'Registrando…' : 'Registrar estorno'}
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Section>
   );
 }

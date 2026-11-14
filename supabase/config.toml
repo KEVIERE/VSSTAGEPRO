@@ -56,6 +56,10 @@ verify_jwt = true
 [functions.asaas-webhook]
 verify_jwt = false
 
+# a InfinitePay não manda login do Supabase: a função confere o pagamento no /payment_check
+[functions.infinitepay-webhook]
+verify_jwt = false
+
 [functions.signup-phone]
 verify_jwt = false
 

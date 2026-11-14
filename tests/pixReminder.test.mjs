@@ -79,3 +79,14 @@ test('cada aviso tem chave própria (mesmo vencimento, dias diferentes)', () => 
   const b = { ...a, days: 2 };
   assert.notEqual(reminderKey(a), reminderKey(b));
 });
+
+test('e-mail: não diz que a assinatura é paga por PIX (quem pagou no cartão também recebe)', () => {
+  const [d] = dueReminders([row()], NOW);
+  const m = reminderEmail(d);
+  for (const parte of [m.html, m.text, m.subject]) {
+    assert.ok(!parte.includes('paga por PIX'));
+    assert.ok(!parte.includes('O PIX não renova sozinho'));
+  }
+  assert.ok(m.text.includes('nem no PIX nem no cartão'));
+  assert.ok(m.html.includes('não tem renovação automática'));
+});

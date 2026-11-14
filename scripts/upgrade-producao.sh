@@ -16,7 +16,10 @@ set -u
 BRANCH="feat/saidas-estereo"
 # Projeto em uso desde 26/10/2026. O antigo, xfpkftewsxaxycdwwnnv (vs-stage), está bloqueado.
 PROJECT_REF="eknjqqiamuztomdygalv"
-FUNCTIONS=("prompter-audio" "prompter-audio-sweep" "admin-promote" "admin-releases" "outreach-send" "outreach-unsubscribe" "twilio-inbound" "pix-renewal-reminder")
+FUNCTIONS=("infinitepay-webhook" "pix-checkout" "pix-renewal-reminder" "admin-insights" "health-check" "admin-coupons" "prompter-audio" "prompter-audio-sweep" "admin-promote" "admin-releases" "outreach-send" "outreach-unsubscribe" "twilio-inbound")
+# Funções chamadas sem login do Supabase (avisos de fora): publicadas com --no-verify-jwt,
+# mesmo que o config.toml já diga verify_jwt = false. Sem isso a InfinitePay recebe 401.
+NO_VERIFY_JWT=("infinitepay-webhook")
 
 cd "$(dirname "$0")/.." || exit 1
 SO_BACKEND=0
@@ -78,7 +81,9 @@ echo "banco atualizado"
 etapa "4. Publicando as Edge Functions"
 for fn in "${FUNCTIONS[@]}"; do
   echo "--- $fn"
-  supabase functions deploy "$fn" --project-ref "$PROJECT_REF" || falhou "deploy de $fn falhou"
+  EXTRA=()
+  for nv in "${NO_VERIFY_JWT[@]}"; do [ "$nv" = "$fn" ] && EXTRA=(--no-verify-jwt); done
+  supabase functions deploy "$fn" --project-ref "$PROJECT_REF" ${EXTRA[@]+"${EXTRA[@]}"} || falhou "deploy de $fn falhou"
 done
 echo "funções publicadas"
 

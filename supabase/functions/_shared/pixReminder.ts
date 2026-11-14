@@ -1,6 +1,7 @@
-// Aviso por e-mail quando faltam 3, 2 e 1 dia para o PIX vencer.
+// Aviso por e-mail quando faltam 3, 2 e 1 dia para o período pago vencer.
 //
-// Só para quem paga por PIX: o PIX não renova sozinho. Assinatura recorrente (cartão), parceiro,
+// Vale para quem pagou pela InfinitePay (PIX ou cartão) ou recebeu tempo manual do admin:
+// nenhum desses renova sozinho. A assinatura antiga com renovação automática, parceiro,
 // conta bloqueada e bônus do admin não recebem. Contas puras, sem rede (testadas em
 // tests/pixReminder.test.mjs); quem envia é a função pix-renewal-reminder.
 import { apoio, botao, moldura, paragrafo, titulo } from './emailSkin.ts';
@@ -19,7 +20,7 @@ export type ReminderCandidate = {
   name: string | null;
   plan: string | null;
   pix_paid_until: string | null;
-  /** 'active' = assinatura recorrente (cartão) */
+  /** 'active' = assinatura antiga com renovação automática */
   subscription: string | null;
   partner: boolean | null;
   blocked: boolean | null;
@@ -55,12 +56,12 @@ export function isSendingHour(now: Date): boolean {
   return h >= SEND_FROM_HOUR && h <= SEND_UNTIL_HOUR;
 }
 
-/** Quem recebe aviso agora: só PIX, ainda valendo, a 3, 2 ou 1 dia de vencer. */
+/** Quem recebe aviso agora: período pago ainda valendo, a 3, 2 ou 1 dia de vencer. */
 export function dueReminders(rows: ReminderCandidate[], now: Date): DueReminder[] {
   const out: DueReminder[] = [];
   for (const r of rows) {
     if (!r.email || !r.pix_paid_until) continue;
-    if (r.subscription === 'active') continue; // recorrente: renova sozinho
+    if (r.subscription === 'active') continue; // assinatura antiga: renova sozinha
     if (r.partner || r.blocked) continue;
     const end = new Date(r.pix_paid_until);
     if (!Number.isFinite(end.getTime()) || end.getTime() <= now.getTime()) continue;
@@ -94,16 +95,16 @@ export function reminderEmail(r: DueReminder): { subject: string; html: string; 
   const subject = `Sua assinatura do VS Stage Pro vence ${whenText(r.days)}`;
   const html = moldura(
     titulo(`Sua assinatura vence ${whenText(r.days)}`)
-    + paragrafo(`${hello} Sua assinatura paga por PIX vale até <strong style="color:#e7e2d6;">${due}</strong> (horário de Brasília).`)
-    + paragrafo('O PIX não renova sozinho. Renove antes para não ficar sem o programa: o tempo novo entra depois do que ainda falta, você não perde nenhum dia.')
+    + paragrafo(`${hello} Sua assinatura vale até <strong style="color:#e7e2d6;">${due}</strong> (horário de Brasília).`)
+    + paragrafo('O pagamento não renova sozinho, nem no PIX nem no cartão. Renove antes para não ficar sem o programa: o tempo novo entra depois do que ainda falta, você não perde nenhum dia.')
     + botao('Renovar assinatura', RENEW_URL)
     + apoio('Vai tocar sem internet? Renove antes do show: sem internet, o programa para na data do vencimento. Também dá para renovar pelo botão Renovar, no alto do programa.'),
-    { tipo: 'acao', rodape: 'Você recebe este aviso porque sua assinatura do VS Stage Pro é paga por PIX. Se já renovou, pode ignorar.' },
+    { tipo: 'acao', rodape: 'Você recebe este aviso porque sua assinatura do VS Stage Pro não tem renovação automática. Se já renovou, pode ignorar.' },
   );
   const text = [
     first ? `Olá, ${first}.` : 'Olá.',
-    `Sua assinatura do VS Stage Pro paga por PIX vale até ${due} (horário de Brasília).`,
-    'O PIX não renova sozinho. Renove antes para não ficar sem o programa: o tempo novo entra depois do que ainda falta.',
+    `Sua assinatura do VS Stage Pro vale até ${due} (horário de Brasília).`,
+    'O pagamento não renova sozinho, nem no PIX nem no cartão. Renove antes para não ficar sem o programa: o tempo novo entra depois do que ainda falta.',
     `Renovar: ${RENEW_URL}`,
     'Vai tocar sem internet? Renove antes do show: sem internet, o programa para na data do vencimento.',
     'Se já renovou, pode ignorar.',

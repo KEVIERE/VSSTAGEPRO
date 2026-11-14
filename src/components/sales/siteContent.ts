@@ -224,6 +224,6 @@ export const FAQS = [
   },
   {
     q: 'Posso cancelar quando quiser?',
-    a: 'Sim. O plano mensal não tem fidelidade nem multa: você cancela quando quiser e o acesso continua até o fim do mês já pago.',
+    a: 'Sim. O plano mensal não tem fidelidade, multa nem cobrança automática: cada pagamento libera 1 mês e, se não renovar, o acesso vai até o fim do mês já pago.',
   },
 ];

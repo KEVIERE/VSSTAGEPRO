@@ -1,6 +1,7 @@
 // Acesso ao banco usado pelas duas funções do PIX (sempre com o service role).
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4';
 import type { ApplyResult } from './asaasWebhook.ts';
+import type { Confirmation } from './infinitepay.ts';
 
 export async function applyPixPayment(admin: SupabaseClient, asaasPaymentId: string, paidCents: number): Promise<ApplyResult> {
   const { data, error } = await admin.rpc('pix_apply_payment', { p_asaas_payment_id: asaasPaymentId, p_paid_cents: paidCents });
@@ -8,10 +9,25 @@ export async function applyPixPayment(admin: SupabaseClient, asaasPaymentId: str
   return data as ApplyResult;
 }
 
-/** Libera o plano pelo pedido (order_nsu), usado pela InfinitePay. */
-export async function applyPaymentByOrder(admin: SupabaseClient, orderNsu: string, paidCents: number | null): Promise<ApplyResult> {
-  const { data, error } = await admin.rpc('pix_apply_payment_by_order', { p_order_nsu: orderNsu, p_paid_cents: paidCents });
-  if (error) throw new Error(`pix_apply_payment_by_order: ${error.message}`);
+/**
+ * Libera o plano pelo pedido (order_nsu), usado pela InfinitePay. Chama
+ * pix_confirm_payment, que grava os códigos e a forma de pagamento já conferidos
+ * no /payment_check, recusa uma transação que já pagou outro pedido
+ * ('transaction_reused') e só então libera o tempo (pix_apply_payment_by_order).
+ */
+export async function applyPaymentByOrder(
+  admin: SupabaseClient, orderNsu: string, paidCents: number | null, confirmation?: Partial<Confirmation>,
+): Promise<ApplyResult> {
+  const { data, error } = await admin.rpc('pix_confirm_payment', {
+    p_order_nsu: orderNsu,
+    p_paid_cents: paidCents,
+    p_transaction_nsu: confirmation?.transactionNsu ?? null,
+    p_slug: confirmation?.slug ?? null,
+    p_capture_method: confirmation?.captureMethod ?? null,
+    p_installments: confirmation?.installments ?? null,
+    p_receipt_url: confirmation?.receiptUrl ?? null,
+  });
+  if (error) throw new Error(`pix_confirm_payment: ${error.message}`);
   return data as ApplyResult;
 }
 

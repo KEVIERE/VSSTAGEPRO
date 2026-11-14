@@ -1,4 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { INFINITEPAY_API_BASE } from "../_shared/infinitepay.ts";
+import { type InfinitePayApiProbe, infinitePayHealth } from "../_shared/infinitepayHealth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -79,24 +81,73 @@ async function checkResend(): Promise<CheckResult> {
   }
 }
 
-// 3. Stripe check
-async function checkStripe(): Promise<CheckResult> {
+// 3. InfinitePay (PIX e cartão). Nunca cria link: só confere em modo leitura o último
+// pedido pago, ou se o servidor deles responde quando ainda não há pedido pago.
+async function checkInfinitePay(): Promise<CheckResult> {
   const t0 = Date.now();
-  const key = Deno.env.get("STRIPE_SECRET_KEY");
-  if (!key) {
-    return { service: "stripe", status: "degraded", latencyMs: 0, detail: "STRIPE_SECRET_KEY não configurada" };
-  }
+  const apiKey = Deno.env.get("INFINITEPAY_API_KEY") ?? "";
+  const handle = Deno.env.get("INFINITEPAY_HANDLE") ?? "";
+  const webhookUrl = Deno.env.get("INFINITEPAY_WEBHOOK_URL") ?? "";
+  const now = new Date();
+  const since24h = new Date(now.getTime() - 24 * 3600_000).toISOString();
+  const since7d = new Date(now.getTime() - 7 * 86400_000).toISOString();
+
   try {
-    const res = await fetch("https://api.stripe.com/v1/balance", {
-      headers: { Authorization: `Bearer ${key}` },
-    });
-    const latency = Date.now() - t0;
-    if (res.ok) {
-      return { service: "stripe", status: "up", latencyMs: latency, detail: "API Stripe e pagamentos operando" };
+    const [lastPaid, expired, mismatch, lastHook] = await Promise.all([
+      admin.from("pix_payments")
+        .select("order_nsu, transaction_nsu, invoice_slug, paid_at")
+        .eq("provider", "infinitepay").eq("status", "paid")
+        .order("paid_at", { ascending: false }).limit(1).maybeSingle(),
+      admin.from("pix_payments").select("id", { count: "exact", head: true })
+        .eq("provider", "infinitepay").in("status", ["pending", "expired"])
+        .lt("expires_at", now.toISOString()).gte("expires_at", since24h),
+      admin.from("pix_payments").select("id", { count: "exact", head: true })
+        .eq("status", "amount_mismatch").gte("updated_at", since7d),
+      admin.from("webhook_events_log").select("created_at")
+        .eq("source", "infinitepay").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    ]);
+
+    let api: InfinitePayApiProbe | null = null;
+    if (apiKey || handle) {
+      const row = lastPaid.data as { order_nsu: string | null; transaction_nsu: string | null; invoice_slug: string | null } | null;
+      try {
+        let res: Response;
+        if (row?.order_nsu && row.transaction_nsu && row.invoice_slug) {
+          res = await fetch(`${INFINITEPAY_API_BASE}/payment_check`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...(apiKey ? { "X-Api-Key": apiKey } : {}) },
+            body: JSON.stringify({
+              handle: handle || undefined,
+              order_nsu: row.order_nsu,
+              transaction_nsu: row.transaction_nsu,
+              slug: row.invoice_slug,
+            }),
+            signal: AbortSignal.timeout(8_000),
+          });
+          api = { ok: res.ok, status: res.status };
+        } else {
+          // Sem pedido pago para conferir: qualquer resposta HTTP mostra que o servidor está no ar.
+          res = await fetch(`${INFINITEPAY_API_BASE}/`, { method: "GET", signal: AbortSignal.timeout(8_000) });
+          api = { ok: true, status: res.status < 500 ? 200 : res.status };
+        }
+        await res.body?.cancel();
+      } catch (e) {
+        api = { ok: false, status: null, error: (e as Error).message };
+      }
     }
-    return { service: "stripe", status: "down", latencyMs: latency, detail: `Stripe retornou HTTP ${res.status}` };
+
+    return infinitePayHealth({
+      env: { apiKey: !!apiKey, handle: !!handle, webhookUrl: !!webhookUrl },
+      lastPaidAt: (lastPaid.data as { paid_at?: string } | null)?.paid_at ?? null,
+      lastWebhookAt: (lastHook.data as { created_at?: string } | null)?.created_at ?? null,
+      expiredUnpaid24h: expired.count ?? 0,
+      mismatch7d: mismatch.count ?? 0,
+      api,
+      latencyMs: Date.now() - t0,
+      now,
+    });
   } catch (e) {
-    return { service: "stripe", status: "down", latencyMs: Date.now() - t0, detail: (e as Error).message };
+    return { service: "infinitepay", status: "down", latencyMs: Date.now() - t0, detail: (e as Error).message };
   }
 }
 
@@ -150,7 +201,7 @@ Deno.serve(async (req) => {
   const results = await Promise.all([
     checkSupabase(),
     checkResend(),
-    checkStripe(),
+    checkInfinitePay(),
     checkReplicate(),
     checkGitHub(),
   ]);

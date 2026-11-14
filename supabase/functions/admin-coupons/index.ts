@@ -1,12 +1,20 @@
-import Stripe from "npm:stripe@17.7.0";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
-// Backoffice: cria/desativa cupons de desconto nativos do Stripe.
-//  - action "create":      cria um stripe.coupons (percent_off) + stripe.promotionCodes
-//    com o mesmo texto que o admin digitou, para o cliente usar direto no checkout.
-//  - action "deactivate":  desativa o promotion code no Stripe (ex.: quando o admin
-//    apaga/desativa o código correspondente em promo_codes).
-// Confere admin via RPC (mesma regra de app_admins usada no resto do backoffice).
+// Backoffice: cupons de desconto. NÃO fala mais com o Stripe.
+//
+// O desconto vale no pagamento pela InfinitePay (PIX e cartão): o pix-checkout confere o
+// cupom em promo_codes e já gera o link com o valor descontado. Por isso nada precisa ser
+// criado fora do nosso banco.
+//
+// A tela nova cria o cupom direto pela RPC admin_discount_create e não chama esta função.
+// Ela continua no ar só para a tela antiga do admin, que chama "create" antes de gravar o
+// cupom e "deactivate" ao desligar:
+//  - action "create":     confere admin, código e percentual (1 a 90) e se o código está
+//    livre. Não grava nada: quem grava é o admin_promo_create logo em seguida. Devolve os
+//    campos stripe* vazios, como a tela antiga espera.
+//  - action "deactivate": não há nada fora do banco para desligar. O cupom deixa de valer
+//    quando a tela desliga ou apaga o código em promo_codes.
+// Pode ser despublicada quando a tela nova do admin estiver no ar.
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,8 +29,8 @@ function json(body: unknown, status = 200) {
   });
 }
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  httpClient: Stripe.createFetchHttpClient(),
+const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, {
+  auth: { persistSession: false },
 });
 
 async function callerIsAdmin(req: Request): Promise<boolean> {
@@ -44,36 +52,22 @@ async function create(req: Request, body: Record<string, unknown>) {
 
   const code = String(body.code ?? "").trim().toUpperCase();
   const percent = Number(body.percent);
-  const maxUses = body.maxUses != null ? Number(body.maxUses) : null;
-  const expiresAt = body.expiresAt ? String(body.expiresAt) : null;
-  if (!/^[A-Z0-9_-]{3,32}$/.test(code) || !Number.isFinite(percent) || percent < 1 || percent > 100) {
+  // Até 90%: acima disso o valor cairia abaixo do mínimo de cobrança (R$ 5,00).
+  if (!/^[A-Z0-9_-]{3,32}$/.test(code) || !Number.isInteger(percent) || percent < 1 || percent > 90) {
     return json({ error: "invalid_value" }, 400);
   }
 
-  const coupon = await stripe.coupons.create({
-    percent_off: percent,
-    duration: "once",
-    name: `VS Stage — ${code}`,
-    ...(maxUses ? { max_redemptions: maxUses } : {}),
-    ...(expiresAt ? { redeem_by: Math.floor(new Date(expiresAt).getTime() / 1000) } : {}),
-  });
+  const [{ data: promo }, { data: aff }] = await Promise.all([
+    admin.from("promo_codes").select("code").eq("code", code).maybeSingle(),
+    admin.from("affiliates").select("code").eq("code", code).maybeSingle(),
+  ]);
+  if (promo || aff) return json({ error: "promo_exists" }, 409);
 
-  const promotionCode = await stripe.promotionCodes.create({
-    coupon: coupon.id,
-    code,
-    ...(maxUses ? { max_redemptions: maxUses } : {}),
-    ...(expiresAt ? { expires_at: Math.floor(new Date(expiresAt).getTime() / 1000) } : {}),
-  });
-
-  return json({ ok: true, stripeCouponId: coupon.id, stripePromotionCodeId: promotionCode.id });
+  return json({ ok: true, stripeCouponId: null, stripePromotionCodeId: null });
 }
 
-async function deactivate(req: Request, body: Record<string, unknown>) {
+async function deactivate(req: Request) {
   if (!(await callerIsAdmin(req))) return json({ error: "not_allowed" }, 403);
-
-  const id = String(body.stripePromotionCodeId ?? "");
-  if (!id) return json({ error: "invalid_value" }, 400);
-  await stripe.promotionCodes.update(id, { active: false });
   return json({ ok: true });
 }
 
@@ -90,7 +84,7 @@ Deno.serve(async (req) => {
 
   try {
     if (body.action === "create") return await create(req, body);
-    if (body.action === "deactivate") return await deactivate(req, body);
+    if (body.action === "deactivate") return await deactivate(req);
     return json({ error: "invalid_action" }, 400);
   } catch (e) {
     console.error("admin-coupons", e);

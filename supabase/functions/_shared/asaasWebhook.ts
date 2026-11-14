@@ -4,7 +4,7 @@ import { asaasPaymentKind, centsFromReais, safeEqual } from './pix.ts';
 import type { AsaasPayment } from './asaas.ts';
 
 export type ApplyResult = {
-  result: 'activated' | 'already_paid' | 'amount_mismatch' | 'unknown_payment';
+  result: 'activated' | 'already_paid' | 'amount_mismatch' | 'unknown_payment' | 'transaction_reused';
   user_id?: string;
   access_until?: string;
   expected_cents?: number;

@@ -8,15 +8,17 @@
 //
 // Diferença em relação ao Asaas: a InfinitePay não devolve QR Code nem
 // copia-e-cola. Ela devolve uma URL de checkout para onde o cliente é enviado,
-// e lá ele escolhe PIX ou cartão. A confirmação principal chega pelo webhook
+// e lá ele escolhe PIX ou cartão. Os dois são pagamento único: nada renova sozinho. A confirmação principal chega pelo webhook
 // (infinitepay-webhook); o 'status' também confere direto, para liberar mesmo
 // se um aviso se perder.
 import { createClient, type User } from 'npm:@supabase/supabase-js@2.57.4';
-import { InfinitePayError, infinitePayClient } from '../_shared/infinitepay.ts';
+import {
+  type Confirmation, InfinitePayError, infinitePayClient, normalizeCaptureMethod, normalizeInstallments,
+} from '../_shared/infinitepay.ts';
 import {
   MIN_PIX_CENTS, PIX_PLANS, type Plan, discountedCents, pixLinkExpiresAt, reusableLink, statusCheckPlan,
 } from '../_shared/pix.ts';
-import { applyPaymentByOrder, setInfinitePayIds } from '../_shared/pixDb.ts';
+import { applyPaymentByOrder } from '../_shared/pixDb.ts';
 import { couponRefusal } from '../_shared/affiliate.ts';
 
 const corsHeaders = {
@@ -54,6 +56,8 @@ type PixRow = {
   provider: string | null; checkout_url: string | null; order_nsu: string | null;
   transaction_nsu: string | null; invoice_slug: string | null;
   expires_at: string; checked_at: string | null; access_until: string | null;
+  coupon_code: string | null; discount_percent: number | null; full_cents: number | null;
+  capture_method: string | null; installments: number | null;
 };
 
 /** Códigos da InfinitePay que a página de volta recebeu no endereço. */
@@ -63,13 +67,22 @@ function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
-/** O que a tela recebe. `checkoutUrl` é o que ela abre em vez de desenhar um QR Code. */
+/** O que a tela recebe. `checkout_url` é a página da InfinitePay que ela abre. */
 function view(row: PixRow) {
   const pending = row.status === 'pending';
+  const percent = Math.max(0, Number(row.discount_percent) || 0);
   return {
     id: row.id,
     plan: row.plan,
+    // valor final cobrado (já com o cupom)
     amount_cents: row.amount_cents,
+    // preço cheio do plano, para a tela mostrar o desconto
+    full_cents: row.full_cents ?? PIX_PLANS[row.plan]?.cents ?? row.amount_cents,
+    discount_percent: row.coupon_code ? percent : 0,
+    coupon_code: row.coupon_code ?? null,
+    // 'pix' ou 'credit_card', conferido no /payment_check (null até confirmar)
+    capture_method: normalizeCaptureMethod(row.capture_method),
+    installments: row.installments ?? null,
     status: row.status,
     expires_at: row.expires_at,
     access_until: row.access_until,
@@ -91,7 +104,7 @@ function view(row: PixRow) {
  * ou no endereço da página de volta. Os da página de volta só são usados quando
  * ainda não temos os do aviso, e só são guardados se a InfinitePay confirmar.
  */
-async function confirmado(row: PixRow, ids?: Ids): Promise<{ pago: boolean; valor: number | null }> {
+async function confirmado(row: PixRow, ids?: Ids): Promise<{ pago: boolean; valor: number | null; conf: Confirmation | null }> {
   const orderNsu = row.order_nsu!;
   const transactionNsu = row.transaction_nsu ?? ids?.transactionNsu;
   const slug = row.invoice_slug ?? ids?.slug;
@@ -103,15 +116,31 @@ async function confirmado(row: PixRow, ids?: Ids): Promise<{ pago: boolean; valo
     slug: slug ?? undefined,
   });
 
-  if (!r.paid) return { pago: false, valor: null };
-  // Confirmado com os códigos da página de volta: guarda, agora que valem.
-  if (transactionNsu !== (row.transaction_nsu ?? undefined) || slug !== (row.invoice_slug ?? undefined)) {
-    await setInfinitePayIds(admin, orderNsu, transactionNsu ?? null, slug ?? null)
-      .catch((e) => console.error('pix-checkout ids', orderNsu, e instanceof Error ? e.message : e));
-  }
+  if (!r.paid) return { pago: false, valor: null, conf: null };
   // `paid_amount` pode ser maior que `amount` quando o cliente parcela com as
   // taxas repassadas: vale o que ele pagou, não o valor combinado.
-  return { pago: true, valor: Math.round(r.paid_amount ?? r.amount ?? 0) };
+  // Os códigos usados na consulta e a forma de pagamento confirmada são gravados
+  // junto com a liberação (pix_confirm_payment), agora que a InfinitePay confirmou.
+  return {
+    pago: true,
+    valor: Math.round(r.paid_amount ?? r.amount ?? 0),
+    conf: {
+      transactionNsu: transactionNsu ?? null,
+      slug: slug ?? null,
+      captureMethod: normalizeCaptureMethod(r.capture_method),
+      installments: normalizeInstallments(r.installments),
+      receiptUrl: null,
+    },
+  };
+}
+
+/** Libera pelo banco e avisa no log quando a transação já pagou outro pedido. */
+async function aplicar(orderNsu: string, valor: number | null, conf: Confirmation | null) {
+  const r = await applyPaymentByOrder(admin, orderNsu, valor, conf ?? undefined);
+  if (r.result === 'transaction_reused') {
+    console.error('pix-checkout transacao ja usada em outro pedido, nao liberado', orderNsu);
+  }
+  return r;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -132,7 +161,7 @@ async function refresh(row: PixRow, ids?: Ids): Promise<PixRow> {
   await admin.from('pix_payments').update({ checked_at: nowIso() }).eq('id', row.id);
   try {
     const c = await confirmado(row, ids);
-    if (c.pago) await applyPaymentByOrder(admin, row.order_nsu!, c.valor);
+    if (c.pago) await aplicar(row.order_nsu!, c.valor, c.conf);
     else if (plan.expire) await markClosed(row.id, 'expired');
   } catch (e) {
     console.error('pix-checkout status', row.order_nsu, e);
@@ -172,13 +201,19 @@ async function create(user: User, body: Record<string, unknown>) {
 
   const { data: lic, error: licErr } = await admin
     .from('director_licenses')
-    .select('subscription, blocked')
+    .select('subscription, blocked, current_period_end')
     .eq('user_id', user.id)
     .maybeSingle();
   if (licErr) throw licErr;
   if (lic?.blocked) return json({ error: 'blocked' }, 403);
-  // assinatura no cartão (Stripe) já ativa: não cobra de novo
-  if (lic?.subscription === 'active') return json({ error: 'already_active' }, 409);
+  // Assinatura antiga ou manual já ativa: não cobra de novo. Uma assinatura antiga
+  // com o período já vencido não trava: a pessoa pode pagar pela InfinitePay.
+  if (lic?.subscription === 'active') {
+    const end = lic.current_period_end ? Date.parse(String(lic.current_period_end)) : NaN;
+    if (!lic.current_period_end || !Number.isFinite(end) || end > Date.now()) {
+      return json({ error: 'already_active' }, 409);
+    }
+  }
 
   // Cupom: confere no nosso banco, nunca confia no desconto que a tela diz ter.
   // A conferência é feita para ESTA conta: cupom de afiliado vale só no primeiro
@@ -202,13 +237,13 @@ async function create(user: User, body: Record<string, unknown>) {
   const amount = discountedCents(PIX_PLANS[plan].cents, percent);
   if (amount < MIN_PIX_CENTS) return json({ error: 'amount_too_low' }, 400);
 
-  // Link igual ainda aberto (mesmo plano e valor) e com pelo menos 10 min pela
+  // Link igual ainda aberto (mesmo plano, valor e cupom) e com pelo menos 10 min pela
   // frente: reaproveita em vez de gerar outro (ver reusableLink).
   const { data: openRows, error: openErr } = await admin
     .from('pix_payments').select('*').eq('user_id', user.id).eq('status', 'pending').order('created_at', { ascending: false });
   if (openErr) throw openErr;
   const open = (openRows ?? []) as PixRow[];
-  const reuse = reusableLink(open, plan, amount, Date.now());
+  const reuse = reusableLink(open, plan, amount, Date.now(), couponCode);
   if (reuse) return json(view(reuse));
   // Só um link pagável por vez: os outros desta conta deixam de valer aqui.
   // (A InfinitePay não permite cancelar um link pela API; ele apenas expira.
@@ -220,7 +255,7 @@ async function create(user: User, body: Record<string, unknown>) {
       try {
         const c = await confirmado(r);
         if (c.pago) {
-          await applyPaymentByOrder(admin, r.order_nsu, c.valor);
+          await aplicar(r.order_nsu, c.valor, c.conf);
           const done = await loadRow(r.id, user.id);
           if (done && done.status !== 'pending') return json(view(done));
         }
@@ -238,6 +273,8 @@ async function create(user: User, body: Record<string, unknown>) {
     .from('pix_payments')
     .insert({
       user_id: user.id, plan, amount_cents: amount, coupon_code: couponCode,
+      // gravados no pedido: o uso do cupom só conta quando o pagamento é confirmado
+      discount_percent: couponCode ? percent : null, full_cents: PIX_PLANS[plan].cents,
       expires_at: expiresAt.toISOString(), provider: 'infinitepay', order_nsu: orderNsu,
     })
     .select('*')
@@ -251,7 +288,7 @@ async function create(user: User, body: Record<string, unknown>) {
       items: [{
         quantity: 1,
         price: amount,
-        description: PIX_PLANS[plan].description + (couponCode ? ` — cupom ${couponCode}` : ''),
+        description: PIX_PLANS[plan].description + (couponCode ? ` (cupom ${couponCode})` : ''),
       }],
       order_nsu: orderNsu,
       // A página de volta confere este pedido sozinha. A InfinitePay acrescenta

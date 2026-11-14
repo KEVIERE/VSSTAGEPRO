@@ -36,9 +36,26 @@ const CODES: Record<string, string> = {
   upload_failed: 'Falha ao enviar o arquivo. Confira a internet e tente de novo.',
   request_failed: 'Não foi possível concluir. Tente de novo.',
   not_authenticated: 'Sua sessão expirou. Entre de novo.',
+  // Pagamentos pela InfinitePay, cupons e estorno (admin)
+  reason_required: 'Escreva o motivo do estorno (pelo menos 3 letras).',
+  not_paid: 'Só dá para registrar estorno de pagamento confirmado.',
+  already_refunded: 'Esse pagamento já estava estornado.',
+  transaction_reused: 'Esse código de pagamento já foi usado em outro pedido. Nada foi liberado.',
+  unknown_payment: 'Pagamento não encontrado.',
+  amount_mismatch: 'O valor pago é menor que o combinado. O pagamento ficou para conferência.',
+  invalid_discount: 'O desconto precisa ser de 1% a 90%.',
+  promo_affiliate: 'Cupom de afiliado: ajuste pela aba Afiliados.',
+  coupon_first_payment_only: 'Esse cupom vale só no primeiro pagamento.',
+  coupon_own: 'Você não pode usar o seu próprio cupom.',
+  amount_too_low: 'Com esse cupom o valor fica abaixo do mínimo permitido (R$ 5,00).',
+  pix_not_configured: 'O pagamento ainda não está disponível. Tente mais tarde ou fale com o suporte.',
+  pix_failed: 'Não foi possível abrir o pagamento agora. Tente de novo em instantes.',
+  blocked: 'Esta conta está suspensa. Fale com o suporte.',
 };
 
 const RULES: Array<[RegExp, string]> = [
+  // RPC que ainda não foi criada no banco (migração não aplicada).
+  [/could not find the function|pgrst202/i, 'Essa ação ainda não está disponível no servidor. Aplique a atualização do banco e tente de novo.'],
   [/checkout.?failed/i, 'Não foi possível abrir a tela de pagamento. Tente novamente em instantes.'],
   [/quota|no space|enospc|disk.?full|storage.*(full|exceed)/i,
     'O disco do Mac ficou sem espaço. Libere espaço (por exemplo, esvaziando a Lixeira) ou escolha outro disco e tente de novo.'],

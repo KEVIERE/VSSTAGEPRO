@@ -103,6 +103,30 @@ test('reaproveita o link aberto só com pelo menos 10 minutos pela frente', () =
   assert.equal(reusableLink([link(5, { id: 'a' }), ok], 'monthly', 5500, now), ok);
 });
 
+test('reaproveita o link aberto só com o mesmo cupom', () => {
+  const now = Date.parse('2026-11-10T17:00:00Z');
+  const link = (extra = {}) => ({
+    plan: 'monthly', amount_cents: 4950, checkout_url: 'https://checkout/x',
+    expires_at: new Date(now + 25 * MIN).toISOString(), ...extra,
+  });
+  const comA = link({ coupon_code: 'CUPOMA' });
+  // mesmo valor (os dois cupons dão 10%), cupom diferente: gera outro
+  assert.equal(reusableLink([comA], 'monthly', 4950, now, 'CUPOMB'), undefined);
+  assert.equal(reusableLink([comA], 'monthly', 4950, now, null), undefined);
+  assert.equal(reusableLink([comA], 'monthly', 4950, now), undefined);
+  assert.equal(reusableLink([comA], 'monthly', 4950, now, 'CUPOMA'), comA);
+  // sem cupom: null e campo ausente contam como iguais
+  const semCupom = link({ coupon_code: null });
+  assert.equal(reusableLink([semCupom], 'monthly', 4950, now, null), semCupom);
+  const semCampo = link();
+  assert.equal(reusableLink([semCampo], 'monthly', 4950, now), semCampo);
+  assert.equal(reusableLink([semCampo], 'monthly', 4950, now, null), semCampo);
+  assert.equal(reusableLink([semCupom], 'monthly', 4950, now, 'CUPOMA'), undefined);
+  // escolhe o do cupom certo entre vários
+  const comB = link({ coupon_code: 'CUPOMB', id: 'b' });
+  assert.equal(reusableLink([comA, comB], 'monthly', 4950, now, 'CUPOMB'), comB);
+});
+
 test('consulta de status: vencido sem pagamento vira vencido', () => {
   const now = Date.parse('2026-11-10T17:00:00Z');
   const row = (status, expiresInMin, checkedAgoS = null) => ({

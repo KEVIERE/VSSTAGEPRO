@@ -3,12 +3,13 @@
 // O fluxo é diferente do Asaas: a InfinitePay não devolve o QR Code do PIX nem o
 // código copia-e-cola. Ela cria um LINK de pagamento e o cliente paga lá dentro,
 // escolhendo PIX ou cartão. Por isso a tela do site redireciona em vez de mostrar
-// o QR — é o único jeito com a API deles.
+// o QR: é o único jeito com a API deles.
 //
 // Sem sandbox: o botão "Testar API" da documentação cria um link REAL na conta.
 // O teste é um pagamento de R$ 1,00, estornado depois pelo app.
 
-const BASE = 'https://api.checkout.infinitepay.io';
+export const INFINITEPAY_API_BASE = 'https://api.checkout.infinitepay.io';
+const BASE = INFINITEPAY_API_BASE;
 
 export class InfinitePayError extends Error {
   // Campos atribuídos no corpo (e não como "parameter property"): o Node roda os
@@ -88,6 +89,53 @@ export type WebhookBody = {
   order_nsu?: string;
   receipt_url?: string;
   items?: unknown[];
+};
+
+/** Forma de pagamento que guardamos: 'pix', 'credit_card' ou null (desconhecida). */
+export type CaptureMethod = 'pix' | 'credit_card';
+
+/**
+ * Normaliza o capture_method que o /payment_check devolve. Só 'pix' e 'credit_card'
+ * entram no banco; qualquer outro texto vira null, para a tela não mostrar lixo.
+ */
+export function normalizeCaptureMethod(value: unknown): CaptureMethod | null {
+  const v = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (v === 'pix') return 'pix';
+  if (v === 'credit_card' || v === 'credit' || v === 'card') return 'credit_card';
+  return null;
+}
+
+/** Número de parcelas entre 1 e 24, ou null. */
+export function normalizeInstallments(value: unknown): number | null {
+  const n = Math.round(Number(value));
+  return Number.isFinite(n) && n >= 1 && n <= 24 ? n : null;
+}
+
+/**
+ * Comprovante que o aviso traz. O aviso não tem assinatura, então só aceitamos um
+ * endereço https da própria InfinitePay: um aviso forjado não consegue pôr um link
+ * qualquer no painel do admin.
+ */
+export function safeReceiptUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 500) return null;
+  try {
+    const u = new URL(value);
+    const host = u.hostname.toLowerCase();
+    const ours = host === 'infinitepay.io' || host.endsWith('.infinitepay.io')
+      || host === 'infinitepay.com.br' || host.endsWith('.infinitepay.com.br');
+    return u.protocol === 'https:' && ours ? u.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** O que o servidor grava junto com a liberação: sempre vindo da conferência, nunca do aviso. */
+export type Confirmation = {
+  transactionNsu: string | null;
+  slug: string | null;
+  captureMethod: CaptureMethod | null;
+  installments: number | null;
+  receiptUrl: string | null;
 };
 
 export function infinitePayClient(apiKey: string, fetchFn: typeof fetch = fetch) {

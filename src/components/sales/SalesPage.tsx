@@ -852,7 +852,7 @@ function PlansSection() {
           <div className="vs-plan vs-panel">
             <h3 className="vs-display text-[1.6rem]">Mensal</h3>
             <p><span className="vs-display text-[3.4rem] leading-none">{PRICES.monthly}</span><span className="text-[color:var(--cream-dim)]"> por mês</span></p>
-            <p className="vs-body">Sem fidelidade. Cancele quando quiser.</p>
+            <p className="vs-body">Sem fidelidade e sem cobrança automática.</p>
             <button type="button" onClick={goPlans} className="vs-key vs-key-steel mt-auto self-start">Assinar o mensal</button>
           </div>
           <div className="vs-plan vs-panel is-best">

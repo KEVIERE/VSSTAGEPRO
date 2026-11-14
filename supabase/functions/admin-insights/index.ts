@@ -1,4 +1,5 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
+import { latestPaymentByUser, subscriberAccess, type InsightPayment } from "../_shared/subscriberInsight.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -137,13 +138,21 @@ Deno.serve(async (req) => {
 
   // Ação Principal: Overview detalhado com Assinantes, Testes e Antifraude
   try {
-    const [usersRes, licRes] = await Promise.all([
+    const [usersRes, licRes, payRes] = await Promise.all([
       admin.auth.admin.listUsers({ perPage: 1000 }),
       admin.from("director_licenses").select("*"),
+      // Último pagamento confirmado pela InfinitePay de cada conta (forma, parcelas, comprovante).
+      admin.from("pix_payments")
+        .select("user_id, plan, amount_cents, paid_amount_cents, capture_method, installments, receipt_url, paid_at")
+        .eq("status", "paid")
+        .order("paid_at", { ascending: false })
+        .limit(5000),
     ]);
 
     const users = usersRes.data?.users || [];
     const licenses = (licRes.data as Array<Record<string, unknown>>) || [];
+    if (payRes.error) console.error("admin-insights pix_payments:", payRes.error.message);
+    const lastPay = latestPaymentByUser(((payRes.data ?? []) as Array<InsightPayment & { user_id: string }>));
 
     const licMap = new Map<string, Record<string, unknown>>();
     licenses.forEach((l) => licMap.set(String(l.user_id), l));
@@ -173,47 +182,43 @@ Deno.serve(async (req) => {
       }
 
       const sub = l?.subscription as string | undefined;
-      const compUntil = l?.comp_until ? new Date(String(l.comp_until)) : null;
       const trialStarted = l?.trial_started_at ? new Date(String(l.trial_started_at)) : new Date(u.created_at);
       const trialHours = Number(l?.trial_hours || 48);
       const trialEnds = new Date(trialStarted.getTime() + trialHours * 3600 * 1000);
 
-      // 1. Assinantes Ativos
-      if (!isBlocked && (sub === "active" || (compUntil && compUntil > now))) {
-        let daysRemaining: number | null = null;
-        let renewalText = "Assinatura ativa";
-        if (l?.current_period_end) {
-          const endDate = new Date(String(l.current_period_end));
-          daysRemaining = Math.max(0, Math.ceil((endDate.getTime() - now.getTime()) / (86400 * 1000)));
-          const dStr = endDate.toLocaleDateString("pt-BR");
-          renewalText = `Renova em ${daysRemaining} ${daysRemaining === 1 ? "dia" : "dias"} (${dStr})`;
-        } else if (compUntil) {
-          const days = Math.max(0, Math.ceil((compUntil.getTime() - now.getTime()) / (86400 * 1000)));
-          renewalText = `Bônus válido por mais ${days} ${days === 1 ? "dia" : "dias"}`;
-        }
-
+      // 1. Assinantes: pagamento pela InfinitePay (PIX ou cartão) ainda valendo, tempo manual
+      // do admin, parceiro, bônus ou a assinatura antiga com renovação automática.
+      const access = subscriberAccess(
+        l as Parameters<typeof subscriberAccess>[0],
+        lastPay.get(u.id) ?? null,
+        now,
+      );
+      if (access) {
         activeSubscribers.push({
           userId: u.id,
           email,
           name,
           phone,
-          plan: (l?.plan as string | undefined) || (compUntil ? "promo" : "monthly"),
-          priceFormatted: l?.plan === "yearly" ? "R$ 349,00/ano" : l?.plan === "monthly" ? "R$ 55,00/mês" : "Manual",
-          currentPeriodEnd: (l?.current_period_end as string | undefined) ?? (l?.comp_until as string | undefined) ?? null,
-          daysRemaining,
-          renewalText,
+          plan: access.plan,
+          priceFormatted: access.priceFormatted,
+          currentPeriodEnd: access.currentPeriodEnd,
+          daysRemaining: access.daysRemaining,
+          renewalText: access.renewalText,
           subscribedAt: (l?.subscribed_at as string | undefined) ?? u.created_at,
           emailConfirmedAt,
           lastIp: ip,
           lastAppVersion: appVersion,
           lastSeenAt: (l?.updated_at as string | undefined) ?? u.last_sign_in_at ?? null,
-          stripeCustomerId: (l?.stripe_customer_id as string | undefined) ?? null,
-          stripeSubscriptionId: (l?.stripe_subscription_id as string | undefined) ?? null,
+          paymentSource: access.paymentSource,
+          paymentProvider: access.paymentProvider,
+          paymentMethod: access.paymentMethod,
+          installments: access.installments,
+          receiptUrl: access.receiptUrl,
         });
       }
 
       // 2. Em Teste Ativo (Trial)
-      if (!isBlocked && (sub === "trial" || !sub || sub === "canceled") && (!compUntil || compUntil <= now) && now < trialEnds) {
+      if (!isBlocked && !access && (sub === "trial" || !sub || sub === "canceled") && now < trialEnds) {
         const msLeft = trialEnds.getTime() - now.getTime();
         const hoursLeft = Math.max(0, Math.ceil(msLeft / (3600 * 1000)));
         const daysLeft = Math.floor(hoursLeft / 24);
@@ -299,7 +304,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Ordenação: Assinantes que renovam mais cedo primeiro
+    // Ordenação: assinantes que vencem mais cedo primeiro
     activeSubscribers.sort((a, b) => (a.daysRemaining ?? 999) - (b.daysRemaining ?? 999));
     // Testes que expiram mais cedo primeiro
     activeTrials.sort((a, b) => a.hoursRemaining - b.hoursRemaining);

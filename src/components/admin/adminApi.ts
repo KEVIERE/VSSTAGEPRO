@@ -3,6 +3,15 @@ import { supabase } from '@/lib/supabaseClient';
 
 export type UserState = 'trial' | 'expired' | 'active' | 'promo' | 'blocked';
 
+/** Forma de pagamento que a InfinitePay confirmou (capture_method do payment_check). */
+export type PaymentMethod = 'pix' | 'credit_card';
+
+/**
+ * De onde vem o acesso pago da conta. 'legacy' é a assinatura antiga com renovação
+ * automática no cartão, que não é mais vendida.
+ */
+export type PaymentSource = 'infinitepay' | 'manual' | 'promo' | 'partner' | 'legacy';
+
 export type Overview = {
   total_users: number;
   trial: number;
@@ -21,10 +30,14 @@ export type Overview = {
   active_users_period: number;
   days: number;
   series: Array<{ day: string; signups: number; subs: number; active_users: number }>;
-  // Checkout aberto no Stripe: demonstrou interesse, pode não ter concluído o pagamento.
+  // Link de pagamento aberto na InfinitePay: mostrou interesse, pode não ter pago.
   recent_intentions: Array<{ created_at: string; plan: 'monthly' | 'yearly'; coupon_code: string | null; email: string; name: string | null }>;
-  // Só pagamento de fato confirmado pelo Stripe (webhook checkout.session.completed, payment_status=paid).
-  recent_sales: Array<{ created_at: string; plan: 'monthly' | 'yearly'; amount_cents: number; email: string; name: string | null }>;
+  // Só pagamento confirmado pela InfinitePay (webhook mais payment_check), ou venda antiga.
+  // provider e method chegam junto com a migração nova; vendas antigas podem vir sem eles.
+  recent_sales: Array<{
+    created_at: string; plan: 'monthly' | 'yearly'; amount_cents: number; email: string; name: string | null;
+    provider?: string | null; method?: PaymentMethod | null;
+  }>;
   recent_cancellations: Array<{ created_at: string; plan: string | null; email: string; name: string | null }>;
 };
 
@@ -48,7 +61,12 @@ export type AdminUser = {
   comp_until: string | null;
   blocked: boolean | null;
   blocked_reason: string | null;
-  stripe_customer_id: string | null;
+  /** Até quando o último pagamento (InfinitePay ou manual) libera o acesso. */
+  pix_paid_until?: string | null;
+  partner?: boolean | null;
+  payment_source?: PaymentSource | null;
+  last_payment_method?: PaymentMethod | null;
+  last_receipt_url?: string | null;
   subscribed_at: string | null;
   state: UserState;
   is_admin: boolean;
@@ -59,8 +77,6 @@ export type PromoCode = {
   kind: 'trial_hours' | 'free_days' | 'discount';
   value: number;
   discount_percent?: number | null;
-  stripe_coupon_id?: string | null;
-  stripe_promotion_code_id?: string | null;
   /** Cupom de afiliado (só no primeiro pagamento): é ajustado pela aba Afiliados. */
   affiliate_id?: string | null;
   first_payment_only?: boolean;
@@ -70,7 +86,23 @@ export type PromoCode = {
   active: boolean;
   note: string | null;
   created_at: string;
-  redemptions: Array<{ email: string; redeemed_at: string }>;
+  /** Bônus: quem resgatou. Cupom de desconto: pagamentos confirmados com o cupom (amount_cents = valor pago). */
+  redemptions: Array<{ email: string | null; redeemed_at: string; amount_cents?: number | null }>;
+};
+
+/** Um pagamento da conta pela InfinitePay (admin_user_payments). */
+export type UserPayment = {
+  id: string;
+  plan: 'monthly' | 'yearly';
+  amount_cents: number;
+  paid_amount_cents: number | null;
+  status: 'pending' | 'paid' | 'expired' | 'canceled' | 'amount_mismatch' | 'refunded' | string;
+  capture_method: PaymentMethod | null;
+  installments: number | null;
+  coupon_code: string | null;
+  paid_at: string | null;
+  access_until: string | null;
+  receipt_url?: string | null;
 };
 
 export type FeatureUse = { feature: string; uses: number; users: number };
@@ -79,7 +111,7 @@ export type SubscriberInsight = {
   email: string;
   name: string | null;
   phone: string | null;
-  plan: 'monthly' | 'yearly' | 'manual' | 'promo';
+  plan: 'monthly' | 'yearly' | 'manual' | 'promo' | 'partner' | 'legacy';
   priceFormatted: string;
   currentPeriodEnd: string | null;
   daysRemaining: number | null;
@@ -89,8 +121,12 @@ export type SubscriberInsight = {
   lastIp: string | null;
   lastAppVersion: string;
   lastSeenAt: string | null;
-  stripeCustomerId: string | null;
-  stripeSubscriptionId: string | null;
+  /** Origem do acesso. paymentProvider é o nome antigo do mesmo dado. */
+  paymentSource?: PaymentSource | null;
+  paymentProvider?: 'infinitepay' | 'legacy' | 'manual' | null;
+  paymentMethod?: PaymentMethod | null;
+  installments?: number | null;
+  receiptUrl?: string | null;
 };
 
 export type TrialInsight = {
@@ -474,28 +510,37 @@ export const adminApi = {
   // Parceiro / Endorse: acesso completo sem cobrança, fora da receita
   setPartner: (user: string, partner: boolean) => call<void>('admin_set_partner', { p_user: user, p_partner: partner }),
   partners: () => call<Array<{ user_id: string; partner_since: string | null }>>('admin_partners'),
+  // Assinatura manual: soma 1 mês ou 1 ano ao período pago, igual a um pagamento.
+  grantPlan: (user: string, plan: 'monthly' | 'yearly') => call<void>('admin_grant_plan', { p_user: user, p_plan: plan }),
+  // Encerra o período pago agora (pix_paid_until = agora).
+  revokePlan: (user: string) => call<void>('admin_revoke_plan', { p_user: user }),
+  userPayments: (user: string) => call<UserPayment[]>('admin_user_payments', { p_user: user }),
+  // Registra um estorno feito no app da InfinitePay: tira o período e cancela a comissão ainda não paga.
+  refundPayment: (payment: string, reason: string) =>
+    call<{ result?: string } | null>('admin_pix_refund', { p_payment: payment, p_reason: reason }),
   setSubscription: (user: string, subscription: 'active' | 'canceled' | 'trial', plan: 'monthly' | 'yearly' | null = null) =>
     call<void>('admin_set_subscription', { p_user: user, p_subscription: subscription, p_plan: plan }),
   block: (user: string, blocked: boolean, reason?: string) =>
     call<void>('admin_block', { p_user: user, p_blocked: blocked, p_reason: reason ?? null }),
   deleteUser: (user: string) => call<void>('admin_delete_user', { p_user: user }),
   promoList: () => call<PromoCode[]>('admin_promo_list'),
+  // Bônus de teste ou de acesso (digitados na tela de entrada do programa).
   promoCreate: (p: {
-    code: string; kind: PromoCode['kind']; value: number; maxUses: number | null; expiresAt: string | null; note: string;
-    discountPercent?: number | null; stripeCouponId?: string | null; stripePromotionCodeId?: string | null;
+    code: string; kind: 'trial_hours' | 'free_days'; value: number; maxUses: number | null; expiresAt: string | null; note: string;
   }) =>
     call<void>('admin_promo_create', {
       p_code: p.code, p_kind: p.kind, p_value: p.value, p_max_uses: p.maxUses, p_expires_at: p.expiresAt, p_note: p.note,
-      p_discount_percent: p.discountPercent ?? null, p_stripe_coupon_id: p.stripeCouponId ?? null, p_stripe_promotion_code_id: p.stripePromotionCodeId ?? null,
+      p_discount_percent: null, p_stripe_coupon_id: null, p_stripe_promotion_code_id: null,
     }),
-  // Cria o cupom % no Stripe (coupon + promotion code com o mesmo texto que o cliente digita)
-  // e devolve os IDs para gravar junto do registro local em promo_codes.
-  createStripeCoupon: (code: string, percent: number, maxUses: number | null, expiresAt: string | null) =>
-    callCouponsFn<{ ok: true; stripeCouponId: string; stripePromotionCodeId: string }>({
-      action: 'create', code, percent, maxUses, expiresAt,
+  // Cupom de desconto em %: fica só no nosso banco. O pix-checkout confere o cupom e já
+  // gera o link da InfinitePay com o valor descontado, no PIX e no cartão.
+  discountCreate: (p: {
+    code: string; percent: number; maxUses: number | null; expiresAt: string | null; firstPaymentOnly: boolean; note: string;
+  }) =>
+    call<void>('admin_discount_create', {
+      p_code: p.code, p_percent: p.percent, p_max_uses: p.maxUses, p_expires_at: p.expiresAt,
+      p_first_payment_only: p.firstPaymentOnly, p_note: p.note || null,
     }),
-  deactivateStripeCoupon: (stripePromotionCodeId: string) =>
-    callCouponsFn({ action: 'deactivate', stripePromotionCodeId }),
   // Dispara o workflow "Upgrade de produção" no GitHub Actions (site + app Mac).
   promoteToProduction: () => callEdgeFn<{ ok: true }>('admin-promote', {}),
   promoSetActive: (code: string, active: boolean) => call<void>('admin_promo_set_active', { p_code: code, p_active: active }),
@@ -599,10 +644,6 @@ async function callReleasesFn<T = { ok: true }>(payload: Record<string, unknown>
   return callEdgeFn('admin-releases', payload);
 }
 
-async function callCouponsFn<T = { ok: true }>(payload: Record<string, unknown>): Promise<T> {
-  return callEdgeFn('admin-coupons', payload);
-}
-
 async function callEdgeFn<T>(fnName: string, payload: Record<string, unknown>): Promise<T> {
   const { data: session } = await supabase.auth.getSession();
   const token = session.session?.access_token;
@@ -686,4 +727,46 @@ export function promoValueText(kind: PromoCode['kind'], value: number) {
   if (kind === 'discount') return `${value}% de desconto`;
   if (kind === 'free_days') return `${value} ${value === 1 ? 'dia' : 'dias'} grátis`;
   return value % 24 === 0 ? `+${value / 24} ${value === 24 ? 'dia' : 'dias'} de teste` : `+${value}h de teste`;
+}
+
+/** "PIX", "Cartão" ou "Cartão em 3x". */
+export function paymentMethodLabel(method: PaymentMethod | null | undefined, installments?: number | null): string | null {
+  if (method === 'pix') return 'PIX';
+  if (method === 'credit_card') return installments && installments > 1 ? `Cartão em ${installments}x` : 'Cartão';
+  return null;
+}
+
+/** Origem do acesso pago, para o selo do admin. Sem dado, devolve null. */
+export function paymentSourceLabel(
+  source: PaymentSource | null | undefined, method?: PaymentMethod | null, installments?: number | null,
+): string | null {
+  switch (source) {
+    case 'infinitepay': {
+      if (method === 'pix') return 'InfinitePay PIX';
+      if (method === 'credit_card') return installments && installments > 1 ? `InfinitePay cartão em ${installments}x` : 'InfinitePay cartão';
+      return 'InfinitePay';
+    }
+    case 'manual': return 'Manual';
+    case 'promo': return 'Bônus';
+    case 'partner': return 'Parceiro';
+    case 'legacy': return 'Assinatura antiga';
+    default: return null;
+  }
+}
+
+export const SUB_PLAN_LABEL: Record<SubscriberInsight['plan'], string> = {
+  monthly: 'Plano Mensal',
+  yearly: 'Plano Anual',
+  manual: 'Manual',
+  promo: 'Bônus',
+  partner: 'Parceiro',
+  legacy: 'Assinatura antiga',
+};
+
+/** Origem do assinante: o campo novo, ou o deduzido do nome antigo e do plano. */
+export function subscriberSource(sub: SubscriberInsight): PaymentSource | null {
+  if (sub.paymentSource) return sub.paymentSource;
+  if (sub.paymentProvider) return sub.paymentProvider;
+  if (sub.plan === 'manual' || sub.plan === 'promo' || sub.plan === 'partner' || sub.plan === 'legacy') return sub.plan;
+  return null;
 }

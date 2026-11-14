@@ -1,38 +1,125 @@
-import { useEffect, useState } from 'react';
+// Página de volta do pagamento (InfinitePay redireciona para ?pagamento=<id>#assinatura).
+// Nada é dado como pago pelo endereço: a tela pergunta ao servidor, que confere o pedido
+// na InfinitePay (/payment_check) com os códigos que vieram na volta.
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Apple,
   ArrowRight,
   CheckCircle2,
+  Clock,
   Download,
   HelpCircle,
   Laptop,
-  Layers,
-  Lock,
+  Loader2,
   MessageCircle,
-  MonitorPlay,
-  Music,
-  Radio,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
-  Wifi,
   XCircle,
 } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
 import { supportWhatsAppUrl } from '@/lib/support';
 import { supabase } from '@/lib/supabaseClient';
+import { getLatestPix, getPixStatus, type PixCharge } from '@/lib/pixCheckout';
+import { readPixReturn } from '@/lib/pixReturn';
+import { formatBrasiliaDate } from '@/lib/pixFormat';
+import { refreshLicense } from '@/lib/licenseEvents';
+
+// Enquanto o pagamento está pendente, confere a cada 4 s (igual ao PixCheckout).
+const POLL_MS = 4000;
+
+type View =
+  | { kind: 'checking' }
+  | { kind: 'nosession' }
+  | { kind: 'paid'; charge: PixCharge }
+  | { kind: 'pending'; charge: PixCharge }
+  | { kind: 'closed'; charge: PixCharge | null }
+  | { kind: 'mismatch'; charge: PixCharge }
+  | { kind: 'unknown' };
+
+function viewOf(c: PixCharge): View {
+  if (c.status === 'paid') {
+    // Pagamento antigo da conta (a volta veio sem o nosso código): não é uma compra de agora.
+    if (c.access_until && Date.parse(c.access_until) < Date.now()) return { kind: 'unknown' };
+    return { kind: 'paid', charge: c };
+  }
+  if (c.status === 'pending') return { kind: 'pending', charge: c };
+  if (c.status === 'amount_mismatch') return { kind: 'mismatch', charge: c };
+  return { kind: 'closed', charge: c };
+}
+
+/** "no PIX", "no cartão" ou "no cartão em 3x". */
+function methodText(method: string | null | undefined, installments?: number | null): string | null {
+  if (method === 'pix') return 'no PIX';
+  if (method === 'credit_card') return installments && installments > 1 ? `no cartão em ${installments}x` : 'no cartão';
+  return null;
+}
 
 export default function SubscriptionReturn() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
-  const ok = typeof window !== 'undefined' && !window.location.hash.includes('cancelada');
+  const [view, setView] = useState<View>({ kind: 'checking' });
+  const [checking, setChecking] = useState(false);
+  const infoRef = useRef(typeof window !== 'undefined'
+    ? readPixReturn(window.location.search, window.location.hash)
+    : { id: null, codes: {}, method: null });
+  // Pedido conferido: as próximas consultas usam o id que o servidor devolveu.
+  const idRef = useRef<string | null>(infoRef.current.id);
+
+  const check = async () => {
+    const { codes } = infoRef.current;
+    try {
+      const c = idRef.current ? await getPixStatus(idRef.current, codes) : await getLatestPix(codes);
+      idRef.current = c.id;
+      const next = viewOf(c);
+      setView(next);
+      if (next.kind === 'paid') refreshLicense();
+    } catch (e) {
+      const code = (e as Error).message;
+      setView(code === 'unauthorized' || code === 'not_authenticated' ? { kind: 'nosession' } : { kind: 'unknown' });
+    }
+  };
 
   useEffect(() => {
     window.scrollTo(0, 0);
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user?.email) {
         setUserEmail(data.session.user.email);
+        check();
+      } else {
+        // Quem paga pelo Mac volta num navegador sem login: o programa libera sozinho.
+        setView({ kind: 'nosession' });
       }
-    });
+    }).catch(() => setView({ kind: 'nosession' }));
   }, []);
+
+  // Pendente: confere a cada 4 s e na hora em que a pessoa volta para esta aba.
+  const pending = view.kind === 'pending';
+  useEffect(() => {
+    if (!pending) return;
+    let busy = false;
+    const poll = async () => {
+      if (busy) return;
+      busy = true;
+      try { await check(); } finally { busy = false; }
+    };
+    const t = window.setInterval(poll, POLL_MS);
+    const onReturn = () => { if (document.visibilityState === 'visible') poll(); };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [pending]);
+
+  const checkNow = async () => {
+    setChecking(true);
+    try { await check(); } finally { setChecking(false); }
+  };
+
+  const paid = view.kind === 'paid' ? view.charge : null;
+  const paidMethod = paid ? methodText(paid.capture_method ?? infoRef.current.method, paid.installments) : null;
 
   return (
     <div className="min-h-screen bg-[#08090b] text-[#e8e8e8] font-sans antialiased selection:bg-logic-lcd-green selection:text-black relative overflow-x-hidden">
@@ -74,7 +161,7 @@ export default function SubscriptionReturn() {
 
       {/* Conteúdo Principal */}
       <main className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
-        {ok ? (
+        {paid ? (
           <div className="space-y-10 animate-[fadeIn_300ms_ease-out]">
             {/* Bloco Hero de Boas-Vindas */}
             <div className="text-center max-w-2xl mx-auto">
@@ -99,8 +186,13 @@ export default function SubscriptionReturn() {
               </h1>
 
               <p className="text-sm sm:text-base text-logic-text-dim mt-4 leading-relaxed">
-                Seu pagamento foi confirmado com sucesso pela InfinitePay. Toda a potência do motor profissional de áudio, timelines independentes, Timecode LTC blindado e rede de palco já estão liberados para você.
+                Seu pagamento{paidMethod ? ` ${paidMethod}` : ''} foi confirmado pela InfinitePay. Toda a potência do motor profissional de áudio, timelines independentes, Timecode LTC blindado e rede de palco já estão liberados para você.
               </p>
+              {paid.access_until && (
+                <p className="text-xs text-logic-text-dim mt-3">
+                  Acesso liberado até <strong className="text-white">{formatBrasiliaDate(paid.access_until)}</strong>. O plano não renova sozinho: avisamos por e-mail antes de vencer.
+                </p>
+              )}
 
               {userEmail && (
                 <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/[0.04] border border-white/10 text-xs text-logic-text-dim">
@@ -224,36 +316,112 @@ export default function SubscriptionReturn() {
             </div>
           </div>
         ) : (
-          /* Tela de Pagamento Cancelado / Não Concluído */
-          <div className="max-w-md mx-auto text-center p-8 rounded-3xl bg-[#13141a] border border-white/15 shadow-2xl animate-[fadeIn_300ms_ease-out]">
-            <div className="w-16 h-16 rounded-2xl bg-logic-lcd-red/15 border border-logic-lcd-red/30 flex items-center justify-center text-logic-lcd-red mx-auto mb-5">
-              <XCircle size={36} />
-            </div>
-
-            <h1 className="text-2xl font-black text-white">Pagamento não concluído</h1>
-            <p className="text-xs text-logic-text-dim mt-2 leading-relaxed">
-              O processo de pagamento foi cancelado ou não foi finalizado. Nenhuma cobrança foi realizada no seu cartão.
-            </p>
-
-            <div className="mt-8 space-y-3">
-              <a
-                href="#planos"
-                className="w-full h-12 rounded-xl btn-neon-green text-black font-black text-sm flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition"
-              >
-                <span>Tentar Novamente nos Planos</span>
-                <ArrowRight size={16} />
-              </a>
-
-              <a
-                href="/"
-                className="w-full h-10 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-logic-text-dim hover:text-white text-xs font-bold flex items-center justify-center transition"
-              >
-                Voltar à Página Principal
-              </a>
-            </div>
-          </div>
+          <StatusCard view={view} checking={checking} onCheck={checkNow} />
         )}
       </main>
+    </div>
+  );
+}
+
+/** Cartão para tudo que não é "pago": conferindo, pendente, não concluído, valor diferente e sem login. */
+function StatusCard({ view, checking, onCheck }: { view: View; checking: boolean; onCheck: () => void }) {
+  let icon: ReactNode;
+  let tone: 'green' | 'amber' | 'red' = 'amber';
+  let title: string;
+  let text: ReactNode;
+  let actions: ReactNode = null;
+
+  const plansLink = (
+    <a
+      href="#planos"
+      className="w-full h-12 rounded-xl btn-neon-green text-black font-black text-sm flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition"
+    >
+      <span>Tentar Novamente nos Planos</span>
+      <ArrowRight size={16} />
+    </a>
+  );
+  const checkKey = (
+    <button
+      type="button" onClick={onCheck} disabled={checking}
+      className="w-full h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.15] border border-white/15 text-white font-bold text-xs flex items-center justify-center gap-2 transition disabled:opacity-50"
+    >
+      <RefreshCw size={14} className={checking ? 'animate-spin' : ''} /> Conferir de novo
+    </button>
+  );
+
+  switch (view.kind) {
+    case 'checking':
+      icon = <Loader2 size={34} className="animate-spin" />;
+      title = 'Conferindo seu pagamento';
+      text = 'Um instante, estamos perguntando à InfinitePay.';
+      break;
+    case 'pending':
+      icon = <Clock size={34} />;
+      title = 'Confirmando seu pagamento';
+      text = 'Assim que a InfinitePay confirmar, a assinatura é liberada sozinha. No PIX costuma levar poucos segundos.';
+      actions = checkKey;
+      break;
+    case 'mismatch':
+      tone = 'red';
+      icon = <XCircle size={36} />;
+      title = 'Valor diferente do cobrado';
+      text = 'O valor pago é diferente do valor cobrado, então a assinatura não foi liberada automaticamente. Fale com o suporte que resolvemos.';
+      actions = (
+        <a
+          href={supportWhatsAppUrl(`Olá! Paguei a assinatura do VS Stage Pro com valor diferente. Código do pagamento: ${view.charge.id}`)}
+          target="_blank" rel="noreferrer"
+          className="w-full h-12 rounded-xl btn-neon-green text-black font-black text-sm flex items-center justify-center gap-2 shadow-lg hover:scale-[1.02] transition"
+        >
+          <MessageCircle size={16} /> Falar com o suporte
+        </a>
+      );
+      break;
+    case 'closed':
+      tone = 'red';
+      icon = <XCircle size={36} />;
+      title = 'Pagamento não concluído';
+      text = view.charge?.status === 'refunded'
+        ? 'Este pagamento foi estornado e não libera mais o acesso.'
+        : 'O link de pagamento venceu ou foi trocado antes de ser pago. Nenhum valor foi cobrado.';
+      actions = plansLink;
+      break;
+    case 'nosession':
+      tone = 'green';
+      icon = <Laptop size={34} />;
+      title = 'Volte para o VS Stage Pro';
+      text = 'Se você pagou, volte para o programa no Mac ou para a aba onde abriu o pagamento: a liberação é automática.';
+      break;
+    default:
+      icon = <HelpCircle size={34} />;
+      title = 'Não encontramos um pagamento recente';
+      text = 'Se você acabou de pagar, volte para o programa no Mac ou para a aba onde abriu o pagamento: a liberação é automática. Se algo não liberou, fale com o suporte.';
+      actions = <>{checkKey}{plansLink}</>;
+  }
+
+  const toneCls = tone === 'red'
+    ? 'bg-logic-lcd-red/15 border-logic-lcd-red/30 text-logic-lcd-red'
+    : tone === 'green'
+      ? 'bg-logic-lcd-green/15 border-logic-lcd-green/30 text-logic-lcd-green'
+      : 'bg-logic-lcd-amber/15 border-logic-lcd-amber/30 text-logic-lcd-amber';
+
+  return (
+    <div className="max-w-md mx-auto text-center p-8 rounded-3xl bg-[#13141a] border border-white/15 shadow-2xl animate-[fadeIn_300ms_ease-out]" role="status" aria-live="polite">
+      <div className={`w-16 h-16 rounded-2xl border flex items-center justify-center mx-auto mb-5 ${toneCls}`}>
+        {icon}
+      </div>
+
+      <h1 className="text-2xl font-black text-white">{title}</h1>
+      <p className="text-xs text-logic-text-dim mt-2 leading-relaxed">{text}</p>
+
+      <div className="mt-8 space-y-3">
+        {actions}
+        <a
+          href="/"
+          className="w-full h-10 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-logic-text-dim hover:text-white text-xs font-bold flex items-center justify-center transition"
+        >
+          Voltar à Página Principal
+        </a>
+      </div>
     </div>
   );
 }

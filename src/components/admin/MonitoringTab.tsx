@@ -29,6 +29,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
+import { isLegacyService } from '@/lib/legacyPayment';
 import {
   adminApi,
   dateTime,
@@ -66,7 +67,7 @@ export default function MonitoringTab() {
         adminApi.funnel(30).catch(() => null),
         adminApi.timeline(60).catch(() => []),
       ]);
-      setHealth(h);
+      setHealth(h.filter((x) => !isLegacyService(x.service)));
       setTamper(t);
       setFunnel(f);
       setTimeline(tl);
@@ -88,7 +89,7 @@ export default function MonitoringTab() {
       const res = await adminApi.runHealthCheck();
       setMsg({ ok: true, text: 'Checagem executada com sucesso! Todos os serviços foram testados.' });
       const h = await adminApi.serviceHealth().catch(() => []);
-      setHealth(h);
+      setHealth(h.filter((x) => !isLegacyService(x.service)));
     } catch (e) {
       setMsg({ ok: false, text: `Erro na checagem: ${friendlyError((e as Error).message)}` });
     } finally {
@@ -373,7 +374,7 @@ export default function MonitoringTab() {
               const nameMap: Record<string, { label: string; desc: string }> = {
                 supabase: { label: 'Supabase Database', desc: 'PostgreSQL, Auth e Storage' },
                 resend: { label: 'Resend SMTP', desc: 'Envio de e-mails transacionais' },
-                stripe: { label: 'Stripe Payments', desc: 'Assinaturas e Checkout' },
+                infinitepay: { label: 'InfinitePay', desc: 'Pagamentos por PIX e cartão' },
                 replicate: { label: 'Replicate AI', desc: 'Motor de separação de Stems' },
                 github: { label: 'GitHub Actions', desc: 'Pipelines de deploy contínuo' },
               };
@@ -474,7 +475,7 @@ export default function MonitoringTab() {
                     count: funnel.subscribed,
                     icon: DollarSign,
                     color: 'from-emerald-500 to-logic-lcd-green',
-                    desc: 'Concluíram o pagamento no Stripe (Mensal ou Anual).',
+                    desc: 'Concluíram o pagamento pela InfinitePay (PIX ou cartão), Mensal ou Anual.',
                   },
                 ].map((item, idx, arr) => {
                   const Icon = item.icon;

@@ -173,7 +173,10 @@ test('cupom: primeiro pagamento e o próprio afiliado têm recusa própria', () 
   assert.equal(couponRefusal({ valid: true, percent: 10, affiliate: true }), null);
   assert.equal(couponRefusal({ valid: false, error: 'coupon_first_payment_only' }), 'coupon_first_payment_only');
   assert.equal(couponRefusal({ valid: false, error: 'coupon_own' }), 'coupon_own');
-  assert.equal(couponRefusal({ valid: false, error: 'promo_expired' }), 'invalid_coupon');
+  assert.equal(couponRefusal({ valid: false, error: 'promo_expired' }), 'promo_expired');
+  assert.equal(couponRefusal({ valid: false, error: 'promo_used_up' }), 'promo_used_up');
+  assert.equal(couponRefusal({ valid: false, error: 'promo_invalid' }), 'invalid_coupon');
+  assert.equal(couponRefusal({ valid: false, error: 'qualquer_outra' }), 'invalid_coupon');
   assert.equal(couponRefusal({ valid: true, percent: 0 }), 'invalid_coupon');
   assert.equal(couponRefusal(null), 'invalid_coupon');
 });
