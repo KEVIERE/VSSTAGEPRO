@@ -31,33 +31,50 @@ function makeData(left, right, total, ranges) {
   };
 }
 
+// Junta o trecho na lista no lugar (sem montar lista nova): roda na thread de áudio a cada
+// 'append', e lixo criado ali vira coleta de memória no meio do som.
 function addRange(data, start, end) {
   if (end <= start) return;
-  const out = [];
-  let s = start;
-  let e = end;
-  let placed = false;
-  for (const r of data.ranges) {
-    if (r[1] < s) { out.push(r); continue; }
-    if (r[0] > e) {
-      if (!placed) { out.push([s, e]); placed = true; }
-      out.push(r);
-      continue;
-    }
-    s = Math.min(s, r[0]);
-    e = Math.max(e, r[1]);
+  const rs = data.ranges;
+  let i = 0;
+  while (i < rs.length && rs[i][1] < start) i++;
+  if (i === rs.length || rs[i][0] > end) {
+    // não encosta em nenhum: abre espaço e insere
+    for (let k = rs.length; k > i; k--) rs[k] = rs[k - 1];
+    rs[i] = [start, end];
+    return;
   }
-  if (!placed) out.push([s, e]);
-  data.ranges = out;
+  const r = rs[i];
+  if (start < r[0]) r[0] = start;
+  if (end > r[1]) r[1] = end;
+  let j = i + 1;
+  while (j < rs.length && rs[j][0] <= r[1]) {
+    if (rs[j][1] > r[1]) r[1] = rs[j][1];
+    j++;
+  }
+  const cut = j - i - 1;
+  if (cut > 0) {
+    for (let k = i + 1; k + cut < rs.length; k++) rs[k] = rs[k + cut];
+    rs.length -= cut;
+  }
 }
+
+// Resposta de spanAt reaproveitada: é chamada a cada bloco de 128 amostras de cada faixa, e um
+// objeto novo por chamada enchia a memória da thread de áudio (a coleta dava engasgo). Quem chama
+// lê os campos na hora, antes de chamar de novo.
+const SPAN = { filled: false, until: 0 };
 
 // Até onde a posição p continua do mesmo jeito: com dados (filled) ou sem dados ainda.
 function spanAt(data, p) {
-  for (const r of data.ranges) {
-    if (p < r[0]) return { filled: false, until: r[0] };
-    if (p < r[1]) return { filled: true, until: r[1] };
+  const rs = data.ranges;
+  for (let i = 0; i < rs.length; i++) {
+    const r = rs[i];
+    if (p < r[0]) { SPAN.filled = false; SPAN.until = r[0]; return SPAN; }
+    if (p < r[1]) { SPAN.filled = true; SPAN.until = r[1]; return SPAN; }
   }
-  return { filled: false, until: data.total };
+  SPAN.filled = false;
+  SPAN.until = data.total;
+  return SPAN;
 }
 
 function isComplete(data) {
@@ -280,6 +297,11 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     this.fadeOutGain = 1;
     this.tmpL = new Float32Array(128);
     this.tmpR = new Float32Array(128);
+    // lado direito descartável quando a saída é mono: criado uma vez, não a cada bloco
+    this.monoR = new Float32Array(128);
+    // voz e posição no começo do bloco: dizem a folga que havia quando faltou dado
+    this.quantumVoice = null;
+    this.quantumPos = 0;
 
     this.port.onmessage = (ev) => this.handleMessage(ev.data || {});
   }
@@ -487,6 +509,25 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     this.fadeOutGain = Number.isFinite(gain) ? Math.min(1, Math.max(0, gain)) : 1;
   }
 
+  // Ponto que a voz está lendo nos dados dela (o SoundTouch lê à frente do que já soou).
+  readPos(v) {
+    return v.filter ? v.source.position : v.pos;
+  }
+
+  // Quadros já recebidos em sequência a partir de p (a folga até faltar dado).
+  filledFrom(v, p) {
+    if (p >= v.data.total) return 0;
+    const sp = spanAt(v.data, p);
+    return sp.filled ? sp.until - p : 0;
+  }
+
+  // Quadros que ainda faltam a partir de p até o próximo trecho recebido.
+  missingFrom(v, p) {
+    if (p >= v.data.total) return 0;
+    const sp = spanAt(v.data, p);
+    return sp.filled ? 0 : sp.until - p;
+  }
+
   renderMain(outL, outR, from, to, frames) {
     const s = Math.max(from, this.indexOf(this.startTime, frames));
     if (s >= to) return;
@@ -527,7 +568,14 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     const outR = out[1] || out[0];
     const frames = outL.length;
     for (let i = 0; i < frames; i++) { outL[i] = 0; if (outR !== outL) outR[i] = 0; }
-    const R = outR === outL ? new Float32Array(frames) : outR;
+    let R = outR;
+    if (outR === outL) {
+      if (this.monoR.length < frames) this.monoR = new Float32Array(frames);
+      R = this.monoR;
+      for (let i = 0; i < frames; i++) R[i] = 0;
+    }
+    this.quantumVoice = this.voice;
+    this.quantumPos = this.readPos(this.voice);
 
     if (!this.voice.primed) this.voice.pump();
     if (this.jump && !this.jump.voice.primed) this.jump.voice.pump();
@@ -564,7 +612,19 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     const starved = this.voice.starved;
     if (starved && !this.underrun) {
       this.underrun = true;
-      try { this.port.postMessage({ type: 'underrun', frame: this.voice.pos }); } catch (e) {}
+      // Para o diagnóstico: posição (no áudio original), folga que havia à frente no começo do
+      // bloco e tamanho do buraco. 'frame' fica como antes para quem já lê esse campo.
+      const v = this.voice;
+      const at = this.readPos(v);
+      const ahead = v === this.quantumVoice ? this.filledFrom(v, this.quantumPos) : 0;
+      const gap = this.missingFrom(v, at);
+      const k = v.rendered ? v.tempoScale : 1;
+      try {
+        this.port.postMessage({
+          type: 'underrun', frame: v.pos,
+          position: Math.floor(at * k), ahead: Math.floor(ahead * k), gap: Math.floor(gap * k), time: currentTime,
+        });
+      } catch (e) {}
     } else if (!starved && this.underrun && this.startTime <= currentTime) {
       this.underrun = false;
       try { this.port.postMessage({ type: 'recovered', frame: this.voice.pos }); } catch (e) {}

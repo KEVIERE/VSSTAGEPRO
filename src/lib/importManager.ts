@@ -2,11 +2,14 @@ import { decodeFile, generateMarkers } from '@/lib/audioDecoder';
 import { cleanClipName, routeByName, isUnreadableName } from '@/lib/nameRouter';
 import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
-import { clipAudioToBuffer, ensureSongLoaded, getClipAudio, getClipSource, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
+import { clipAudioToBuffer, clipPlayLength, ensureSongLoaded, getClipAudio, getClipSource, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
 import type { ClipAudio } from '@/lib/audioLibrary';
 import type { AudioClip, PlaylistEntry, RoutingTarget, Song, SongTempoSegment } from '@/types';
 import { detectBpm, detectClickTempo, type TempoResult } from '@/lib/beatDetector';
 import { parseWavMetadata } from '@/lib/reaperMetadata';
+import { parseRpp, resolveMediaPath, splitShow, type ShowItem, type ShowSplit } from '@/lib/reaperProject';
+import { REGION_COLORS, presetColor } from '@/lib/regions';
+import { askImportAgain } from '@/lib/appPrompt';
 
 const AUDIO_EXTENSIONS = /\.(wav|mp3|aac|ogg|flac|m4a|aif|aiff|wma|opus)$/i;
 const DECODE_CONCURRENCY = 4;
@@ -23,9 +26,23 @@ interface DecodedEntry {
   waveformPeaks: number[];
 }
 
+/** Música que veio de um projeto do REAPER: onde cada áudio entra e o andamento do trecho. */
+export interface ReaperSongData {
+  /** Na mesma ordem de `files`. */
+  placements: ShowItem[];
+  /** Tamanho da música (a região do REAPER). */
+  length: number;
+  tempo: Array<{ startTime: number; bpm: number }>;
+  beatsPerBar: number;
+  sections: Array<{ name: string; start: number; end: number }>;
+}
+
 export interface SongGroup {
   name: string;
   files: File[];
+  reaper?: ReaperSongData;
+  /** Aviso para mostrar no fim da importação (o que não veio do projeto). */
+  notice?: string;
 }
 
 interface SongImportResult {
@@ -66,6 +83,7 @@ interface FsEntry {
   isFile: boolean;
   isDirectory: boolean;
   name: string;
+  fullPath?: string;
   file?: (ok: (f: File) => void, fail: (e: unknown) => void) => void;
   createReader?: () => { readEntries: (ok: (e: FsEntry[]) => void, fail: (e: unknown) => void) => void };
 }
@@ -97,22 +115,186 @@ async function readFolderFiles(entry: FsEntry): Promise<File[]> {
   return nested.flat();
 }
 
-/** Cada pasta solta vira uma música; arquivos soltos sem pasta viram uma música só. */
+async function readFolderPaths(entry: FsEntry, base: string): Promise<PathFile[]> {
+  const path = entry.fullPath?.replace(/^\//, '') || (base ? `${base}/${entry.name}` : entry.name);
+  if (entry.isFile) {
+    const file = await new Promise<File>((ok, fail) => entry.file!(ok, fail));
+    return [{ path, file }];
+  }
+  const reader = entry.createReader!();
+  const children: FsEntry[] = [];
+  while (true) {
+    const batch = await new Promise<FsEntry[]>((ok, fail) => reader.readEntries(ok, fail));
+    if (batch.length === 0) break;
+    children.push(...batch);
+  }
+  const nested = await Promise.all(children.map((c) => readFolderPaths(c, path).catch(() => [] as PathFile[])));
+  return nested.flat();
+}
+
+/** Por que a última leva solta não trouxe música (para a mensagem não ser a genérica). */
+let emptyDropReason: string | null = null;
+
+/**
+ * Cada pasta solta vira uma música; arquivos soltos sem pasta viram uma música só.
+ * Pasta com projeto do REAPER (.rpp) vira o show separado em músicas.
+ */
 export async function groupDroppedEntries(entries: FsEntry[]): Promise<SongGroup[]> {
   const groups: SongGroup[] = [];
+  const reaperGroups: SongGroup[] = [];
   const loose: File[] = [];
+  let loneRpp = false;
+  let reaperEmpty: string | null = null;
   for (const entry of entries) {
     if (entry.isDirectory) {
-      const files = (await readFolderFiles(entry)).filter(isAudio);
+      const all = await readFolderPaths(entry, '').catch(() => [] as PathFile[]);
+      const show = await groupReaperProject(all);
+      if (show) {
+        reaperGroups.push(...show.groups);
+        if (show.groups.length === 0) reaperEmpty = show.notice ?? null;
+        continue;
+      }
+      const files = all.map((f) => f.file).filter(isAudio);
       if (files.length) groups.push({ name: entry.name, files });
     } else if (entry.isFile) {
       const [file] = await readFolderFiles(entry).catch(() => [] as File[]);
       if (file && isAudio(file)) loose.push(file);
+      else if (file && isRpp(file.name)) loneRpp = true;
     }
   }
   groups.sort(byName);
   if (loose.length) groups.push({ name: 'Música Importada', files: loose });
-  return groups;
+  // o show do REAPER entra na ordem da linha do tempo, antes das outras pastas
+  const out = [...reaperGroups, ...groups];
+  if (out.length === 0) {
+    emptyDropReason = reaperEmpty
+      ?? (loneRpp ? 'O arquivo .RPP sozinho não traz os áudios. Arraste a pasta do projeto (a que tem o .RPP e a pasta dos áudios).' : null);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Projeto do REAPER
+
+interface PathFile {
+  path: string;
+  file: File;
+}
+
+const isRpp = (name: string) => /\.rpp$/i.test(name);
+const baseName = (p: string) => p.replace(/\\/g, '/').split('/').pop() || p;
+
+/** Arquivos escolhidos pelo seletor de pasta, com o caminho dentro da pasta. */
+export function pickedPaths(files: File[]): PathFile[] {
+  return files.map((file) => ({ path: file.webkitRelativePath || file.name, file }));
+}
+
+function reaperNotice(split: ShowSplit, missing: string[]): string | undefined {
+  const parts: string[] = [];
+  if (missing.length) {
+    const list = missing.slice(0, 4).join(', ') + (missing.length > 4 ? ` e mais ${missing.length - 4}` : '');
+    parts.push(`Não achei ${missing.length === 1 ? '1 áudio' : `${missing.length} áudios`} que o projeto .RPP usa (${list}). Confira se a pasta dos áudios está junto do .RPP.`);
+  }
+  const count = (r: string) => split.skipped.filter((x) => x.reason === r).length;
+  const out: string[] = [];
+  if (count('midi')) out.push(`${count('midi')} de MIDI`);
+  if (count('velocidade')) out.push(`${count('velocidade')} com a velocidade alterada`);
+  if (count('trecho')) out.push(`${count('trecho')} invertidos ou recortados`);
+  if (count('sem-audio')) out.push(`${count('sem-audio')} sem áudio`);
+  if (out.length) parts.push(`Ficaram de fora itens do projeto: ${out.join(', ')}.`);
+  if (split.tracksWithFx.length) {
+    const n = split.tracksWithFx.length;
+    parts.push(`${n === 1 ? 'Uma faixa tem' : `${n} faixas têm`} plugins no projeto original; aqui ${n === 1 ? 'ela toca' : 'elas tocam'} sem os efeitos.`);
+  }
+  return parts.length ? parts.join(' ') : undefined;
+}
+
+/**
+ * Se entre os arquivos houver um projeto do REAPER, separa o show em músicas (uma por região,
+ * ou por marcador) e acha os áudios que ele cita. Sem .rpp, devolve null.
+ */
+export async function groupReaperProject(all: PathFile[]): Promise<{ groups: SongGroup[]; notice?: string; projectName: string } | null> {
+  const rpps = all.filter((f) => isRpp(f.file.name));
+  if (rpps.length === 0) return null;
+  const depth = (p: string) => p.split('/').length;
+  // o mais perto da pasta escolhida; empate: o salvo por último
+  rpps.sort((a, b) => depth(a.path) - depth(b.path) || b.file.lastModified - a.file.lastModified);
+  const rpp = rpps[0];
+  const projectName = rpp.file.name.replace(/\.rpp$/i, '');
+  let split: ShowSplit;
+  try {
+    split = splitShow(parseRpp(await rpp.file.text()), projectName);
+  } catch (err) {
+    console.warn('[import] projeto do REAPER não lido', rpp.path, err);
+    return { groups: [], notice: `Não consegui ler o projeto "${rpp.file.name}".`, projectName };
+  }
+  const dir = rpp.path.split('/').slice(0, -1).join('/');
+  const audio = all.filter((f) => isAudio(f.file));
+  const missing = new Set<string>();
+  const groups: SongGroup[] = [];
+  for (const song of split.songs) {
+    const files: File[] = [];
+    const placements: ShowItem[] = [];
+    for (const p of song.items) {
+      const file = p.item.file ? resolveMediaPath(p.item.file, dir, audio) : null;
+      if (!file) {
+        missing.add(baseName(p.item.file ?? p.item.name));
+        continue;
+      }
+      files.push(file);
+      placements.push(p);
+    }
+    if (files.length === 0) continue;
+    groups.push({
+      name: song.name,
+      files,
+      reaper: { placements, length: song.end - song.start, tempo: song.tempo, beatsPerBar: song.beatsPerBar, sections: song.sections },
+    });
+  }
+  const notice = reaperNotice(split, [...missing]);
+  if (groups.length === 0) {
+    return { groups, notice: notice ?? `O projeto "${rpp.file.name}" não tem áudio para importar.`, projectName };
+  }
+  groups[0].notice = notice;
+  return { groups, notice, projectName };
+}
+
+/** Faixa do VS Stage para um áudio do REAPER: pelo nome do arquivo, senão pelo da faixa ou da pasta. */
+function routeReaperItem(file: File, placement: ShowItem | undefined) {
+  const byFile = routeByName(file.name);
+  if (byFile || !placement) return byFile;
+  for (const name of [placement.track.name, placement.item.name, ...[...placement.track.folders].reverse()]) {
+    const r = name ? routeByName(name.replace(/[[\]]/g, ' ')) : null;
+    if (r) return r;
+  }
+  return null;
+}
+
+/** Cortes, volume e fades do item do REAPER no clipe. */
+function reaperClipFields(p: ShowItem, duration: number): Partial<AudioClip> {
+  const trimStart = Math.max(0, Math.min(p.trimStart, Math.max(0, duration - 0.05)));
+  const playLength = Math.min(p.playLength, duration - trimStart);
+  const trimEnd = Math.max(0, duration - trimStart - playLength);
+  const out: Partial<AudioClip> = {};
+  if (trimStart > 1e-4) out.trimStart = trimStart;
+  if (trimEnd > 1e-4) out.trimEnd = trimEnd;
+  if (Math.abs(p.gain - 1) > 1e-4) out.gain = p.gain;
+  if (p.mute) out.mute = true;
+  if (p.fadeIn > 1e-4) out.fadeIn = Math.min(p.fadeIn, playLength);
+  if (p.fadeOut > 1e-4) out.fadeOut = Math.min(p.fadeOut, playLength);
+  return out;
+}
+
+/** Andamento que veio do REAPER, por música: usado para conferir (ou trazer) o BPM. */
+const reaperTempoHints = new Map<string, { tempo: ReaperSongData['tempo']; length: number }>();
+
+function reaperSegments(hint: { tempo: ReaperSongData['tempo']; length: number }): SongTempoSegment[] {
+  return hint.tempo.map((t, i) => ({
+    startTime: t.startTime,
+    endTime: hint.tempo[i + 1]?.startTime ?? hint.length,
+    bpm: t.bpm,
+    downbeat: t.startTime,
+  }));
 }
 
 let queueBusy = false;
@@ -144,9 +326,11 @@ export function cancelImport() {
 /** Importa as músicas uma por vez, liberando memória entre elas, e mostra um resumo no final. */
 export async function importSongGroups(groups: SongGroup[]): Promise<void> {
   if (groups.length === 0) {
-    useStore.getState().setPlaybackError('Nenhum arquivo de áudio encontrado nas pastas escolhidas.');
+    useStore.getState().setPlaybackError(emptyDropReason ?? 'Nenhum arquivo de áudio encontrado nas pastas escolhidas.');
+    emptyDropReason = null;
     return;
   }
+  emptyDropReason = null;
   if (queueBusy) {
     useStore.getState().setPlaybackError('Já existe uma importação em andamento. Espere ela terminar e tente de novo.');
     return;
@@ -167,9 +351,9 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
         (s) => s.name.trim().toLowerCase() === groupName.trim().toLowerCase()
       );
       if (existing) {
-        const proceed = window.confirm(
-          `A música "${groupName}" já existe no projeto.\n\nDeseja importá-la novamente?`
-        );
+        // janela do app (não window.confirm, que para o programa inteiro e engasga a música no ar)
+        const proceed = await askImportAgain(groupName);
+        if (cancelRequested) break;
         if (!proceed) {
           useStore.getState().setPlaybackError(`Importação ignorada: "${groupName}" já existe no repertório.`);
           continue;
@@ -178,7 +362,7 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
 
       const label = groups.length > 1 ? `Música ${k + 1} de ${groups.length}: ` : '';
       try {
-        const res = await importSong(groups[k].name, groups[k].files, label);
+        const res = await importSong(groups[k].name, groups[k].files, label, groups[k].reaper);
         if (cancelRequested) break;
         results.push(res);
       } catch (err) {
@@ -188,7 +372,9 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
       }
     }
     if (!cancelRequested) {
-      reportSummary(results, brokenSongs);
+      const notices = groups.map((g) => g.notice).filter((n): n is string => !!n);
+      reportSummary(results, brokenSongs, notices);
+      releaseImportedAudio();
       await measurePendingBpm(results);
     }
   } finally {
@@ -198,11 +384,11 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
   }
 }
 
-function reportSummary(results: SongImportResult[], brokenSongs: string[]) {
+function reportSummary(results: SongImportResult[], brokenSongs: string[], notices: string[] = []) {
   const store = useStore.getState();
   const withErrors = results.filter((r) => r.failed.length > 0);
   const ok = results.filter((r) => r.imported > 0).length;
-  const hasProblem = withErrors.length > 0 || brokenSongs.length > 0;
+  const hasProblem = withErrors.length > 0 || brokenSongs.length > 0 || notices.length > 0;
   const message = results.length === 1 && brokenSongs.length === 0
     ? `VS "${results[0].name}": ${results[0].imported} de ${results[0].total} áudios importados`
     : `${ok} ${ok === 1 ? 'música importada' : 'músicas importadas'}${hasProblem ? ' (com avisos)' : ''}`;
@@ -214,7 +400,10 @@ function reportSummary(results: SongImportResult[], brokenSongs: string[]) {
     parts.push(`"${r.name}": ${one ? `o arquivo ${r.failed[0]} não pôde ser lido` : `${r.failed.length} arquivos não puderam ser lidos (${r.failed.join(', ')})`}`);
   }
   if (brokenSongs.length) parts.push(`não consegui importar: ${brokenSongs.map((n) => `"${n}"`).join(', ')}`);
-  if (parts.length) store.setPlaybackError(`${parts.join('; ')}. Confira se esses arquivos abrem em outro programa e importe de novo.`);
+  const messages: string[] = [];
+  if (parts.length) messages.push(`${parts.join('; ')}. Confira se esses arquivos abrem em outro programa e importe de novo.`);
+  messages.push(...notices);
+  if (messages.length) store.setPlaybackError(messages.join(' '));
 
   setTimeout(() => useStore.getState().setImportProgress(null), hasProblem ? 8000 : 3000);
 }
@@ -224,6 +413,12 @@ function reportSummary(results: SongImportResult[], brokenSongs: string[]) {
 // Não adiciona outros tempos automaticamente na régua: caso o andamento mude lá na frente
 // (ex.: medley), o próprio usuário clica com o botão direito na régua no ponto exato e insere o novo BPM.
 async function applyBpm(songId: string): Promise<boolean> {
+  // Mapa de andamento feito à mão no REAPER (mais de um BPM na música): vale como está.
+  const hint = reaperTempoHints.get(songId);
+  if (hint && hint.tempo.length > 1) {
+    setSongBpm(songId, hint.tempo[0].bpm, 'manual', 0, reaperSegments(hint));
+    return true;
+  }
   const { clickFirst, audioFallback } = bpmCandidates(songId);
   const song = useStore.getState().songs.find((s) => s.id === songId);
   const beatsPerBar = song?.beatsPerBar ?? 4;
@@ -235,6 +430,13 @@ async function applyBpm(songId: string): Promise<boolean> {
     if (!audio) continue;
     result = detectClickTempo(audio, beatsPerBar);
     if (result) break;
+  }
+
+  // O BPM do projeto do REAPER traz as casas decimais exatas quando bate com o click. Se não bate,
+  // costuma ser o 120 que o REAPER põe sozinho em projeto novo: vale o click.
+  if (hint && result && Math.abs(hint.tempo[0].bpm - result.bpm) / result.bpm < 0.01) {
+    setSongBpm(songId, hint.tempo[0].bpm, 'click', 0);
+    return true;
   }
 
   // 2. BPM gravado no arquivo (Reaper/DAWs): só vale se o click não deu para medir ou se bate com
@@ -254,6 +456,10 @@ async function applyBpm(songId: string): Promise<boolean> {
   if (!result && audioFallback) {
     const audio = getClipAudio(audioFallback);
     if (audio) result = await detectBpm(clipAudioToBuffer(audio));
+  }
+  if (!result && hint && Math.abs(hint.tempo[0].bpm - 120) > 1e-3) {
+    setSongBpm(songId, hint.tempo[0].bpm, 'manual', 0);
+    return true;
   }
   if (!result) {
     useStore.getState().updateSong(songId, { bpmMissing: true });
@@ -305,6 +511,16 @@ export async function remeasureSongBpm(songId: string): Promise<'ok' | 'no-sourc
   return (await applyBpm(songId)) ? 'ok' : 'failed';
 }
 
+// Terminada a importação, os áudios decodificados saem da memória e as músicas passam a tocar
+// lendo do disco, como um projeto aberto. Antes a última música importada ficava inteira na
+// memória até salvar e reabrir: num show longo, num Mac de 8 GB, a timeline travava.
+function releaseImportedAudio() {
+  const { transport } = useStore.getState();
+  const playingId = transport.isStopped ? null : transport.currentSongId;
+  audioEngine.releaseUnretained([playingId]);
+  retainSongs([playingId], { strict: true });
+}
+
 // BPM que não deu para medir durante a importação (algo estava tocando): mede quando o play parar.
 async function measurePendingBpm(results: SongImportResult[]) {
   const pending = results.filter((r) => r.hasBpmSource && !r.bpmDone);
@@ -319,9 +535,10 @@ async function measurePendingBpm(results: SongImportResult[]) {
       console.warn('[import] BPM não medido', r.name, err);
     }
   }
+  releaseImportedAudio();
 }
 
-async function importSong(folderName: string, audioFiles: File[], label: string): Promise<SongImportResult> {
+async function importSong(folderName: string, audioFiles: File[], label: string, reaper?: ReaperSongData): Promise<SongImportResult> {
   const store = useStore.getState();
   const songId = `song-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   currentImportSongIds.add(songId);
@@ -338,7 +555,9 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
     timelineStart: 0,
     blockId: null,
     regions: [],
+    ...(reaper && (reaper.beatsPerBar === 3 || reaper.beatsPerBar === 6) ? { beatsPerBar: reaper.beatsPerBar } : {}),
   };
+  if (reaper) reaperTempoHints.set(songId, { tempo: reaper.tempo, length: reaper.length });
 
   // Libera para a importação a memória de tudo que não está tocando agora.
   const playingId = store.transport.isStopped ? null : store.transport.currentSongId;
@@ -452,7 +671,8 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
     if (!entry) continue;
     const { file, clipId, audio, duration, sampleRate, channels, waveformPeaks, index } = entry;
 
-    const route = routeByName(file.name);
+    const placement = reaper?.placements[index];
+    const route = reaper ? routeReaperItem(file, placement) : routeByName(file.name);
     let trackId: RoutingTarget;
     let childTrackName: string;
     const routingMethod: AudioClip['routingMethod'] = 'name';
@@ -515,7 +735,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
       fileName: file.name,
       filePath: URL.createObjectURL(file),
       songId,
-      startTime: 0,
+      startTime: placement?.startTime ?? 0,
       duration,
       sampleRate,
       channels,
@@ -524,15 +744,30 @@ async function importSong(folderName: string, audioFiles: File[], label: string)
       routingMethod,
       routingConfidence,
       waveformPeaks,
+      ...(placement ? reaperClipFields(placement, duration) : {}),
     };
 
     registerClipSource(clipId, songId, file);
     putClipAudio(clipId, songId, audio);
     useStore.getState().addClip(clip);
-    if (duration > maxDuration) maxDuration = duration;
+    const end = placement ? clip.startTime + clipPlayLength(clip) : duration;
+    if (end > maxDuration) maxDuration = end;
   }
 
-  useStore.getState().updateSong(songId, { duration: maxDuration });
+  if (reaper) {
+    maxDuration = Math.max(maxDuration, reaper.length);
+    const regions = reaper.sections.map((sec, i) => ({
+      id: `region-${songId}-${i}`,
+      name: sec.name,
+      start: sec.start,
+      end: sec.end,
+      color: presetColor(sec.name) ?? REGION_COLORS[i % REGION_COLORS.length].value,
+      loop: false,
+    }));
+    useStore.getState().updateSong(songId, { duration: maxDuration, regions });
+  } else {
+    useStore.getState().updateSong(songId, { duration: maxDuration });
+  }
 
   const playlistEntry = useStore.getState().playlist.find((p) => p.songId === songId);
   if (playlistEntry) {

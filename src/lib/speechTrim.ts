@@ -25,6 +25,12 @@ const HISS_ZCR = 0.2;
 const MAX_INNER_GAP_S = 0.02;
 /** Até onde voltar a partir do ponto forte (o "s" de "Cinco" chega a 160 ms). */
 const MAX_BACK_S = 0.3;
+/**
+ * Palavra solta (contagem): murmúrio fraco (voz entre 8% e 20%, sem ser chiado) antes do ponto forte
+ * fica no máximo 30 ms. Na voz Forte ele chegava a 100 ms e o número soava atrasado na grade.
+ * O chiado de consoante ("s" de "Seis") continua podendo ir até `MAX_BACK_S`.
+ */
+const MAX_SOFT_LEAD_S = 0.03;
 /** Pausa que separa um pedaço solto da palavra de verdade (só em palavra solta, como na contagem). */
 const FRAGMENT_GAP_S = 0.02;
 /** No fim: o que ainda conta como som (3% do máximo) e o respiro que fica depois dele. */
@@ -109,7 +115,10 @@ export function speechBounds(samples: Float32Array, rate: number, opts: SpeechTr
   let first = strong;
   let quiet = 0;
   const maxBack = Math.round(MAX_BACK_S / hopS);
+  const maxSoft = Math.round(MAX_SOFT_LEAD_S / hopS);
   for (let j = strong - 1; j >= floor && strong - j <= maxBack; j--) {
+    // palavra solta: chiado vale até MAX_BACK_S; murmúrio fraco só até MAX_SOFT_LEAD_S
+    if (opts.singleWord && !hiss(j) && attached(j) && strong - j > maxSoft) break;
     if (attached(j)) { first = j; quiet = 0; continue; }
     quiet++;
     if (quiet * hopS > MAX_INNER_GAP_S) break;
@@ -128,6 +137,37 @@ export function speechBounds(samples: Float32Array, rate: number, opts: SpeechTr
   while (last > first && r(last) < TAIL_LEVEL && !hiss(last)) last--;
   const end = Math.min(n, frames[last].pos + winLen + Math.round(rate * TAIL_KEEP_S));
   return { start, end: Math.max(start + 1, end) };
+}
+
+/** Envelope do ataque: janela de 10 ms centrada no ponto, passo de 1 ms. */
+const ATTACK_WIN_S = 0.01;
+/** O ataque da palavra: onde o envelope passa de 50% do maior volume dela. */
+const ATTACK_LEVEL = 0.5;
+
+/**
+ * Segundos do início do áudio até o ataque da palavra: o primeiro ponto em que o volume (RMS numa
+ * janela de 10 ms centrada nele) passa de 50% do volume máximo. Na contagem é esse ponto que tem de
+ * cair na batida, não o primeiro murmúrio. Sem som, 0.
+ */
+export function attackOffset(samples: Float32Array, rate: number): number {
+  const n = samples.length;
+  if (n === 0 || !(rate > 0)) return 0;
+  const half = Math.max(1, Math.round((rate * ATTACK_WIN_S) / 2));
+  const hop = Math.max(1, Math.round(rate * HOP_S));
+  // soma acumulada dos quadrados: RMS de qualquer janela em O(1)
+  const acc = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) acc[i + 1] = acc[i] + samples[i] * samples[i];
+  const rms = (c: number) => {
+    const a = Math.max(0, c - half);
+    const b = Math.min(n, c + half);
+    return b > a ? Math.sqrt((acc[b] - acc[a]) / (b - a)) : 0;
+  };
+  let max = 0;
+  for (let c = 0; c < n; c += hop) max = Math.max(max, rms(c));
+  if (max <= 0) return 0;
+  const limit = max * ATTACK_LEVEL;
+  for (let c = 0; c < n; c += hop) if (rms(c) >= limit) return c / rate;
+  return 0;
 }
 
 /** Mistura os canais em mono (só para a análise). */

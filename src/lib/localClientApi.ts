@@ -279,5 +279,13 @@ export function localAccountBackend(username: string): SheetBackend {
       // `skipped`: colegas que já tinham caderno desta música e ficaram com o deles
       return readShareResult(await post('sheet-share', { sheetId, targets }));
     },
+    // Foto de perfil: fica na conta do show (no projeto do diretor), igual ao online.
+    async avatar() {
+      const data = await withMusician('avatar');
+      return typeof data.avatar === 'string' ? data.avatar : null;
+    },
+    async setAvatar(avatar) {
+      await post('avatar-set', { avatar }, AUTH_MS);
+    },
   };
 }

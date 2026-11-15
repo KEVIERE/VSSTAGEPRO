@@ -66,3 +66,61 @@ export function waveColumns(
   }
   return out;
 }
+
+/**
+ * Cache das colunas já calculadas. Com o zoom aproximado e o áudio na memória, cada bloco lê
+ * milhões de amostras; mudar só a altura das faixas, o ganho ou a cor, ou voltar a um zoom
+ * recente, redesenhava tudo isso de novo e travava a tela (e os medidores) durante o zoom.
+ * LRU com limite: cada entrada é um Float32Array de ~8 KB (bloco de 2048 px), 256 = ~2 MB.
+ */
+export const WAVE_COLUMNS_CACHE_MAX = 256;
+const columnsCache = new Map<string, Float32Array>();
+const sourceIds = new WeakMap<object, number>();
+let nextSourceId = 1;
+function sourceId(src: object | null | undefined): number {
+  if (!src) return 0;
+  let id = sourceIds.get(src);
+  if (!id) {
+    id = nextSourceId++;
+    sourceIds.set(src, id);
+  }
+  return id;
+}
+
+/** Igual a `waveColumns`, mas reaproveita o resultado. Não altere o array devolvido. */
+export function waveColumnsCached(
+  peaks: number[] | undefined,
+  audio: ClipAudio | null | undefined,
+  duration: number,
+  total: number,
+  offset: number,
+  width: number,
+): Float32Array {
+  // a identidade dos objetos entra na chave: resumo ou áudio novo (outra música, reimportação) não reaproveita
+  const key = `${sourceId(peaks)}|${sourceId(audio)}|${duration}|${total}|${offset}|${width}`;
+  const hit = columnsCache.get(key);
+  if (hit) {
+    // vai para o fim da fila (mais recente)
+    columnsCache.delete(key);
+    columnsCache.set(key, hit);
+    return hit;
+  }
+  const cols = waveColumns(peaks, audio, duration, total, offset, width);
+  columnsCache.set(key, cols);
+  while (columnsCache.size > WAVE_COLUMNS_CACHE_MAX) {
+    const oldest = columnsCache.keys().next().value;
+    if (oldest === undefined) break;
+    columnsCache.delete(oldest);
+  }
+  return cols;
+}
+
+/** Quantas entradas o cache tem (para teste). */
+export function waveColumnsCacheSize(): number {
+  return columnsCache.size;
+}
+
+/** Esvazia o cache (para teste). */
+export function clearWaveColumnsCache(): void {
+  columnsCache.clear();
+}

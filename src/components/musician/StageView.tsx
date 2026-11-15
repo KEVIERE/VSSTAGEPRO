@@ -15,10 +15,10 @@ import SharePane from './notebook/SharePane';
 import SaveButton from './notebook/SaveButton';
 import { NowNextDisplays, SignalBanner } from './LivePanel';
 
-// Modo Show da Área do Músico: em cima os dois displays do programa (Tocando e Próxima); embaixo,
-// ocupando o resto da tela, a cifra / partitura / foto da partitura da música NO AR, que troca
-// sozinha quando o diretor passa de música. Texto pode rolar sozinho ou caber inteiro na tela;
-// fotos enchem a tela (ou a largura, rolando sozinhas).
+// Modo Show da Área do Músico: em cima uma faixa fina com Tocando e Próxima (cerca de 60 px) e
+// uma linha só de teclas; o resto da tela fica para a cifra / partitura / foto da partitura da
+// música NO AR, que troca sozinha quando o diretor passa de música. Texto pode rolar sozinho ou
+// caber inteiro na tela; fotos enchem a tela (ou a largura, rolando sozinhas).
 
 type Fit = 'scroll' | 'page';
 type ImgFit = 'fill' | 'width';
@@ -281,60 +281,60 @@ export default function StageView({
   }, [zoom]);
 
   const onManual = () => { roll.current.manualUntil = performance.now() + MANUAL_PAUSE_MS; };
-  // Teclas de 40 px, boas para o dedo no palco. No celular deitado (compacto) ficam com 32 px:
-  // ali a altura é da cifra.
-  const key = (on: boolean) => `console-key flex items-center justify-center gap-1.5 ${compact ? 'h-8' : 'h-10 min-w-[40px]'} px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
-  const sq = compact ? 'w-8 h-8' : 'w-10 h-10';
-  const lcdH = compact ? 'h-8' : 'h-10';
+  // Teclas numa linha só, de 36 px no celular em pé e 32 px deitado (compacto): a altura é da
+  // cifra. Abaixo de sm só o ícone; a linha rola de lado se não couber.
+  const key = (on: boolean) => `console-key shrink-0 flex items-center justify-center gap-1.5 ${compact ? 'h-8 min-w-[32px]' : 'h-9 min-w-[36px]'} px-2.5 text-[12px] ${on ? 'is-lit-blue' : ''}`;
+  const sq = `shrink-0 ${compact ? 'w-8 h-8' : 'w-9 h-9'}`;
+  const lcdH = compact ? 'h-8' : 'h-9';
 
   return (
     <div className="relative flex-1 min-h-0 flex flex-col overflow-hidden bg-logic-bg-deep">
-      <div className={`console-face px-3 ${compact ? 'py-1.5' : 'pt-2 pb-2'} border-b border-black`} style={compact ? SAFE_SIDES : undefined}>
-        {/* no compacto o aviso "Ao vivo" sai (o LED do Tocando já diz); "Sem sinal" e "encerrou" continuam */}
-        {(!compact || lv.status !== 'live') && (
-          <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} hint={signalHint} />
+      <div className="console-face px-3 py-1.5 border-b border-black" style={compact ? SAFE_SIDES : undefined}>
+        {/* o aviso "Ao vivo" sai (o LED do Tocando já diz); "Sem sinal" e "encerrou" continuam */}
+        {lv.status !== 'live' && (
+          <div className="mb-1.5">
+            <SignalBanner status={lv.status} isPlaying={lv.isPlaying} paused={!!live?.isPaused} hint={signalHint} />
+          </div>
         )}
-        <div className={compact ? (lv.status === 'live' ? '' : 'mt-1.5') : 'mt-2'}>
-          <NowNextDisplays lv={lv} live={live} currentSong={currentSong} nextSong={nextSong} big compact={compact} />
-        </div>
-        <div className={compact ? 'mt-1 py-1 flex items-center gap-1.5 flex-nowrap overflow-x-auto' : 'mt-2 flex items-center gap-1.5 flex-wrap'}>
+        <NowNextDisplays lv={lv} live={live} currentSong={currentSong} nextSong={nextSong} strip />
+        <div className="mt-1 py-0.5 flex items-center gap-1.5 flex-nowrap overflow-x-auto logic-scroll">
           {imageOnly ? (
             <>
-              <button className={key(imgFit === 'fill')} onClick={() => saveImgFit('fill')} title="A foto inteira cabe na tela, abaixo dos displays">
-                <Maximize size={14} /> <span className={compact ? 'hidden' : ''}>Tela inteira</span>
+              <button className={key(imgFit === 'fill')} onClick={() => saveImgFit('fill')} title="A foto inteira cabe na tela">
+                <Maximize size={14} /> <span className="hidden sm:inline">Tela inteira</span>
               </button>
               <button className={key(imgFit === 'width')} onClick={() => saveImgFit('width')} title="A foto ocupa a largura toda e rola sozinha acompanhando a música">
-                <MoveHorizontal size={14} /> <span className={compact ? 'hidden' : ''}>Largura toda</span>
+                <MoveHorizontal size={14} /> <span className="hidden sm:inline">Largura toda</span>
               </button>
             </>
           ) : (
             <>
               <button className={key(fit === 'scroll')} onClick={() => saveFit('scroll')} title="A cifra rola sozinha acompanhando a música">
-                <ArrowDownWideNarrow size={14} /> <span className={compact ? 'hidden' : ''}>Rolar sozinho</span>
+                <ArrowDownWideNarrow size={14} /> <span className="hidden sm:inline">Rolar sozinho</span>
               </button>
               <button className={key(fit === 'page')} onClick={() => saveFit('page')} title="A cifra inteira cabe na tela">
-                <Maximize size={14} /> <span className={compact ? 'hidden' : ''}>Página inteira</span>
+                <Maximize size={14} /> <span className="hidden sm:inline">Página inteira</span>
               </button>
-              <div className="flex items-center gap-1 ml-1">
+              <div className="flex items-center gap-1 ml-1 shrink-0">
                 <button className={`console-key ${sq} flex items-center justify-center`} onClick={() => saveZoom(zoom - 0.1)} aria-label="Letra menor"><Minus size={13} /></button>
-                <span className={`console-display ${lcdH} px-2 font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`}>{Math.round(zoom * 100)}%</span>
+                <span className={`console-display shrink-0 ${lcdH} px-2 font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`}>{Math.round(zoom * 100)}%</span>
                 <button className={`console-key ${sq} flex items-center justify-center`} onClick={() => saveZoom(zoom + 0.1)} aria-label="Letra maior"><Plus size={13} /></button>
               </div>
             </>
           )}
           {scrolls && (
             <div
-              className="flex items-center gap-1 ml-1"
+              className="flex items-center gap-1 ml-1 shrink-0"
               title={`Velocidade da rolagem. 1x: a cifra inteira passa ao longo da música. Ela rola enquanto o diretor está tocando.${isPlaying ? '' : ' Agora está parada: começa com o play do diretor.'}`}
             >
-              <span className={`console-legend ${compact ? 'hidden' : 'hidden sm:inline'}`}>Velocidade</span>
+              <span className={`console-legend ${compact ? 'hidden' : 'hidden md:inline'}`}>Velocidade</span>
               <button
                 className={`console-key ${sq} flex items-center justify-center`}
                 onClick={() => saveSpeed(stepScrollSpeed(speed, -1))}
                 disabled={speed <= SCROLL_SPEEDS[0]}
                 aria-label="Rolar mais devagar"
               ><Turtle size={14} /></button>
-              <span className={`console-display ${lcdH} min-w-[54px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`} aria-live="polite">
+              <span className={`console-display shrink-0 ${lcdH} min-w-[54px] px-2 justify-center font-stage font-semibold text-[12px] text-logic-lcd-amber flex items-center tabular-nums`} aria-live="polite">
                 {scrollSpeedLabel(speed)}
               </span>
               <button
@@ -343,12 +343,12 @@ export default function StageView({
                 disabled={speed >= SCROLL_SPEEDS[SCROLL_SPEEDS.length - 1]}
                 aria-label="Rolar mais rápido"
               ><Rabbit size={14} /></button>
-              <span className={`console-led ml-0.5 ${isPlaying ? 'is-on-green' : ''}`} aria-hidden />
-              {!isPlaying && !compact && <span className="console-legend hidden md:inline">Rola com o play</span>}
+              <span className={`console-led shrink-0 ml-0.5 ${isPlaying ? 'is-on-green' : ''}`} aria-hidden />
+              {!isPlaying && !compact && <span className="console-legend hidden lg:inline whitespace-nowrap">Rola com o play</span>}
             </div>
           )}
           {songId && (
-            <div className="flex items-center gap-1.5 ml-auto">
+            <div className="flex items-center gap-1.5 ml-auto shrink-0">
               <SaveButton
                 saveNow={nb.saveNow}
                 status={nb.status}
@@ -358,7 +358,7 @@ export default function StageView({
               />
               <button className={key(false)} onClick={images.open} disabled={images.adding} title="Importar a foto da sua partitura ou cifra para esta música">
                 {images.adding ? <Loader2 size={13} className="animate-spin" /> : <ImagePlus size={13} />}
-                <span className={compact ? 'hidden' : 'hidden sm:inline'}>Importar imagem</span>
+                <span className="hidden sm:inline">Importar imagem</span>
               </button>
               <button
                 className={key(false)}
@@ -366,10 +366,10 @@ export default function StageView({
                 onClick={async () => { await nb.flush(); setSharing(true); }}
                 title={nb.sheetId ? 'Enviar a partitura desta música para outro músico' : 'Escreva algo ou importe uma imagem para poder enviar'}
               >
-                <Share2 size={13} /> <span className={compact ? 'hidden' : 'hidden sm:inline'}>Enviar</span>
+                <Share2 size={13} /> <span className="hidden sm:inline">Enviar</span>
               </button>
               <button className={key(false)} onClick={() => onEdit(songId)} title="Abrir o caderno desta música para escrever">
-                <PenLine size={13} /> <span className={compact ? 'hidden' : 'hidden sm:inline'}>Editar</span>
+                <PenLine size={13} /> <span className="hidden sm:inline">Editar</span>
               </button>
             </div>
           )}

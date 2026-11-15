@@ -10,7 +10,7 @@ import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
 import { computeNextSongId } from '@/lib/playFlow';
-import { togglePlayPause, stopPlayback, startPlayback, watchPlaylistForNextSong } from '@/lib/transportControl';
+import { togglePlayPause, stopPlayback, startPlayback, watchPlaylistForNextSong, seekToPosition } from '@/lib/transportControl';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
 import MenuBar from '@/components/MenuBar';
 import AudioDeviceDialog from '@/components/AudioDeviceDialog';
@@ -54,6 +54,7 @@ import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
 import MobileShowRemote from '@/components/MobileShowRemote';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog';
+import ImportDuplicateDialog from '@/components/ImportDuplicateDialog';
 import { confirmLeaveProject, watchUnsavedChanges } from '@/lib/unsavedChanges';
 import { copyClips, duplicateClips, pasteClips } from '@/lib/clipClipboard';
 import { trackFeature, useFeatureTracking } from '@/lib/featureUsage';
@@ -341,6 +342,8 @@ export function DirectorApp({ license }: { license: License }) {
   const lyricsSync = useProjectLyricsSync(broadcast.show);
   const referenceSync = useReferenceAutoSync(broadcast.show);
   const toggleMixer = useStore((s) => s.toggleMixer);
+  // Troca do Modo Show na hora: adiar com startTransition não servia, porque tocando a store
+  // muda a cada 100 ms (prioridade síncrona) e descartava a montagem adiada; só atrasava a troca.
   const playlistMaximized = useStore((s) => s.playlistMaximized);
   const playlistVisible = useStore((s) => s.playlistVisible || s.showBpmTower || s.showTunerTower);
   const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
@@ -411,6 +414,21 @@ export function DirectorApp({ license }: { license: License }) {
         return;
       }
       if (isTextInput || el?.tagName === 'SELECT') return;
+
+      // Home leva o cursor ao início da música, End ao fim (sem música aberta, nada acontece)
+      if ((e.key === 'Home' || e.key === 'End') && !ctrl && !e.altKey && !e.shiftKey) {
+        const st = useStore.getState();
+        const songId = st.transport.isPlaying ? st.transport.currentSongId : (st.selectedSongId ?? st.transport.currentSongId);
+        const song = songId ? st.songs.find((sg) => sg.id === songId) : undefined;
+        if (!song) return;
+        e.preventDefault();
+        if (e.repeat) return;
+        // End com a música tocando acabava com ela na hora (e a próxima podia entrar): no show,
+        // um End sem querer não pode pular a música. Tocando, só o Home vale.
+        if (e.key === 'End' && st.transport.isPlaying) return;
+        seekToPosition(song.id, e.key === 'Home' ? 0 : Math.max(0, song.duration));
+        return;
+      }
 
       if (ctrl && key === 'c') {
         const count = copyClips();
@@ -804,23 +822,17 @@ export function DirectorApp({ license }: { license: License }) {
         )}
 
         <div className="flex flex-1 overflow-hidden">
-          {playlistMaximized ? (
-            <>
-              <div className="flex flex-col flex-1 min-w-0 min-h-0">
-                <div className="flex-1 min-h-0 overflow-hidden">
-                  <PlaylistPanel onOpenAiSeparator={() => setAiSeparatorOpen(true)} />
-                </div>
-                {/* Pads (tecla P) no lugar do mixer (tecla M) */}
-                <PadsOrMixer />
-              </div>
-              <ShowModePanel showName={broadcast.showName} />
-            </>
-          ) : (
-            <>
-              {playlistVisible && <PlaylistPanel onOpenAiSeparator={() => setAiSeparatorOpen(true)} />}
-              <TimelinePanel />
-            </>
-          )}
+          {/* A playlist fica no mesmo lugar da árvore nos dois modos (fora do Modo Show as caixas
+              viram display: contents e o layout é o de antes): abrir o Modo Show só atualiza a
+              playlist, sem desmontar e montar tudo de novo no mesmo quadro (era a travada ao abrir). */}
+          <div className={playlistMaximized ? 'flex flex-col flex-1 min-w-0 min-h-0' : 'contents'}>
+            <div className={playlistMaximized ? 'flex-1 min-h-0 overflow-hidden' : 'contents'}>
+              {(playlistMaximized || playlistVisible) && <PlaylistPanel maximized={playlistMaximized} onOpenAiSeparator={() => setAiSeparatorOpen(true)} />}
+            </div>
+            {/* Pads (tecla P) no lugar do mixer (tecla M) */}
+            {playlistMaximized && <PadsOrMixer />}
+          </div>
+          {playlistMaximized ? <ShowModePanel showName={broadcast.showName} /> : <TimelinePanel />}
         </div>
 
         {!playlistMaximized && <MixerPanel />}
@@ -847,6 +859,7 @@ export function DirectorApp({ license }: { license: License }) {
         />
         <MissingAudioDialog />
         <UnsavedChangesDialog />
+        <ImportDuplicateDialog />
       </div>
     </ErrorBoundary>
   );

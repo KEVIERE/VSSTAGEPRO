@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { LayoutGrid, Loader2, Plus, Repeat, X } from 'lucide-react';
 import { LedMeter } from '@/components/MeterMask';
@@ -11,7 +11,7 @@ import { useSkin } from '@/lib/useSkin';
 import { VsKnobFace } from '@/components/AnalogPieces';
 import { faderToGain } from '@/lib/faderScale';
 import {
-  clearPad, fadeAllPads, importPadFile, keepPadsReady, togglePadRoll, toggleTrimPad, loadPads, openPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
+  clearPad, fadeAllPads, flushPadSave, importPadFile, keepPadsReady, togglePadRoll, toggleTrimPad, loadPadSounds, warmPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
   setPadsFx, setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
 } from '@/lib/padPlayer';
 import {
@@ -20,6 +20,7 @@ import {
   setPadsState, slotPad, subscribePads, togglePadsPanel, usablePadOutput, type PadInfo, type PadOutput,
 } from '@/lib/samplePads';
 import { useStore } from '@/store';
+import { afterPaint } from '@/lib/afterPaint';
 
 const AUDIO_TYPES = 'audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg';
 
@@ -39,15 +40,32 @@ const dbText = (volume: number) => {
 export function PadsOrMixer() {
   const visible = useSyncExternalStore(subscribePads, () => getPadsState().visible);
 
-  useEffect(() => { void loadPads(); }, []);
+  // os sons do banco começam a carregar já ao montar (só leitura e decodificação, sem abrir saída
+  // de áudio): o pad só toca com o som na memória (triggerPad sai mudo sem ele)
+  useEffect(() => { void loadPadSounds(); }, []);
   // no Modo Show os pads ficam sempre prontos (saída aberta e acordada, sons do banco na memória),
   // mesmo com o mixer na tela: o primeiro toque sai na hora, até depois de sair e voltar. Sem pad
-  // nenhum com som a saída não abre à toa; o primeiro som que entrar já deixa ela pronta
+  // nenhum com som a saída não abre à toa; o primeiro som que entrar já deixa ela pronta.
+  // Abrir a saída (AudioContext novo, reverb, curva) fica para depois da primeira pintura: no mesmo
+  // quadro do clique travava a tela ao abrir o Modo Show. Um toque com o som já carregado abre a
+  // saída na hora (triggerPad -> padOut). Com música tocando a saída só abre depois que ela parar.
   useEffect(() => {
-    keepPadsReady(true);
-    return () => keepPadsReady(false);
+    let armed = false;
+    const cancel = afterPaint(() => { armed = true; keepPadsReady(true); });
+    return () => {
+      cancel();
+      if (armed) keepPadsReady(false);
+    };
   }, []);
-  useEffect(() => { if (visible) openPadOutput(); }, [visible]);
+  // ao montar com os pads já abertos, também espera a pintura; abrir pelo P continua na hora
+  const firstVisible = useRef(true);
+  useEffect(() => {
+    const first = firstVisible.current;
+    firstVisible.current = false;
+    if (!visible) return;
+    if (!first) { warmPadOutput(); return; }
+    return afterPaint(() => { warmPadOutput(); });
+  }, [visible]);
 
   useEffect(() => {
     // tecla apertada → pad que ela tocou (para soltar o mesmo pad, mesmo se o banco mudar no meio)
@@ -116,13 +134,16 @@ function SamplePadPanel() {
   const selected = st.infos.get(st.selected);
   const counts = bankCounts(st.infos);
 
-  const pickFile = (slot: number) => {
+  // Funções estáveis (lêem o estado na hora): com elas os pads, o knob e o pitch (memo) não são
+  // redesenhados a cada mudança do painel, só quando o que mostram muda
+  const pickFile = useCallback((slot: number) => {
     pickFor.current = slot;
     fileRef.current?.click();
-  };
-  const importMany = async (startPad: number, files: File[]) => {
-    const used = new Set(st.infos.keys());
-    const targets = dropTargets(st.bank, startPad, files.length, used);
+  }, []);
+  const importMany = useCallback(async (startPad: number, files: File[]) => {
+    const { bank, infos } = getPadsState();
+    const used = new Set(infos.keys());
+    const targets = dropTargets(bank, startPad, files.length, used);
     let ok = 0;
     for (let i = 0; i < targets.length; i++) if (await importPadFile(targets[i], files[i])) ok++;
     const left = files.length - targets.length;
@@ -130,13 +151,24 @@ function SamplePadPanel() {
       setPadsState({
         message: {
           ok: true,
-          text: `${ok === 1 ? '1 som pronto' : `${ok} sons prontos`} no banco ${BANK_LABELS[st.bank]}.`
+          text: `${ok === 1 ? '1 som pronto' : `${ok} sons prontos`} no banco ${BANK_LABELS[bank]}.`
             + (left > 0 ? ` ${left === 1 ? '1 arquivo ficou' : `${left} arquivos ficaram`} de fora: não há pad vazio depois.` : ''),
         },
       });
     }
-  };
+  }, []);
   const set = (patch: Partial<Omit<PadInfo, 'slot'>>) => { if (selected) void updatePad(selected.slot, patch); };
+  // knob e pitch arrastados: o som muda na hora e o computador grava ao soltar (ver updatePad live)
+  // o pad vem do knob/pitch (guardado no pointerdown): tocar outro pad pelo teclado no meio do
+  // arraste muda o escolhido, e o arraste não pode passar a mexer no pad novo
+  const liveVolume = useCallback((slot: number, v: number) => { void updatePad(slot, { volume: v }, true); }, []);
+  const resetVolume = useCallback((slot: number) => { void updatePad(slot, { volume: 0.8 }); }, []);
+  const livePitch = useCallback((slot: number, v: number) => { void updatePad(slot, { pitch: v }, true); }, []);
+  const commitSelected = useCallback((slot: number) => { flushPadSave(slot); }, []);
+  const onPick = useCallback((slot: number) => { selectPad(slot); pickFile(slot); }, [pickFile]);
+  const onEdit = useCallback((slot: number, anchor: HTMLElement) => { selectPad(slot); setEditing({ slot, anchor }); }, []);
+  const onDragState = useCallback((slot: number, on: boolean) => setDragOver(on ? slot : null), []);
+  const onDropFiles = useCallback((slot: number, files: File[]) => { setDragOver(null); void importMany(slotPad(slot), files); }, [importMany]);
 
   return (
     <div className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden" style={{ height: '404px', maxHeight: '66%' }}>
@@ -165,7 +197,7 @@ function SamplePadPanel() {
         <div className="w-[292px] shrink-0 flex flex-col gap-2 min-h-0">
           <PlayingDisplay />
           <DetailsDisplay info={selected} number={slotPad(st.selected) + 1} bank={st.bank} output={st.output} />
-          <PitchFader value={selected?.pitch ?? 0} disabled={!selected} onChange={(v) => set({ pitch: v })} />
+          <PitchFader slot={st.selected} value={selected?.pitch ?? 0} disabled={!selected} onChange={livePitch} onCommit={commitSelected} />
           <div className="grid grid-cols-6 gap-1" role="group" aria-label="Efeitos do pad escolhido">
             <FxKey label="REVERB" on={!!selected?.reverb} lit="is-lit-blue" disabled={!selected} onClick={() => set({ reverb: !selected?.reverb })} title="Reverb: sala com cauda de 2 segundos" />
             <FxKey label="DELAY" on={!!selected?.delay} lit="is-lit-blue" disabled={!selected} onClick={() => set({ delay: !selected?.delay })} title="Delay: repete no tempo da música (uma semínima)" />
@@ -232,11 +264,13 @@ function SamplePadPanel() {
         {/* Knob do pad escolhido e fader geral, como no controlador */}
         <div className="w-[96px] shrink-0 flex flex-col items-center gap-1.5">
           <PadKnob
+            slot={st.selected}
             value={selected?.volume ?? 0}
             color={selected?.color ?? '#ffab1f'}
             disabled={!selected}
-            onChange={(v) => set({ volume: v })}
-            onReset={() => set({ volume: 0.8 })}
+            onChange={liveVolume}
+            onReset={resetVolume}
+            onCommit={commitSelected}
           />
           <span className="console-legend text-center leading-tight">
             VOL PAD<br /><span className="text-logic-lcd-amber tabular-nums">{selected ? `${dbText(selected.volume)} dB` : '—'}</span>
@@ -276,18 +310,19 @@ function SamplePadPanel() {
             return (
               <Pad
                 key={slot}
+                slot={slot}
                 number={p + 1}
                 info={st.infos.get(slot)}
                 playing={st.playing.has(slot)}
                 selected={st.selected === slot}
                 loading={st.loading.has(slot)}
                 dragOver={dragOver === slot}
-                onPlay={() => triggerPad(slot)}
-                onRelease={() => releasePad(slot)}
-                onPick={() => { selectPad(slot); pickFile(slot); }}
-                onEdit={(anchor) => { selectPad(slot); setEditing({ slot, anchor }); }}
-                onDragState={(on) => setDragOver(on ? slot : null)}
-                onDropFiles={(files) => { setDragOver(null); void importMany(p, files); }}
+                onPlay={triggerPad}
+                onReleaseSlot={releasePad}
+                onPick={onPick}
+                onEdit={onEdit}
+                onDragState={onDragState}
+                onDropFiles={onDropFiles}
               />
             );
           })}
@@ -324,10 +359,11 @@ function SamplePadPanel() {
 }
 
 /** Visor do que está tocando: o último pad que começou, o tempo que falta e a barra. */
-function PlayingDisplay() {
-  const st = useSyncExternalStore(subscribePads, getPadsState);
-  const slot = lastPlaying(st.playing);
-  const info = slot !== null ? st.infos.get(slot) : undefined;
+const PlayingDisplay = memo(function PlayingDisplay() {
+  // só o que o visor mostra: o knob ou um efeito mexendo não redesenha o visor
+  const playing = useSyncExternalStore(subscribePads, () => getPadsState().playing);
+  const slot = lastPlaying(playing);
+  const info = useSyncExternalStore(subscribePads, () => (slot !== null ? getPadsState().infos.get(slot) : undefined));
   const [, tick] = useState(0);
   useEffect(() => {
     if (slot === null) return;
@@ -335,10 +371,10 @@ function PlayingDisplay() {
     return () => window.clearInterval(id);
   }, [slot]);
   const total = info ? pitchedDuration(info) : 0;
-  const elapsed = slot !== null ? Math.max(0, padClock() - (st.playing.get(slot) ?? 0)) : 0;
+  const elapsed = slot !== null ? Math.max(0, padClock() - (playing.get(slot) ?? 0)) : 0;
   const left = info?.loop ? (total > 0 ? total - (elapsed % total) : 0) : Math.max(0, total - elapsed);
   const pct = total > 0 ? Math.min(100, ((info?.loop ? elapsed % total : elapsed) / total) * 100) : 0;
-  const others = st.playing.size - (slot !== null ? 1 : 0);
+  const others = playing.size - (slot !== null ? 1 : 0);
   return (
     <div className="console-bezel shrink-0">
       <div className="console-display px-2.5 py-1.5 flex flex-col gap-1">
@@ -361,10 +397,10 @@ function PlayingDisplay() {
       </div>
     </div>
   );
-}
+});
 
 /** Visor do pad escolhido: nome, tamanho, volume, pitch, efeitos e saída. */
-function DetailsDisplay({ info, number, bank, output }: { info?: PadInfo; number: number; bank: number; output: PadOutput }) {
+const DetailsDisplay = memo(function DetailsDisplay({ info, number, bank, output }: { info?: PadInfo; number: number; bank: number; output: PadOutput }) {
   const count = useStore((s) => s.outputChannelCount);
   const fx = info ? [info.reverb && 'REV', info.delay && 'DLY', info.reverse && 'REVERSO', info.loop && 'LOOP', info.roll && 'ROLL'].filter(Boolean).join(' · ') : '';
   return (
@@ -384,7 +420,7 @@ function DetailsDisplay({ info, number, bank, output }: { info?: PadInfo; number
       </div>
     </div>
   );
-}
+});
 
 function FxKey({ label, on, lit, disabled, onClick, title }: {
   label: string; on: boolean; lit: string; disabled: boolean; onClick: () => void; title: string;
@@ -405,7 +441,11 @@ function FxKey({ label, on, lit, disabled, onClick, title }: {
 }
 
 /** Pitch do pad escolhido: -12 a +12 semitons, com o zero no meio. Duplo clique volta ao zero. */
-function PitchFader({ value, disabled, onChange }: { value: number; disabled: boolean; onChange: (v: number) => void }) {
+const PitchFader = memo(function PitchFader({ slot, value, disabled, onChange, onCommit }: {
+  slot: number; value: number; disabled: boolean; onChange: (slot: number, v: number) => void;
+  /** Soltou: grava o pitch no computador (durante o arraste só o som e a tela mudam). */
+  onCommit: (slot: number) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const pct = (value + PITCH_RANGE) / (PITCH_RANGE * 2);
   const down = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -414,19 +454,24 @@ function PitchFader({ value, disabled, onChange }: { value: number; disabled: bo
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
     const width = ref.current.getBoundingClientRect().width;
+    // o arraste inteiro mexe no pad em que começou
+    const target = slot;
     let last = e.clientX;
     let acc = value;
+    // só manda quando o semitom muda (antes mandava o mesmo valor a cada pixel)
+    let sent = value;
     const move = (ev: PointerEvent) => {
       acc += ((ev.clientX - last) / width) * PITCH_RANGE * 2 * (ev.shiftKey ? 0.25 : 1);
       last = ev.clientX;
       acc = Math.max(-PITCH_RANGE, Math.min(PITCH_RANGE, acc));
       const next = clampPitch(acc);
-      if (next !== value) onChange(next);
+      if (next !== sent) { sent = next; onChange(target, next); }
     };
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      onCommit(target);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
@@ -440,7 +485,7 @@ function PitchFader({ value, disabled, onChange }: { value: number; disabled: bo
         className="relative flex-1 h-6 cursor-ew-resize select-none"
         style={{ touchAction: 'none' }}
         onPointerDown={down}
-        onDoubleClick={() => { if (!disabled) onChange(0); }}
+        onDoubleClick={() => { if (!disabled) onChange(slot, 0); }}
         title="Pitch do pad escolhido: arraste para os lados (Shift: fino). Duplo clique: zero."
         role="slider"
         aria-label="Pitch do pad"
@@ -457,11 +502,14 @@ function PitchFader({ value, disabled, onChange }: { value: number; disabled: bo
       <span className="console-readout text-logic-lcd-amber w-9 shrink-0">{pitchLabel(value)}</span>
     </div>
   );
-}
+});
 
 /** Knob do volume do pad escolhido, com anel de LED. Arraste para cima ou para baixo; duplo clique: 0 dB. */
-function PadKnob({ value, color, disabled, onChange, onReset }: {
-  value: number; color: string; disabled: boolean; onChange: (v: number) => void; onReset: () => void;
+const PadKnob = memo(function PadKnob({ slot, value, color, disabled, onChange, onReset, onCommit }: {
+  slot: number; value: number; color: string; disabled: boolean;
+  onChange: (slot: number, v: number) => void; onReset: (slot: number) => void;
+  /** Soltou: grava o volume no computador (durante o arraste só o som e a tela mudam). */
+  onCommit: (slot: number) => void;
 }) {
   const pct = Math.max(0, Math.min(1, value / 1.5));
   const skin = useSkin();
@@ -475,18 +523,21 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
     e.preventDefault();
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
+    // o arraste inteiro mexe no pad em que começou
+    const target = slot;
     let last = e.clientY;
     let acc = value;
     const move = (ev: PointerEvent) => {
       acc += ((last - ev.clientY) / 160) * 1.5 * (ev.shiftKey ? 0.1 : 1);
       last = ev.clientY;
       acc = Math.max(0, Math.min(1.5, acc));
-      onChange(Math.round(acc * 1000) / 1000);
+      onChange(target, Math.round(acc * 1000) / 1000);
     };
     const up = () => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
+      onCommit(target);
     };
     el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', up);
@@ -497,8 +548,8 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
       className={`relative w-[78px] h-[78px] shrink-0 select-none ${disabled ? 'opacity-40' : 'cursor-ns-resize'}`}
       style={{ touchAction: 'none' }}
       onPointerDown={down}
-      onDoubleClick={() => { if (!disabled) onReset(); }}
-      onWheel={(e) => { if (!disabled) onChange(Math.max(0, Math.min(1.5, Math.round((value - Math.sign(e.deltaY) * 0.02) * 1000) / 1000))); }}
+      onDoubleClick={() => { if (!disabled) onReset(slot); }}
+      onWheel={(e) => { if (!disabled) onChange(slot, Math.max(0, Math.min(1.5, Math.round((value - Math.sign(e.deltaY) * 0.02) * 1000) / 1000))); }}
       role="slider"
       aria-label="Volume do pad escolhido"
       aria-valuemin={0}
@@ -560,10 +611,10 @@ function PadKnob({ value, color, disabled, onChange, onReset }: {
       )}
     </div>
   );
-}
+});
 
 /** Saída dos pads, no estilo da saída dos canais do mixer. */
-function OutputButton({ output }: { output: PadOutput }) {
+const OutputButton = memo(function OutputButton({ output }: { output: PadOutput }) {
   const count = useStore((s) => s.outputChannelCount);
   const [open, setOpen] = useState(false);
   const [stereo, setStereo] = useState(output.stereo);
@@ -648,36 +699,42 @@ function OutputButton({ output }: { output: PadOutput }) {
       )}
     </>
   );
-}
+});
 
-function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRelease, onPick, onEdit, onDragState, onDropFiles }: {
+/**
+ * Um pad. memo com funções estáveis que recebem o lugar do pad: tocar um pad (ou mexer no knob)
+ * redesenha só o pad que mudou (aceso, escolhido, som), não os 9.
+ */
+const Pad = memo(function Pad({ slot, number, info, playing, selected, loading, dragOver, onPlay, onReleaseSlot, onPick, onEdit, onDragState, onDropFiles }: {
+  slot: number;
   number: number;
   info?: PadInfo;
   playing: boolean;
   selected: boolean;
   loading: boolean;
   dragOver: boolean;
-  onPlay: () => void;
+  onPlay: (slot: number) => void;
   /** Soltou o pad (modo segurar). */
-  onRelease: () => void;
-  onPick: () => void;
-  onEdit: (anchor: HTMLElement) => void;
-  onDragState: (on: boolean) => void;
-  onDropFiles: (files: File[]) => void;
+  onReleaseSlot: (slot: number) => void;
+  onPick: (slot: number) => void;
+  onEdit: (slot: number, anchor: HTMLElement) => void;
+  onDragState: (slot: number, on: boolean) => void;
+  onDropFiles: (slot: number, files: File[]) => void;
 }) {
   const color = info?.color ?? PAD_COLORS[number - 1];
+  const onRelease = () => onReleaseSlot(slot);
   const drop = {
     onDragOver: (e: React.DragEvent) => {
       if (!e.dataTransfer.types.includes('Files')) return;
       e.preventDefault();
       e.stopPropagation();
-      onDragState(true);
+      onDragState(slot, true);
     },
-    onDragLeave: () => onDragState(false),
+    onDragLeave: () => onDragState(slot, false),
     onDrop: (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      onDropFiles([...e.dataTransfer.files]);
+      onDropFiles(slot, [...e.dataTransfer.files]);
     },
   };
 
@@ -685,7 +742,7 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRel
     return (
       <button
         type="button"
-        onClick={onPick}
+        onClick={() => onPick(slot)}
         disabled={loading}
         className={`relative min-h-0 rounded-[7px] flex flex-col items-center justify-center gap-1 border-2 border-dashed transition-colors ${
           dragOver ? 'border-[#ffab1f] bg-[#ffab1f]/10' : selected ? 'border-white/40 bg-[#1d2024]' : 'border-white/12 bg-[#1a1d21] hover:border-white/25'}`}
@@ -711,12 +768,12 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRel
         e.preventDefault();
         // soltar fora do pad também conta como soltar (modo segurar)
         e.currentTarget.setPointerCapture(e.pointerId);
-        onPlay();
+        onPlay(slot);
       }}
       onPointerUp={onRelease}
       onPointerCancel={onRelease}
-      onKeyDown={(e) => { if (e.key === 'Enter') onPlay(); }}
-      onContextMenu={(e) => { e.preventDefault(); onEdit(e.currentTarget); }}
+      onKeyDown={(e) => { if (e.key === 'Enter') onPlay(slot); }}
+      onContextMenu={(e) => { e.preventDefault(); onEdit(slot, e.currentTarget); }}
       className="relative min-h-0 rounded-[7px] overflow-hidden text-left transition-[box-shadow,filter] duration-75 active:brightness-110"
       style={{
         background: bg,
@@ -754,7 +811,7 @@ function Pad({ number, info, playing, selected, loading, dragOver, onPlay, onRel
       </span>
     </button>
   );
-}
+});
 
 /** Botão direito no pad: nome, cor, trocar o som ou limpar. */
 function PadEditor({ info, anchor, onClose, onReplace, onClear }: {
@@ -855,7 +912,8 @@ function PadEditor({ info, anchor, onClose, onReplace, onClear }: {
  * de DJ, no tempo da música, só nos pads com ROLL ligado) e o filtro de DJ. Duplo clique volta ao
  * padrão.
  */
-function FxKnobs() {
+// memo: só redesenha quando os knobs de efeito mudam (não a cada toque ou ajuste de pad)
+const FxKnobs = memo(function FxKnobs() {
   const fx = useSyncExternalStore(subscribePads, () => getPadsState().fx);
   return (
     <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Knobs de efeito dos pads">
@@ -895,7 +953,7 @@ function FxKnobs() {
       />
     </div>
   );
-}
+});
 
 function FxKnob({ label, value, bipolar, min, text, onChange, onReset, title }: {
   label: string;

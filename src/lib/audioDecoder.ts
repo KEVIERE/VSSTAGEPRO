@@ -14,7 +14,8 @@ export interface DecodedAudio {
 let decodeCtx: AudioContext | null = null;
 function getDecodeContext(): AudioContext {
   if (!decodeCtx || decodeCtx.state === 'closed') {
-    decodeCtx = new AudioContext();
+    // 'playback': bloco máximo. Nunca toca, então não pode pedir à placa bloco menor que o motor
+    decodeCtx = new AudioContext({ latencyHint: 'playback' });
     // Este contexto só decodifica e informa a taxa da saída: nunca toca som. Parado, ele não deixa
     // uma saída de bloco curto aberta para sempre, encurtando também o bloco das músicas (Modo
     // estável). decodeAudioData e sampleRate funcionam com o contexto parado.

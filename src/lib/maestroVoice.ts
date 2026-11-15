@@ -15,10 +15,11 @@
 import { useStore } from '@/store';
 import { forgetOnlineStatus, synthesizeOnline } from '@/lib/maestroCloud';
 import { ONLINE_DEFAULT, ONLINE_PACKS, isOnlineVoice, onlineVoiceById, onlineVoiceLabel } from '@/lib/onlineVoices';
-import { trimSpeechChannels } from '@/lib/speechTrim';
-import { getClipSource, putClipAudio, registerClipSource, toClipAudio, toClipAudioAsync } from '@/lib/audioLibrary';
+import { attackOffset, monoMix, trimSpeechChannels } from '@/lib/speechTrim';
+import { clipPlayLength, getClipSource, putClipAudio, registerClipSource, toClipAudio, toClipAudioAsync } from '@/lib/audioLibrary';
 import { processClipAudioAsync } from '@/lib/timeStretch';
 import { audioEngine } from '@/lib/audioEngine';
+import { engineLatencyHint } from '@/lib/engineLatency';
 import { masterAudioClip } from '@/lib/clipMastering';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { deviceSampleRate, generateMarkers } from '@/lib/audioDecoder';
@@ -221,6 +222,8 @@ export interface SpeechResult {
   overflow: boolean;
   /** Qual motor falou: a voz de IA do Mac, uma voz online, a voz do Mac (reserva) ou uma fala pronta. */
   engine: 'qwen' | 'online' | 'mac' | 'pronta';
+  /** Contagem: segundos do começo do áudio até o ataque do número (o clipe recua esse tanto). */
+  lead?: number;
 }
 
 /** Falas prontas já abertas nesta sessão (por taxa da placa, voz, intensidade e fala). */
@@ -388,6 +391,14 @@ export async function synthesize(text: string, voice: string, span: number, pace
     // e de novo depois: o esticador pode deixar um pedacinho quieto na frente
     buffer = tightenSpeech(buffer, singleWord);
   }
+  // Contagem: o que tem de cair na batida é o ataque do número, não o primeiro som. Medido no áudio
+  // final (já esticado), para o clipe recuar exatamente esse tanto.
+  if (singleWord) {
+    const final = buffer;
+    const channels = Array.from({ length: final.numberOfChannels }, (_, c) => final.getChannelData(c));
+    const lead = Math.round(attackOffset(monoMix(channels), final.sampleRate) * 1e4) / 1e4;
+    return { buffer, ...result, lead };
+  }
   return { buffer, ...result };
 }
 
@@ -439,6 +450,8 @@ export async function voiceDemo(voice: string, pitch?: VoicePitch): Promise<Voic
 // Pré-escuta: toca a fala sem passar pelo mixer.
 
 let previewCtx: AudioContext | null = null;
+/** Bloco pedido quando a prévia abriu. */
+let previewHint: AudioContextLatencyCategory | null = null;
 let previewSource: AudioBufferSourceNode | null = null;
 /** Último áudio gerado de cada marcação (para ouvir sem decodificar de novo). */
 const lastBuffers = new Map<string, AudioBuffer>();
@@ -454,7 +467,19 @@ export function stopPreview(): void {
 export function playPreview(buffer: AudioBuffer, onEnd?: () => void): void {
   stopPreview();
   try {
-    if (!previewCtx) previewCtx = new AudioContext();
+    // bloco do motor, nunca menor. O motor trocou de modo depois que a prévia abriu: fecha e abre
+    // de novo (stopPreview acabou de parar o que tocava nela), mas só com a música parada: com
+    // música, abrir outro contexto mexe na placa (engasgo) e a prévia toca no contexto antigo
+    const playing = useStore.getState().transport.isPlaying;
+    const hint = playing && previewCtx && previewHint ? previewHint : engineLatencyHint();
+    if (previewCtx && previewHint !== hint) {
+      void previewCtx.close().catch(() => { /* já fechou */ });
+      previewCtx = null;
+    }
+    if (!previewCtx) {
+      previewCtx = new AudioContext({ latencyHint: hint });
+      previewHint = hint;
+    }
     void previewCtx.resume();
     const src = previewCtx.createBufferSource();
     src.buffer = buffer;
@@ -612,6 +637,22 @@ async function generateOnce(songId: string, narrationId: string): Promise<Speech
 }
 
 /**
+ * Onde termina o último clipe da faixa que acaba até `start` (sem contar o próprio clipe da fala):
+ * o número da contagem só recua até ali, para não ficar por cima do anterior.
+ */
+function prevClipEnd(clips: AudioClip[], songId: string, trackId: string, start: number, ownId?: string): number {
+  let end = -Infinity;
+  for (const c of clips) {
+    if (c.id === ownId || c.songId !== songId || c.trackId !== trackId) continue;
+    if (c.startTime >= start) continue;
+    const e = c.startTime + clipPlayLength(c);
+    if (e <= start + 1e-6) end = Math.max(end, e);
+    else end = Math.max(end, start); // já cobre o início: não recua nada
+  }
+  return end;
+}
+
+/**
  * Grava a fala na faixa Maestro IA como um clipe no início da marcação (onde ela estiver agora:
  * se foi arrastada durante a geração, o áudio entra no lugar novo). O clipe antigo sai no mesmo
  * passo, para regerar não duplicar o áudio.
@@ -634,7 +675,7 @@ async function applyNarration(songId: string, narrationId: string, result: Speec
     fileName: `maestro_ia_${Date.now()}.wav`,
     filePath: URL.createObjectURL(wavBlob),
     songId,
-    ...clipPlacement(n.start),
+    ...clipPlacement(n.start, result.lead, prevClipEnd(useStore.getState().clips, songId, trackId, n.start, n.clipId)),
     duration,
     sampleRate: buffer.sampleRate,
     channels: buffer.numberOfChannels,
@@ -658,6 +699,7 @@ async function applyNarration(songId: string, narrationId: string, result: Speec
     voiceName: result.voiceName,
     rate: result.wpm,
     note: result.note ?? undefined,
+    lead: result.lead,
   });
   audioEngine.invalidatePrepared(songId);
   // fala masterizada: a voz nova recebe a mesma masterização
@@ -675,7 +717,10 @@ export function moveNarration(songId: string, narrationId: string, patch: { star
     const n = song?.narrations?.find((x) => x.id === narrationId);
     if (!song || !n) return s;
     const next = { ...n, ...patch };
-    const place = n.clipId && patch.start !== undefined ? clipPlacement(next.start) : null;
+    const own = n.clipId ? s.clips.find((c) => c.id === n.clipId) : undefined;
+    const place = own && patch.start !== undefined
+      ? clipPlacement(next.start, n.lead, prevClipEnd(s.clips, songId, own.trackId, next.start, own.id))
+      : null;
     return {
       songs: s.songs.map((sg) => (sg.id === songId
         ? { ...sg, narrations: sortedNarrations((sg.narrations ?? []).map((x) => (x.id === narrationId ? next : x))) }

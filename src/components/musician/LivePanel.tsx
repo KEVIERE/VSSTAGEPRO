@@ -41,7 +41,7 @@ function liveMeta(song: SetlistSong | null | undefined, live: ShowLive | null, p
  * Os dois displays da Área do Músico, iguais aos do programa: Tocando (verde) e Próxima (âmbar),
  * com tom e BPM, o tempo que falta em 7 segmentos e a barra de LEDs.
  */
-export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false, compact = false }: {
+export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false, compact = false, strip = false }: {
   lv: LiveView;
   live: ShowLive | null;
   currentSong: SetlistSong | null | undefined;
@@ -50,6 +50,8 @@ export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false, 
   big?: boolean;
   /** Modo show com a tela baixa (celular deitado): os mesmos displays lado a lado, mais baixos */
   compact?: boolean;
+  /** Modo show: Tocando e Próxima numa faixa fina só (cerca de 60 px), para a cifra ficar com a tela */
+  strip?: boolean;
 }) {
   const isPlaying = lv.isPlaying && !!currentSong;
   const nextName = isPlaying && live?.nextSliceName ? live.nextSliceName : nextSong?.name;
@@ -64,6 +66,58 @@ export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false, 
   const name = big ? (compact ? 'text-xl' : 'text-2xl sm:text-3xl') : 'text-lg';
   const seg = big ? (compact ? 'h-6' : 'h-7 sm:h-8') : 'h-5';
   const pad = compact ? 'py-1.5' : 'py-2.5';
+  const nowName = (currentSong && live?.sliceName ? live.sliceName : currentSong?.name) ?? '---';
+
+  if (strip) {
+    const red = finalCountdown !== null;
+    return (
+      <div className={`console-display px-2.5 py-1.5 flex flex-col gap-0.5 min-w-0 ${red ? '!border-logic-lcd-red/70' : ''}`}>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`console-led shrink-0 ${isPlaying ? 'is-on-green' : ''}`} aria-hidden />
+          <span className="sr-only">Tocando:</span>
+          <span
+            key={currentSong?.id ?? ''}
+            className={`console-glow flex-1 min-w-0 font-semibold tracking-tight truncate leading-tight text-base sm:text-lg animate-[fadeIn_250ms_ease-out] ${isPlaying ? 'text-logic-lcd-green' : 'text-logic-text-muted'}`}
+          >
+            {nowName}
+          </span>
+          {currentSong && live?.sliceName && (
+            <span className="hidden sm:inline shrink-0 px-1 rounded-[2px] border border-logic-lcd-green text-logic-lcd-green text-[9px] leading-[12px] tracking-[0.14em]">MEDLEY</span>
+          )}
+          {/* o tom aparece sempre, até no celular em pé: é o que o músico mais precisa ver */}
+          <span className="flex items-center gap-3 shrink-0">
+            <MetaReadout label="Tom" value={isPlaying ? now.key : ''} tone="text-logic-lcd-amber" />
+            <span className="hidden sm:flex"><MetaReadout label="BPM" value={isPlaying ? now.bpm : ''} tone="text-logic-lcd-text" /></span>
+          </span>
+          {isPlaying && Number.isFinite(secondsLeft) && (
+            <span
+              className={`console-glow shrink-0 font-stage font-semibold text-base sm:text-lg leading-tight tabular-nums ${red ? 'text-logic-lcd-red animate-pulse' : 'text-logic-lcd-green'}`}
+              aria-label={`Faltam ${formatTime(secondsLeft)}`}
+            >
+              -{formatTime(secondsLeft)}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`console-led shrink-0 ${hasNext ? 'is-on-amber' : ''}`} aria-hidden />
+          <span className={`console-legend shrink-0 ${hasNext ? '!text-logic-lcd-amber' : ''}`}>Próxima</span>
+          <span
+            key={nextName ?? ''}
+            className={`console-glow flex-1 min-w-0 font-semibold truncate leading-tight text-[13px] animate-[fadeIn_250ms_ease-out] ${hasNext ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}
+          >
+            {nextName ?? '---'}
+          </span>
+          {hasNext && !live?.nextSliceName && next.key && (
+            <MetaReadout label="Tom" value={next.key} tone="text-logic-lcd-amber" />
+          )}
+        </div>
+        <div className={`led-bar h-1 mt-0.5 rounded-[1px] ${red ? 'text-logic-lcd-red' : 'text-logic-lcd-green'}`}>
+          <div className="led-bar-fill transition-[width] duration-200 ease-linear" style={{ width: `${progress * 100}%` }} />
+        </div>
+        {red && <span className="sr-only" role="timer" aria-live="polite">Restam {finalCountdown}s</span>}
+      </div>
+    );
+  }
 
   return (
     <div className={`grid grid-cols-1 gap-2 ${big ? 'sm:grid-cols-2' : ''}`}>
@@ -85,7 +139,7 @@ export function NowNextDisplays({ lv, live, currentSong, nextSong, big = false, 
               key={currentSong?.id ?? ''}
               className={`console-glow block font-semibold tracking-tight truncate animate-[fadeIn_250ms_ease-out] ${name} ${isPlaying ? 'text-logic-lcd-green' : 'text-logic-text-muted'}`}
             >
-              {(currentSong && live?.sliceName ? live.sliceName : currentSong?.name) ?? '---'}
+              {nowName}
             </span>
             {currentSong && live?.sliceName && <p className="text-xs text-logic-text-dim truncate">{currentSong.name}</p>}
           </div>
@@ -155,7 +209,8 @@ export default function LivePanel({
 
   const starts: number[] = [];
   orderedSongs.reduce((acc, s) => { starts.push(acc); return acc + s.duration; }, 0);
-  const cols = 'grid-cols-[34px_1fr_48px_60px] sm:grid-cols-[34px_1fr_48px_48px_56px_60px]';
+  // no celular em pé sai só a duração: o tom fica, porque o músico precisa dele
+  const cols = 'grid-cols-[30px_1fr_40px_40px_56px] sm:grid-cols-[34px_1fr_48px_48px_56px_60px]';
 
   return (
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -183,7 +238,7 @@ export default function LivePanel({
           <span>#</span>
           <span>Música</span>
           <span className="text-right">BPM</span>
-          <span className="text-right hidden sm:block">Tom</span>
+          <span className="text-right">Tom</span>
           <span className="text-right hidden sm:block">Duração</span>
           <span className="text-right">Entra em</span>
         </div>
@@ -211,7 +266,7 @@ export default function LivePanel({
                 {hasSheet && <PenLine size={12} className="text-logic-accent flex-shrink-0" />}
               </span>
               <span className="font-stage text-[13px] text-right text-logic-text-dim tabular-nums">{bpmText(song) || '-'}</span>
-              <span className={`font-stage text-[13px] text-right hidden sm:block ${song.tuner ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`} title={song.tuner ? `Tuner ${song.tuner > 0 ? '+' : ''}${song.tuner}` : undefined}>{songKeyLabel(song) || toneText(song.tuner)}</span>
+              <span className={`font-stage text-[13px] text-right ${song.tuner ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`} title={song.tuner ? `Tuner ${song.tuner > 0 ? '+' : ''}${song.tuner}` : undefined}>{songKeyLabel(song) || toneText(song.tuner)}</span>
               <span className="font-stage text-[13px] font-semibold text-right text-logic-text hidden sm:block tabular-nums">{formatTime(song.duration)}</span>
               <span className="font-stage text-[13px] text-right text-logic-text-muted tabular-nums">
                 {isNext && live ? formatTime(lv.nextSongCountdown) : formatTime(starts[i])}
@@ -230,7 +285,7 @@ export default function LivePanel({
                     ${partNow ? 'is-current' : selectedSongId === key ? 'is-selected' : ''} ${skipped ? 'opacity-50' : ''}`}
                 >
                   <span className="font-stage text-[11px] tabular-nums text-logic-text-muted text-right pr-1">{i + 1}.{j + 1}</span>
-                  <span className="col-span-1 sm:col-span-3 flex items-center gap-1.5 min-w-0 pl-2 border-l border-logic-border-light">
+                  <span className="col-span-2 sm:col-span-3 flex items-center gap-1.5 min-w-0 pl-2 border-l border-logic-border-light">
                     {partNow && <span className="console-led is-on-green flex-shrink-0" />}
                     <span className={`text-xs truncate ${partNow ? 'text-logic-lcd-green font-semibold console-glow' : 'text-logic-text-dim'}`}>{part.name}</span>
                     {skipped && <span className="text-[10px] text-logic-text-muted flex-shrink-0">pulada</span>}

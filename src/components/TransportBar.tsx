@@ -7,7 +7,7 @@ import { togglePlayPause, stopPlayback } from '@/lib/transportControl';
 import { effectiveBpm } from '@/lib/musicianApi';
 import { bpmAt } from '@/lib/grid';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
-import { currentAndNextSlice, isMedley, paramsAt } from '@/lib/medley';
+import { currentAndNextSlice, isMedley, medleySlices, paramsAt } from '@/lib/medley';
 import { getLiveProgressPct } from '@/lib/playProgress';
 import type { PlayFlow } from '@/types';
 import SegmentDisplay from '@/components/SegmentDisplay';
@@ -148,8 +148,45 @@ function TransportNextBar() {
   );
 }
 
+type StoreState = ReturnType<typeof useStore.getState>;
+const playingSongOf = (s: StoreState) => s.songs.find((sg) => sg.id === s.transport.currentSongId);
+// Mostradores que dependem da posição: cada seletor devolve um valor simples que só muda quando o que
+// aparece na tela muda (fatia, BPM no ponto, tom, contagem final), para o painel não redesenhar a cada quadro.
+const selCurSliceId = (s: StoreState) => currentAndNextSlice(playingSongOf(s), s.transport.currentTime).current?.id ?? null;
+const selNextSliceId = (s: StoreState) => currentAndNextSlice(playingSongOf(s), s.transport.currentTime).next?.id ?? null;
+const selBpmHere = (s: StoreState) => {
+  const sg = playingSongOf(s);
+  return sg ? bpmAt(sg, s.transport.currentTime) : 0;
+};
+const selSliceBpmAdjust = (s: StoreState) => {
+  const sg = playingSongOf(s);
+  return sg ? paramsAt(sg, s.transport.currentTime).bpmAdjust : 0;
+};
+const selTunerHere = (s: StoreState) => {
+  const sg = playingSongOf(s);
+  return sg ? paramsAt(sg, s.transport.currentTime).tuner : 0;
+};
+const selFinalCountdown = (s: StoreState) => {
+  const sg = playingSongOf(s);
+  if (!sg || s.transport.isStopped || !s.transport.isPlaying) return null;
+  const secondsLeft = Math.max(0, (sg.duration - s.transport.currentTime) * bpmAdjustToAlpha(sg.bpmAdjust ?? 0));
+  return secondsLeft <= 10 ? Math.ceil(secondsLeft) : null;
+};
+
 export default function TransportBar() {
-  const transport = useStore((s) => s.transport);
+  const isPlaying = useStore((s) => s.transport.isPlaying);
+  const isPaused = useStore((s) => s.transport.isPaused);
+  const isStopped = useStore((s) => s.transport.isStopped);
+  const playFlow = useStore((s) => s.transport.playFlow);
+  const currentSongId = useStore((s) => s.transport.currentSongId);
+  const nextSongId = useStore((s) => s.transport.nextSongId);
+  const transport = { isPlaying, isPaused, isStopped, playFlow, currentSongId, nextSongId };
+  const curSliceId = useStore(selCurSliceId);
+  const nextSliceId = useStore(selNextSliceId);
+  const bpmHere = useStore(selBpmHere);
+  const sliceBpmAdjust = useStore(selSliceBpmAdjust);
+  const tunerHere = useStore(selTunerHere);
+  const finalCountdown = useStore(selFinalCountdown);
   const cyclePlayFlow = useStore((s) => s.cyclePlayFlow);
   const toggleBpmTower = useStore((s) => s.toggleBpmTower);
   const toggleTunerTower = useStore((s) => s.toggleTunerTower);
@@ -168,7 +205,11 @@ export default function TransportBar() {
   const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
   const currentSong = songs.find((sg) => sg.id === transport.currentSongId);
   const nextSong = songs.find((sg) => sg.id === transport.nextSongId);
-  const activeSlices = currentAndNextSlice(currentSong, transport.currentTime);
+  const slicesOfSong = currentSong ? medleySlices(currentSong) : [];
+  const activeSlices = {
+    current: curSliceId ? slicesOfSong.find((sl) => sl.id === curSliceId) ?? null : null,
+    next: nextSliceId ? slicesOfSong.find((sl) => sl.id === nextSliceId) ?? null : null,
+  };
   const isMedleyPlaying = !!currentSong && isMedley(currentSong) && transport.isPlaying;
   const hasNextSong = transport.isPlaying && (
     isMedleyPlaying
@@ -183,16 +224,10 @@ export default function TransportBar() {
   const status = STATUS_STYLES[statusKey];
   const showCurrent = !!currentSong && !transport.isStopped;
   // BPM do trecho onde o cursor está (medley com mudança de andamento na régua), não só o do começo
-  const bpmHere = currentSong ? bpmAt(currentSong, transport.currentTime) : 0;
   const baseBpm = currentSong?.bpmDetected && bpmHere ? Math.round(bpmHere) : null;
   const slice = activeSlices.current;
-  const sliceBpmAdjust = currentSong ? paramsAt(currentSong, transport.currentTime).bpmAdjust : 0;
   const liveBpm = currentSong ? effectiveBpm(bpmHere, currentSong.bpmDetected, sliceBpmAdjust) : null;
   const bpmDelta = baseBpm !== null && liveBpm !== null ? liveBpm - baseBpm : 0;
-  const secondsLeft = showCurrent && currentSong
-    ? Math.max(0, (currentSong.duration - transport.currentTime) * bpmAdjustToAlpha(currentSong.bpmAdjust ?? 0))
-    : Infinity;
-  const finalCountdown = transport.isPlaying && secondsLeft <= 10 ? Math.ceil(secondsLeft) : null;
 
   const toggleClass = (active: boolean) =>
     `console-key w-8 h-8 flex items-center justify-center ${
@@ -268,7 +303,7 @@ export default function TransportBar() {
           <div className="flex items-center justify-between gap-2 h-3">
             <span className="text-2xs leading-3 text-logic-text-muted uppercase tracking-wider">Tocando</span>
             <span className="flex items-center gap-1.5 text-2xs leading-3 tabular-nums whitespace-nowrap" title="BPM lido da música e o ajuste atual">
-              {showCurrent && currentSong && <KeyBadge songId={currentSong.id} tuner={paramsAt(currentSong, transport.currentTime).tuner} />}
+              {showCurrent && currentSong && <KeyBadge songId={currentSong.id} tuner={tunerHere} />}
               {showCurrent && baseBpm !== null ? (
                 <>
                   <span className="text-logic-text-dim">{baseBpm}</span>

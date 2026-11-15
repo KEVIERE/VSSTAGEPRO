@@ -8,6 +8,7 @@
 // - placa conectada de novo → volta sozinha para ela com o roteamento salvo.
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
+import { engineLatencyHint } from '@/lib/engineLatency';
 
 const LS_KEY = 'vs_audio_interface';
 let applied: string | null = null;
@@ -47,7 +48,8 @@ async function adoptConnectedInterface(): Promise<string | null> {
   // Grupos do mesmo dispositivo podem expor vários endpoints. Escolhe o que tem mais canais.
   const counts = await Promise.all(external.map(async (dev) => {
     try {
-      const ctx = new AudioContext({ latencyHint: 'interactive' });
+      // só conta os canais, mas pode nascer com música tocando (placa reconectada): bloco do motor
+      const ctx = new AudioContext({ latencyHint: engineLatencyHint() });
       const sinkable = ctx as unknown as { setSinkId?: (id: string) => Promise<void> };
       if (!sinkable.setSinkId) { await ctx.close(); return 2; }
       await sinkable.setSinkId(dev.deviceId);

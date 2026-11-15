@@ -13,13 +13,13 @@ import { gainToFader } from '@/lib/faderScale';
 import { ANTI_CLIP_CEILING, limitInPlace } from '@/lib/peakLimiter.js';
 import { antiClipActive } from '@/lib/antiClip';
 import { splitByAntiClip } from '@/lib/antiClipMix';
+import { exportFilePath, exportRevealPath, exportSongs, planExport, sanitize, songFolderNames } from '@/lib/exportPlan';
 import type { AudioClip, ProjectState, Song, Track } from '@/types';
+import { buildRpp, layoutSongs, rppFileName, songTempoPoints, type RppOutItem, type RppOutTempo, type RppOutTrack, type TempoSlice } from '@/lib/reaperExport';
 
-export type BounceMode = 'lr' | 'multipista' | 'show-continuo';
+export type BounceMode = 'lr' | 'multipista' | 'show-continuo' | 'projeto-rpp';
 
-function sanitize(name: string): string {
-  return (name || '').replace(/[/\\:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim() || 'Sem Nome';
-}
+export { exportSongs, songFolderNames };
 
 function effectivePan(trackId: string, trackPan: number, lrMasterActive: boolean): number {
   if (isTimecodeTrackId(trackId)) return 0;
@@ -39,7 +39,7 @@ function createBufferFallback(length: number, channels: number, sampleRate: numb
     return new AudioBuffer({ length: Math.max(1, length), numberOfChannels: channels, sampleRate });
   } catch {
     const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const dummy = new AudioContextClass();
+    const dummy = new AudioContextClass({ latencyHint: 'playback' }); // nunca toca: bloco máximo, não encurta o do motor
     const buf = dummy.createBuffer(channels, Math.max(1, length), sampleRate);
     dummy.close().catch(() => {});
     return buf;
@@ -189,7 +189,8 @@ async function renderSliceOffline(
   applyMasterLimiter = false,
   cancelled: () => boolean = () => false,
   masterVolume = 0.8,
-  channelLevel = 1
+  channelLevel = 1,
+  magicOff = false
 ): Promise<AudioBuffer> {
   const alpha = bpmAdjustToAlpha(bpmAdjust);
   const sliceDurSec = Math.max(0.05, sliceEnd - sliceStart);
@@ -198,7 +199,8 @@ async function renderSliceOffline(
   const totalFrames = Math.max(1, Math.ceil(outDuration * sampleRate));
   const cents = tuner * 100;
   const respectMuteSolo = !trackFilter;
-  const magic = !!useStore.getState().magicRoutingActive;
+  // magicOff: faixa separada para o projeto .RPP, sem a soma do LR mágico (lá cada faixa tem o fader dela)
+  const magic = !magicOff && !!useStore.getState().magicRoutingActive;
 
   const songClips = clips.filter((c) => c.songId === song.id && !isTimecodeTrackId(c.trackId));
 
@@ -388,7 +390,8 @@ async function renderOffline(
   applyMasterLimiter = false,
   cancelled: () => boolean = () => false,
   masterVolume = 0.8,
-  channelLevel = 1
+  channelLevel = 1,
+  magicOff = false
 ): Promise<AudioBuffer> {
   // Se for um Medley com fatias:
   // - Renderiza apenas as fatias marcadas (enabled !== false), pulando as desmarcadas!
@@ -415,7 +418,8 @@ async function renderOffline(
         applyMasterLimiter,
         cancelled,
         masterVolume,
-        channelLevel
+        channelLevel,
+        magicOff
       );
       buffers.push(buf);
     }
@@ -437,7 +441,8 @@ async function renderOffline(
     applyMasterLimiter,
     cancelled,
     masterVolume,
-    channelLevel
+    channelLevel,
+    magicOff
   );
 }
 
@@ -512,7 +517,10 @@ export interface ExportHooks {
 
 export interface ExportRequest {
   scope: 'musica' | 'projeto';
+  /** Uma música só (forma antiga, usada pelos testes de navegador). */
   songId?: string;
+  /** Músicas marcadas no escopo 'musica', na ordem do show. Tem prioridade sobre songId. */
+  songIds?: string[];
   mode: BounceMode;
 }
 
@@ -634,6 +642,27 @@ function fitFrames(buf: AudioBuffer, frames: number): AudioBuffer {
   return out;
 }
 
+/**
+ * Trechos tocados da música, em ordem, com a duração de cada um já no BPM ajustado (em quadros).
+ * No medley, só as fatias marcadas; senão, a música inteira. É exatamente o que renderOffline gera.
+ */
+function songOutSlices(song: Song, clips: AudioClip[], sampleRate: number): Array<{ srcStart: number; srcEnd: number; alpha: number; frames: number }> {
+  if (isMedley(song)) {
+    return medleySlices(song).filter(isSliceEnabled).map((sl) => {
+      const alpha = bpmAdjustToAlpha(sliceParams(song, sl).bpmAdjust);
+      return { srcStart: sl.start, srcEnd: sl.end, alpha, frames: Math.max(1, Math.ceil((sl.end - sl.start) * alpha * sampleRate)) };
+    });
+  }
+  const len = songLength(song, clips);
+  const alpha = bpmAdjustToAlpha(song.bpmAdjust || 0);
+  return [{ srcStart: 0, srcEnd: len, alpha, frames: Math.max(1, Math.ceil(len * alpha * sampleRate)) }];
+}
+
+/** Quadros que a música ocupa no arquivo exportado (pelo menos 1). */
+function songOutFrames(song: Song, clips: AudioClip[], sampleRate: number): number {
+  return Math.max(1, songOutSlices(song, clips, sampleRate).reduce((sum, sl) => sum + sl.frames, 0));
+}
+
 /** Onde gravar: os seletores do sistema por padrão; os testes passam destinos na memória. */
 export interface ExportTargets {
   openFileTarget: typeof openFileTarget;
@@ -641,29 +670,6 @@ export interface ExportTargets {
 }
 
 const SYSTEM_TARGETS: ExportTargets = { openFileTarget, openFolderTarget };
-
-/** Músicas a exportar: as da sequência do show ativo, na ordem dele (todas, inclusive repetidas). */
-export function exportSongs(req: Pick<ExportRequest, 'scope' | 'songId'>, state: Pick<ProjectState, 'songs' | 'playlist' | 'playlistOrder'>): Song[] {
-  if (req.scope === 'musica') return state.songs.filter((s) => s.id === req.songId);
-  const byId = new Map(state.songs.map((song) => [song.id, song]));
-  const fromEntries = state.playlist.map((e) => byId.get(e.songId)).filter((s): s is Song => !!s);
-  if (fromEntries.length > 0) return fromEntries;
-  const fromOrder = state.playlistOrder.map((id) => byId.get(id)).filter((s): s is Song => !!s);
-  return fromOrder.length > 0 ? fromOrder : state.songs;
-}
-
-/** Pasta de cada música: nomes iguais (ou que ficam iguais sem os caracteres proibidos) não se sobrescrevem. */
-export function songFolderNames(songs: Song[]): string[] {
-  const used = new Set<string>();
-  return songs.map((song) => {
-    const base = sanitize(song.name);
-    let folder = base;
-    let n = 2;
-    while (used.has(folder.toLocaleLowerCase())) folder = `${base} (${n++})`;
-    used.add(folder.toLocaleLowerCase());
-    return folder;
-  });
-}
 
 function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -677,34 +683,23 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
   }
   const folders = songFolderNames(songs);
 
-  const projectName = sanitize(state.projectName);
-  const suffix = req.mode === 'lr' ? 'LR MASTER' : req.mode === 'show-continuo' ? 'SHOW CONTINUO' : 'MULTIPISTA';
+  // Projeto inteiro ou 2+ músicas marcadas: uma pasta por música. Uma música só: direto no destino.
+  const plan = planExport(req.scope, req.mode, songs.map((s) => s.name), state.projectName);
+  const { multi } = plan;
   let target: ExportTarget;
-  let baseRel: string;
   let lrFileName = '';
-  if (req.mode === 'show-continuo') {
-    const picked = await openFileTarget(`${projectName} - SHOW COMPLETO CONTÍNUO.wav`);
+  if (plan.destination.kind === 'file') {
+    const picked = await openFileTarget(plan.destination.name);
     if (!picked) return null;
     target = picked.target;
     lrFileName = picked.name;
-    baseRel = '';
-  } else if (req.scope === 'musica' && req.mode === 'lr') {
-    const picked = await openFileTarget(`${sanitize(songs[0].name)} - LR MASTER.wav`);
-    if (!picked) return null;
-    target = picked.target;
-    lrFileName = picked.name;
-    baseRel = '';
-  } else if (req.scope === 'musica') {
-    const t = await openFolderTarget('Escolha onde salvar a multipista', `${sanitize(songs[0].name)} - MULTIPISTA.zip`);
-    if (!t) return null;
-    target = t;
-    baseRel = `${sanitize(songs[0].name)}/`;
   } else {
-    const t = await openFolderTarget('Escolha onde salvar o projeto', `${projectName} - ${suffix}.zip`);
+    const t = await openFolderTarget(plan.destination.title, plan.destination.zipName);
     if (!t) return null;
     target = t;
-    baseRel = `${projectName}/`;
   }
+
+  if (req.mode === 'projeto-rpp') return runRppExport(songs, folders, plan, target, state, hooks);
 
   const estimates = songs.map((s) => estimateFiles(s, state, req.mode));
   let total = estimates.reduce((a, b) => a + b, 0);
@@ -722,23 +717,12 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
   // Cada música é renderizada, gravada no disco e descartada da memória antes da próxima começar —
   // em nenhum momento o show inteiro fica inteiro em RAM, mesmo com dezenas de músicas longas.
   if (req.mode === 'show-continuo') {
-    const outName = lrFileName || `${projectName} - SHOW COMPLETO CONTÍNUO.wav`;
+    const outName = lrFileName || (plan.destination.kind === 'file' ? plan.destination.name : 'SHOW COMPLETO CONTÍNUO.wav');
     const sampleRate = 48000;
 
     // Precisa saber a duração total ANTES de escrever (o cabeçalho WAV declara o tamanho do arquivo
     // logo no início). Considera exatamente as fatias marcadas em cada medley e o BPM de cada uma.
-    const songFrames = songs.map((s) => {
-      if (isMedley(s)) {
-        const slices = medleySlices(s).filter(isSliceEnabled);
-        return slices.reduce((sum, sl) => {
-          const p = sliceParams(s, sl);
-          const alpha = bpmAdjustToAlpha(p.bpmAdjust);
-          return sum + Math.max(1, Math.ceil((sl.end - sl.start) * alpha * sampleRate));
-        }, 0);
-      }
-      const alpha = bpmAdjustToAlpha(s.bpmAdjust || 0);
-      return Math.max(1, Math.ceil(songLength(s, state.clips) * alpha * sampleRate));
-    });
+    const songFrames = songs.map((s) => songOutFrames(s, state.clips, sampleRate));
     const totalFrames = songFrames.reduce((a, b) => a + b, 0);
 
     if (!target.openStream) {
@@ -870,7 +854,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         }
         if (hooks.cancelled()) { run.status = 'cancelled'; break; }
         report(`${songLabel} · salvando ${job.name}`, 0.9);
-        const rel = req.scope === 'projeto' ? `${baseRel}${folders[si]}/${job.name}` : `${baseRel}${job.name}`;
+        const rel = exportFilePath(plan, folders[si], job.name);
         for (;;) {
           try {
             await target.write(rel, data);
@@ -901,15 +885,17 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
   }
 
   if (saved === 0 && run.status === 'done') {
-    throw new Error(req.scope === 'musica'
+    throw new Error(!multi
       ? `"${songs[0].name}" não tem nenhuma faixa com áudio para exportar.`
-      : 'Nenhuma música do projeto tem faixas com áudio para exportar.');
+      : req.scope === 'musica'
+        ? 'Nenhuma das músicas marcadas tem faixas com áudio para exportar.'
+        : 'Nenhuma música do projeto tem faixas com áudio para exportar.');
   }
   if (saved > 0) {
     report('Finalizando...', 0);
     await target.finish();
   }
-  const revealRel = req.scope === 'musica' && req.mode === 'lr' ? lrFileName : baseRel.replace(/\/$/, '');
+  const revealRel = exportRevealPath(plan, req.mode, lrFileName);
   return {
     status: run.status,
     saved,
@@ -920,5 +906,269 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
     empty,
     location: target.location,
     reveal: target.reveal && saved > 0 ? () => target.reveal!(revealRel) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Projeto .RPP: uma pasta com o .rpp e os áudios de cada faixa de cada música.
+
+const MAESTRO_ROOT_ID = 'track-maestro';
+
+/** A faixa Maestro e tudo dentro dela (gravado, Maestro por IA...): sai como uma faixa de áudio só. */
+function maestroFamily(tracks: Track[]): Set<string> {
+  const byId = new Map(tracks.map((t) => [t.id, t]));
+  const ids = new Set<string>();
+  for (const t of tracks) {
+    let cur: Track | undefined = t;
+    for (let depth = 0; cur && depth < 8; depth++) {
+      if (cur.id === MAESTRO_ROOT_ID) { ids.add(t.id); break; }
+      cur = cur.parentId ? byId.get(cur.parentId) : undefined;
+    }
+  }
+  return ids;
+}
+
+interface RppStem {
+  /** Faixa do projeto onde o áudio entra (no Maestro, a faixa Maestro de cima). */
+  rowId: string;
+  name: string;
+  timecode: boolean;
+  render: () => Promise<{ data: ArrayBuffer; seconds: number; offset: number }>;
+}
+
+/**
+ * Faixas separadas de uma música para o .RPP: cada faixa com áudio vira um WAV do tamanho da
+ * música (no BPM e tom do show), com o fader em 0 dB e o balanço no centro, porque o volume, o
+ * balanço e o mudo vão nas faixas do projeto. O Maestro inteiro vira um WAV só, com as subfaixas
+ * dele já misturadas como estão no mixer (as que estão mudas ficam de fora).
+ */
+function rppStems(song: Song, state: ProjectState, frames: number, sampleRate: number, cancelled: () => boolean): RppStem[] {
+  const songClips = state.clips.filter((c) => c.songId === song.id);
+  const order = new Map(state.tracks.map((t, i) => [t.id, i]));
+  const orphan = songClips.find((c) => !order.has(c.trackId));
+  if (orphan) throw new Error(`O clipe "${orphan.name}" de "${song.name}" aponta para uma faixa inexistente. Corrija o roteamento antes de exportar.`);
+  const maestro = maestroFamily(state.tracks);
+  const stems: RppStem[] = [];
+
+  const tc = songClips.filter((c) => isTimecodeTrackId(c.trackId)).sort((a, b) => a.startTime - b.startTime)[0];
+  if (tc) {
+    stems.push({
+      rowId: tc.trackId,
+      name: 'TIMECODE (LTC)',
+      timecode: true,
+      render: async () => {
+        const buf = await timecodeBuffer(tc);
+        return { data: encodeWavPcm24(buf), seconds: buf.duration, offset: Math.max(0, tc.startTime) };
+      },
+    });
+  }
+
+  const unity = state.tracks.map((t) => ({ ...t, volume: 0.8, pan: 0, antiClip: false }));
+  const ids = Array.from(new Set(songClips.map((c) => c.trackId)))
+    .filter((id) => !isTimecodeTrackId(id))
+    .sort((a, b) => order.get(a)! - order.get(b)!);
+  const rows = new Set<string>();
+  for (const id of ids) rows.add(maestro.has(id) ? MAESTRO_ROOT_ID : id);
+  for (const rowId of rows) {
+    const row = state.tracks.find((t) => t.id === rowId);
+    if (!row) continue;
+    const isMaestro = rowId === MAESTRO_ROOT_ID;
+    // no Maestro, as subfaixas mantêm o volume do mixer entre si, no centro; a de cima fica em 0 dB
+    // (o balanço dela vai na faixa do projeto)
+    const tracks = isMaestro
+      ? state.tracks.map((t) => (t.id === MAESTRO_ROOT_ID ? { ...t, volume: 0.8, pan: 0, antiClip: false } : maestro.has(t.id) ? { ...t, pan: 0, antiClip: false } : t))
+      : unity;
+    const wanted = isMaestro
+      ? (t: Track) => maestro.has(t.id) && (t.id === MAESTRO_ROOT_ID || !state.tracks.find((x) => x.id === t.id)?.mute)
+      : (t: Track) => t.id === rowId;
+    stems.push({
+      rowId,
+      name: row.name,
+      timecode: false,
+      render: async () => {
+        const buf = await renderOffline(song, tracks, state.clips, false, wanted, false, cancelled, 0.8, 1, true);
+        return { data: encodeWavPcm24(fitFrames(buf, frames)), seconds: frames / sampleRate, offset: 0 };
+      },
+    });
+  }
+  return stems;
+}
+
+/** Faixas do projeto na ordem do mixer, com as pastas; só entram as que têm áudio (ou subfaixas com áudio). */
+function rppTrackTree(state: ProjectState, items: Map<string, RppOutItem[]>): RppOutTrack[] {
+  const maestro = maestroFamily(state.tracks);
+  // O LR Master e o LR mágico são jeitos de mandar guia e banda para lados diferentes ao vivo.
+  // No projeto cada faixa já é separada: vale o balanço da mixagem (o de antes do LR mágico).
+  const prevPans = state.magicRoutingActive ? (state as ProjectState & { prevOutputChannels?: Record<string, number> | null }).prevOutputChannels ?? null : null;
+  const mixPan = (t: Track) => (prevPans && t.id in prevPans ? prevPans[t.id] : state.magicRoutingActive ? 0 : t.pan);
+  const known = new Set(state.tracks.map((t) => t.id));
+  const node = (t: Track): RppOutTrack | null => {
+    const children = t.id === MAESTRO_ROOT_ID
+      ? []
+      : state.tracks.filter((c) => c.parentId === t.id && !maestro.has(c.id)).map(node).filter((n): n is RppOutTrack => !!n);
+    const own = items.get(t.id) ?? [];
+    if (own.length === 0 && children.length === 0) return null;
+    const timecode = isTimecodeTrackId(t.id);
+    return {
+      name: timecode ? 'TIMECODE (LTC)' : t.name,
+      volume: timecode ? 1 : faderToGain(t.volume),
+      pan: timecode ? 0 : mixPan(t),
+      // o timecode é um chiado para a mesa de luz/vídeo: vai mudo para não sair no alto-falante
+      mute: timecode ? true : t.mute,
+      solo: timecode ? false : t.solo,
+      items: own,
+      ...(children.length ? { children } : {}),
+    };
+  };
+  return state.tracks
+    .filter((t) => !t.parentId || !known.has(t.parentId))
+    .map(node)
+    .filter((n): n is RppOutTrack => !!n);
+}
+
+async function runRppExport(
+  songs: Song[],
+  folders: string[],
+  plan: ReturnType<typeof planExport>,
+  target: ExportTarget,
+  state: ProjectState,
+  hooks: ExportHooks,
+): Promise<ExportResult> {
+  const sampleRate = 48000;
+  const slicesBySong = songs.map((s) => songOutSlices(s, state.clips, sampleRate));
+  const frames = songs.map((s) => songOutFrames(s, state.clips, sampleRate));
+  const starts = layoutSongs(frames.map((f) => f / sampleRate));
+  const items = new Map<string, RppOutItem[]>();
+  const tempo: RppOutTempo[] = [];
+  const incomplete: string[] = [];
+  const empty: string[] = [];
+  const run: { status: ExportResult['status'] } = { status: 'done' };
+  let total = songs.reduce((n, s) => n + new Set(state.clips.filter((c) => c.songId === s.id).map((c) => c.trackId)).size, 0) + 1;
+  let saved = 0;
+  let songsSaved = 0;
+  const report = (label: string, part: number) =>
+    hooks.onProgress({ fraction: total ? Math.min(1, (saved + part) / total) : 0, label, saved, total, location: target.location });
+
+  report('Preparando...', 0);
+
+  /** Grava um arquivo; com o disco cheio, pergunta e tenta de novo. false = a pessoa encerrou. */
+  const writeFile = async (rel: string, data: ArrayBuffer, name: string): Promise<boolean> => {
+    for (;;) {
+      try {
+        await target.write(rel, data);
+        return true;
+      } catch (err) {
+        if (!(err instanceof DiskFullError)) throw err;
+        const choice = await hooks.onDiskFull({ saved, total, needed: data.byteLength, file: name, checkFree: target.freeSpace });
+        if (choice === 'stop') { run.status = 'stopped'; return false; }
+      }
+    }
+  };
+
+  for (let si = 0; si < songs.length; si++) {
+    const song = songs[si];
+    const start = starts[si];
+    // andamento de cada música no começo dela (vale mesmo se o áudio dela falhar: o tempo fica certo)
+    let outAt = start;
+    const slices: TempoSlice[] = slicesBySong[si].map((sl) => {
+      const t = { srcStart: sl.srcStart, srcEnd: sl.srcEnd, alpha: sl.alpha, outStart: outAt };
+      outAt += sl.frames / sampleRate;
+      return t;
+    });
+    tempo.push(...songTempoPoints(song, slices));
+
+    const songLabel = songs.length > 1 ? `Música ${si + 1} de ${songs.length} – ${song.name}` : song.name;
+    if (run.status !== 'done') { incomplete.push(song.name); continue; }
+    report(`${songLabel} · carregando áudio`, 0);
+    try {
+      const done = await withSongAudio(song.id, async () => {
+        const stems = rppStems(song, state, frames[si], sampleRate, hooks.cancelled);
+        const guess = new Set(state.clips.filter((c) => c.songId === song.id).map((c) => c.trackId)).size;
+        total += stems.length - guess;
+        const used = new Map<string, number>();
+        let count = 0;
+        for (const stem of stems) {
+          if (hooks.cancelled()) { run.status = 'cancelled'; break; }
+          report(`${songLabel} · ${stem.name}`, 0);
+          let out: { data: ArrayBuffer; seconds: number; offset: number };
+          try {
+            out = await stem.render();
+          } catch (err) {
+            if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; break; }
+            throw err;
+          }
+          if (hooks.cancelled()) { run.status = 'cancelled'; break; }
+          const base = rppFileName(stem.name);
+          let n = 1;
+          let name = base;
+          while (used.has(name.toLowerCase())) name = `${base} (${++n})`;
+          used.set(name.toLowerCase(), 1);
+          const file = `${name}.wav`;
+          const rel = `Audio/${folders[si]}/${file}`;
+          report(`${songLabel} · salvando ${file}`, 0.9);
+          if (!(await writeFile(`${plan.baseRel}${rel}`, out.data, file))) break;
+          const songSeconds = frames[si] / sampleRate;
+          const length = stem.timecode ? Math.min(out.seconds, Math.max(0.01, songSeconds - out.offset)) : out.seconds;
+          const list = items.get(stem.rowId) ?? [];
+          // "volume igual entre os VS": o ajuste da música vai no volume do item
+          const volume = stem.timecode ? 1 : songLevelGain(state, song.id);
+          list.push({ name: `${song.name} - ${stem.name}`, position: start + out.offset, length, file: rel, volume });
+          items.set(stem.rowId, list);
+          saved++;
+          count++;
+        }
+        if (stems.length === 0) empty.push(song.name);
+        else if (count < stems.length) incomplete.push(song.name);
+        return count;
+      });
+      if (done > 0) songsSaved++;
+    } catch (err) {
+      if ((err as DOMException)?.name === 'AbortError') { run.status = 'cancelled'; incomplete.push(song.name); continue; }
+      if (err instanceof DiskFullError) throw err;
+      console.warn('[bounce] falha na música', song.name, err);
+      incomplete.push(`${song.name} — ${reasonOf(err)}`);
+    }
+  }
+
+  const baseDir = plan.baseRel.replace(/\/$/, '');
+  if (run.status === 'cancelled') {
+    return { status: 'cancelled', saved, total, songsSaved, songsTotal: songs.length, incomplete, empty, location: target.location, reveal: null };
+  }
+  if (saved === 0 && run.status === 'done') {
+    throw new Error(songs.length === 1 ? `"${songs[0].name}" não tem nenhuma faixa com áudio para exportar.` : 'Nenhuma das músicas tem faixas com áudio para exportar.');
+  }
+
+  // o .rpp vai por último: só aponta para os áudios que foram mesmo gravados
+  const rpp = buildRpp({
+    sampleRate,
+    timestamp: Math.floor(Date.now() / 1000),
+    tempo,
+    regions: songs.map((s, i) => ({ name: s.name, start: starts[i], end: starts[i] + frames[i] / sampleRate })),
+    tracks: rppTrackTree(state, items),
+    masterVolume: faderToGain(state.masterVolume),
+  });
+  const rppName = `${rppFileName(baseDir.replace(/ - PROJETO RPP$/, '')) || 'Projeto'}.rpp`;
+  report(`Salvando ${rppName}...`, 0.5);
+  const bytes = new TextEncoder().encode(rpp);
+  const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  if (run.status === 'done' || run.status === 'stopped') {
+    const prev = run.status;
+    run.status = 'done';
+    const ok = await writeFile(`${plan.baseRel}${rppName}`, data, rppName);
+    if (ok) saved++;
+    run.status = ok ? prev : 'stopped';
+  }
+  report('Finalizando...', 0);
+  await target.finish();
+  return {
+    status: run.status,
+    saved,
+    total,
+    songsSaved,
+    songsTotal: songs.length,
+    incomplete,
+    empty,
+    location: target.location,
+    reveal: target.reveal && saved > 0 ? () => target.reveal!(baseDir) : null,
   };
 }

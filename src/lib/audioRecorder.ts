@@ -2,6 +2,7 @@ import { decodeBlob } from '@/lib/audioDecoder';
 import { toClipAudioAsync, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { audioEngine } from '@/lib/audioEngine';
+import { engineLatencyHint } from '@/lib/engineLatency';
 import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
 import { generateMarkers } from '@/lib/audioDecoder';
@@ -83,7 +84,9 @@ class AudioRecorder {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
-      const ctx = new AudioContext();
+      // mesmo bloco do motor: o medidor/gravação do Maestro abre com música tocando e não pode
+      // encurtar a folga dela (o atraso do medidor não importa)
+      const ctx = new AudioContext({ latencyHint: engineLatencyHint() });
       // o navegador cria o AudioContext pausado quando não foi um clique que abriu: sem isso a
       // gravação sairia em silêncio
       await ctx.resume().catch(() => {});

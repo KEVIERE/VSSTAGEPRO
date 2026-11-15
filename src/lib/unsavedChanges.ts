@@ -1,5 +1,6 @@
 import { useStore, hasUnsavedChanges, type Store } from '@/store';
 import { saveCurrentProject } from '@/lib/projectQuickSave';
+import { createPromptChannel } from '@/lib/appPrompt';
 
 // Aviso de alteração não salva: antes de trocar o projeto aberto (abrir outro, novo projeto,
 // atualizar o app) ou de fechar o app, pergunta Salvar / Não salvar / Cancelar.
@@ -10,33 +11,18 @@ export interface SavePrompt {
   answer: (choice: SaveChoice) => void;
 }
 
-let showPrompt: ((prompt: SavePrompt | null) => void) | null = null;
+// Sem a janela na tela, a pergunta espera ela montar (até 3 s) e depois fica em "Cancelar":
+// nada de window.confirm, que para o programa inteiro e faz a música no ar engasgar.
+const savePrompt = createPromptChannel<SavePrompt, SaveChoice>();
 let asking = false;
 
 /** A janela "Salvar as alterações?" (UnsavedChangesDialog) se registra aqui. */
 export function onSavePrompt(show: (prompt: SavePrompt | null) => void): () => void {
-  showPrompt = show;
-  return () => {
-    if (showPrompt === show) showPrompt = null;
-  };
+  return savePrompt.register(show);
 }
 
 function ask(): Promise<SaveChoice> {
-  return new Promise((resolve) => {
-    const show = showPrompt;
-    if (!show) {
-      // sem a janela na tela: pergunta do jeito simples do navegador
-      resolve(window.confirm('O projeto tem alterações não salvas. Continuar sem salvar?') ? 'discard' : 'cancel');
-      return;
-    }
-    show({
-      projectName: useStore.getState().projectName,
-      answer: (choice) => {
-        show(null);
-        resolve(choice);
-      },
-    });
-  });
+  return savePrompt.ask((answer) => ({ projectName: useStore.getState().projectName, answer }), 'cancel');
 }
 
 function waitFor(done: (s: Store) => boolean): Promise<void> {

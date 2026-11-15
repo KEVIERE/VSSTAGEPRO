@@ -52,8 +52,9 @@ test('curva do WaveShaper: silêncio continua silêncio, o som normal passa igua
   }
 });
 
-test('motor dos pads: proteção no fim da soma, sem atraso a mais, e o bloco mínimo continua', () => {
-  assert.match(player, /new AudioContext\(\{ latencyHint: 0 \}\)/);
+test('motor dos pads: proteção no fim da soma, sem atraso a mais, e bloco curto para o toque sair na hora', () => {
+  // bloco menor que o do motor encurtava a folga das músicas na placa (engineLatency.ts)
+  assert.match(player, /new AudioContext\(\{ latencyHint: padLatencyHint\(\) \}\)/);
   assert.match(player, /bus\.connect\(low\)\.connect\(high\)\.connect\(clipIn\)\.connect\(clip\)\.connect\(post\);/);
   assert.match(player, /clipIn\.gain\.value = 1 \/ PAD_CLIP_RANGE;/);
   assert.match(player, /clip\.curve = padClipCurve\(\);/);

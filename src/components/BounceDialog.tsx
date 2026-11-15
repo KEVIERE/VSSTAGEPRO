@@ -16,7 +16,7 @@ export default function BounceDialog() {
 
   const [step, setStep] = useState<Step>('scope');
   const [scope, setScope] = useState<'musica' | 'projeto' | null>(null);
-  const [songId, setSongId] = useState<string | null>(null);
+  const [songIds, setSongIds] = useState<string[]>([]);
   const [progress, setProgress] = useState<ExportProgress | null>(null);
   const [diskFull, setDiskFull] = useState<DiskFullInfo | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -33,8 +33,15 @@ export default function BounceDialog() {
   if (!open) return null;
 
   const busy = step === 'working';
+  // ids marcados na ordem do show, ignorando músicas que saíram do projeto
+  const checked = new Set(songIds);
+  const pickedIds = orderedSongs.filter((s) => checked.has(s.id)).map((s) => s.id);
+  const multiSongs = scope === 'projeto' || pickedIds.length > 1;
+  const toggleSong = (id: string) =>
+    setSongIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const allChecked = orderedSongs.length > 0 && pickedIds.length === orderedSongs.length;
   const reset = () => {
-    setStep('scope'); setScope(null); setSongId(null); setProgress(null); setDiskFull(null);
+    setStep('scope'); setScope(null); setSongIds([]); setProgress(null); setDiskFull(null);
     setResult(null); setError(''); setCancelling(false); cancelRef.current = false;
   };
   const handleClose = () => { if (busy) return; reset(); close(false); };
@@ -48,7 +55,7 @@ export default function BounceDialog() {
   const runBounce = async (mode: BounceMode) => {
     setStep('working'); setError(''); setProgress(null); setCancelling(false); cancelRef.current = false;
     try {
-      const res = await runExport({ scope: scope ?? 'projeto', songId: songId ?? undefined, mode }, useStore.getState(), {
+      const res = await runExport({ scope: scope ?? 'projeto', songIds: scope === 'musica' ? pickedIds : undefined, mode }, useStore.getState(), {
         onProgress: setProgress,
         onDiskFull: (info) => new Promise<DiskChoice>((resolve) => {
           diskResolve.current = resolve;
@@ -85,7 +92,7 @@ export default function BounceDialog() {
           <div className="space-y-2">
             <p className="text-xs text-logic-text-muted mb-3">O que você quer exportar?</p>
             <ChoiceButton icon={<Music size={18} className="text-logic-accent" />} title="Exportar música"
-              text="Escolha uma música e o formato" onClick={() => { setScope('musica'); setStep('song'); }} />
+              text="Marque uma ou mais músicas e o formato" onClick={() => { setScope('musica'); setStep('song'); }} />
             <ChoiceButton icon={<FolderOpen size={18} className="text-logic-accent" />} title="Exportar projeto inteiro"
               text="Uma pasta com todas as músicas" onClick={() => { setScope('projeto'); setStep('mode'); }} />
           </div>
@@ -93,25 +100,44 @@ export default function BounceDialog() {
 
         {step === 'song' && (
           <div>
-            <p className="text-xs text-logic-text-muted mb-2">Escolha uma música</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-logic-text-muted">Marque as músicas que quer exportar</p>
+              {orderedSongs.length > 0 && (
+                <button
+                  className="text-2xs text-logic-accent hover:underline"
+                  onClick={() => setSongIds(allChecked ? [] : orderedSongs.map((s) => s.id))}
+                >
+                  {allChecked ? 'Desmarcar todas' : 'Marcar todas'}
+                </button>
+              )}
+            </div>
             <div className="max-h-64 overflow-y-auto border border-logic-border-dark rounded">
               {orderedSongs.length === 0 && (
                 <div className="p-3 text-xs text-logic-text-muted">Nenhuma música no projeto.</div>
               )}
               {orderedSongs.map((s) => (
-                <button
+                <label
                   key={s.id}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-logic-bg-elevated border-b border-logic-border-dark last:border-b-0 ${songId === s.id ? 'bg-logic-bg-elevated' : ''}`}
-                  onClick={() => setSongId(s.id)}
-                  onDoubleClick={() => { setSongId(s.id); setStep('mode'); }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer select-none hover:bg-logic-bg-elevated border-b border-logic-border-dark last:border-b-0 ${checked.has(s.id) ? 'bg-logic-bg-elevated' : ''}`}
                 >
-                  {s.name}
-                </button>
+                  <input
+                    type="checkbox"
+                    className="accent-logic-accent shrink-0"
+                    checked={checked.has(s.id)}
+                    onChange={() => toggleSong(s.id)}
+                  />
+                  <span className="truncate">{s.name}</span>
+                </label>
               ))}
             </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button className="logic-btn" onClick={() => setStep('scope')}>Voltar</button>
-              <button className="logic-btn-accent" disabled={!songId} onClick={() => setStep('mode')}>Continuar</button>
+            <div className="flex items-center justify-between gap-2 mt-4">
+              <span className="text-xs text-logic-text-muted tabular-nums">
+                {pickedIds.length} {pickedIds.length === 1 ? 'marcada' : 'marcadas'}
+              </span>
+              <div className="flex gap-2">
+                <button className="logic-btn" onClick={() => setStep('scope')}>Voltar</button>
+                <button className="logic-btn-accent" disabled={pickedIds.length === 0} onClick={() => setStep('mode')}>Continuar</button>
+              </div>
             </div>
           </div>
         )}
@@ -132,13 +158,19 @@ export default function BounceDialog() {
               </div>
             )}
             <ChoiceButton title="LR Master" onClick={() => runBounce('lr')}
-              text={scope === 'musica' ? 'Um único WAV estéreo com o mix final.' : 'Um WAV estéreo por música.'} />
-            {scope === 'projeto' && (
+              text={multiSongs ? 'Um WAV estéreo por música.' : 'Um único WAV estéreo com o mix final.'} />
+            {multiSongs && (
               <ChoiceButton title="Show Completo em Áudio Único" onClick={() => runBounce('show-continuo')}
-                text="Um único arquivo WAV estéreo com todas as músicas do show em sequência contínua (uma emendada na outra)." />
+                text={scope === 'projeto'
+                  ? 'Um único arquivo WAV estéreo com todas as músicas do show em sequência contínua (uma emendada na outra).'
+                  : 'Um único arquivo WAV estéreo com as músicas marcadas em sequência contínua, na ordem do show.'} />
             )}
             <ChoiceButton title="Multipista" onClick={() => runBounce('multipista')}
               text="Uma pasta por música com um WAV para cada faixa que tem áudio, com o nome da faixa." />
+            <ChoiceButton title="Projeto .RPP" onClick={() => runBounce('projeto-rpp')}
+              text={multiSongs
+                ? 'Uma pasta com o projeto .RPP e os áudios: as músicas uma atrás da outra, com 3 segundos entre elas e uma região de início e fim em cada uma. O Maestro vai como faixa de áudio.'
+                : 'Uma pasta com o projeto .RPP e os áudios da música, com uma região de início e fim. O Maestro vai como faixa de áudio.'} />
             <div className="flex justify-start mt-4">
               <button className="logic-btn" onClick={() => setStep(scope === 'musica' ? 'song' : 'scope')}>Voltar</button>
             </div>
@@ -316,7 +348,7 @@ function DoneView({ result, onClose }: { result: ExportResult; onClose: () => vo
         </div>
       </div>
 
-      {!complete && result.incomplete.length > 0 && (
+      {result.incomplete.length > 0 && (
         <SongList title="Ficaram faltando (total ou em parte)" names={result.incomplete} />
       )}
       {result.empty.length > 0 && (

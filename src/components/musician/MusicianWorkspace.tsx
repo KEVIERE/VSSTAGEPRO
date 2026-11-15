@@ -233,7 +233,7 @@ export default function MusicianWorkspace({
             <button
               onClick={() => { if (focus) exitFocus(); saveStage(!stage); }}
               className={`console-key flex items-center gap-1.5 h-8 px-2.5 text-[13px] ${stage ? 'is-lit-green' : ''}`}
-              title={stage ? 'Voltar para playlist e caderno' : 'Modo show: os displays Tocando e Próxima em cima e a sua partitura da música no ar embaixo'}
+              title={stage ? 'Voltar para playlist e caderno' : 'Modo show: a tela quase toda para a sua partitura da música no ar, com Tocando e Próxima numa faixa fina em cima'}
               aria-pressed={stage}
             >
               <MonitorPlay size={14} /> <span className="hidden sm:inline">Modo show</span>

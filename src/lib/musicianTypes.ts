@@ -141,7 +141,7 @@ export interface SheetBackend {
    * tinham caderno desta música (feito por eles ou cópia em que mexeram) e ficaram com o deles.
    */
   share(sheetId: string, targets: string[]): Promise<ShareResult>;
-  /** Foto de perfil (só na Área do Músico online). */
+  /** Foto de perfil (online e Rede Local). */
   avatar?(): Promise<string | null>;
   setAvatar?(avatar: string | null): Promise<void>;
 }

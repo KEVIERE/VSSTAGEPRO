@@ -730,7 +730,8 @@ export const useStore = create<Store>()(
         };
       }),
       selectClip: (id, additive) => set((s) => {
-        if (!id) return { selectedClipIds: [] };
+        // sem seleção, não troca a referência: evita redesenhar a timeline no clique na grade vazia
+        if (!id) return s.selectedClipIds.length === 0 ? {} : { selectedClipIds: [] };
         const clip = s.clips.find((c) => c.id === id);
         const groupMembers = clip?.groupId
           ? s.clips.filter((c) => c.songId === clip.songId && c.groupId === clip.groupId).map((c) => c.id)

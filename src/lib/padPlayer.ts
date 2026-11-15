@@ -1,7 +1,8 @@
 // Toca os pads do Modo Show.
-// - Atraso mínimo: os pads têm o próprio contexto de áudio, com o menor bloco que o sistema aceita
-//   (latencyHint 0), na mesma placa das músicas. O motor das músicas usa blocos grandes de
-//   propósito (modo estável) e o limitador do master segura o som uns milissegundos.
+// - Saída própria: os pads têm o próprio contexto de áudio, na mesma placa das músicas, sem o
+//   limitador do master. O bloco é o MESMO do motor (engineLatency): no Mac a placa usa o menor
+//   bloco pedido entre todas as saídas, e um bloco menor nos pads encurtava a folga das músicas
+//   (estalo e engasgo ao abrir o Modo Show com música tocando).
 // - Saída: Master (saídas 1-2, seguindo o fader master do programa) ou a saída da placa que o
 //   usuário escolher, mono ou par estéreo, como um canal do mixer.
 // - Cada pad: volume, pitch (muda a velocidade, como um sampler), reverb, delay no tempo da
@@ -9,23 +10,51 @@
 // - Os sons ficam no computador (padStorage) e vão junto no projeto (pacote .vss ou pasta).
 
 import { audioEngine } from '@/lib/audioEngine';
+import { afterPaint } from '@/lib/afterPaint';
 import { decodeBlob } from '@/lib/audioDecoder';
+import { padLatencyHint } from '@/lib/engineLatency';
 import { faderToGain } from '@/lib/faderScale';
 import { publishMeters } from '@/lib/meterBus';
 import { meterBallistics, peakOf } from '@/lib/maestroInput';
-import { clearPads, deletePad, loadPadAudio, loadPadInfos, savePad, savePadInfo } from '@/lib/padStorage';
+import { deletePad, loadPadAudio, loadPadInfos, loadPadRecords, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
   FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_CLIP_RANGE, PAD_COUNT, chokedBy, padClipCurve, subscribePads, delayAmount, delaySeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
   padRollSeconds, rollSliceStart, rollingSlots, trimRegion, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
-  padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, slotBank, slotPad,
+  padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, setPadsStateSoon, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadFx, type PadInfo, type PadOutput, type SavedPads,
 } from '@/lib/samplePads';
 import { useStore } from '@/store';
 
 /** O arquivo de cada pad (do computador, do projeto aberto ou do arquivo importado). */
 const sources = new Map<number, Blob>();
+/**
+ * Pads cujo arquivo em `sources` está na memória (lido do computador ou importado) e também
+ * guardado no computador: esses podem sair da memória quando o banco fecha (sourceOf lê de novo).
+ * Os do projeto aberto são pedaços do arquivo no disco: não ocupam memória e ficam.
+ */
+const memSources = new Set<number>();
+/** Sons decodificados, do usado há mais tempo para o mais recente (ver keepBuffersInBudget). */
 const buffers = new Map<number, AudioBuffer>();
+/** Sons sendo decodificados agora (para não decodificar o mesmo pad duas vezes). */
+const decoding = new Map<number, Promise<void>>();
+/**
+ * Geração de cada pad: muda quando o som do pad muda (projeto aberto, limpar, importar). Uma
+ * leitura ou decodificação que começou antes da mudança não grava o som velho no pad.
+ */
+let epoch = 0;
+const slotGen = new Map<number, number>();
+/** Pads do projeto aberto que o espelho no computador ainda não gravou (ver mirrorProjectPads). */
+const mirrorPending = new Set<number>();
+function slotToken(slot: number): string {
+  return `${epoch}.${slotGen.get(slot) ?? 0}`;
+}
+function bumpSlot(slot: number): void {
+  slotGen.set(slot, (slotGen.get(slot) ?? 0) + 1);
+  decoding.delete(slot);
+  // importar/limpar grava (ou apaga) sozinho: o espelho do projeto pula este pad
+  mirrorPending.delete(slot);
+}
 /** Cópias prontas para tocar: o trecho cortado e o som de trás para frente (de cada pad). */
 const reversed = new Map<number, { from: AudioBuffer; buf: AudioBuffer }>();
 const trimmed = new Map<number, { key: string; from: AudioBuffer; buf: AudioBuffer }>();
@@ -72,8 +101,11 @@ interface PadOut {
   meter: AnalyserNode;
   /** Ligação da soma com as saídas da placa. */
   merger: ChannelMergerNode | null;
+  split: ChannelSplitterNode | null;
   routeKey: string;
   sink: string | null;
+  /** Bloco pedido ao criar (o motor pode trocar de modo depois; ver retireStaleOutput). */
+  hint: AudioContextLatencyCategory;
 }
 let out: PadOut | null = null;
 
@@ -94,22 +126,37 @@ function songBpm(): number {
   return s.songs.find((x) => x.id === id)?.bpm ?? 120;
 }
 
+/** A saída usa menos canais do que a placa tem aberto agora: reduzir ficou para depois (route). */
+let shrinkPending = false;
+
 /** Liga a soma dos pads na saída escolhida (Master = 1-2). */
 function route(o: PadOut) {
   const count = Math.max(2, useStore.getState().outputChannelCount);
   const want = usablePadOutput(getPadsState().output, count);
   const dest = o.ctx.destination;
-  const channels = Math.max(2, dest.maxChannelCount || 2);
-  const key = `${channels}|${want.channel}|${want.stereo}`;
+  // só os canais que o som usa: 2 no Master, e na saída direta até o último canal escolhido. Abrir
+  // todos os canais da placa (16, 32...) fazia o Chromium misturar e mandar canais vazios a cada bloco
+  const used = want.channel <= 0 ? 2 : want.channel + (want.stereo ? 1 : 0);
+  const channels = Math.min(Math.max(2, dest.maxChannelCount || 2), Math.max(2, used));
+  // mudar channelCount com o contexto rodando refaz o fluxo da placa (estalo no meio da música):
+  // crescer é preciso para o som sair; diminuir espera música parada e nenhum pad tocando
+  // (watchStaleHint tenta de novo a cada 2 s)
+  const cur = dest.channelCount;
+  const canShrink = voices.size === 0 && !useStore.getState().transport.isPlaying;
+  const applied = channels >= cur || canShrink ? channels : cur;
+  shrinkPending = applied !== channels;
+  const key = `${applied}|${want.channel}|${want.stereo}`;
   if (o.routeKey === key) return;
   try {
-    dest.channelCount = channels;
+    if (dest.channelCount !== applied) dest.channelCount = applied;
     dest.channelCountMode = 'explicit';
     dest.channelInterpretation = 'discrete';
   } catch { /* a saída não aceita mais canais: fica no estéreo */ }
   try { o.post.disconnect(); } catch { /* ignore */ }
   o.post.connect(o.meter);
   if (o.merger) { try { o.merger.disconnect(); } catch { /* ignore */ } }
+  // o divisor antigo fica solto (sem ele, cada troca de saída deixava um nó ligado no grafo)
+  if (o.split) { try { o.split.disconnect(); } catch { /* ignore */ } o.split = null; }
   const n = Math.max(2, dest.channelCount);
   const merger = o.ctx.createChannelMerger(n);
   const first = want.channel <= 0 ? 0 : want.channel - 1;
@@ -118,6 +165,7 @@ function route(o: PadOut) {
     o.post.connect(split);
     split.connect(merger, 0, Math.min(first, n - 2));
     split.connect(merger, 1, Math.min(first + 1, n - 1));
+    o.split = split;
   } else {
     // mono: esquerda e direita somadas na saída escolhida
     o.post.connect(merger, 0, Math.min(first, n - 1));
@@ -128,12 +176,31 @@ function route(o: PadOut) {
   o.bus.gain.setTargetAtTime(busGain(), o.ctx.currentTime, 0.01);
 }
 
+/**
+ * Contexto de áudio dos pads, já na placa das músicas quando dá (sinkId no construtor, Chromium
+ * 110+): abrir na padrão e trocar depois com setSinkId reabria a saída logo no começo. Se o
+ * construtor não aceitar, abre na padrão e `sink` volta null (openPadOutput troca com setSinkId).
+ */
+function newPadContext(sink: string): { ctx: AudioContext; sink: string | null } {
+  if (sink) {
+    try {
+      // bloco curto: pad tocado na hora (ver padLatencyHint)
+      const ctx = new AudioContext({ latencyHint: padLatencyHint(), sinkId: sink } as AudioContextOptions);
+      return { ctx, sink: (ctx as unknown as { sinkId?: unknown }).sinkId === sink ? sink : null };
+    } catch { /* placa recusada no construtor: abre na padrão e tenta com setSinkId */ }
+  }
+  const ctx = new AudioContext({ latencyHint: padLatencyHint() });
+  return { ctx, sink: sink ? null : '' };
+}
+
 /** Saída dos pads: abre junto com o painel, para o primeiro toque já sair sem espera. */
 export function openPadOutput(): PadOut {
-  let fresh = false;
+  // bloco velho (o motor trocou de modo) e nada tocando: abre de novo com o bloco certo
+  retireStaleOutput();
   if (!out || out.ctx.state === 'closed') {
-    fresh = true;
-    const ctx = new AudioContext({ latencyHint: 0 });
+    const hint = padLatencyHint();
+    const made = newPadContext(audioEngine.getOutputSinkId());
+    const ctx = made.ctx;
     const bus = ctx.createGain();
     bus.gain.value = busGain();
     // reverb: sala com cauda de ~2 s
@@ -189,9 +256,10 @@ export function openPadOutput(): PadOut {
     post.connect(meter);
     out = {
       ctx, bus, reverbSend, delaySend, delay, reverbWet: reverbWetNode, delayWet, feedback, low, high, post, keepAlive: null,
-      meter, merger: null, routeKey: '', sink: null,
+      meter, merger: null, split: null, routeKey: '', sink: made.sink, hint,
     };
     voices.clear();
+    watchStaleHint();
   }
   const o = out;
   const sink = audioEngine.getOutputSinkId();
@@ -202,9 +270,9 @@ export function openPadOutput(): PadOut {
       .finally(() => { o.routeKey = ''; route(o); reportLatency(o.ctx); });
   }
   route(o);
-  // Saída parada fora do Modo Show (suspendWhenQuiet) com música tocando: o painel de pads aberto
-  // não faz ela voltar no meio da música (ver resumeWhenStopped). O toque num pad volta na hora.
-  if (!fresh && o.ctx.state !== 'running' && useStore.getState().transport.isPlaying) {
+  // Saída parada (ou recém-criada) com música tocando: não roda no meio da música (ver
+  // resumeWhenStopped). Só o toque num pad cria e roda a saída na hora (triggerPad).
+  if (o.ctx.state !== 'running' && useStore.getState().transport.isPlaying) {
     resumeWhenStopped(o);
     return o;
   }
@@ -220,6 +288,52 @@ function reportLatency(ctx: AudioContext) {
   const extra = (ctx as AudioContext & { outputLatency?: number }).outputLatency ?? 0;
   const ms = Math.round((ctx.baseLatency + extra) * 10000) / 10;
   if (ms !== getPadsState().latencyMs) setPadsState({ latencyMs: ms });
+}
+
+/**
+ * O motor trocou de modo (estável/rápido) depois que a saída dos pads abriu: ela ficou com o bloco
+ * antigo. Bloco menor que o do motor encurta a folga das músicas (estalo); por isso fecha e abre
+ * de novo, mas só com a música parada e nenhum pad tocando. Devolve se fechou.
+ */
+function retireStaleOutput(): boolean {
+  const o = out;
+  if (!o || o.ctx.state === 'closed' || o.hint === padLatencyHint()) return false;
+  if (voices.size > 0 || useStore.getState().transport.isPlaying) return false;
+  // sem voz, mas a cauda do reverb/delay ainda soa: fechar agora cortaria (mesmo teste de suspendWhenQuiet)
+  if (o.ctx.state === 'running') {
+    const data = new Float32Array(o.meter.fftSize);
+    o.meter.getFloatTimeDomainData(data);
+    if (peakOf(data) >= 1e-5) return false;
+  }
+  if (o.keepAlive) {
+    try { o.keepAlive.stop(); } catch { /* já parou */ }
+    o.keepAlive.disconnect();
+    o.keepAlive = null;
+  }
+  out = null;
+  void o.ctx.close().catch(() => { /* já fechou */ });
+  return true;
+}
+
+/** Confere o bloco da saída a cada 2 s (ler a chave do motor custa quase nada). */
+let staleTimer: ReturnType<typeof setInterval> | null = null;
+function watchStaleHint(): void {
+  if (staleTimer !== null) return;
+  staleTimer = setInterval(() => {
+    if (!out || out.ctx.state === 'closed') {
+      if (staleTimer !== null) clearInterval(staleTimer);
+      staleTimer = null;
+      return;
+    }
+    if (retireStaleOutput()) {
+      // aposentou com a música parada: abre já a nova, para o primeiro toque não esperar
+      if (showReady) armPads();
+      if (getPadsState().visible) warmPadOutput();
+      return;
+    }
+    // redução de canais adiada (route): tenta de novo quando a música e os pads pararem
+    if (shrinkPending) route(out);
+  }, 2000);
 }
 
 /** O Modo Show está aberto (os pads ficam prontos enquanto ele estiver). */
@@ -251,12 +365,14 @@ function cancelResumeWhenStopped(): void {
  * Espera a música parar (e ficar parada 2 s) e só então roda de novo, ainda antes do primeiro
  * toque. Um toque num pad antes disso roda na hora (triggerPad): é o operador pedindo o som.
  */
-function resumeWhenStopped(o: PadOut): void {
+function resumeWhenStopped(o: PadOut | null): void {
   if (unsubResume) return;
   const check = () => {
     resumeTimer = null;
     if (useStore.getState().transport.isPlaying) return;
     cancelResumeWhenStopped();
+    // a saída nem existia (Modo Show aberto com música tocando): abre agora, com a música parada
+    if (!o) { if (showReady) armPads(); return; }
     if (showReady && out === o && o.ctx.state === 'suspended') {
       void o.ctx.resume().then(() => reportLatency(o.ctx)).catch(() => { /* o toque num pad tenta de novo */ });
     }
@@ -279,6 +395,10 @@ function resumeWhenStopped(o: PadOut): void {
 function armPads(): void {
   if (!showReady || getPadsState().infos.size === 0) return;
   stopQuietTimer();
+  retireStaleOutput();
+  // sem saída aberta e com música tocando: criar um AudioContext agora mexe na placa no meio da
+  // música (engasgo). Espera a música parar; um toque num pad antes disso cria na hora
+  if (!hasPadOutput() && useStore.getState().transport.isPlaying) { resumeWhenStopped(null); return; }
   const o = padOut();
   // voltou ao Modo Show depois de a saída parar: roda de novo antes do primeiro toque. Com música
   // tocando, espera ela parar (ver resumeWhenStopped); o sinal inaudível já fica ligado e passa a
@@ -353,7 +473,8 @@ subscribePads(() => {
 /** Muda os knobs de efeito; valem na hora para o que está tocando. */
 export function setPadsFx(patch: Partial<PadFx>): void {
   const fx = { ...getPadsState().fx, ...patch };
-  setPadsState({ fx });
+  // knob arrastado: o som muda na hora; a tela, uma vez por quadro; o localStorage, no fim
+  setPadsStateSoon({ fx });
   if (!out) return;
   const o = out;
   const t = o.ctx.currentTime;
@@ -423,6 +544,26 @@ function padOut(): PadOut {
   return out && out.ctx.state !== 'closed' && out.sink === audioEngine.getOutputSinkId() ? out : openPadOutput();
 }
 
+/** Já existe um AudioContext dos pads (aberto, rodando ou parado). */
+function hasPadOutput(): boolean {
+  return !!out && out.ctx.state !== 'closed';
+}
+
+/**
+ * O painel de pads apareceu: deixa a saída pronta para o primeiro toque, mas sem criar um
+ * AudioContext novo com música tocando (mexe na placa no meio da música). Nesse caso espera a
+ * música parar (resumeWhenStopped); um toque num pad antes disso cria na hora.
+ */
+export function warmPadOutput(): void {
+  if (!hasPadOutput() && useStore.getState().transport.isPlaying) { resumeWhenStopped(null); return; }
+  openPadOutput();
+}
+
+/** Lê os pads guardados e decodifica os sons do banco aberto, sem abrir saída de áudio. */
+export function loadPadSounds(): Promise<void> {
+  return loadPads().then(() => prepareBank(getPadsState().bank));
+}
+
 // Medidor da soma dos pads ('pads' no barramento dos medidores), no padrão do mixer. Só roda
 // enquanto há som tocando ou o LED ainda está descendo.
 let meterLevel = 0;
@@ -441,7 +582,8 @@ function runMeter() {
       lastPublish = now;
       publishMeters(new Map([['pads', meterLevel]]));
     }
-    if (voices.size === 0 && meterLevel < 0.001) {
+    // a saída foi trocada (bloco novo): o medidor velho para e o próximo toque liga o da nova
+    if ((voices.size === 0 && meterLevel < 0.001) || out !== o) {
       meterFrame = null;
       meterLevel = 0;
       publishMeters(new Map([['pads', 0]]));
@@ -488,30 +630,144 @@ export function loadPads(): Promise<void> {
 async function sourceOf(slot: number): Promise<Blob | null> {
   const have = sources.get(slot);
   if (have) return have;
+  const token = slotToken(slot);
   const audio = await loadPadAudio(slot).catch(() => null);
   if (!audio) return null;
   const blob = new Blob([audio.bytes], { type: audio.type });
+  // o som do pad mudou durante a leitura (projeto aberto, limpar, importar): não põe o velho de volta
+  if (slotToken(slot) !== token) return sources.get(slot) ?? null;
   sources.set(slot, blob);
+  memSources.add(slot);
   return blob;
 }
 
-/** Decodifica os sons do banco (os de outros bancos saem da memória, menos os que estão tocando). */
-export async function prepareBank(bank: number): Promise<void> {
+// ---------- Memória dos sons decodificados ----------
+
+/**
+ * Teto dos sons decodificados (Float32), com as cópias de reverso e corte. Trocar de banco não
+ * joga mais os outros fora: voltar a um banco usado já toca sem decodificar de novo. Passou do
+ * teto, saem os usados há mais tempo (nunca os do banco aberto nem os que estão tocando).
+ */
+const BUFFER_BUDGET_BYTES = 200 * 1024 * 1024;
+
+function bytesOf(b: AudioBuffer): number {
+  return b.length * b.numberOfChannels * 4;
+}
+
+function slotBytes(slot: number): number {
+  const b = buffers.get(slot);
+  const r = reversed.get(slot);
+  const t = trimmed.get(slot);
+  return (b ? bytesOf(b) : 0) + (r ? bytesOf(r.buf) : 0) + (t ? bytesOf(t.buf) : 0);
+}
+
+/** Marca o som como usado agora (vai para o fim da fila de quem sai primeiro). */
+function touchBuffer(slot: number): void {
+  const b = buffers.get(slot);
+  if (!b) return;
+  buffers.delete(slot);
+  buffers.set(slot, b);
+}
+
+function keepBuffersInBudget(): void {
+  let total = 0;
+  for (const slot of buffers.keys()) total += slotBytes(slot);
+  if (total <= BUFFER_BUDGET_BYTES) return;
+  const bank = getPadsState().bank;
   for (const slot of [...buffers.keys()]) {
+    if (total <= BUFFER_BUDGET_BYTES) break;
+    if (slotBank(slot) === bank || voices.has(slot)) continue;
+    total -= slotBytes(slot);
+    buffers.delete(slot);
+    forgetCopies(slot);
+  }
+}
+
+// ---------- Fila de decodificação ----------
+
+/**
+ * No máximo 2 decodificações ao mesmo tempo, em fila: abrir um banco com 9 sons longos
+ * decodificava tudo junto e pesava na máquina (e na tela). Um pad tocado antes de ficar pronto
+ * passa para a frente da fila.
+ */
+const MAX_DECODES = 2;
+interface DecodeTask { slot: number; token: string; urgent: boolean; job: Promise<void> | null; done: () => void }
+const decodeQueue: DecodeTask[] = [];
+let decodesRunning = 0;
+
+function requestDecode(slot: number, urgent = false): Promise<void> {
+  // o painel (ao montar) e o keepPadsReady pedem o mesmo banco quase juntos: decodifica uma vez só
+  let job = decoding.get(slot);
+  if (job) {
+    const i = urgent ? decodeQueue.findIndex((t) => t.slot === slot) : -1;
+    if (i > 0) {
+      const [task] = decodeQueue.splice(i, 1);
+      task.urgent = true;
+      decodeQueue.unshift(task);
+    }
+    return job;
+  }
+  const task: DecodeTask = { slot, token: slotToken(slot), urgent, job: null, done: () => {} };
+  job = new Promise<void>((resolve) => { task.done = resolve; });
+  task.job = job;
+  decoding.set(slot, job);
+  if (urgent) decodeQueue.unshift(task);
+  else decodeQueue.push(task);
+  pumpDecodes();
+  return job;
+}
+
+function pumpDecodes(): void {
+  while (decodesRunning < MAX_DECODES && decodeQueue.length > 0) {
+    const task = decodeQueue.shift()!;
+    decodesRunning++;
+    void runDecode(task).finally(() => {
+      decodesRunning--;
+      if (decoding.get(task.slot) === task.job) decoding.delete(task.slot);
+      task.done();
+      pumpDecodes();
+    });
+  }
+}
+
+async function runDecode(task: DecodeTask): Promise<void> {
+  const { slot, token } = task;
+  const stale = () => slotToken(slot) !== token;
+  // trocou de banco antes de chegar a vez: não gasta tempo com o banco que fechou
+  if (stale() || buffers.has(slot) || !getPadsState().infos.has(slot)) return;
+  if (!task.urgent && slotBank(slot) !== getPadsState().bank) return;
+  try {
+    const blob = await sourceOf(slot);
+    if (!blob || stale()) return;
+    const buffer = await decodeBlob(blob);
+    // o pad mudou (projeto novo, limpar, importar) durante a decodificação: o som velho não entra
+    if (stale()) return;
+    buffers.set(slot, buffer);
+    keepBuffersInBudget();
+    prepareCopiesSoon(slot);
+  } catch { /* o pad fica sem som até carregar de novo */ }
+}
+
+/** Decodifica os sons do banco (os de outros bancos ficam na memória até o teto, ver keepBuffersInBudget). */
+export async function prepareBank(bank: number): Promise<void> {
+  // os arquivos dos bancos fechados saem da memória quando estão guardados no computador
+  // (sourceOf lê de novo); os pedaços do projeto aberto ficam (estão no disco, não na memória)
+  for (const slot of [...memSources]) {
     if (slotBank(slot) !== bank && !voices.has(slot)) {
-      buffers.delete(slot);
-      forgetCopies(slot);
+      sources.delete(slot);
+      memSources.delete(slot);
     }
   }
   const { infos } = getPadsState();
-  await Promise.all(Array.from({ length: PAD_COUNT }, async (_, p) => {
+  const jobs: Promise<void>[] = [];
+  for (let p = 0; p < PAD_COUNT; p++) {
     const slot = padSlot(bank, p);
-    if (!infos.has(slot) || buffers.has(slot)) return;
-    try {
-      const blob = await sourceOf(slot);
-      if (blob) buffers.set(slot, await decodeBlob(blob));
-    } catch { /* o pad fica sem som até carregar de novo */ }
-  }));
+    if (!infos.has(slot)) continue;
+    if (buffers.has(slot)) { touchBuffer(slot); prepareCopiesSoon(slot); continue; }
+    jobs.push(requestDecode(slot));
+  }
+  keepBuffersInBudget();
+  await Promise.all(jobs);
 }
 
 export async function selectBank(bank: number): Promise<void> {
@@ -581,6 +837,26 @@ function forgetCopies(slot: number): void {
   trimmed.delete(slot);
 }
 
+/**
+ * Prepara na folga da tela a cópia que o pad vai tocar (trecho cortado e, no reverso, de trás para
+ * frente). Antes ela era feita no toque: um som de 3 minutos invertido na hora atrasava o toque e
+ * travava a tela. Sem reverso nem corte não há cópia: não faz nada.
+ */
+const copyJobs = new Set<number>();
+function prepareCopiesSoon(slot: number): void {
+  const info = getPadsState().infos.get(slot);
+  if (!info || copyJobs.has(slot) || (!info.reverse && info.trimStart === undefined && info.trimEnd === undefined)) return;
+  copyJobs.add(slot);
+  afterPaint(() => {
+    copyJobs.delete(slot);
+    const now = getPadsState().infos.get(slot);
+    const buffer = buffers.get(slot);
+    if (!now || !buffer) return;
+    playableBuffer(slot, now, buffer);
+    keepBuffersInBudget();
+  }, 1000);
+}
+
 function release(slot: number, fade = 0.012) {
   const v = voices.get(slot);
   if (!v) return;
@@ -611,7 +887,10 @@ export function triggerPad(slot: number): void {
   selectPad(slot);
   const info = getPadsState().infos.get(slot);
   const buffer = buffers.get(slot);
+  // som ainda não decodificado: continua mudo como antes, mas passa para a frente da fila
+  if (info && !buffer) void requestDecode(slot, true);
   if (!info || !buffer) return;
+  touchBuffer(slot);
   if (voices.has(slot)) {
     release(slot);
     // loop: apertar de novo para (no modo segurar, apertar de novo sempre recomeça)
@@ -638,6 +917,8 @@ export function triggerPad(slot: number): void {
   if (info.roll) applyRoll(slot, voice, onsetOf(src.buffer));
   connectSends(voice, o, info.reverb, info.delay);
   src.onended = () => {
+    // a voz acabou: solta do grafo (os rabos de reverb e delay já estão nos efeitos e continuam)
+    try { gain.disconnect(); } catch { /* já solta */ }
     if (voices.get(slot)?.src !== src) return;
     voices.delete(slot);
     setPadsState({ playing: withPlaying(getPadsState().playing, slot, null) });
@@ -679,7 +960,8 @@ export function fadeAllPads(): void {
 }
 
 export function setPadsMaster(volume: number): void {
-  setPadsState({ master: volume });
+  // fader arrastado: o som muda na hora; a tela, uma vez por quadro; o localStorage, no fim
+  setPadsStateSoon({ master: volume });
   if (out) out.bus.gain.setTargetAtTime(busGain(), out.ctx.currentTime, 0.01);
 }
 
@@ -698,14 +980,42 @@ export function setPadsOutput(output: PadOutput): void {
   if (out) route(out);
 }
 
-/** Muda um ajuste do pad; volume, pitch, loop e efeitos valem na hora para o som que está tocando. */
-export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot'>>): Promise<void> {
+/** Gravações do ajuste do pad esperando o fim do arraste (uma por pad). */
+const saveTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+function savePadNow(slot: number): Promise<void> {
+  const t = saveTimers.get(slot);
+  if (t !== undefined) clearTimeout(t);
+  saveTimers.delete(slot);
+  // grava o que o pad tem agora (já com tudo que mudou no arraste); pad limpo não volta
+  const info = getPadsState().infos.get(slot);
+  if (!info) return Promise.resolve();
+  // o espelho do projeto ainda não chegou a este pad: o registro guardado é do som anterior, e a
+  // info nova por cima dele trocaria o som na próxima abertura. O espelho grava a info mais nova
+  if (mirrorPending.has(slot)) return Promise.resolve();
+  return savePadInfo(info).catch(() => say(false, 'Não deu para guardar a mudança do pad.'));
+}
+
+/** Soltou o knob ou o pitch: grava já o ajuste que estava esperando o fim do arraste. */
+export function flushPadSave(slot: number): void {
+  if (saveTimers.has(slot)) void savePadNow(slot);
+}
+
+/**
+ * Muda um ajuste do pad; volume, pitch, loop e efeitos valem na hora para o som que está tocando.
+ * `live` (arraste do knob ou do pitch): o som muda na hora, a tela é avisada uma vez por quadro e
+ * o computador grava só 400 ms depois do último movimento (ou ao soltar, flushPadSave).
+ */
+export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot'>>, live = false): Promise<void> {
   const cur = getPadsState().infos.get(slot);
   if (!cur) return;
   const next = { ...cur, ...patch };
   const infos = new Map(getPadsState().infos);
   infos.set(slot, next);
-  setPadsState({ infos });
+  if (live) setPadsStateSoon({ infos });
+  else setPadsState({ infos });
+  // reverso ligado ou corte mudado: a cópia que vai tocar já fica pronta antes do toque
+  if (patch.reverse || 'trimStart' in patch || 'trimEnd' in patch) prepareCopiesSoon(slot);
   const v = voices.get(slot);
   if (v) {
     const t = v.gain.context.currentTime;
@@ -726,7 +1036,13 @@ export async function updatePad(slot: number, patch: Partial<Omit<PadInfo, 'slot
     }
     if ((patch.reverb !== undefined || patch.delay !== undefined) && out) connectSends(v, out, next.reverb, next.delay);
   }
-  await savePadInfo(next).catch(() => say(false, 'Não deu para guardar a mudança do pad.'));
+  if (live) {
+    const t = saveTimers.get(slot);
+    if (t !== undefined) clearTimeout(t);
+    saveTimers.set(slot, setTimeout(() => { void savePadNow(slot); }, 400));
+    return;
+  }
+  await savePadNow(slot);
 }
 
 /** Liga ou desliga o ROLL de um pad (vale na hora se ele está tocando). Devolve se ficou ligado. */
@@ -749,14 +1065,11 @@ export async function toggleTrimPad(slot: number): Promise<boolean> {
     await updatePad(slot, { trimStart: undefined, trimEnd: undefined });
     return false;
   }
-  let buffer = buffers.get(slot);
-  if (!buffer) {
-    const blob = await sourceOf(slot);
-    if (!blob) return false;
-    buffer = await decodeBlob(blob);
-    buffers.set(slot, buffer);
-  }
-  const ch = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer!.getChannelData(c));
+  // pela fila (na frente): uma decodificação daqui não grava som velho se o pad mudar no meio
+  if (!buffers.has(slot)) await requestDecode(slot, true);
+  const buffer = buffers.get(slot);
+  if (!buffer) return false;
+  const ch = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
   const bounds = findSoundBounds(ch, buffer.sampleRate);
   if (!bounds) { say(false, 'Esse som está todo em silêncio: não há o que cortar.'); return false; }
   const cut = bounds.start > 0.002 || bounds.end < buffer.duration - 0.002;
@@ -799,12 +1112,17 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
       say(false, 'Não deu para guardar o som neste computador.');
       return false;
     }
+    // som novo no pad: leitura ou decodificação do som anterior ainda em andamento não grava por cima
+    bumpSlot(slot);
     sources.set(slot, new Blob([bytes], { type }));
+    memSources.add(slot);
     buffers.set(slot, buffer);
     forgetCopies(slot);
     const infos = new Map(getPadsState().infos);
     infos.set(slot, info);
     setPadsState({ infos });
+    keepBuffersInBudget();
+    prepareCopiesSoon(slot);
     return true;
   } finally {
     setPadsState({ loading: withItem(getPadsState().loading, slot, false) });
@@ -813,9 +1131,15 @@ export async function importPadFile(slot: number, file: File): Promise<boolean> 
 
 export async function clearPad(slot: number): Promise<void> {
   release(slot);
+  // leitura ou decodificação em andamento deste pad não traz o som de volta
+  bumpSlot(slot);
+  const t = saveTimers.get(slot);
+  if (t !== undefined) clearTimeout(t);
+  saveTimers.delete(slot);
   buffers.delete(slot);
   forgetCopies(slot);
   sources.delete(slot);
+  memSources.delete(slot);
   const infos = new Map(getPadsState().infos);
   infos.delete(slot);
   setPadsState({ infos });
@@ -827,7 +1151,13 @@ export async function clearPad(slot: number): Promise<void> {
 /** Projeto aberto com pads: eles entram no lugar dos atuais (e viram a cópia do computador). */
 async function applyProjectPads(saved: SavedPads, files: Map<string, Blob>): Promise<void> {
   stopAllPads();
+  // pads novos: toda leitura, decodificação e cópia no computador que começou antes fica sem valor
+  epoch++;
+  decoding.clear();
+  for (const t of saveTimers.values()) clearTimeout(t);
+  saveTimers.clear();
   sources.clear();
+  memSources.clear();
   buffers.clear();
   reversed.clear();
   trimmed.clear();
@@ -847,15 +1177,97 @@ async function applyProjectPads(saved: SavedPads, files: Map<string, Blob>): Pro
     hold: saved.hold ?? getPadsState().hold, playing: new Map(),
   });
   if (out) route(out);
+  // até o espelho gravar cada um, ajuste nesses pads não grava por cima do registro antigo
+  mirrorPending.clear();
+  for (const slot of infos.keys()) mirrorPending.add(slot);
+  const mine = epoch;
   await prepareBank(bank);
-  // cópia no computador, para os pads continuarem se o programa abrir sem projeto
-  try {
-    await clearPads();
-    for (const info of infos.values()) {
-      const blob = sources.get(info.slot);
-      if (blob) await savePad(info, info.type ?? (blob.type || 'audio/wav'), await blob.arrayBuffer());
+  if (epoch !== mine) return;
+  await mirrorProjectPads(mine);
+}
+
+/** Mesmo pad e mesmo som (nome, tipo, tamanho do arquivo e duração iguais aos guardados). */
+function sameStoredAudio(rec: { info: PadInfo; size?: number }, info: PadInfo, size: number): boolean {
+  return rec.size === size && rec.info.name === info.name && (rec.info.type ?? '') === (info.type ?? '')
+    && Math.abs((rec.info.duration ?? 0) - info.duration) < 1e-3;
+}
+
+function samePadInfo(a: PadInfo, b: PadInfo): boolean {
+  const x = a as unknown as Record<string, unknown>;
+  const y = b as unknown as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) if (x[k] !== y[k]) return false;
+  return true;
+}
+
+/** Vez de gravar no computador: com a música parada e na folga da tela. */
+function quietTurn(): Promise<void> {
+  return new Promise((resolve) => {
+    const go = () => { afterPaint(resolve, 1000); };
+    if (!useStore.getState().transport.isPlaying) { go(); return; }
+    const unsub = useStore.subscribe((s) => {
+      if (s.transport.isPlaying) return;
+      unsub();
+      go();
+    });
+  });
+}
+
+/**
+ * Cópia no computador dos pads do projeto aberto, para eles continuarem se o programa abrir sem
+ * projeto. Antes apagava tudo e regravava cada som de uma vez (centenas de MB lidos e gravados
+ * logo ao abrir, até com música tocando). Agora: som igual ao guardado não é regravado, cada pad
+ * vai um por vez, na folga da tela, e só com a música parada. Abrir outro projeto no meio para esta.
+ */
+async function mirrorProjectPads(mine: number): Promise<void> {
+  let stored: Array<{ info: PadInfo; size?: number }>;
+  // sem espelho, os ajustes voltam a gravar direto (como antes de abrir o projeto)
+  try { stored = await loadPadRecords(); } catch { if (epoch === mine) mirrorPending.clear(); return; }
+  const have = new Map(stored.map((r) => [r.info.slot, r]));
+  const slots = new Set([...have.keys(), ...getPadsState().infos.keys()]);
+  // pad mudado pelo operador depois de abrir (importar, limpar) já gravou sozinho: fica como está
+  const startTokens = new Map([...slots].map((s) => [s, slotToken(s)]));
+  for (const slot of slots) {
+    await quietTurn();
+    if (epoch !== mine) return;
+    if (slotToken(slot) !== startTokens.get(slot)) continue;
+    // o ajuste mais novo do pad (o operador pode ter mexido no volume enquanto esperava)
+    const info = getPadsState().infos.get(slot);
+    const rec = have.get(slot);
+    try {
+      if (!info) {
+        if (rec) await deletePad(slot);
+        continue;
+      }
+      const blob = sources.get(slot);
+      if (!blob) continue;
+      const type = info.type ?? (blob.type || 'audio/wav');
+      let wrote = info;
+      if (rec && sameStoredAudio(rec, info, blob.size)) {
+        if (!samePadInfo(normalizePadInfo(rec.info), info)) await savePadInfo(info);
+      } else {
+        const bytes = await blob.arrayBuffer();
+        if (epoch !== mine) return;
+        if (slotToken(slot) !== startTokens.get(slot)) continue;
+        wrote = getPadsState().infos.get(slot) ?? info;
+        await savePad(wrote, type, bytes);
+      }
+      if (epoch !== mine) return;
+      // ajuste feito durante a gravação ficou de fora (savePadNow não grava pendente): grava o mais novo
+      const now = getPadsState().infos.get(slot);
+      if (now && now !== wrote && slotToken(slot) === startTokens.get(slot)) {
+        mirrorPending.delete(slot);
+        await savePadInfo(now);
+      }
+    } catch {
+      // a cópia é só conveniência: o projeto continua com os pads; ajustes voltam a gravar direto
+      if (epoch === mine) mirrorPending.clear();
+      return;
+    } finally {
+      // gravou ou pulou: a partir daqui os ajustes deste pad gravam sozinhos
+      if (epoch === mine) mirrorPending.delete(slot);
     }
-  } catch { /* a cópia é só conveniência: o projeto continua com os pads */ }
+  }
+  if (epoch === mine) mirrorPending.clear();
 }
 
 registerProjectExtras({
@@ -881,7 +1293,11 @@ registerProjectExtras({
   rebind: (files) => {
     for (const slot of getPadsState().infos.keys()) {
       const blob = files.get(padAssetId(slot));
-      if (blob) sources.set(slot, blob);
+      if (blob) {
+        sources.set(slot, blob);
+        // agora é um pedaço do arquivo salvo (no disco): não precisa mais sair da memória
+        memSources.delete(slot);
+      }
     }
   },
 });

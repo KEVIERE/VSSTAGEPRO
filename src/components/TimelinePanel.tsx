@@ -185,15 +185,37 @@ function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | '
     const startY = e.clientY;
     const sign = edge === 'top' ? -1 : 1;
     const individual = e.metaKey || e.ctrlKey;
+    // O mouse manda vários pointermove por quadro e cada gravação no store redesenha a timeline
+    // inteira: junta e grava uma vez só por quadro, para sobrar tempo ao laço dos medidores.
+    let frame = 0;
+    let apply: (() => void) | null = null;
+    const queue = (fn: () => void) => {
+      apply = fn;
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const run = apply;
+        apply = null;
+        run?.();
+      });
+    };
+    const flush = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      const run = apply;
+      apply = null;
+      run?.();
+    };
 
     if (individual) {
       const track = useStore.getState().tracks.find((t) => t.id === trackId);
       const startHeight = track?.height ?? 40;
       const move = (ev: PointerEvent) => {
         const deltaPx = (ev.clientY - startY) * sign;
-        useStore.getState().setTrackHeight(trackId, startHeight + deltaPx);
+        queue(() => useStore.getState().setTrackHeight(trackId, startHeight + deltaPx));
       };
       const up = () => {
+        flush();
         target.removeEventListener('pointermove', move);
         target.removeEventListener('pointerup', up);
         target.removeEventListener('pointercancel', up);
@@ -210,9 +232,10 @@ function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | '
       const deltaPx = (ev.clientY - startY) * sign;
       // ~120px de arraste dobra ou reduz à metade a altura das faixas.
       const next = startZoom * Math.pow(2, deltaPx / 120);
-      useStore.getState().setZoomV(next);
+      queue(() => useStore.getState().setZoomV(next));
     };
     const up = () => {
+      flush();
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', up);
       target.removeEventListener('pointercancel', up);
@@ -389,7 +412,8 @@ const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded 
         }
       } catch (err) {
         console.error('[Maestro REC] erro ao iniciar gravação:', err);
-        alert('Não foi possível acessar a entrada de áudio. Verifique as permissões de microfone.');
+        // aviso na faixa de mensagens: o alert parava o programa inteiro e engasgava a música no ar
+        useStore.getState().setPlaybackError('Não foi possível acessar a entrada de áudio. Verifique as permissões de microfone.');
       }
     }
   };
@@ -1057,17 +1081,60 @@ function FadeHandle({
   );
 }
 
-function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove, timelineLocked }: {
+type ClipBlockProps = {
   clip: AudioClip; isSelected: boolean;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: 'start' | 'end') => void;
   onMoveStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
   trim: TrimDrag; move: MoveDrag; trackHeight: number; zoomH: number; visible: VisibleRange; allowMove: boolean; timelineLocked: boolean;
-}) {
+};
+
+/**
+ * Rolagem horizontal troca só `visible`, e o zoom horizontal troca `zoomH` (e depois `visible`):
+ * o clipe que estava fora da tela antes e continua fora depois não precisa redesenhar. Antes o
+ * zoomH diferente redesenhava TODOS os clipes da música a cada passo da pinça, inclusive os fora
+ * da tela, e a thread principal ficava sem tempo para os medidores. Qualquer outra prop diferente
+ * redesenha normalmente.
+ */
+function sameClipBlockProps(a: ClipBlockProps, b: ClipBlockProps): boolean {
+  if (a.clip !== b.clip || a.isSelected !== b.isSelected || a.onTrimStart !== b.onTrimStart ||
+    a.onMoveStart !== b.onMoveStart || a.trim !== b.trim || a.move !== b.move ||
+    a.trackHeight !== b.trackHeight || a.allowMove !== b.allowMove ||
+    a.timelineLocked !== b.timelineLocked) return false;
+  if (a.zoomH === b.zoomH) {
+    if (a.visible === b.visible) return true;
+    if (a.visible.start === b.visible.start && a.visible.end === b.visible.end) return true;
+  }
+  // arrastando (aparar ou mover): a posição desenhada muda, então redesenha sempre
+  if (b.trim || b.move) return false;
+  // Mesma conta do ClipBlock (que devolve null fora da tela), cada lado com o seu zoom:
+  // fora antes = nada desenhado; fora depois = continua sem nada desenhado.
+  const outside = (p: ClipBlockProps) => {
+    const left = p.clip.startTime * p.zoomH;
+    const right = left + Math.max(30, p.clip.duration * p.zoomH);
+    return left > p.visible.end || right < p.visible.start;
+  };
+  return outside(a) && outside(b);
+}
+
+const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove, timelineLocked }: ClipBlockProps) {
   const dawMode = useStore((s) => s.dawMode);
   // Estúdio: o clipe é pintado na cor da faixa (viva) e a onda vai escura por cima
   const clipSkin = useSkin();
   const estudio = clipSkin === 'estudio';
   const oficina = clipSkin === 'oficina';
+  // cor da faixa lida do store de forma reativa (com o memo, o clipe não redesenha só porque a timeline redesenhou)
+  // Assina só a lista de faixas: o seletor roda a cada tique do cursor, para todos os clipes, e a
+  // conta da cor (com a ordem dos canais nas skins Estúdio e Oficina) fica para quando a lista muda.
+  const tracksRef = useStore((s) => s.tracks);
+  const trackColor = useMemo(() => {
+    const tracks = tracksRef;
+    const clipTrack = tracks.find((t) => t.id === clip.trackId);
+    if (!clipTrack) return routingColorOf(clip);
+    if (estudio || oficina) {
+      return (estudio ? esTrackColor : ofTrackColor)(clipTrack.color, esChannelOrder(useStore.getState().tracks, ROUTABLE_TRACKS, clipTrack.id));
+    }
+    return shownTrackColor(clipTrack.color);
+  }, [tracksRef, clip, estudio, oficina]);
   const trimming = !!trim && trim.ids.has(clip.id);
   const isTrimStart = trimming && trim.side === "start";
   const isTrimEnd = trimming && trim.side !== "start";
@@ -1091,10 +1158,6 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
   const width = Math.max(8, playLength * zoomH);
   if (left > visible.end || left + fullWidth < visible.start) return null;
   const isMuted = !!clip.mute;
-  const clipTrack = useStore.getState().tracks.find((t) => t.id === clip.trackId);
-  const trackColor = (estudio || oficina) && clipTrack
-    ? (estudio ? esTrackColor : ofTrackColor)(clipTrack.color, esChannelOrder(useStore.getState().tracks, ROUTABLE_TRACKS, clipTrack.id))
-    : clipTrack ? shownTrackColor(clipTrack.color) : routingColorOf(clip);
   // Estúdio e Oficina: o clipe é pintado na cor da faixa e a onda vai escura por cima
   const filled = estudio || oficina;
   const routingColor = isMuted ? '#666670' : trackColor;
@@ -1279,7 +1342,7 @@ function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, tra
       </div>
     </>
   );
-}
+}, sameClipBlockProps);
 
 // Prévia da pasta recolhida: um bloco na cor da pasta com a onda de todos os áudios de dentro.
 // Só para ver; para mexer nos áudios, abre a pasta.
@@ -2144,6 +2207,21 @@ function TimelinePanel() {
     el.addEventListener("pointercancel", up);
   };
 
+  // Versões estáveis dos handlers para o ClipBlock (memo): a referência não muda a cada render,
+  // mas a chamada sempre usa a versão mais nova (com a seleção e os clipes atuais).
+  const trimStartRef = useRef(handleTrimStart);
+  const moveStartRef = useRef(handleMoveStart);
+  useLayoutEffect(() => {
+    trimStartRef.current = handleTrimStart;
+    moveStartRef.current = handleMoveStart;
+  });
+  const stableTrimStart = useCallback((e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: 'start' | 'end') => {
+    trimStartRef.current(e, clip, side);
+  }, []);
+  const stableMoveStart = useCallback((e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => {
+    moveStartRef.current(e, clip);
+  }, []);
+
   useEffect(() => {
     setEditingRegionId(null);
     setRegionDrag(null);
@@ -2328,10 +2406,14 @@ function TimelinePanel() {
       zoomAnchorRef.current = null;
     }
     if (el && headerScrollRef.current && !FOLLOW_SCROLL_CSS) headerScrollRef.current.scrollLeft = el.scrollLeft;
+    // o zoom muda a área rolável: confere o caminho da coluna dos nomes aqui, sem recriar o observador
+    if (FOLLOW_SCROLL_CSS) applyFollowRange();
     updateVisible();
-  }, [zoomH, timelineWidth, updateVisible]);
+  }, [zoomH, timelineWidth, updateVisible, applyFollowRange]);
 
-  // O caminho da coluna dos nomes e da régua acompanha faixas, zoom e tamanho da janela.
+  // O caminho da coluna dos nomes e da régua acompanha faixas e tamanho da janela. O zoom fica de
+  // fora: recriar o ResizeObserver a cada passo da pinça custava um layout forçado por quadro, e o
+  // efeito acima já confere o caminho quando o zoom muda (o observador também vê a largura nova).
   useEffect(() => {
     if (!FOLLOW_SCROLL_CSS) return;
     const el = scrollRef.current;
@@ -2342,7 +2424,7 @@ function TimelinePanel() {
     ro.observe(el);
     if (el.firstElementChild) ro.observe(el.firstElementChild);
     return () => ro.disconnect();
-  }, [hasSong, timelineWidth, zoomH, applyFollowRange]);
+  }, [hasSong, timelineWidth, applyFollowRange]);
   // a grade e as ondas desenhadas mais à frente mudam a área rolável sem mudar o tamanho de nada
   useLayoutEffect(() => {
     if (FOLLOW_SCROLL_CSS) applyFollowRange();
@@ -2456,12 +2538,21 @@ function TimelinePanel() {
     audioEngine.beginUserSeek(startTime);
     setCurrentTime(startTime);
 
+    // durante o arrasto grava a posição no store no máximo uma vez por quadro
+    let rafId = 0;
+    let pendingT = startTime;
     const move = (ev: PointerEvent) => {
       const t = computeTime(ev.clientX, ev.altKey);
       audioEngine.beginUserSeek(t);
-      setCurrentTime(t);
+      pendingT = t;
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        setCurrentTime(pendingT);
+      });
     };
     const up = (ev: PointerEvent) => {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
       target.releasePointerCapture(e.pointerId);
       target.removeEventListener('pointermove', move);
       target.removeEventListener('pointerup', up);
@@ -2804,8 +2895,8 @@ function TimelinePanel() {
                           key={clip.id}
                           clip={clip}
                           isSelected={selectedSet.has(clip.id)}
-                          onTrimStart={handleTrimStart}
-                          onMoveStart={handleMoveStart}
+                          onTrimStart={stableTrimStart}
+                          onMoveStart={stableMoveStart}
                           trim={trimDrag}
                           move={moveDrag}
                           trackHeight={rowHeight}
@@ -2843,8 +2934,8 @@ function TimelinePanel() {
                               key={clip.id}
                               clip={clip}
                               isSelected={selectedSet.has(clip.id)}
-                              onTrimStart={handleTrimStart}
-                              onMoveStart={handleMoveStart}
+                              onTrimStart={stableTrimStart}
+                              onMoveStart={stableMoveStart}
                               trim={trimDrag}
                               move={moveDrag}
                               trackHeight={maestroLaneHeight}

@@ -5,7 +5,7 @@
 // LUFS fica dançando em volta do 0). O LED de pico acende pelo pico real, acima de -1 dBFS.
 // Embaixo, o loudness do master (LUFS).
 import { useEffect, useId, useRef, useState } from 'react';
-import { meterLevel } from '@/lib/meterBus';
+import { meterLevel, subscribeMeters } from '@/lib/meterBus';
 import { audioEngine } from '@/lib/audioEngine';
 
 export const VU_REF_DBFS = -12;
@@ -49,6 +49,14 @@ function polar(angleDeg: number, r: number): [number, number] {
   return [PX + Math.cos(a) * r, PY + Math.sin(a) * r];
 }
 
+/**
+ * O ponteiro pode dormir: o motor não está tocando, o ponteiro chegou ao alvo (diferença menor
+ * que um vigésimo de grau na tela) e o LED de pico já apagou.
+ */
+function vuIdle(running: boolean, needle: number, target: number, ledOn: boolean): boolean {
+  return !running && !ledOn && Math.abs(needle - target) * SWEEP * 2 < 0.05;
+}
+
 /** Pico real acima de -1 dBFS: acende o LED de pico. */
 const PEAK_LED = Math.pow(10, -1 / 20);
 
@@ -65,6 +73,7 @@ function VuFace({ side, label }: { side: 'L' | 'R'; label: string }) {
     let shownAngle = NaN;
     let shownLed = '';
     const tick = (now: number) => {
+      raf = 0;
       const target = vuPosition(levelToVu(meterLevel(`master-rms:${side}`)));
       needle = vuStep(needle, target, (now - last) / 1000);
       last = now;
@@ -81,10 +90,19 @@ function VuFace({ side, label }: { side: 'L' | 'R'; label: string }) {
         shownLed = led;
         peakRef.current?.setAttribute('opacity', led);
       }
+      // Parado e com o ponteiro já em repouso: o laço dorme (antes rodava 60 vezes por segundo
+      // o tempo todo). Acorda na próxima publicação dos níveis (play, ou o zerar ao parar).
+      if (vuIdle(audioEngine.isRunning(), needle, target, now < peakUntil)) return;
+      raf = requestAnimationFrame(tick);
+    };
+    const wake = () => {
+      if (raf) return;
+      last = performance.now();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    const off = subscribeMeters(wake);
+    return () => { off(); cancelAnimationFrame(raf); };
   }, [side]);
 
   const zeroPos = vuPosition(0);
@@ -171,15 +189,26 @@ export function lufsTone(lufs: number): 'ok' | 'hot' | 'over' | 'off' {
   return lufs > -6 ? 'over' : lufs > -9 ? 'hot' : 'ok';
 }
 
+/** O visor do loudness pode parar de ler: motor parado e os dois valores já em silêncio ("--"). */
+function loudnessIdle(running: boolean, lu: { momentary: number; shortTerm: number }): boolean {
+  return !running && lufsText(lu.momentary) === '--' && lufsText(lu.shortTerm) === '--';
+}
+
 /** Visor do loudness do master (momentâneo e curto, em LUFS). */
 function LoudnessReadout() {
   const [lu, setLu] = useState({ momentary: -Infinity, shortTerm: -Infinity });
   useEffect(() => {
-    const id = window.setInterval(() => {
+    let id = 0;
+    const read = () => {
       const next = audioEngine.getMasterLoudness();
       setLu((prev) => (lufsText(prev.momentary) === lufsText(next.momentary) && lufsText(prev.shortTerm) === lufsText(next.shortTerm) ? prev : next));
-    }, 100);
-    return () => window.clearInterval(id);
+      // Parado: segue lendo até o visor zerar (o curto leva uns 3 s para cair) e então dorme.
+      if (loudnessIdle(audioEngine.isRunning(), next)) { window.clearInterval(id); id = 0; }
+    };
+    const wake = () => { if (!id) id = window.setInterval(read, 100); };
+    wake();
+    const off = subscribeMeters(wake);
+    return () => { off(); window.clearInterval(id); };
   }, []);
   return (
     <div className="vu-clock" title="Loudness do master em LUFS (M: últimos 400 ms; S: últimos 3 s), medido na saída 1-2 como as plataformas medem.">

@@ -6,7 +6,7 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const QRCode = require('qrcode');
 const { resolveStatic } = require('./staticFiles');
-const { LocalAccounts } = require('./musicianAccounts');
+const { LocalAccounts, MAX_AVATAR } = require('./musicianAccounts');
 const { LocalRepertoire } = require('./localRepertoire');
 
 // O que o produtor escolhe para toda a letra e vai gravado no projeto do show.
@@ -16,6 +16,8 @@ const DEFAULT_PORT = 8080;
 const HOST_NAME = 'vsstage.local';
 const ONLINE_WINDOW_MS = 10_000;
 const MAX_BODY = 4 * 1024 * 1024;
+// Foto de perfil do músico: a foto e a moldura do JSON.
+const AVATAR_BODY = MAX_AVATAR + 1024;
 const FAIL_LIMIT = 8;
 const FAIL_WINDOW_MS = 5 * 60_000;
 const SCREEN_CODE = 'TELA';
@@ -496,13 +498,13 @@ class LocalServer {
     res.end(JSON.stringify(body));
   }
 
-  readBody(req) {
+  readBody(req, max = MAX_BODY) {
     return new Promise((resolve, reject) => {
       let size = 0;
       const chunks = [];
       req.on('data', (c) => {
         size += c.length;
-        if (size > MAX_BODY) { reject(new Error('too_large')); req.destroy(); return; }
+        if (size > max) { reject(new Error('too_large')); req.destroy(); return; }
         chunks.push(c);
       });
       req.on('end', () => {
@@ -830,7 +832,18 @@ class LocalServer {
         const texts = Array.isArray(pages) ? pages.map((p) => (p && typeof p.text === 'string' ? p.text : '')).filter((t) => t.trim()) : [];
         return this.json(res, 200, { texts });
       }
+      if (route === 'avatar') return this.json(res, 200, { avatar: this.accounts.avatar(key) ?? null });
       return this.json(res, 404, { error: 'not_found' });
+    }
+    // Foto de perfil do próprio músico: `{ avatar: "data:image/jpeg;base64,..." }` troca, `null` remove.
+    // Corpo com limite próprio (a foto tem até MAX_AVATAR caracteres), não os 4 MB dos cadernos.
+    if (route === 'avatar-set' && req.method === 'POST') {
+      const body = await this.readBody(req, AVATAR_BODY).catch(() => undefined);
+      if (body === undefined) return this.json(res, 413, { error: 'too_large' });
+      if (!body || typeof body !== 'object' || !('avatar' in body)) return this.json(res, 400, { error: 'bad_request' });
+      const r = this.accounts.setAvatar(key, body.avatar);
+      if (r.error) return this.json(res, r.error === 'too_large' ? 413 : r.error === 'not_found' ? 404 : 400, { error: r.error });
+      return this.json(res, 200, { ok: true });
     }
     if (req.method !== 'POST') return this.json(res, 404, { error: 'not_found' });
     const body = await this.readBody(req).catch(() => null);

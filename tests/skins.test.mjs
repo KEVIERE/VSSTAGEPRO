@@ -299,7 +299,8 @@ test('loudness do master, sem masterização no master', async () => {
   const r = w.read(3);
   assert.ok(r.momentary > r.shortTerm, 'o momentâneo pega o trecho alto do fim; o curto, os 3 s');
   const engine = read('src', 'lib', 'audioEngine.ts');
-  assert.match(engine, /this\.masterGain\.connect\(this\.masterLimiter\);/, 'o master vai direto ao limiter');
+  // o master passa só pela porta de ganho do caminho normal (troca do LR mágico sem estalo) e cai no limiter
+  assert.match(engine, /this\.masterGain\.connect\(normal\);\s*normal\.connect\(L\);/, 'o master vai direto ao limiter');
   assert.doesNotMatch(engine, /MasteringInsert|liveMastering/);
   const vu = read('src', 'components', 'VuMeter.tsx');
   assert.match(vu, /<LoudnessReadout \/>/);

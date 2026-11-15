@@ -1,5 +1,8 @@
+import { engineLatencyHint } from '@/lib/engineLatency';
+
 export async function playTestAllOutputs(deviceId?: string): Promise<void> {
-  const ctx = new AudioContext();
+  // mesmo bloco do motor: o teste na mesma placa não encurta a folga das músicas
+  const ctx = new AudioContext({ latencyHint: engineLatencyHint() });
   try {
     if (deviceId && 'setSinkId' in ctx) {
       try {

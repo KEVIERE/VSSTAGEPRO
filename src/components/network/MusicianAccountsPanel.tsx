@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Ban, Check, KeyRound, Trash2, UserCheck, Users, WifiOff } from 'lucide-react';
 import { useStore } from '@/store';
+import { Avatar } from '@/components/musician/MusicianAvatar';
 import type { MusicianAccount } from '@/types';
 
 const STATUS_LABEL: Record<MusicianAccount['status'], string> = {
@@ -79,6 +80,8 @@ export default function MusicianAccountsPanel({ online }: { online: Map<string, 
                   className={`console-led shrink-0 ${on ? 'is-on-green' : ''}`}
                   title={online ? (on ? 'Online agora' : 'Offline') : 'Rede local desligada'}
                 />
+                {/* foto que o músico escolheu no celular (só data URL de imagem, vinda da conta) */}
+                <Avatar src={typeof a.avatar === 'string' && a.avatar.startsWith('data:image/') ? a.avatar : null} name={a.name} size={34} />
                 <div className="flex-1 min-w-[10rem]">
                   <p className="text-xs text-logic-text truncate">
                     {a.name}{a.instrument && <span className="text-logic-text-muted"> · {a.instrument}</span>}

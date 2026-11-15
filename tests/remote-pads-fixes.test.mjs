@@ -97,7 +97,13 @@ test('Remote: consulta pendurada marca "sem sinal" pelos 6 s, sem esperar o praz
 test('pads: voltar ao Modo Show com música tocando não faz a saída parada rodar no meio da música', () => {
   // armPads e o painel aberto (openPadOutput) esperam a música parar
   assert.match(player, /if \(o\.ctx\.state !== 'running' && useStore\.getState\(\)\.transport\.isPlaying\) resumeWhenStopped\(o\);/);
-  assert.match(player, /if \(!fresh && o\.ctx\.state !== 'running' && useStore\.getState\(\)\.transport\.isPlaying\) \{\s*resumeWhenStopped\(o\);\s*return o;\s*\}/);
+  // vale também para a saída recém-criada (antes só a parada)
+  assert.match(player, /if \(o\.ctx\.state !== 'running' && useStore\.getState\(\)\.transport\.isPlaying\) \{\s*resumeWhenStopped\(o\);\s*return o;\s*\}/);
+  assert.doesNotMatch(player, /!fresh/);
+  // sem saída ainda e com música tocando: armPads e o painel não criam AudioContext, esperam parar
+  assert.match(player, /if \(!hasPadOutput\(\) && useStore\.getState\(\)\.transport\.isPlaying\) \{ resumeWhenStopped\(null\); return; \}\s*const o = padOut\(\);/);
+  assert.match(player, /export function warmPadOutput\(\): void \{\s*if \(!hasPadOutput\(\) && useStore\.getState\(\)\.transport\.isPlaying\) \{ resumeWhenStopped\(null\); return; \}\s*openPadOutput\(\);/);
+  assert.match(player, /if \(!o\) \{ if \(showReady\) armPads\(\); return; \}/);
   // só volta com o Modo Show aberto, a mesma saída e ainda parada; sair do Modo Show cancela
   assert.match(player, /if \(showReady && out === o && o\.ctx\.state === 'suspended'\)/);
   assert.match(player, /if \(!on\) \{\s*cancelResumeWhenStopped\(\);/);
@@ -106,5 +112,6 @@ test('pads: voltar ao Modo Show com música tocando não faz a saída parada rod
 });
 
 test('contexto de decodificação fica parado logo depois de criado', () => {
-  assert.match(decoder, /decodeCtx = new AudioContext\(\);\s*(\/\/[^\n]*\n\s*)*void decodeCtx\.suspend\(\)\.catch\(/);
+  // bloco máximo ('playback'): ele nunca toca e não pode encurtar o bloco do motor
+  assert.match(decoder, /decodeCtx = new AudioContext\(\{ latencyHint: 'playback' \}\);\s*(\/\/[^\n]*\n\s*)*void decodeCtx\.suspend\(\)\.catch\(/);
 });

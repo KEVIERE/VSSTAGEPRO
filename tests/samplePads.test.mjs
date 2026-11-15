@@ -177,9 +177,9 @@ test('o salvar e o abrir do projeto levam os pads (pacote, pasta e salvar rápid
   assert.match(player, /if \(saved\?\.pads\?\.length\) void applyProjectPads\(saved, files\);/, 'projeto sem pads não apaga os pads atuais');
 });
 
-test('motor dos pads: atraso mínimo, saída escolhida, efeitos e medidor', () => {
+test('motor dos pads: bloco curto, saída escolhida, efeitos e medidor', () => {
   const player = read('lib', 'padPlayer.ts');
-  assert.match(player, /new AudioContext\(\{ latencyHint: 0 \}\)/);
+  assert.match(player, /new AudioContext\(\{ latencyHint: padLatencyHint\(\) \}\)/);
   assert.match(player, /const sink = audioEngine\.getOutputSinkId\(\);/);
   assert.match(player, /const merger = o\.ctx\.createChannelMerger\(n\);/, 'liga a soma na saída escolhida da placa');
   assert.match(player, /return faderToGain\(master\) \* \(viaMaster \? faderToGain\(useStore\.getState\(\)\.masterVolume\) : 1\);/, 'o fader master só vale no Master');
@@ -243,7 +243,8 @@ test('pads sempre prontos no Modo Show: saída acordada e efeitos na hora', () =
   assert.match(player, /export function keepPadsReady/);
   assert.match(player, /createConstantSource\(\)/, 'sinal inaudível mantém a placa acordada');
   assert.match(panel, /keepPadsReady\(true\)/);
-  assert.match(panel, /return \(\) => keepPadsReady\(false\)/);
+  // preparo depois da primeira pintura (modo-show-sem-travar.test.mjs); ao sair, desliga
+  assert.match(panel, /if \(armed\) keepPadsReady\(false\)/);
   assert.match(panel, /<FxKnobs \/>/);
   assert.match(panel, /<MixerPanel fit \/>/, 'o mixer do Modo Show se ajusta ao espaço');
 });

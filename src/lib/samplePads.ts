@@ -513,8 +513,7 @@ export function subscribePads(listener: () => void): () => void {
   return () => { listeners.delete(listener); };
 }
 
-export function setPadsState(patch: Partial<PadsState>): void {
-  state = { ...state, ...patch };
+function persist(patch: Partial<PadsState>): void {
   try {
     if (patch.bank !== undefined) globalThis.localStorage?.setItem(BANK_KEY, String(patch.bank));
     if (patch.master !== undefined) globalThis.localStorage?.setItem(MASTER_KEY, String(patch.master));
@@ -523,7 +522,66 @@ export function setPadsState(patch: Partial<PadsState>): void {
     if (patch.hold !== undefined) globalThis.localStorage?.setItem(HOLD_KEY, patch.hold ? '1' : '0');
     if (patch.fx !== undefined) globalThis.localStorage?.setItem(FX_KEY, JSON.stringify(patch.fx));
   } catch { /* só não lembra */ }
+}
+
+// Arraste de knob e fader: o estado muda na hora (o áudio lê daqui), mas a tela é avisada uma vez
+// por quadro e o localStorage é gravado 400 ms depois do último movimento. Avisar e gravar a cada
+// pointermove redesenhava o painel inteiro dezenas de vezes por segundo.
+let persistLater: Partial<PadsState> = {};
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let notifyFrame: { cancel: () => void } | null = null;
+
+function flushPersist(): void {
+  if (persistTimer !== null) clearTimeout(persistTimer);
+  persistTimer = null;
+  const p = persistLater;
+  persistLater = {};
+  persist(p);
+}
+
+function nextFrame(fn: () => void): { cancel: () => void } {
+  if (typeof requestAnimationFrame === 'function') {
+    const id = requestAnimationFrame(fn);
+    return { cancel: () => cancelAnimationFrame(id) };
+  }
+  const id = setTimeout(fn, 16);
+  return { cancel: () => clearTimeout(id) };
+}
+
+// fechou a janela no meio do arraste: o último valor fica guardado
+(globalThis as { addEventListener?: (type: string, fn: () => void) => void }).addEventListener?.('pagehide', flushPersist);
+
+export function setPadsState(patch: Partial<PadsState>): void {
+  state = { ...state, ...patch };
+  // um arraste ainda esperando para gravar vai antes, para este valor (mais novo) ficar por cima
+  if (persistTimer !== null) flushPersist();
+  persist(patch);
+  notifyFrame?.cancel();
+  notifyFrame = null;
   listeners.forEach((l) => l());
+}
+
+/** Como setPadsState, para arrastes: avisa a tela no próximo quadro e grava 400 ms depois. */
+export function setPadsStateSoon(patch: Partial<PadsState>): void {
+  state = { ...state, ...patch };
+  const keep: Partial<PadsState> = {};
+  if (patch.bank !== undefined) keep.bank = patch.bank;
+  if (patch.master !== undefined) keep.master = patch.master;
+  if (patch.output !== undefined) keep.output = patch.output;
+  if (patch.choke !== undefined) keep.choke = patch.choke;
+  if (patch.hold !== undefined) keep.hold = patch.hold;
+  if (patch.fx !== undefined) keep.fx = patch.fx;
+  if (Object.keys(keep).length > 0) {
+    persistLater = { ...persistLater, ...keep };
+    if (persistTimer !== null) clearTimeout(persistTimer);
+    persistTimer = setTimeout(flushPersist, 400);
+  }
+  if (notifyFrame === null) {
+    notifyFrame = nextFrame(() => {
+      notifyFrame = null;
+      listeners.forEach((l) => l());
+    });
+  }
 }
 
 export function togglePadsPanel(): void {

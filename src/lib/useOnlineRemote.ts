@@ -6,6 +6,15 @@ import { subscribeShowClock } from '@/lib/showClock';
 import { remoteChannelName, setOnlineRemotePhones, useOnlineRemoteConfig } from '@/lib/onlineRemote';
 import { listRevision, liteRemoteState, remoteListKey } from '@/lib/remoteProtocol';
 
+type RemoteSigInputs = ReturnType<typeof useStore.getState>;
+/** As entradas de remoteSignature trocaram de referência? Se não, a assinatura é a mesma e não precisa recalcular. */
+function remoteInputsChanged(a: RemoteSigInputs, b: RemoteSigInputs): boolean {
+  return a.showBpmTower !== b.showBpmTower || a.showTunerTower !== b.showTunerTower || a.playbackError !== b.playbackError ||
+    a.masterVolume !== b.masterVolume || a.queuedRegion !== b.queuedRegion || a.selectedSongId !== b.selectedSongId ||
+    a.audioInterface !== b.audioInterface || a.audioInterfaceConnected !== b.audioInterfaceConnected ||
+    a.outputChannelCount !== b.outputChannelCount || a.incompleteSongIds !== b.incompleteSongIds || a.tracks !== b.tracks;
+}
+
 const PLAYING_MS = 1000;
 const IDLE_MS = 3000;
 const MIN_GAP_MS = 120;
@@ -94,10 +103,14 @@ export function useOnlineRemote(enabled: boolean): void {
         (!b.isPlaying && a.currentTime !== b.currentTime) ||
         s.songs !== prev.songs || s.blocks !== prev.blocks || s.playlist !== prev.playlist ||
         s.activeShowId !== prev.activeShowId || s.shows !== prev.shows || s.songKeys !== prev.songKeys;
+      const sigInputs = remoteInputsChanged(prev, s);
       prev = s;
-      const sig = remoteSignature(s);
-      const sigChanged = sig !== prevSig;
-      prevSig = sig;
+      let sigChanged = false;
+      if (sigInputs) {
+        const sig = remoteSignature(s);
+        sigChanged = sig !== prevSig;
+        prevSig = sig;
+      }
       if (changed || sigChanged) sendSoon();
     });
     const unsubClock = subscribeShowClock(sendSoon);

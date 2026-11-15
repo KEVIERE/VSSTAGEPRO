@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, FolderTree, MousePointer2, X, ChevronLeft, Music2, Sparkles } from 'lucide-react';
-import { groupAsSingleSong, groupByParentFolder, importSongGroups } from '@/lib/importManager';
+import { FolderOpen, FolderTree, MousePointer2, X, ChevronLeft, Sparkles } from 'lucide-react';
+import { groupAsSingleSong, groupByParentFolder, groupReaperProject, importSongGroups, pickedPaths } from '@/lib/importManager';
 import type { SongGroup } from '@/lib/importManager';
+import SongGroupsConfirm from '@/components/SongGroupsConfirm';
 
-type Step = { kind: 'choose' } | { kind: 'drag' } | { kind: 'confirm'; groups: SongGroup[] };
+type Step = { kind: 'choose' } | { kind: 'drag' } | { kind: 'reading' } | { kind: 'confirm'; groups: SongGroup[]; reaper?: boolean; notice?: string };
 
 const folderInputProps = { webkitdirectory: '', directory: '', multiple: true } as Record<string, unknown>;
 
@@ -29,16 +30,28 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
     return files;
   };
 
-  const onSingle = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Pasta com projeto do REAPER (.rpp): o show vira uma música por região, em qualquer opção.
+  const reaperStep = async (files: File[]): Promise<boolean> => {
+    if (!files.some((f) => /\.rpp$/i.test(f.name))) return false;
+    setStep({ kind: 'reading' });
+    const show = await groupReaperProject(pickedPaths(files));
+    if (!show) return false;
+    setStep({ kind: 'confirm', groups: show.groups, reaper: true, notice: show.notice });
+    return true;
+  };
+
+  const onSingle = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = takeFiles(e);
     if (files.length === 0) return;
+    if (await reaperStep(files)) return;
     onClose();
     void importSongGroups(groupAsSingleSong(files));
   };
 
-  const onParent = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onParent = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = takeFiles(e);
     if (files.length === 0) return;
+    if (await reaperStep(files)) return;
     setStep({ kind: 'confirm', groups: groupByParentFolder(files) });
   };
 
@@ -49,8 +62,8 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
 
   return (
     <>
-      <input ref={singleRef} type="file" className="hidden" onChange={onSingle} {...folderInputProps} />
-      <input ref={parentRef} type="file" className="hidden" onChange={onParent} {...folderInputProps} />
+      <input ref={singleRef} type="file" className="hidden" onChange={(e) => void onSingle(e)} {...folderInputProps} />
+      <input ref={parentRef} type="file" className="hidden" onChange={(e) => void onParent(e)} {...folderInputProps} />
       {open && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
           <div className="w-[26rem] max-w-[calc(100vw-2rem)] bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded">
@@ -118,39 +131,20 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
               </div>
             )}
 
+            {step.kind === 'reading' && (
+              <div className="p-4 text-xs text-logic-text-dim">Lendo o projeto .RPP...</div>
+            )}
+
             {step.kind === 'confirm' && (
-              <div className="p-4 flex flex-col gap-3">
-                {step.groups.length === 0 ? (
-                  <p className="text-xs text-logic-text-dim leading-relaxed">
-                    Não encontrei nenhum arquivo de áudio nessa pasta. Confira se escolheu a pasta certa.
-                  </p>
-                ) : (
-                  <>
-                    <p className="text-xs text-logic-text-dim">
-                      Encontrei {step.groups.length === 1 ? '1 música' : `${step.groups.length} músicas`}. Elas entram no fim do repertório nesta ordem:
-                    </p>
-                    <ul className="max-h-64 overflow-y-auto logic-scroll rounded border border-logic-border-dark bg-logic-bg-deep divide-y divide-logic-border-dark">
-                      {step.groups.map((g, i) => (
-                        <li key={`${i}-${g.name}`} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-                          <span className="w-5 text-right text-logic-text-muted tabular-nums">{i + 1}</span>
-                          <Music2 size={12} className="text-logic-text-muted shrink-0" />
-                          <span className="flex-1 truncate text-logic-text">{g.name}</span>
-                          <span className="text-2xs text-logic-text-muted">{g.files.length} {g.files.length === 1 ? 'áudio' : 'áudios'}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
-                <div className="flex justify-end gap-2">
-                  <button className="px-3 py-1.5 text-xs rounded bg-logic-bg-deep text-logic-text-muted border border-logic-border-dark hover:bg-logic-bg-panel-light hover:text-logic-text transition-colors" onClick={onClose}>
-                    Cancelar
-                  </button>
-                  {step.groups.length > 0 && (
-                    <button className="px-3 py-1.5 text-xs rounded bg-logic-accent text-white hover:brightness-110 transition-all" onClick={() => startConfirmed(step.groups)}>
-                      Importar {step.groups.length === 1 ? '1 música' : `${step.groups.length} músicas`}
-                    </button>
-                  )}
-                </div>
+              <div className="p-4">
+                <SongGroupsConfirm
+                  groups={step.groups}
+                  notice={step.notice}
+                  intro={(count) => `${step.reaper ? 'Projeto .RPP: encontrei ' : 'Encontrei '}${count}. Elas entram no fim do repertório nesta ordem:`}
+                  confirmLabel={(count) => `Importar ${count}`}
+                  onCancel={onClose}
+                  onConfirm={() => startConfirmed(step.groups)}
+                />
               </div>
             )}
           </div>

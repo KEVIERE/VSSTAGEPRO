@@ -5,7 +5,7 @@ import { getClipPlayerWorkletUrl } from '@/lib/clipPlayerWorklet';
 import { clipPlayLength, ensureSongLoaded, getClipAudio, onAudioLibraryCleared, getClipPlayAudio, getClipSource, isSongLoaded, loadFailure, missingClipIds, openClipAudio, putClipAudio, retainSongs } from '@/lib/audioLibrary';
 import { deviceSampleRate } from '@/lib/audioDecoder';
 import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
-import { audioStreamer, diskStreamer, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
+import { audioStreamer, diskStreamer, DISK_CHUNK_FRAMES, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
 import type { DiskHandle, RangeReader, StreamHandle } from '@/lib/audioStreamer';
 import { openRangeReader, openRangeReaders } from '@/lib/diskSource';
 import type { HeadAudio, StretchedHead } from '@/lib/instantStart';
@@ -15,10 +15,12 @@ import { songLevelGain } from '@/lib/songLevel';
 import { entryPoint, hasSliceParams, medleySlices, paramsAt, playableEnd, skipJumpAt, sliceParams } from '@/lib/medley';
 import { publishMeters, resetMeters } from '@/lib/meterBus';
 import { isTimecodeTrackId, NO_OUTPUT, TIMECODE_TRACK_ID } from '@/lib/timecode';
+import { interfaceMissing, resolveRoute } from '@/lib/outputRoute';
 import { TimecodePlayer } from '@/lib/timecodePlayer';
 import { LoudnessWindow, kWeightingNodes } from '@/lib/loudnessMeter';
 import { AntiClipInsert, antiClipActive, loadPeakLimiter } from '@/lib/antiClip';
 import { isUserInteracting } from '@/lib/interactionTracker';
+import { iniciarAudioDiag, registrarDiag } from '@/lib/audioDiag';
 import { MAESTRO_IA_TRACK_ID } from '@/lib/narrations';
 import { evaluateFadeCurve } from '@/types';
 import type { AudioClip, Song, SongRegion, Track } from '@/types';
@@ -27,11 +29,37 @@ import type { ClipAudio } from '@/lib/audioLibrary';
 const RETIME_LEAD = 0.06;
 const METER_FFT = 2048;
 export const MAGIC_SUM_GAIN = 0.5;
-// Trecho lido do disco antes de largar (~0,7 s): pequeno para o Play sair rápido; o leitor
-// antecipado já está buscando o que vem depois enquanto ele toca.
-const START_WINDOW_FRAMES = 1 << 15;
+// Trecho lido do disco antes de largar. Os primeiros ~0,7 s seguram o Play (como antes); mais um
+// pedaço (DISK_CHUNK_FRAMES, ~1,4 s) é lido logo em seguida e entra junto se chegar dentro de
+// START_EXTRA_WAIT_MS. Só quando a primeira leitura voltou rápido (START_FAST_FIRST_MS).
+// Com só 0,7 s no reprodutor, uma trava da tela logo depois do Play (menu, Modo show) deixava a
+// faixa sem dado antes de o leitor antecipado entregar o próximo trecho: o som engasgava.
+const START_FIRST_SECONDS = 0.7;
+const START_WINDOW_SECONDS = 4;
+// Espera máxima pelo resto da janela: além disso o Play sairia perceptivelmente mais lento, e o
+// leitor antecipado (prioridade da música no ar) busca o que faltar logo depois.
+const START_EXTRA_WAIT_MS = 50;
+// Primeira leitura (todas as faixas) mais lenta que isso: o leitor é lento (conversão de taxa) e o
+// extra não chegaria a tempo; só atrasaria o leitor antecipado.
+const START_FAST_FIRST_MS = 80;
+// Margem da troca do começo ajustado (BPM/tom) para o áudio inteiro: o timer roda na tela, e com
+// 1,5 s uma trava maior que isso deixava todas as faixas mudas no fim do trecho ajustado.
+const HANDOFF_MARGIN_SECONDS = 4;
+// Folga do horário da troca: o aviso vai a todas as faixas antes de o horário chegar.
+const HANDOFF_LEAD = 0.2;
 // Depois de um Play, por quanto tempo as análises de fundo esperam (ver isSettling).
 const SETTLE_MS = 5000;
+// Depois da troca cruzada do LR mágico (rampa de 15 ms), quando a entrada do caminho fechado sai.
+const PATH_PARK_MS = 50;
+
+/** Dois caminhos montados [normal, separado]; só o ativo fica com a entrada ligada. */
+interface PathSwitch {
+  gates: [GainNode, GainNode];
+  /** Ligação de entrada de cada caminho: [origem, destino]. */
+  links: [[AudioNode, AudioNode], [AudioNode, AudioNode]];
+  linked: [boolean, boolean];
+  timer: ReturnType<typeof setTimeout> | null;
+}
 
 import { faderToGain } from '@/lib/faderScale';
 import { lateClipIds, setDiskLag } from '@/lib/diskLag';
@@ -496,15 +524,66 @@ class AudioEngine {
   /** Lê já o trecho da largada de cada faixa (a música anterior segue tocando enquanto isso). */
   private async readStartWindows(clips: AudioClip[], readers: Map<string, RangeReader>, startOffset: number) {
     const out = new Map<string, { start: number; channels: Int16Array[] }>();
+    const firstLen = new Map<string, number>();
+    const t0 = performance.now();
     await Promise.all(clips.map(async (clip) => {
       const r = readers.get(clip.id);
       if (!r) return;
       const from = Math.min(r.length, Math.floor(Math.max(0, startOffset - clip.startTime) * r.sampleRate));
       if (from >= r.length) return;
+      const want = Math.max(1, Math.round(START_FIRST_SECONDS * r.sampleRate));
       try {
-        out.set(clip.id, { start: from, channels: await r.read(from, START_WINDOW_FRAMES) });
+        out.set(clip.id, { start: from, channels: await r.read(from, want) });
+        firstLen.set(clip.id, want);
       } catch { /* o leitor antecipado tenta de novo */ }
     }));
+    const firstMs = performance.now() - t0;
+    const extra = new Map<string, Int16Array[]>();
+    // Leitura lenta (WAV em outra taxa, convertido nos 2 workers do wavReader, ou disco ocupado):
+    // pular o extra. Ele chegaria tarde, seria descartado e ainda ocuparia os workers na frente
+    // dos primeiros trechos que o leitor antecipado pede logo depois do Play.
+    if (firstMs >= START_FAST_FIRST_MS) {
+      registrarDiag({ tipo: 'largada', duracaoMs: 0, leituraMs: firstMs });
+      return out;
+    }
+    // Resto da janela: um pedaço do leitor antecipado por faixa, todas juntas, com espera curta.
+    // O que chegar a tempo entra no trecho da largada; o resto o leitor antecipado busca em seguida.
+    let closed = false;
+    const rest = Array.from(out.entries()).map(async ([id, w]) => {
+      const r = readers.get(id);
+      const got = w.channels[0]?.length ?? 0;
+      if (!r || got < (firstLen.get(id) ?? Infinity)) return; // já chegou no fim do clipe
+      const at = w.start + got;
+      const n = Math.min(r.length - at, Math.round(START_WINDOW_SECONDS * r.sampleRate) - got, DISK_CHUNK_FRAMES);
+      if (n <= 0) return;
+      try {
+        const chans = await r.read(at, n);
+        if (!closed && chans[0]?.length) extra.set(id, chans);
+      } catch { /* o leitor antecipado tenta de novo */ }
+    });
+    if (rest.length > 0) {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const w0 = performance.now();
+      await Promise.race([
+        Promise.all(rest),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, START_EXTRA_WAIT_MS); }),
+      ]);
+      if (timer) clearTimeout(timer);
+      closed = true;
+      // para medir no show: quanto a largada esperou pelo extra e quantas faixas ele cobriu
+      registrarDiag({ tipo: 'largada', duracaoMs: performance.now() - w0, leituraMs: firstMs, faixa: `${extra.size}/${rest.length}` });
+    }
+    for (const [id, more] of extra) {
+      const w = out.get(id);
+      if (!w) continue;
+      w.channels = w.channels.map((head, c) => {
+        const tail = more[c] ?? more[0];
+        const joined = new Int16Array(head.length + tail.length);
+        joined.set(head, 0);
+        joined.set(tail, head.length);
+        return joined;
+      });
+    }
     return out;
   }
 
@@ -522,8 +601,14 @@ class AudioEngine {
       const type = ev.data?.type;
       if (type === 'ready') onReady?.();
       else if (type === 'ended') this.handleClipEnded(songId, clipId);
-      else if (type === 'underrun') this.noteStarved(songId, clipId, true);
-      else if (type === 'recovered') this.noteStarved(songId, clipId, false);
+      else if (type === 'underrun') {
+        // vai para o diário (window.__vsAudioDiag) antes do aviso da tela, que filtra atraso curto
+        registrarDiag({ tipo: 'underrun', faixa: clipId, ...(typeof ev.data.ahead === 'number' ? { folgaQuadros: ev.data.ahead } : {}) });
+        this.noteStarved(songId, clipId, true);
+      } else if (type === 'recovered') {
+        registrarDiag({ tipo: 'recovered', faixa: clipId });
+        this.noteStarved(songId, clipId, false);
+      }
     };
   }
 
@@ -577,8 +662,8 @@ class AudioEngine {
       this.masterGain.connect(this.masterPreAnalyser);
       this.limiterSplit = false;
       this.masterLimitOut = this.ctx.createGain();
-      this.masterGain.connect(this.masterLimiter);
-      this.masterLimiter.connect(this.masterLimitOut);
+      // masterGain -> limiter -> masterLimitOut é montado em applyLimiterMode (os dois caminhos)
+      this.limiterGates = null;
       // contexto novo começa em 0 s: o relógio da última leitura volta junto, senão o LUFS fica parado
       this.loudness.clear();
       this.loudLastAt = -Infinity;
@@ -586,6 +671,7 @@ class AudioEngine {
       this.loudR = null;
       this.applyLimiterMode();
       this.masterAntiClipSplit = null;
+      this.masterAntiClipGates = null;
       this.applyMasterAntiClip();
       this.configureOutputs();
       // o limitador do anti-clip já fica carregado: ligar o botão age na hora
@@ -640,13 +726,19 @@ class AudioEngine {
     this.masterAnalyser = null;
     this.masterPreAnalyser = null;
     this.masterLimiterR = null;
+    this.masterLimiterL1 = null;
     this.limiterNodes = [];
+    // troca de caminho pendente mexeria em nós do contexto antigo depois de fechado
+    if (this.limiterGates?.timer) clearTimeout(this.limiterGates.timer);
+    this.limiterGates = null;
     this.limiterSplit = false;
     this.masterLimitOut = null;
     this.loudL = null;
     this.loudR = null;
     this.masterAntiClip = [];
     this.masterAntiClipNodes = [];
+    if (this.masterAntiClipGates?.timer) clearTimeout(this.masterAntiClipGates.timer);
+    this.masterAntiClipGates = null;
     this.masterAntiClipSplit = null;
     await old.close().catch(() => { /* já fechado */ });
     await this.prewarm().catch(() => { /* reabre no próximo play */ });
@@ -904,6 +996,39 @@ class AudioEngine {
     return this.isPlaying && this.currentSongId === songId && this.activeClips.size > 0;
   }
 
+  /** A que entra quando a do ar acabar (mesma regra do fim de música, em handleSongEnd). */
+  private upcomingSongId(): string | null {
+    if (!this.currentSongId) return null;
+    const store = useStore.getState();
+    const { transport } = store;
+    const armed = transport.nextSongId && transport.nextSongId !== this.currentSongId && store.playlistOrder.includes(transport.nextSongId)
+      ? transport.nextSongId : null;
+    return armed ?? computeNextSongId(this.currentSongId, store.playlist, store.playlistOrder, transport.playFlow);
+  }
+
+  // Música escolhida pelo operador com o show tocando: só é preparada depois de ficar
+  // selecionada por um tempo. Clique de passagem e rolagem não preparam nada; a escolha de
+  // verdade (no "uma por vez" a próxima é sempre a selecionada) fica pronta antes do fim.
+  private static readonly SELECTION_SETTLE_MS = 1500;
+  private selectedSince: { id: string; at: number } | null = null;
+  private selectionRetry: number | null = null;
+
+  private skipWhilePlaying(songId: string): boolean {
+    if (!this.isPlaying || !this.currentSongId || songId === this.currentSongId) return false;
+    if (songId === this.upcomingSongId()) return false;
+    if (songId !== useStore.getState().selectedSongId) return true;
+    const now = performance.now();
+    if (this.selectedSince?.id !== songId) this.selectedSince = { id: songId, at: now };
+    const waited = now - this.selectedSince.at;
+    if (waited >= AudioEngine.SELECTION_SETTLE_MS) return false;
+    if (this.selectionRetry !== null) window.clearTimeout(this.selectionRetry);
+    this.selectionRetry = window.setTimeout(() => {
+      this.selectionRetry = null;
+      if (useStore.getState().selectedSongId === songId) void this.prepareSong(songId).catch(() => { /* silencioso */ });
+    }, AudioEngine.SELECTION_SETTLE_MS - waited + 20);
+    return true;
+  }
+
   async prepareSong(songId: string): Promise<void> {
     // A música no ar já tem os reprodutores dela; ao parar eles são guardados para o próximo Play.
     if (this.isPlayingSong(songId)) return;
@@ -915,6 +1040,10 @@ class AudioEngine {
     }
     const preparing = this.preparing.get(songId);
     if (preparing) return preparing;
+    // Com o show tocando, só a próxima é preparada. Clicar/selecionar outra música criava todos os
+    // reprodutores dela e lia a música inteira do disco no meio do show (engasgo no som no ar), e
+    // ela nem pode ir ao ar sem parar antes. Ao parar, o App prepara a selecionada de novo.
+    if (this.skipWhilePlaying(songId)) return;
     // A música no ar termina de abrir primeiro: as duas disputando o disco e o processador era
     // o que fazia a faixa no ar ficar sem dado a tempo.
     const onAir = this.isPlaying ? this.currentSongId : null;
@@ -927,6 +1056,8 @@ class AudioEngine {
       else if (!isSongLoaded(onAir)) await ensureSongLoaded(onAir).catch(() => { /* avisado pela música no ar */ });
     }
     if (this.isPlayingSong(songId) || !this.isWanted(songId)) return;
+    // a próxima pode ter mudado durante a espera
+    if (this.skipWhilePlaying(songId)) return;
     // o timecode (um arquivo só) abre junto, para o LTC largar com os stems
     void this.preloadTimecode(songId);
     if (!isSongLoaded(songId)) {
@@ -1111,6 +1242,13 @@ class AudioEngine {
         }
         const ready = new Promise<void>((resolve) => this.listen(node, songId, clip.id, resolve));
         pending.push({ clipId: clip.id, node, clipStartTime: clip.startTime, clipDuration: clipPlayLength(clip), ready, sampleRate, bufferLength: length, clipGain, clipPanner, trackId: clip.trackId });
+        // Um reprodutor por vez (cada construtor roda na thread de áudio), como no caminho da
+        // memória; e se a música deixou de interessar no meio, para logo em vez de criar o resto.
+        await new Promise((r) => setTimeout(r, 0));
+        if (this.isPlayingSong(songId) || !this.isWanted(songId) || this.skipWhilePlaying(songId)) {
+          this.disposePreparedBundle({ songId, signature: sig, pending, snapshots, disk: true });
+          return;
+        }
       }
       const bundle: PreparedBundle = { songId, signature: sig, pending, snapshots, disk: true };
       if (this.diskSignature(songId) !== sig || this.isPlayingSong(songId) || !this.isWanted(songId) || !this.coversAllClips(songId, pending.map((p) => p.clipId))) {
@@ -1207,18 +1345,19 @@ class AudioEngine {
   private routeChannel(trackId: string) {
     const ch = this.channels.get(trackId);
     if (!ch || !this.ctx || !this.masterGain || !this.outputMerger) return;
-    const track = useStore.getState().tracks.find((t) => t.id === trackId);
+    const state = useStore.getState();
+    const track = state.tracks.find((t) => t.id === trackId);
     const isTc = isTimecodeTrackId(trackId);
     const out = track?.outputChannel ?? 0;
-    // LR mágico (placa só com 2 saídas): tudo da música vai para o Master, nas saídas 1-2
-    const magic = useStore.getState().magicRoutingActive;
     // o timecode (LTC) é sempre mono
     const stereo = !isTc && !!track?.outputStereo;
-    // par ou saída que a interface atual não tem: volta para o Master (o timecode fica mudo)
-    const physical = out > 0 && out + (stereo ? 1 : 0) <= this.outputCount && (!magic || isTc) ? out : 0;
-    const direct = physical ? `${stereo ? 'pair' : 'out'}-${physical}` : null;
-    // "Desligado" (sem saída): a faixa não toca em lugar nenhum, nem com o LR mágico
-    const key = direct ?? (isTc || out === NO_OUTPUT ? 'none' : 'master');
+    // Par ou saída que a interface atual não tem, LR mágico ligado, ou placa do projeto
+    // desconectada: volta para o Master (o timecode fica mudo). "Desligado": lugar nenhum.
+    const { physical, key } = resolveRoute({
+      out, off: out === NO_OUTPUT, stereo, timecode: isTc, magic: state.magicRoutingActive,
+      outputCount: this.outputCount, interfaceMissing: interfaceMissing(state.audioInterface, state.audioInterfaceConnected),
+    });
+    const direct = physical ? key : null;
     if (this.routedTo.get(trackId) === key) return;
     try { ch.analyser.disconnect(); } catch { /* ignore */ }
     if (ch.splitter) { try { ch.splitter.disconnect(); } catch { /* ignore */ } }
@@ -1249,7 +1388,9 @@ class AudioEngine {
 
   /** O timecode desta música só sai se tiver uma saída física escolhida que a interface oferece. */
   timecodeOutputReady(): boolean {
-    const tc = useStore.getState().tracks.find((t) => t.id === TIMECODE_TRACK_ID);
+    const state = useStore.getState();
+    const tc = state.tracks.find((t) => t.id === TIMECODE_TRACK_ID);
+    if (interfaceMissing(state.audioInterface, state.audioInterfaceConnected)) return false;
     return !!tc && tc.outputChannel !== NO_OUTPUT && tc.outputChannel > 0 && tc.outputChannel <= this.outputCount;
   }
 
@@ -1867,7 +2008,11 @@ class AudioEngine {
       }
       this.handoffFromPartial(songId);
     };
-    const delay = Math.max(0, (endWall - 1.5 - this.ctx!.currentTime) * 1000);
+    // Margem proporcional: com o trecho ajustado curto, 4 s fixos trocariam já na largada (o áudio
+    // inteiro ainda nem chegou); metade do que resta, no mínimo 1,5 s, no máximo 4 s.
+    const left = endWall - this.ctx!.currentTime;
+    const margin = Math.min(HANDOFF_MARGIN_SECONDS, Math.max(1.5, left / 2));
+    const delay = Math.max(0, (left - margin) * 1000);
     this.partialTimer = window.setTimeout(fire, delay);
   }
 
@@ -1879,7 +2024,9 @@ class AudioEngine {
     if (!ctx || !song) return;
     this.settleArmed();
     this.disarmLoop(false);
-    const at = ctx.currentTime + RETIME_LEAD;
+    // folga maior que a das trocas do operador: a margem de 4 s permite, e o trecho ajustado
+    // ainda cobre esse tempo
+    const at = ctx.currentTime + HANDOFF_LEAD;
     const alpha = this.playbackAlpha || 1;
     const posAt = (at - this.playbackStartTime) / alpha;
     const tempo = tempoFromBpm(song.bpmAdjust ?? 0);
@@ -1904,7 +2051,7 @@ class AudioEngine {
     this.retimeTimer = window.setTimeout(() => {
       this.retimeTimer = null;
       if (this.isPlaying && this.currentSongId === songId) this.rearmLoop();
-    }, RETIME_LEAD * 1000 + 30);
+    }, HANDOFF_LEAD * 1000 + 30);
   }
 
   private armedLoop: { regionId: string; destId: string; start: number; at: number } | null = null;
@@ -1914,6 +2061,13 @@ class AudioEngine {
   private loopTimer: number | null = null;
 
   constructor() {
+    // Com música tocando, a leitura da próxima vai em ritmo contido para não sufocar a thread de
+    // áudio; parado, nada a proteger e ela lê na velocidade do disco.
+    diskStreamer.setPacing(() => this.isPlaying);
+    // mesma regra para a música em memória: sem isto ela carregaria em ritmo contido mesmo parada
+    audioStreamer.setPacing(() => this.isPlaying);
+    // diário de engasgos (só memória, nada na tela): window.__vsAudioDiag.copiar()
+    iniciarAudioDiag();
     // Outro projeto (ou o mesmo reaberto, com os mesmos IDs): nenhum reprodutor guardado do
     // anterior pode ser reaproveitado com áudio, tom ou BPM antigos, nem continuar soando.
     onAudioLibraryCleared(() => {
@@ -1940,6 +2094,10 @@ class AudioEngine {
         }
       }
       if (s.levelMatch !== prev.levelMatch || s.levelMatchDb !== prev.levelMatchDb || s.songLoudness !== prev.songLoudness || s.playlist !== prev.playlist || s.magicRoutingActive !== prev.magicRoutingActive) this.applySongLevel();
+      // placa desconectada ou de volta: as saídas diretas voltam para o LR ou para a placa
+      if (s.audioInterfaceConnected !== prev.audioInterfaceConnected || s.audioInterface !== prev.audioInterface) {
+        this.channels.forEach((_, id) => this.routeChannel(id));
+      }
       if (s.magicRoutingActive !== prev.magicRoutingActive) {
         this.channels.forEach((_, id) => this.routeChannel(id));
         this.applyLimiterMode();
@@ -1976,19 +2134,22 @@ class AudioEngine {
       const channel = this.ensureChannel(target.id);
       if (track.parentId) {
         const panner = item.clipPanner ?? ctx.createStereoPanner();
-        panner.pan.value = effectivePan(track.id, track.pan, lrMasterActive);
+        // rampa curta: o pan pulando de valor no meio da música estala
+        this.rampParam(panner.pan, effectivePan(track.id, track.pan, lrMasterActive));
         item.clipGain.connect(panner);
         panner.connect(channel.gain);
         item.clipPanner = panner;
         this.clipPanners.set(clipId, panner);
-        item.clipGain.gain.value = channelGainFor(track, tracks, track.volume) * clipGainFor(clip, songClips);
+        // rampa: o clipe pode estar tocando, e o ganho em salto estala
+        this.rampParam(item.clipGain.gain, channelGainFor(track, tracks, track.volume) * clipGainFor(clip, songClips));
       } else {
         item.clipPanner = null;
         this.clipPanners.delete(clipId);
         item.clipGain.connect(channel.gain);
-        item.clipGain.gain.value = clipGainFor(clip, songClips);
+        this.rampParam(item.clipGain.gain, clipGainFor(clip, songClips));
       }
-      channel.gain.gain.value = channelGainFor(target, tracks, target.volume);
+      // o canal de destino pode estar soando outras faixas: rampa em vez de salto
+      this.rampParam(channel.gain.gain, channelGainFor(target, tracks, target.volume));
       item.trackId = clip.trackId;
     }
   }
@@ -2600,7 +2761,35 @@ class AudioEngine {
   // dois lados baixaria a guia quando a banda pesa: aí cada lado ganha o seu limiter.
   private limiterSplit = false;
   private masterLimiterR: DynamicsCompressorNode | null = null;
+  // lado L do caminho separado (o masterLimiter fica sempre estéreo, no caminho normal)
+  private masterLimiterL1: DynamicsCompressorNode | null = null;
   private limiterNodes: AudioNode[] = [];
+  // Portas de ganho dos dois caminhos [normal, separado]: os dois ficam montados e trocar o LR
+  // mágico só cruza os ganhos. Desligar e religar o limiter com a música tocando cortava o master
+  // por um instante (estalo) e mexia no grafo de áudio na hora do show.
+  private limiterGates: PathSwitch | null = null;
+
+  // Religa a entrada do caminho que vai abrir, cruza os ganhos e, depois da rampa, desliga a
+  // entrada do que fechou: montado mas sem entrada, ele não processa zeros na thread de áudio.
+  private switchPath(sw: PathSwitch, split: boolean) {
+    const active = split ? 1 : 0;
+    if (sw.timer) { clearTimeout(sw.timer); sw.timer = null; }
+    this.linkPath(sw, active, true);
+    this.rampParam(sw.gates[0].gain, split ? 0 : 1, 0.015);
+    this.rampParam(sw.gates[1].gain, split ? 1 : 0, 0.015);
+    // rampa de 15 ms: 50 ms dá folga para o relógio da tela atrasar sem cortar a rampa no meio
+    sw.timer = setTimeout(() => { sw.timer = null; this.linkPath(sw, 1 - active, false); }, PATH_PARK_MS);
+  }
+
+  private linkPath(sw: PathSwitch, i: number, on: boolean) {
+    if (sw.linked[i] === on) return;
+    const [src, dst] = sw.links[i];
+    try {
+      if (on) src.connect(dst);
+      else src.disconnect(dst);
+      sw.linked[i] = on;
+    } catch { /* contexto já fechado */ }
+  }
 
   // Medidor de loudness do master
   private loudL: AnalyserNode | null = null;
@@ -2656,32 +2845,43 @@ class AudioEngine {
     const ctx = this.ctx;
     if (!ctx || !this.masterGain || !this.masterLimiter || !this.masterLimitOut) return;
     const split = !!useStore.getState().magicRoutingActive;
-    if (split === this.limiterSplit) return;
-    const L = this.masterLimiter;
-    try { this.masterGain.disconnect(L); } catch { /* ignore */ }
-    try { L.disconnect(); } catch { /* ignore */ }
-    this.limiterNodes.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
-    this.limiterNodes = [];
-    if (this.masterLimiterR) { try { this.masterLimiterR.disconnect(); } catch { /* ignore */ } }
-    if (split) {
-      const splitter = ctx.createChannelSplitter(2);
-      const merger = ctx.createChannelMerger(2);
-      const R = this.masterLimiterR ?? createSafetyLimiter(ctx);
-      for (const lim of [L, R]) { lim.channelCount = 1; lim.channelCountMode = 'explicit'; }
-      this.masterGain.connect(splitter);
-      splitter.connect(L, 0);
-      splitter.connect(R, 1);
-      L.connect(merger, 0, 0);
-      R.connect(merger, 0, 1);
-      merger.connect(this.masterLimitOut);
-      this.masterLimiterR = R;
-      this.limiterNodes = [splitter, merger];
-    } else {
+    if (!this.limiterGates) {
+      // monta uma vez por contexto: normal (um limiter estéreo) e separado (um por lado)
+      const L = this.masterLimiter;
+      const normal = ctx.createGain();
+      const separate = ctx.createGain();
+      normal.gain.value = split ? 0 : 1;
+      separate.gain.value = split ? 1 : 0;
       L.channelCount = 2;
       L.channelCountMode = 'clamped-max';
-      this.masterGain.connect(L);
+      this.masterGain.connect(normal);
+      normal.connect(L);
       L.connect(this.masterLimitOut);
+      const splitter = ctx.createChannelSplitter(2);
+      const merger = ctx.createChannelMerger(2);
+      const L1 = createSafetyLimiter(ctx);
+      const R = createSafetyLimiter(ctx);
+      for (const lim of [L1, R]) { lim.channelCount = 1; lim.channelCountMode = 'explicit'; }
+      this.masterGain.connect(separate);
+      separate.connect(splitter);
+      splitter.connect(L1, 0);
+      splitter.connect(R, 1);
+      L1.connect(merger, 0, 0);
+      R.connect(merger, 0, 1);
+      merger.connect(this.masterLimitOut);
+      this.masterLimiterL1 = L1;
+      this.masterLimiterR = R;
+      this.limiterNodes = [splitter, merger];
+      // entrada de cada caminho: porta -> limiter estéreo / porta -> divisor dos lados
+      const sw: PathSwitch = { gates: [normal, separate], links: [[normal, L], [separate, splitter]], linked: [true, true], timer: null };
+      this.linkPath(sw, split ? 0 : 1, false); // o inativo já começa sem entrada (ganho 0)
+      this.limiterGates = sw;
+      this.limiterSplit = split;
+      return;
     }
+    if (split === this.limiterSplit) return;
+    // Sem pico os dois caminhos dão o mesmo sinal: a troca cruzada em 15 ms não se ouve.
+    this.switchPath(this.limiterGates, split);
     this.limiterSplit = split;
   }
 
@@ -2692,6 +2892,8 @@ class AudioEngine {
   private masterAntiClip: AntiClipInsert[] = [];
   private masterAntiClipNodes: AudioNode[] = [];
   private masterAntiClipSplit: boolean | null = null;
+  // portas [normal, separado] do anti-clip do master (ver applyMasterAntiClip)
+  private masterAntiClipGates: PathSwitch | null = null;
 
   private applyMasterAntiClip() {
     const ctx = this.ctx;
@@ -2701,33 +2903,43 @@ class AudioEngine {
     const st = useStore.getState();
     const on = !!st.masterAntiClip;
     const split = !!st.magicRoutingActive;
-    if (split === this.masterAntiClipSplit) {
+    if (this.masterAntiClipGates) {
       this.masterAntiClip.forEach((a) => a.set(on));
+      if (split === this.masterAntiClipSplit) return;
+      // Os dois caminhos já estão montados (e com o limitador ligado, se o anti-clip estiver):
+      // trocar o LR mágico só cruza os ganhos. Antes cada troca desmontava o anti-clip e criava
+      // reprodutores novos na thread de áudio, com o master cortado no meio: engasgo e estalo.
+      this.switchPath(this.masterAntiClipGates, split);
+      this.masterAntiClipSplit = split;
       return;
     }
-    this.masterAntiClip.forEach((a) => a.dispose());
-    this.masterAntiClipNodes.forEach((n) => { try { n.disconnect(); } catch { /* ignore */ } });
-    try { from.disconnect(); } catch { /* ignore */ }
-    this.masterAntiClip = [];
-    this.masterAntiClipNodes = [];
-    if (split) {
-      const splitter = ctx.createChannelSplitter(2);
-      const merger = ctx.createChannelMerger(2);
-      from.connect(splitter);
-      for (let c = 0; c < 2; c++) {
-        const side = ctx.createGain();
-        const out = ctx.createGain();
-        for (const n of [side, out]) { n.channelCount = 1; n.channelCountMode = 'explicit'; }
-        splitter.connect(side, c);
-        out.connect(merger, 0, c);
-        this.masterAntiClip.push(new AntiClipInsert(ctx, side, out));
-        this.masterAntiClipNodes.push(side, out);
-      }
-      merger.connect(to);
-      this.masterAntiClipNodes.push(splitter, merger);
-    } else {
-      this.masterAntiClip.push(new AntiClipInsert(ctx, from, to));
+    // monta uma vez por contexto: normal (estéreo) e separado (um limitador por lado)
+    const normal = ctx.createGain();
+    const separate = ctx.createGain();
+    normal.gain.value = split ? 0 : 1;
+    separate.gain.value = split ? 1 : 0;
+    from.connect(normal);
+    from.connect(separate);
+    this.masterAntiClip = [new AntiClipInsert(ctx, normal, to)];
+    this.masterAntiClipNodes = [normal, separate];
+    const splitter = ctx.createChannelSplitter(2);
+    const merger = ctx.createChannelMerger(2);
+    separate.connect(splitter);
+    for (let c = 0; c < 2; c++) {
+      const side = ctx.createGain();
+      const out = ctx.createGain();
+      for (const n of [side, out]) { n.channelCount = 1; n.channelCountMode = 'explicit'; }
+      splitter.connect(side, c);
+      out.connect(merger, 0, c);
+      this.masterAntiClip.push(new AntiClipInsert(ctx, side, out));
+      this.masterAntiClipNodes.push(side, out);
     }
+    merger.connect(to);
+    this.masterAntiClipNodes.push(splitter, merger);
+    // entrada de cada caminho: saída do limiter -> porta (a porta é a entrada do anti-clip)
+    const sw: PathSwitch = { gates: [normal, separate], links: [[from, normal], [from, separate]], linked: [true, true], timer: null };
+    this.linkPath(sw, split ? 0 : 1, false);
+    this.masterAntiClipGates = sw;
     this.masterAntiClipSplit = split;
     this.masterAntiClip.forEach((a) => a.set(on, true));
   }
@@ -2747,8 +2959,8 @@ class AudioEngine {
 
   // Quanto o limiter de segurança do master está segurando agora, em dB (0 = sem atuação, negativo = reduzindo).
   getMasterLimiterReduction(): number {
-    const l = this.masterLimiter?.reduction ?? 0;
-    return this.limiterSplit && this.masterLimiterR ? Math.min(l, this.masterLimiterR.reduction) : l;
+    if (this.limiterSplit && this.masterLimiterL1 && this.masterLimiterR) return Math.min(this.masterLimiterL1.reduction, this.masterLimiterR.reduction);
+    return this.masterLimiter?.reduction ?? 0;
   }
 
   applyLRMaster(active: boolean) {

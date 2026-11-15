@@ -21,8 +21,19 @@ export const PRIORITY_NEXT = 2;
 export const CHUNK_FRAMES = 1 << 16;
 /** Quanto é copiado de uma vez antes de devolver a vez para a tela e o som (por fatia de trabalho). */
 const SLICE_BYTES = 8 * 1024 * 1024;
-/** Trecho em volta do ponto de largada que vai junto com os blocos, antes de qualquer espera. */
-export const WINDOW_FRAMES = 1 << 17;
+/**
+ * Música fora do ar (próxima/selecionada): cada 'append' leva no máximo isto (~0,34 s a 48 kHz).
+ * A cópia de cada mensagem é feita dentro da thread de áudio; pedaços menores, um por vez, não
+ * tomam o tempo de um bloco de som da música no ar.
+ */
+export const LOW_PIECE_FRAMES = 1 << 14;
+/**
+ * Trecho em volta do ponto de largada que vai junto com os blocos, antes de qualquer espera
+ * (~5,5 s a 48 kHz). Com 2,7 s, um tranco da tela logo depois do play/busca deixava a faixa sem
+ * dado. Não gasta memória a mais: os blocos já nascem do tamanho da música inteira; só a cópia
+ * inicial na tela cresce (~1 MB por faixa estéreo).
+ */
+export const WINDOW_FRAMES = 1 << 18;
 const BACK_MARGIN_FRAMES = 1 << 15;
 
 interface Job {
@@ -91,10 +102,44 @@ export class AudioStreamer {
   private rr = 0;
   private yieldToMain: () => Promise<void>;
   private sliceBytes: number;
+  // ritmo da música fora do ar, igual ao DiskStreamer (sem teto por padrão na classe: o
+  // `audioStreamer` do programa liga o teto abaixo)
+  private lowBytesPerSec: number;
+  private lowReadyAt = 0;
+  private paceWhen: () => boolean = () => true;
+  /** Acorda a espera do teto quando chega trabalho novo (ex.: a música no ar). */
+  private wake: (() => void) | null = null;
 
-  constructor(yieldToMain: () => Promise<void> = defaultYield, sliceBytes = SLICE_BYTES) {
+  constructor(yieldToMain: () => Promise<void> = defaultYield, sliceBytes = SLICE_BYTES, options?: { lowBytesPerSec?: number }) {
     this.yieldToMain = yieldToMain;
     this.sliceBytes = sliceBytes;
+    this.lowBytesPerSec = options?.lowBytesPerSec ?? Number.POSITIVE_INFINITY;
+  }
+
+  /** Quando o ritmo vale (o motor passa "tem música tocando"); parado, a próxima vai em trechos grandes. */
+  setPacing(when: () => boolean) {
+    this.paceWhen = when;
+  }
+
+  private paced(job: Job): boolean {
+    return job.priority > PRIORITY_ON_AIR && this.paceWhen();
+  }
+
+  private rateCapped(): boolean {
+    return this.lowBytesPerSec > 0 && Number.isFinite(this.lowBytesPerSec);
+  }
+
+  /** Espera com setTimeout (não gira a thread da tela); kick() interrompe. */
+  private sleep(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        if (this.wake === done) this.wake = null;
+        resolve();
+      };
+      const timer = setTimeout(done, Math.max(1, Math.ceil(ms)));
+      this.wake = done;
+    });
   }
 
   /**
@@ -173,7 +218,11 @@ export class AudioStreamer {
   }
 
   private kick() {
-    if (this.running) return;
+    if (this.running) {
+      // a música no ar (ou um focus) não espera o fim da pausa do teto da próxima
+      this.wake?.();
+      return;
+    }
     this.running = true;
     void this.loop();
   }
@@ -191,12 +240,27 @@ export class AudioStreamer {
     try {
       while (this.jobs.size > 0) {
         let budget = this.sliceBytes;
+        let waitMs = 0;
         while (budget > 0 && this.jobs.size > 0) {
           const job = this.next();
           if (!job) break;
+          // fora do ar com música tocando: pedaços pequenos e teto de bytes por segundo. Parado,
+          // nada a proteger: trechos grandes no orçamento da fatia, como a do ar.
+          const low = this.paced(job);
+          if (low && this.rateCapped()) {
+            const wait = this.lowReadyAt - nowMs();
+            if (wait > 0) { waitMs = wait; break; }
+          }
           const range = job.queue.shift();
           if (!range) { this.finish(job); continue; }
-          const [s, e] = range;
+          const s = range[0];
+          let e = range[1];
+          // o resto do trecho volta para a frente da fila (a ordem não muda e focus/cancel
+          // continuam valendo para ele)
+          if (low && e - s > LOW_PIECE_FRAMES) {
+            job.queue.unshift([s + LOW_PIECE_FRAMES, e]);
+            e = s + LOW_PIECE_FRAMES;
+          }
           const ch = job.audio.channels;
           const left = ch[0].slice(s, e);
           const right = ch[1] ? ch[1].slice(s, e) : left;
@@ -207,10 +271,20 @@ export class AudioStreamer {
             this.finish(job);
             continue;
           }
-          budget -= left.byteLength + (right === left ? 0 : right.byteLength);
+          const bytes = left.byteLength + (right === left ? 0 : right.byteLength);
+          budget -= bytes;
+          if (low && this.rateCapped()) {
+            this.lowReadyAt = Math.max(nowMs(), this.lowReadyAt) + (bytes / this.lowBytesPerSec) * 1000;
+          }
           if (job.queue.length === 0) this.finish(job);
+          // devolve a vez depois de cada pedaço fora do ar: as mensagens chegam espaçadas na thread
+          // de áudio em vez de em rajada. next() só escolhe fora do ar quando a do ar não tem fila.
+          if (low) break;
         }
-        if (this.jobs.size > 0) await this.yieldToMain();
+        if (this.jobs.size > 0) {
+          if (waitMs > 0) await this.sleep(waitMs);
+          else await this.yieldToMain();
+        }
       }
     } finally {
       this.running = false;
@@ -229,8 +303,6 @@ function invert(total: number, missing: Array<[number, number]>): Array<[number,
   if (cursor < total) have.push([cursor, total]);
   return have;
 }
-
-export const audioStreamer = new AudioStreamer();
 
 // ---------- leitura antecipada direto do disco ----------
 
@@ -267,6 +339,22 @@ interface DiskJob {
 const DISK_CONCURRENCY = 6;
 export const DISK_CHUNK_FRAMES = 1 << 16;
 const DISK_RETRIES = 2;
+/**
+ * Próxima/selecionada com uma música no ar: uma leitura por vez e no máximo ~12 MB/s. Sem teto,
+ * 6 leituras rápidas despejavam dezenas de 'append' no mesmo instante na thread de áudio (cada um
+ * copia 64k quadros lá dentro) e o som no ar engasgava. 12 MB/s ainda lê uma música de 16 faixas
+ * estéreo de 5 min em ~75 s, bem antes de ela entrar.
+ */
+const LOW_CONCURRENCY = 1;
+const LOW_BYTES_PER_SEC = 12 * 1024 * 1024;
+
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+// Declarado aqui, depois do teto: a música em memória fora do ar copia para a mesma thread de
+// áudio que a lida do disco, então usa o mesmo teto com música tocando.
+export const audioStreamer = new AudioStreamer(defaultYield, SLICE_BYTES, { lowBytesPerSec: LOW_BYTES_PER_SEC });
 
 /**
  * Como os programas de gravação fazem: cada faixa lê do disco os próximos trechos a partir do
@@ -279,10 +367,40 @@ export class DiskStreamer {
   private rr = 0;
   private concurrency: number;
   private chunk: number;
+  // ritmo das leituras de baixa prioridade (próxima/selecionada)
+  private lowConcurrency: number;
+  private lowBytesPerSec: number;
+  private lowActive = 0;
+  private lowReadyAt = 0;
+  private lowTimer: ReturnType<typeof setTimeout> | null = null;
+  private paceWhen: () => boolean = () => true;
+  private lowPiece: number;
+  private yieldBetween: () => Promise<void>;
 
-  constructor(options?: { concurrency?: number; chunkFrames?: number }) {
+  constructor(options?: { concurrency?: number; chunkFrames?: number; lowConcurrency?: number; lowBytesPerSec?: number; lowPieceFrames?: number; yieldBetween?: () => Promise<void> }) {
     this.concurrency = options?.concurrency ?? DISK_CONCURRENCY;
     this.chunk = options?.chunkFrames ?? DISK_CHUNK_FRAMES;
+    this.lowPiece = Math.max(1, options?.lowPieceFrames ?? LOW_PIECE_FRAMES);
+    this.yieldBetween = options?.yieldBetween ?? defaultYield;
+    this.lowConcurrency = Math.max(1, options?.lowConcurrency ?? LOW_CONCURRENCY);
+    this.lowBytesPerSec = options?.lowBytesPerSec ?? LOW_BYTES_PER_SEC;
+  }
+
+  /** Quando o ritmo vale (o motor passa "tem música tocando"); parado, a próxima lê na velocidade do disco. */
+  setPacing(when: () => boolean) {
+    this.paceWhen = when;
+  }
+
+  private paced(job: DiskJob): boolean {
+    return job.priority > PRIORITY_ON_AIR && this.lowBytesPerSec > 0 && Number.isFinite(this.lowBytesPerSec) && this.paceWhen();
+  }
+
+  private wakeLowLater(ms: number) {
+    if (this.lowTimer !== null) return;
+    this.lowTimer = setTimeout(() => {
+      this.lowTimer = null;
+      this.pump();
+    }, Math.max(1, Math.ceil(ms)));
   }
 
   /** `initial`: trecho já lido (ex.: o da largada, lido antes de parar a música anterior). */
@@ -366,11 +484,24 @@ export class DiskStreamer {
     while (this.active < this.concurrency) {
       const job = this.pick();
       if (!job) return;
+      // pick() só devolve baixa prioridade quando a música no ar não tem nada na fila
+      const low = this.paced(job);
+      if (low) {
+        if (this.lowActive >= this.lowConcurrency) return;
+        const wait = this.lowReadyAt - nowMs();
+        if (wait > 0) { this.wakeLowLater(wait); return; }
+      }
       const range = job.queue.shift()!;
       this.active++;
       job.inFlight++;
+      if (low) {
+        this.lowActive++;
+        const bytes = (range[1] - range[0]) * Math.max(1, job.reader.channelCount) * 2;
+        this.lowReadyAt = Math.max(nowMs(), this.lowReadyAt) + (bytes / this.lowBytesPerSec) * 1000;
+      }
       void this.readOne(job, range).finally(() => {
         this.active--;
+        if (low) this.lowActive--;
         job.inFlight--;
         if (!job.done && job.queue.length === 0 && job.inFlight === 0) this.finish(job, true);
         this.pump();
@@ -393,11 +524,37 @@ export class DiskStreamer {
     if (job.done || !channels[0] || channels[0].length === 0) return;
     const left = channels[0];
     const right = channels[1] ?? left;
-    try {
-      job.port.postMessage({ type: 'append', offset: s, left, right }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
-    } catch {
-      this.finish(job, false);
-      return;
+    const n = left.length;
+    // Fora do ar com música tocando: a leitura vai em pedaços pequenos, um por vez, para a cópia
+    // de cada 'append' na thread de áudio não tomar o tempo de um bloco da música no ar. Se ela
+    // virar a música no ar no meio (focus), o resto sai de uma vez, como antes.
+    let at = 0;
+    while (at < n && this.paced(job)) {
+      const end = Math.min(n, at + this.lowPiece);
+      if (at === 0 && end === n) break; // cabe num pedaço só: manda inteiro abaixo
+      const l = left.slice(at, end);
+      const r = right === left ? l : right.slice(at, end);
+      try {
+        job.port.postMessage({ type: 'append', offset: s + at, left: l, right: r }, r === l ? [l.buffer] : [l.buffer, r.buffer]);
+      } catch {
+        this.finish(job, false);
+        return;
+      }
+      at = end;
+      if (at < n) {
+        await this.yieldBetween();
+        if (job.done) return; // cancelado entre um pedaço e outro
+      }
+    }
+    if (at < n) {
+      const l = at === 0 ? left : left.slice(at);
+      const r = right === left ? l : at === 0 ? right : right.slice(at);
+      try {
+        job.port.postMessage({ type: 'append', offset: s + at, left: l, right: r }, r === l ? [l.buffer] : [l.buffer, r.buffer]);
+      } catch {
+        this.finish(job, false);
+        return;
+      }
     }
     if (job.firstPending) { job.firstPending = false; job.firstResolve(true); }
   }

@@ -132,12 +132,23 @@ export function currentSignature(n: Pick<MaestroNarration, 'text' | 'voice' | 's
   return narrationSignature(n.text, n.voice, n.end - n.start, n.pace, n.pitch);
 }
 
+/** O clipe do número recua no máximo isto para o ataque cair na batida. */
+export const MAX_CLIP_LEAD_S = 0.25;
+
 /**
- * Onde o clipe da fala começa: JUSTO no início da marcação (a linha da grade). O áudio já vem sem
- * silêncio na frente, então a voz soa no mesmo instante da linha, junto com o click.
+ * Onde o clipe da fala começa. O áudio já vem sem silêncio na frente; na contagem, `lead` é o tempo
+ * do começo do áudio até o ataque da palavra (src/lib/speechTrim.ts, attackOffset): o clipe recua
+ * esse tanto para o ataque, e não o primeiro murmúrio, cair JUSTO na linha da grade, junto com o
+ * click. O recuo vai no máximo a `MAX_CLIP_LEAD_S` e nunca passa de `freeFrom` (o fim do clipe
+ * anterior na mesma faixa: não sobrepõe). Perto do zero, o que não cabe antes do início é cortado
+ * (`trimStart`), e o ataque continua na batida.
  */
-export function clipPlacement(start: number): { startTime: number; trimStart: number } {
-  return { startTime: Math.max(0, start), trimStart: 0 };
+export function clipPlacement(start: number, lead = 0, freeFrom = -Infinity): { startTime: number; trimStart: number } {
+  const s = Math.max(0, Number(start) || 0);
+  let l = Math.max(0, Math.min(MAX_CLIP_LEAD_S, Number(lead) || 0));
+  if (Number.isFinite(freeFrom)) l = Math.min(l, Math.max(0, s - Math.max(0, freeFrom)));
+  const round = (v: number) => Math.round(v * 1e6) / 1e6;
+  return { startTime: round(Math.max(0, s - l)), trimStart: round(Math.max(0, l - s)) };
 }
 
 // ---------------------------------------------------------------------------------------------

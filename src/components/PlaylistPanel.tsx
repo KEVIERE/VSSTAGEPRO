@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react';
 import { useStore, BLOCK_COLORS } from '@/store';
 import {
   ListMusic, Plus, Music2, Flag, ArrowUp,
@@ -22,7 +22,7 @@ import SegmentDisplay from '@/components/SegmentDisplay';
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
 
-export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator?: () => void } = {}) {
+export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpenAiSeparator?: () => void; maximized?: boolean } = {}) {
   const playlist = useStore((s) => s.playlist);
   const playlistOrder = useStore((s) => s.playlistOrder);
   const blocks = useStore((s) => s.blocks);
@@ -197,8 +197,15 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   const currentSongId = transport.currentSongId;
   const nextSongId = transport.nextSongId;
 
-  const playlistMaximized = useStore((s) => s.playlistMaximized);
+  // O App passa o modo que a tela mostra (ele segue a store em segundo plano): a playlist troca de
+  // largura no mesmo quadro que o resto da tela. Sem o App, lê a store.
+  const playlistMaximized = useStore((s) => maximized ?? s.playlistMaximized);
   const togglePlaylistMaximized = useStore((s) => s.togglePlaylistMaximized);
+  // Na troca de modo a largura vai de px para 100% de uma vez: animar refaria o layout da playlist
+  // inteira a cada quadro por 200 ms. A animação fica só para quando a largura estreita muda.
+  const prevMaximized = useRef(playlistMaximized);
+  const modeJustChanged = prevMaximized.current !== playlistMaximized;
+  useLayoutEffect(() => { prevMaximized.current = playlistMaximized; }, [playlistMaximized]);
 
   if (!playlistVisible && !playlistMaximized) return null;
 
@@ -232,7 +239,7 @@ export default function PlaylistPanel({ onOpenAiSeparator }: { onOpenAiSeparator
   return (
     <div
       {...fileDragHandlers}
-      className={`relative flex flex-col h-full bg-logic-bg-panel border-r border-logic-border-dark transition-[width] duration-200 ${playlistMaximized ? 'w-full' : 'flex-shrink-0'}`}
+      className={`relative flex flex-col h-full bg-logic-bg-panel border-r border-logic-border-dark ${modeJustChanged ? '' : 'transition-[width] duration-200'} ${playlistMaximized ? 'w-full' : 'flex-shrink-0'}`}
       style={playlistMaximized ? undefined : { width: narrowWidth }}
     >
       {fileDragOver && (

@@ -1,4 +1,6 @@
 import { decodeBlob } from '@/lib/audioDecoder';
+import { engineLatencyHint } from '@/lib/engineLatency';
+import { useStore } from '@/store';
 import { clickBufferLength, placeAccentedClicks } from '@/lib/clickEdit';
 import { prepareImportedClick, scaleForStorage } from '@/lib/clickImport';
 import {
@@ -83,6 +85,8 @@ export async function generateClickAt(
 // ---------- Ouvir o som antes de escolher ----------
 
 let previewCtx: AudioContext | null = null;
+/** Bloco pedido quando a prévia abriu. */
+let previewHint: AudioContextLatencyCategory | null = null;
 let previewSource: AudioBufferSourceNode | null = null;
 
 export function stopClickPreview(): void {
@@ -95,7 +99,20 @@ export function stopClickPreview(): void {
 export async function playClickPreview(sound: ClickSoundId, bpm: number, beatsPerBar: number, onEnd?: () => void): Promise<void> {
   stopClickPreview();
   try {
-    if (!previewCtx) previewCtx = new AudioContext();
+    // mesmo bloco do motor: a prévia pode tocar com música no ar e não pode encurtar a folga dela.
+    // O motor trocou de modo depois que a prévia abriu: fecha e abre de novo (nada toca nela agora),
+    // mas só com a música parada; com música, abrir outro contexto mexe na placa (engasgo) e a
+    // prévia toca no contexto antigo
+    const playing = useStore.getState().transport.isPlaying;
+    const hint = playing && previewCtx && previewHint ? previewHint : engineLatencyHint();
+    if (previewCtx && previewHint !== hint) {
+      void previewCtx.close().catch(() => { /* já fechou */ });
+      previewCtx = null;
+    }
+    if (!previewCtx) {
+      previewCtx = new AudioContext({ latencyHint: hint });
+      previewHint = hint;
+    }
     void previewCtx.resume();
     const times = previewTimes(bpm, beatsPerBar);
     const spb = times.length > 1 ? times[1] - times[0] : 0.5;

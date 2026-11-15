@@ -159,18 +159,18 @@ export function isolateLiveCrowdAmbience(vocalsBuffer: AudioBuffer): CrowdIsolat
   // Detecta se há ambiência de gritos substancial (pelo menos 3% da energia da faixa de voz)
   const hasCrowd = ambRms > 0.004 && (ambRms / Math.max(0.001, vocRms)) > 0.03;
 
-  const ctx = new AudioContext();
-  const cleanedVocals = ctx.createBuffer(2, len, sr);
+  // AudioBuffer direto: só guarda amostras. Um AudioContext aqui abria uma saída na placa (com
+  // bloco curto) só para criar o buffer, e mexia na folga da música tocando
+  const cleanedVocals = new AudioBuffer({ numberOfChannels: 2, length: len, sampleRate: sr });
   cleanedVocals.getChannelData(0).set(cleanL);
   cleanedVocals.getChannelData(1).set(cleanR);
 
   let crowdAmbience: AudioBuffer | null = null;
   if (hasCrowd) {
-    crowdAmbience = ctx.createBuffer(2, len, sr);
+    crowdAmbience = new AudioBuffer({ numberOfChannels: 2, length: len, sampleRate: sr });
     crowdAmbience.getChannelData(0).set(ambL);
     crowdAmbience.getChannelData(1).set(ambR);
   }
-  ctx.close();
 
   return {
     cleanedVocals,

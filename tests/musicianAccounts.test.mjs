@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { LocalAccounts, usernameKey, hashPassword, checkPassword, mergeBooks } = require('../desktop/musicianAccounts.js');
+const { LocalAccounts, usernameKey, hashPassword, checkPassword, mergeBooks, MAX_AVATAR } = require('../desktop/musicianAccounts.js');
 
 function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'vs-contas-')); }
 function make(extra = {}) {
@@ -182,6 +182,92 @@ test('servidor da rede local: criar conta, esperar aprovação, entrar, salvar c
     server.setMusicianBook({ id: 'proj-teste', accounts: [{ ...atual, status: 'blocked', updatedAt: new Date(Date.now() + 10000).toISOString() }] });
     assert.equal((await post('sheet-save', { songId: 's1', title: 'x', content: 'y' }, entrou.body.token)).status, 401);
     assert.equal((await post('login', { role: 'musician', mode: 'login', username: 'ivo', password: 'segredo1' })).status, 403);
+  } finally {
+    await server.stop();
+  }
+});
+
+// ---------- foto de perfil na Rede Local ----------
+
+const FOTO = `data:image/jpeg;base64,${Buffer.from('foto-de-teste').toString('base64')}`;
+
+test('foto da conta local: guarda, lê, remove e vai para o programa e para a cópia de segurança', () => {
+  const dir = tmpDir();
+  const changes = [];
+  const acc = new LocalAccounts({ dir, onChange: (c) => changes.push(c) });
+  acc.setBook({ id: 'proj-foto', accounts: [] });
+  const { account } = acc.signup({ username: 'ana', password: 'segredo1', name: 'Ana' });
+  assert.equal(acc.avatar(account.id), null);
+  assert.deepEqual(acc.setAvatar(account.id, FOTO), { ok: true });
+  assert.equal(acc.avatar(account.id), FOTO);
+  assert.equal(changes.at(-1).account.avatar, FOTO);
+  acc.flush();
+  const backup = JSON.parse(fs.readFileSync(path.join(dir, 'proj-foto.json'), 'utf8'));
+  assert.equal(backup.accounts[0].avatar, FOTO);
+  assert.equal(fs.existsSync(path.join(dir, 'proj-foto.json.tmp')), false);
+  assert.deepEqual(acc.setAvatar(account.id, null), { ok: true });
+  assert.equal(acc.avatar(account.id), null);
+  assert.equal(acc.avatar('nao-existe'), undefined);
+  assert.equal(acc.setAvatar('nao-existe', FOTO).error, 'not_found');
+});
+
+test('foto da conta local: limite de tamanho e só imagem em data URL', () => {
+  const { acc } = make();
+  const { account } = acc.signup({ username: 'bia', password: 'segredo1', name: 'Bia' });
+  const grande = `data:image/jpeg;base64,${'A'.repeat(MAX_AVATAR)}`;
+  assert.equal(acc.setAvatar(account.id, grande).error, 'too_large');
+  assert.equal(acc.setAvatar(account.id, 'javascript:alert(1)').error, 'bad_image');
+  assert.equal(acc.setAvatar(account.id, 'data:text/html;base64,PGI+').error, 'bad_image');
+  assert.equal(acc.setAvatar(account.id, 123).error, 'bad_image');
+  assert.equal(acc.avatar(account.id), null);
+  // no limite exato ainda entra
+  const noLimite = `data:image/png;base64,${'A'.repeat(MAX_AVATAR - 'data:image/png;base64,'.length)}`;
+  assert.deepEqual(acc.setAvatar(account.id, noLimite), { ok: true });
+});
+
+test('conta antiga sem o campo de foto continua valendo (sem foto)', () => {
+  const { acc } = make();
+  acc.setBook({ id: 'proj-antigo', accounts: [{ id: 'x1', username: 'caio', name: 'Caio', status: 'approved', passwordHash: hashPassword('segredo1'), remember: [], sheets: {}, updatedAt: '2026-01-01T00:00:00.000Z' }] });
+  assert.equal(acc.avatar('x1'), null);
+  assert.equal(acc.login({ username: 'caio', password: 'segredo1' }).error, undefined);
+  assert.deepEqual(acc.setAvatar('x1', FOTO), { ok: true });
+  assert.ok(acc.find('x1').updatedAt > '2026-01-01T00:00:00.000Z');
+});
+
+test('servidor da rede local: o músico troca, lê e remove a própria foto', async () => {
+  const { LocalServer } = require('../desktop/localServer.js');
+  const dir = tmpDir();
+  const changes = [];
+  const server = new LocalServer({ webRoot: dir, storePath: path.join(dir, 'rede-local.json'), version: 't', onAccountsChange: (c) => changes.push(c) });
+  server.setMusicianBook({ id: 'proj-foto-srv', accounts: [] });
+  await server.start();
+  const base = `http://127.0.0.1:${server.port}/api/local`;
+  const req = async (route, body, token) => {
+    const res = await fetch(`${base}/${route}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+  try {
+    const pin = server.pins.musician;
+    await req('login', { role: 'musician', mode: 'signup', pin, username: 'davi', password: 'segredo1', name: 'Davi' });
+    const conta = changes.map((c) => c.account).filter(Boolean).at(-1);
+    server.setMusicianBook({ id: 'proj-foto-srv', accounts: [{ ...conta, status: 'approved', updatedAt: new Date(Date.now() + 5000).toISOString() }] });
+    const { body: { token } } = await req('login', { role: 'musician', mode: 'login', username: 'davi', password: 'segredo1' });
+    // sem sessão não entra
+    assert.equal((await req('avatar')).status, 401);
+    assert.equal((await req('avatar-set', { avatar: FOTO })).status, 401);
+    assert.deepEqual((await req('avatar', undefined, token)).body, { avatar: null });
+    assert.equal((await req('avatar-set', { avatar: FOTO }, token)).status, 200);
+    assert.deepEqual((await req('avatar', undefined, token)).body, { avatar: FOTO });
+    // o programa do diretor recebe a conta com a foto
+    assert.equal(changes.at(-1).account.avatar, FOTO);
+    assert.equal((await req('avatar-set', { avatar: 'nada' }, token)).status, 400);
+    assert.equal((await req('avatar-set', { avatar: `data:image/jpeg;base64,${'A'.repeat(MAX_AVATAR)}` }, token)).status, 413);
+    assert.equal((await req('avatar-set', { avatar: null }, token)).status, 200);
+    assert.deepEqual((await req('avatar', undefined, token)).body, { avatar: null });
   } finally {
     await server.stop();
   }

@@ -10,6 +10,15 @@ import {
 import { friendlyError } from '@/lib/friendlyError';
 import { normalizeLyricStyle, sameLyricStyle, type LyricStyle } from '@/lib/prompterTypes';
 
+type RemoteSigInputs = ReturnType<typeof useStore.getState>;
+/** As entradas de remoteSignature trocaram de referência? Se não, a assinatura é a mesma e não precisa recalcular. */
+function remoteInputsChanged(a: RemoteSigInputs, b: RemoteSigInputs): boolean {
+  return a.showBpmTower !== b.showBpmTower || a.showTunerTower !== b.showTunerTower || a.playbackError !== b.playbackError ||
+    a.masterVolume !== b.masterVolume || a.queuedRegion !== b.queuedRegion || a.selectedSongId !== b.selectedSongId ||
+    a.audioInterface !== b.audioInterface || a.audioInterfaceConnected !== b.audioInterfaceConnected ||
+    a.outputChannelCount !== b.outputChannelCount || a.incompleteSongIds !== b.incompleteSongIds || a.tracks !== b.tracks;
+}
+
 const INFO_POLL_MS = 2000;
 const HEARTBEAT_PLAYING_MS = 500;
 const HEARTBEAT_IDLE_MS = 3000;
@@ -112,10 +121,14 @@ export function useLocalBroadcast(): LocalBroadcast {
         s.songs !== prev.songs || s.blocks !== prev.blocks || s.playlistOrder !== prev.playlistOrder ||
         s.lyricMaps !== prev.lyricMaps || s.activeShowId !== prev.activeShowId || s.shows !== prev.shows ||
         s.playlist !== prev.playlist;
+      const remoteInputs = remoteInputsChanged(prev, s);
       prev = s;
-      const remote = remoteSignature(s);
-      const remoteChanged = remote !== prevRemote;
-      prevRemote = remote;
+      let remoteChanged = false;
+      if (remoteInputs) {
+        const remote = remoteSignature(s);
+        remoteChanged = remote !== prevRemote;
+        prevRemote = remote;
+      }
       if (immediate) {
         if (cursorTimer !== null) { window.clearTimeout(cursorTimer); cursorTimer = null; }
         if (remoteTimer !== null) { window.clearTimeout(remoteTimer); remoteTimer = null; }

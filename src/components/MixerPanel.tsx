@@ -13,7 +13,7 @@ import type { Track } from '@/types';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
 import MasterVuPanel from '@/components/VuMeter';
 import BrandPlate from '@/components/BrandPlate';
-import { useMeterLevel } from '@/lib/meterBus';
+import { meterLevel, subscribeMeters } from '@/lib/meterBus';
 import { gainToFader } from '@/lib/faderScale';
 import { useSkin } from '@/lib/useSkin';
 import { beginHistoryGesture, endHistoryGesture, historyGestureStep } from '@/lib/historyGesture';
@@ -109,21 +109,55 @@ function LevelMatchButton() {
 
 // Nível real do sinal em dBFS, em tempo real, com retenção do pico por 1,5 s (como nas mesas):
 // verde até -6, amarelo até 0, vermelho em 0 dBFS ou acima.
-function LevelReadout({ id, title }: { id: string; title: string }) {
-  const level = useMeterLevel(id);
-  const hold = useRef({ db: -Infinity, at: 0 });
+const READOUT_HOLD_MS = 1500;
+const READOUT_BASE = 'console-readout console-glow';
+
+/** Um passo da retenção de pico: o pico novo entra na hora; o antigo fica até vencer 1,5 s. */
+function readoutHold(hold: { db: number; at: number }, level: number, now: number): { db: number; at: number } {
   const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
-  const now = performance.now();
-  if (db >= hold.current.db || now - hold.current.at > 1500) hold.current = { db, at: now };
-  const shown = hold.current.db;
-  // abaixo de -60 dBFS é silêncio: o mostrador apaga (o espaço fica, sem pular o layout)
-  const live = shown > -60;
+  return db >= hold.db || now - hold.at > READOUT_HOLD_MS ? { db, at: now } : hold;
+}
+
+/** Texto e classe do mostrador. Abaixo de -60 dBFS é silêncio: apaga (o espaço fica, sem pular o layout). */
+function readoutView(shown: number): { text: string; className: string } {
+  if (!(shown > -60)) return { text: '\u00a0', className: `${READOUT_BASE} ` };
   const tone = shown >= 0 ? 'text-logic-lcd-red' : shown >= -6 ? 'text-logic-lcd-amber' : 'text-logic-lcd-green';
-  return (
-    <span className={`console-readout console-glow ${live ? tone : ''}`} title={title}>
-      {live ? `${shown > 0 ? '+' : ''}${shown.toFixed(1)}` : '\u00a0'}
-    </span>
-  );
+  return { text: `${shown > 0 ? '+' : ''}${shown.toFixed(1)}`, className: `${READOUT_BASE} ${tone}` };
+}
+
+// O nível chega ~30 vezes por segundo com o programa tocando. Antes cada chegada redesenhava o
+// mostrador pelo React (um por canal e o master); agora ele ouve o meterBus e escreve o texto
+// direto no elemento, só quando o número ou a cor mudam.
+function LevelReadout({ id, title }: { id: string; title: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let hold = { db: -Infinity, at: 0 };
+    let shownText = el.textContent ?? '';
+    let shownClass = el.className;
+    let expire = 0;
+    let expireFor = -1;
+    const apply = () => {
+      const now = performance.now();
+      hold = readoutHold(hold, meterLevel(id), now);
+      const view = readoutView(hold.db);
+      if (view.text !== shownText) { shownText = view.text; el.textContent = view.text; }
+      if (view.className !== shownClass) { shownClass = view.className; el.className = view.className; }
+      // Pico segurado: sem nova publicação (o play parou) ele vence sozinho e o mostrador apaga.
+      // Só reagenda quando o pico segurado muda (não 30 vezes por segundo).
+      if (hold.at !== expireFor) {
+        expireFor = hold.at;
+        window.clearTimeout(expire);
+        if (hold.db > -60) expire = window.setTimeout(apply, READOUT_HOLD_MS - (now - hold.at) + 20);
+      }
+    };
+    apply();
+    const off = subscribeMeters(apply);
+    return () => { off(); window.clearTimeout(expire); };
+  }, [id]);
+  // o texto é do efeito (escrito antes de pintar); o React não guarda um nó de texto aqui
+  return <span ref={ref} className={`${READOUT_BASE} `} title={title} />;
 }
 
 // Marcas impressas ao lado do fader, na mesma curva do motor de áudio (0 dB = 0,8 no fader)
@@ -701,6 +735,8 @@ function PanKnob({ pan }: { pan: number }) {
 // Altura dos canais com o mixer no tamanho normal (300 px menos o trilho de cima e a borda).
 const BED_H = 271;
 const RAIL_H = 28;
+/** Última escala do mixer do Modo Show (só existe um), para a próxima abertura já nascer certa. */
+let lastFitBox: { scale: number; w: number } | null = null;
 
 /**
  * Mixer. `fit` (Modo Show): os canais se ajustam à largura da tela, sem rolar e sem sobrar
@@ -730,7 +766,9 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
   const grafite = skin === 'grafite';
   const faceRef = useRef<HTMLDivElement>(null);
   const channelsRef = useRef<HTMLDivElement>(null);
-  const [fitBox, setFitBox] = useState<{ scale: number; w: number } | null>(null);
+  // O mixer do Modo Show nasce na última escala medida: sem isso ele montava sem escala e o
+  // setFitBox do efeito abaixo pedia um segundo render e outro layout no quadro de abrir.
+  const [fitBox, setFitBox] = useState<{ scale: number; w: number } | null>(() => (fit && mixerVisible ? lastFitBox : null));
 
   // Só os ids dos canais de topo (subgrupos e tracks soltas; as filhas tocam pelo canal do pai).
   // Mexer no fader cria outro array de faixas, mas a lista de canais é a mesma: o mixer não redesenha.
@@ -748,6 +786,7 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
       const maxH = Math.max(BED_H * 0.6, (host?.clientHeight ?? 900) * 0.6 - RAIL_H - 1);
       const scale = Math.max(0.55, Math.min(face.clientWidth / w, maxH / BED_H));
       const next = { scale: Math.floor(scale * 1000) / 1000, w };
+      if (!lastFitBox || lastFitBox.scale !== next.scale || lastFitBox.w !== next.w) lastFitBox = next;
       setFitBox((prev) => (prev && prev.scale === next.scale && prev.w === next.w ? prev : next));
     };
     const ro = new ResizeObserver(update);

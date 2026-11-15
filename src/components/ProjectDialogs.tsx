@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, Package, X, FolderCog, FileCog } from 'lucide-react';
+import { FolderOpen, Package, X, FolderCog, FileCog, FileAudio } from 'lucide-react';
 import { useStore } from '@/store';
 import { loadOpenedProject } from '@/lib/projectQuickSave';
 import { rememberProject } from '@/lib/recentProjects';
@@ -14,6 +14,13 @@ import {
   vssFileName,
 } from '@/lib/projectSaver';
 import { friendlyError } from '@/lib/friendlyError';
+import { groupReaperProject, importSongGroups, isImportRunning, pickedPaths } from '@/lib/importManager';
+import type { SongGroup } from '@/lib/importManager';
+import SongGroupsConfirm from '@/components/SongGroupsConfirm';
+
+type RppShow = { groups: SongGroup[]; notice?: string; projectName: string };
+
+const folderInputProps = { webkitdirectory: '', directory: '', multiple: true } as Record<string, unknown>;
 
 interface Props {
   mode: 'save' | 'open' | null;
@@ -31,11 +38,16 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
   const [name, setName] = useState('');
   const controller = useRef<AbortController | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const rppInput = useRef<HTMLInputElement>(null);
+  const [rppShow, setRppShow] = useState<RppShow | null>(null);
+  const [rppReading, setRppReading] = useState(false);
 
   useEffect(() => {
     if (!mode) return;
     setError(null);
     setBusy(false);
+    setRppShow(null);
+    setRppReading(false);
     setName(useStore.getState().projectName || 'Sem Nome');
   }, [mode]);
 
@@ -79,6 +91,39 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
 
   const progress = (message: string) => setExportProgress({ active: true, message });
 
+  // Projeto do REAPER: cada região ou marcador vira uma música de um projeto novo.
+  const onRppFolder = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+    setError(null);
+    setRppReading(true);
+    try {
+      const show = await groupReaperProject(pickedPaths(files));
+      if (!show) {
+        setError('Não achei arquivo .RPP nessa pasta.');
+        return;
+      }
+      setRppShow(show);
+    } catch (err) {
+      setError(friendlyError(err, 'Não consegui ler o projeto .RPP. Tente de novo.'));
+    } finally {
+      setRppReading(false);
+    }
+  };
+
+  const startRpp = (show: RppShow) => {
+    if (isImportRunning()) {
+      setError('Já tem uma importação em andamento. Espere terminar ou cancele antes de abrir o projeto .RPP.');
+      return;
+    }
+    // só agora o projeto atual é trocado: cancelar antes disso não apaga nada
+    useStore.getState().newProject();
+    setProjectName(show.projectName);
+    onClose();
+    void importSongGroups(show.groups);
+  };
+
   const projectName = name.trim() || 'Sem Nome';
   const load = loadOpenedProject;
 
@@ -116,6 +161,23 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
           </div>
         )}
 
+        {mode === 'open' && (
+          <input ref={rppInput} type="file" className="hidden" onChange={(e) => void onRppFolder(e)} {...folderInputProps} />
+        )}
+
+        {mode === 'open' && rppShow ? (
+          <div className="p-4">
+            <SongGroupsConfirm
+              groups={rppShow.groups}
+              notice={rppShow.notice}
+              intro={(count) => `Projeto "${rppShow.projectName}": cria um projeto novo com ${count}, nesta ordem:`}
+              confirmLabel={(count) => `Criar projeto com ${count}`}
+              cancelLabel="Voltar"
+              onCancel={() => { setRppShow(null); setError(null); }}
+              onConfirm={() => startRpp(rppShow)}
+            />
+          </div>
+        ) : (
         <div className="p-4 grid grid-cols-2 gap-3">
           <button
             className="group flex flex-col items-start gap-2 p-4 rounded border border-logic-border-light bg-logic-bg-elevated hover:bg-logic-bg-panel-light transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
@@ -139,7 +201,6 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
               <span className="text-sm font-medium text-logic-text">
                 {mode === 'save' ? 'Salvar em pasta' : 'Abrir pasta'}
               </span>
-              <span className="ml-auto text-[10px] uppercase tracking-wider text-logic-accent">Recomendado</span>
             </div>
             <p className="text-[11px] leading-relaxed text-logic-text-dim">
               {mode === 'save'
@@ -192,7 +253,26 @@ export default function ProjectDialogs({ mode, onClose }: Props) {
               </p>
             )}
           </button>
+
+          {mode === 'open' && (
+            <button
+              className="col-span-2 group flex flex-col items-start gap-2 p-4 rounded border border-logic-border-light bg-logic-bg-elevated hover:bg-logic-bg-panel-light transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={busy || rppReading}
+              onClick={() => rppInput.current?.click()}
+            >
+              <div className="flex items-center gap-2 text-logic-accent">
+                <FileAudio size={18} />
+                <span className="text-sm font-medium text-logic-text">Abrir projeto .RPP</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-logic-text-dim">
+                {rppReading
+                  ? 'Lendo o projeto .RPP...'
+                  : 'Escolha a pasta do projeto (a que tem o arquivo .RPP). Cada região ou marcador do show vira uma música, já com os cortes e o andamento.'}
+              </p>
+            </button>
+          )}
         </div>
+        )}
 
         {busy && exportMessage && (
           <div className="mx-4 mb-3 flex items-center gap-2 text-[11px] text-logic-text-dim">

@@ -15,6 +15,15 @@ const MAX_TITLE = 200;
 const SAVE_DELAY_MS = 400;
 const MAX_REMEMBER = 10;
 const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
+// Foto de perfil: o celular manda um JPEG pequeno (src/lib/avatarImage.ts, até 15 000 caracteres).
+// O limite deixa folga e segura o tamanho do projeto, que leva a foto de cada músico.
+const MAX_AVATAR = 64_000;
+const AVATAR_RE = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+/** Foto aceita: data URL de imagem em base64, dentro do limite. */
+function validAvatar(value) {
+  return typeof value === 'string' && value.length <= MAX_AVATAR && AVATAR_RE.test(value);
+}
 
 /** Nome da rede local antiga (cadernos separados por nome): sem maiúscula, acento ou espaço sobrando. */
 function musicianKey(name) {
@@ -287,6 +296,36 @@ class LocalAccounts {
     this.changed(acc);
   }
 
+  // ---------- foto de perfil ----------
+
+  /** Foto da conta (null sem foto; conta antiga sem o campo também é sem foto). undefined: conta não existe. */
+  avatar(accountId) {
+    const acc = this.find(accountId);
+    if (!acc) return undefined;
+    return validAvatar(acc.avatar) ? acc.avatar : null;
+  }
+
+  /**
+   * Troca ou remove (null) a foto. Vai para a cópia de segurança (gravada de uma vez, ver flush)
+   * e para o programa, que guarda no projeto e mostra ao diretor.
+   * @returns {{ ok?: true, error?: 'not_found' | 'too_large' | 'bad_image' }}
+   */
+  setAvatar(accountId, avatar) {
+    const acc = this.find(accountId);
+    if (!acc) return { error: 'not_found' };
+    if (avatar !== null) {
+      if (typeof avatar !== 'string') return { error: 'bad_image' };
+      if (avatar.length > MAX_AVATAR) return { error: 'too_large' };
+      if (!validAvatar(avatar)) return { error: 'bad_image' };
+    }
+    if ((acc.avatar ?? null) === avatar) return { ok: true };
+    acc.avatar = avatar;
+    // hora nova: na junção com a cópia do projeto vale a foto mais recente
+    acc.updatedAt = nowIso();
+    this.changed(acc);
+    return { ok: true };
+  }
+
   // ---------- cadernos ----------
 
   list(accountId) {
@@ -379,4 +418,5 @@ class LocalAccounts {
 
 module.exports = {
   LocalAccounts, usernameKey, validUsername, hashPassword, checkPassword, mergeBooks, mergeSheets,
+  validAvatar, MAX_AVATAR,
 };

@@ -2,7 +2,7 @@
 // medidor vertical colado na borda direita da faixa.
 import { useId, useSyncExternalStore } from 'react';
 import { isPerfLite, subscribePerf } from '@/lib/perfMode';
-import { useMeterLevel } from '@/lib/meterBus';
+import MeterMask from '@/components/MeterMask';
 import { volumeToDb } from '@/lib/audioEngine';
 import { beginHistoryGesture, endHistoryGesture, historyGestureStep } from '@/lib/historyGesture';
 
@@ -170,13 +170,19 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
 
 const METER = 'linear-gradient(to top, #3ee26e 0%, #3ee26e 62%, #ffd83d 78%, #ffd83d 93%, #ff4136 97%, #ff4136 100%)';
 
+// A parte apagada é uma máscara por cima do degradê, na cor do fundo do medidor (herdada do
+// .an-edge-meter, que muda com a skin). O nível chega ~30 vezes por segundo com o programa
+// tocando: o MeterMask ouve o meterBus e só muda o transform, sem redesenhar pelo React.
+// "off" (faixa muda ou sem saída) fica apagado inteiro, como antes.
 function EdgeBar({ id, off }: { id: string; off?: boolean }) {
-  const level = useMeterLevel(id);
-  const db = level > 0 ? 20 * Math.log10(level) : -Infinity;
-  const pct = off || db <= -48 ? 0 : Math.min(1, (db + 48) / 48);
   return (
-    <div className="relative flex-1 overflow-hidden">
-      <div className="absolute inset-0" style={{ background: off ? '#3a3d42' : METER, clipPath: `inset(${(1 - pct) * 100}% 0 0 0)` }} />
+    <div className="relative flex-1 overflow-hidden [background:inherit]">
+      {!off && (
+        <>
+          <div className="absolute inset-0" style={{ background: METER }} />
+          <MeterMask id={id} className="[background:inherit]" />
+        </>
+      )}
       <div className="an-edge-meter-segments absolute inset-0" />
     </div>
   );

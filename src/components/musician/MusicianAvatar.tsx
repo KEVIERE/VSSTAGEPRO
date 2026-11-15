@@ -43,7 +43,8 @@ export function Avatar({ src, name, size = 28, className = '' }: {
 
 /**
  * Foto de perfil na barra de cima da Área do Músico. Tocar abre "Escolher foto" / "Remover foto".
- * Na Rede Local não há foto: mostra as iniciais e o menu tem só Sair.
+ * Vale online e na Rede Local (a foto fica na conta do show, no programa do diretor). Backend
+ * sem foto: mostra as iniciais e o menu tem só Sair.
  */
 export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
   backend: SheetBackend; name: string; onMessage?: (text: string) => void;
@@ -82,7 +83,9 @@ export function ProfilePhotoButton({ backend, name, onMessage, onLogout }: {
       setPhoto(next);
       onMessage?.(next ? 'Foto salva. O diretor musical vê a sua foto no programa.' : 'Foto removida.');
     } catch {
-      onMessage?.('Não deu para salvar a foto. Confira a internet e tente de novo.');
+      onMessage?.(backend.key.startsWith('local:')
+        ? 'Não deu para salvar a foto. Confira a conexão com o programa do diretor e tente de novo.'
+        : 'Não deu para salvar a foto. Confira a internet e tente de novo.');
     } finally {
       setBusy(false);
     }

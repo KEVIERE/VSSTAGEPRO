@@ -1,12 +1,14 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import type { AudioClip } from '@/types';
 import { getClipAudio, type ClipAudio } from '@/lib/audioLibrary';
-import { waveColumns } from '@/lib/waveColumns';
+import { waveColumnsCached } from '@/lib/waveColumns';
 import { useStore } from '@/store';
 
 export const WAVE_TILE_PX = 2048;
 const SETTLE_MS = 160;
-const MAX_STRETCH = 2;
+// Até 4x o desenho só é esticado (CSS) durante o zoom; com 2x, uma pinça contínua redesenhava
+// todas as ondas várias vezes por segundo, no meio do gesto, e os medidores congelavam.
+const MAX_STRETCH = 4;
 
 // Desenha as ondas em fila, no máximo 4 ms por quadro, para que muitas faixas
 // redesenhando juntas depois do zoom não travem a tela.
@@ -68,8 +70,11 @@ const WaveTile = memo(function WaveTile({ peaks, audio, duration, color, gain = 
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.max(1, Math.floor(width * dpr));
-    canvas.height = Math.max(1, Math.floor(height * dpr));
+    // realocar o canvas (até 4096 px) só quando o tamanho muda; o clearRect abaixo já limpa
+    const cw = Math.max(1, Math.floor(width * dpr));
+    const ch = Math.max(1, Math.floor(height * dpr));
+    if (canvas.width !== cw) canvas.width = cw;
+    if (canvas.height !== ch) canvas.height = ch;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // 1. Fundo limpo e transparente de estúdio (o fundo escuro do clipe garante o contraste do DAW)
@@ -80,7 +85,8 @@ const WaveTile = memo(function WaveTile({ peaks, audio, duration, color, gain = 
     const amp = mid - 2;
 
     // Altura de cada pixel: das amostras do áudio quando ampliado, do resumo quando afastado
-    const columns = waveColumns(peaks, audio, duration, fullWidth, offset, width);
+    // em cache: mudar só a altura, o ganho ou a cor não lê as amostras de novo
+    const columns = waveColumnsCached(peaks, audio, duration, fullWidth, offset, width);
     const values = new Float32Array(width + 1);
     const gainFactor = Math.max(0.01, gain || 1);
     for (let x = 0; x <= width; x++) {
@@ -185,27 +191,44 @@ interface ClipWaveformProps {
   color?: string;
 }
 
-// Desenha só os blocos visíveis; durante o zoom estica o desenho existente e redesenha quando o zoom para.
+const tooStretched = (now: number, drawn: number) => {
+  if (!(drawn > 0)) return true;
+  const ratio = now / drawn;
+  return ratio > MAX_STRETCH || ratio < 1 / MAX_STRETCH;
+};
+
+// Desenha só os blocos visíveis; durante o zoom (largura E altura) estica o desenho existente e
+// redesenha uma vez só, quando o zoom para. Antes a altura (zoom vertical) redesenhava todas as
+// ondas a cada passo da alça, sem esperar.
 export function ClipWaveform({ clip, left, width, height, visible, color: propColor }: ClipWaveformProps) {
   const color = propColor || routingColorOf(clip);
   // redesenha com as amostras quando o áudio da música termina de abrir
   const songLoading = useStore((s) => s.loadingSongIds.includes(clip.songId));
   const audio = songLoading ? null : getClipAudio(clip.id);
   const [drawnWidth, setDrawnWidth] = useState(width);
-  const ratio = width / drawnWidth;
-  const tooStretched = ratio > MAX_STRETCH || ratio < 1 / MAX_STRETCH;
-  const baseWidth = tooStretched ? width : drawnWidth;
+  const [drawnHeight, setDrawnHeight] = useState(height);
+  const tooWide = tooStretched(width, drawnWidth);
+  const tooTall = tooStretched(height, drawnHeight);
+  const baseWidth = tooWide ? width : drawnWidth;
+  const baseHeight = tooTall ? height : drawnHeight;
   const scale = width / baseWidth;
+  const scaleY = baseHeight > 0 ? height / baseHeight : 1;
 
   useEffect(() => {
-    if (tooStretched) {
-      setDrawnWidth(width);
+    // esticado demais: o desenho deformado fica feio, redesenha já nesse sentido
+    if (tooWide || tooTall) {
+      if (tooWide) setDrawnWidth(width);
+      if (tooTall) setDrawnHeight(height);
       return;
     }
-    if (width === drawnWidth) return;
-    const t = window.setTimeout(() => setDrawnWidth(width), SETTLE_MS);
+    if (width === drawnWidth && height === drawnHeight) return;
+    // um só temporizador para os dois sentidos: o redesenho espera o gesto parar
+    const t = window.setTimeout(() => {
+      setDrawnWidth(width);
+      setDrawnHeight(height);
+    }, SETTLE_MS);
     return () => window.clearTimeout(t);
-  }, [width, drawnWidth, tooStretched]);
+  }, [width, height, drawnWidth, drawnHeight, tooWide, tooTall]);
 
   const tiles: number[] = [];
   const first = Math.max(0, Math.floor((visible.start - left) / scale / WAVE_TILE_PX));
@@ -215,7 +238,12 @@ export function ClipWaveform({ clip, left, width, height, visible, color: propCo
   return (
     <div
       className="absolute top-0 left-0 pointer-events-none"
-      style={{ width: `${baseWidth}px`, height: `${height}px`, transform: scale === 1 ? undefined : `scaleX(${scale})`, transformOrigin: '0 0' }}
+      style={{
+        width: `${baseWidth}px`,
+        height: `${baseHeight}px`,
+        transform: scale === 1 && scaleY === 1 ? undefined : `scale(${scale}, ${scaleY})`,
+        transformOrigin: '0 0',
+      }}
     >
       {tiles.map((i) => {
         const offset = i * WAVE_TILE_PX;
@@ -230,7 +258,7 @@ export function ClipWaveform({ clip, left, width, height, visible, color: propCo
             fullWidth={baseWidth}
             offset={offset}
             width={Math.min(WAVE_TILE_PX, Math.ceil(baseWidth - offset))}
-            height={height}
+            height={baseHeight}
           />
         );
       })}

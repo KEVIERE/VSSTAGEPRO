@@ -102,6 +102,11 @@ export interface MaestroNarration {
   countGroup?: string;
   /** Tom da voz: mais grave ou mais agudo que o natural (sem valor = padrão). */
   pitch?: VoicePitch;
+  /**
+   * Contagem: segundos do começo do áudio gerado até o ataque do número. O clipe recua esse tanto
+   * para o ataque cair na batida (veja clipPlacement em src/lib/narrations.ts).
+   */
+  lead?: number;
 }
 
 /** Tom da voz do Maestro por IA (o padrão é o natural da voz). */
