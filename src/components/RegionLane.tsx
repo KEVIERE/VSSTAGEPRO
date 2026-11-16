@@ -11,6 +11,7 @@ import { LaneActionMenu, RegionNamePicker } from '@/components/LanePopover';
 import type { RegionLayout } from '@/lib/regions';
 import { snapTime, songGrid } from '@/lib/grid';
 import { seekToPosition } from '@/lib/transportControl';
+import { zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
 
 export type RegionDrag = { id: string; start: number; end: number; layout?: RegionLayout | null } | null;
 type DragMode = 'move' | 'start' | 'end';
@@ -153,7 +154,7 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
       {drag?.layout?.[drag.id] && (
         <div
           className="absolute top-0.5 bottom-0.5 rounded-sm border border-dashed border-white/80 bg-white/10 pointer-events-none z-10"
-          style={{ left: `${drag.layout[drag.id].start * zoomH}px`, width: `${Math.max(4, (drag.layout[drag.id].end - drag.layout[drag.id].start) * zoomH)}px` }}
+          style={{ left: zoomPx(drag.layout[drag.id].start), width: zoomPxMin(4, drag.layout[drag.id].end - drag.layout[drag.id].start) }}
         />
       )}
       {regions.map((r) => {
@@ -161,6 +162,7 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
         const shifted = !isDragging ? drag?.layout?.[r.id] : undefined;
         const start = isDragging ? drag.start : shifted ? shifted.start : r.start;
         const end = isDragging ? drag.end : shifted ? shifted.end : r.end;
+        // a posição vai pela variável do zoom (acompanha o zoom ao vivo); os botões, pelo zoom de verdade
         const width = Math.max(4, (end - start) * zoomH);
         const isEditing = editingId === r.id;
         const isQueued = queuedId === r.id;
@@ -172,7 +174,7 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
             className={`absolute top-0.5 bottom-0.5 rounded-sm flex items-center select-none touch-none group overflow-hidden transition-[filter,box-shadow] duration-150 hover:brightness-110 ${
               isDragging ? 'cursor-grabbing z-20 shadow-lg opacity-90 !transition-none' : 'cursor-grab z-10'
             } ${isDragging || isEditing ? 'ring-1 ring-white' : ''} ${isQueued ? 'ring-2 ring-logic-lcd-amber animate-pulse' : ''}`}
-            style={{ left: `${start * zoomH}px`, width: `${width}px`, backgroundColor: r.color }}
+            style={{ left: zoomPx(start), width: zoomPxMin(4, end - start), backgroundColor: r.color }}
             onPointerDown={(e) => handleRegionPointerDown(e, r)}
             onDoubleClick={(e) => { e.stopPropagation(); onEdit(null); setMenuId(r.id); }}
             title={`${r.name} · ${formatRegionTime(r.start)}–${formatRegionTime(r.end)}${r.loop ? ' · Loop' : ''}\nArraste o meio para mover e as bordas para redimensionar (Option desliga o alinhamento ao BPM)\nClique para ir · Clique duplo para editar ou excluir`}
@@ -208,7 +210,7 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
       {draft && (
         <div
           className="absolute top-0.5 bottom-0.5 rounded-sm border border-dashed border-logic-text-dim bg-logic-text/10 pointer-events-none"
-          style={{ left: `${draft.start * zoomH}px`, width: `${Math.max(2, (draft.end - draft.start) * zoomH)}px` }}
+          style={{ left: zoomPx(draft.start), width: zoomPxMin(2, draft.end - draft.start) }}
         />
       )}
       {editing && <RegionEditor song={song} region={editing} queued={queuedId === editing.id} onClose={() => onEdit(null)} />}
@@ -257,7 +259,8 @@ function RegionToggle({ active, label, onToggle, children }: { active: boolean; 
   );
 }
 
-export function RegionGuides({ song, zoomH, drag }: { song: Song; zoomH: number; drag: RegionDrag }) {
+/** Faixas das regiões por cima dos clipes, na variável do zoom (acompanham o zoom ao vivo). */
+export function RegionGuides({ song, drag }: { song: Song; drag: RegionDrag }) {
   const regions = song.regions ?? [];
   if (regions.length === 0) return null;
   return (
@@ -271,8 +274,8 @@ export function RegionGuides({ song, zoomH, drag }: { song: Song; zoomH: number;
             key={r.id}
             className="absolute top-0 bottom-0 pointer-events-none z-20 border-l border-r"
             style={{
-              left: `${start * zoomH}px`,
-              width: `${(end - start) * zoomH}px`,
+              left: zoomPx(start),
+              width: zoomPx(end - start),
               borderColor: r.color,
               opacity: active ? 0.9 : 0.4,
               backgroundColor: r.loop ? `${r.color}0d` : undefined,

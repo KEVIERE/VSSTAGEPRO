@@ -5,7 +5,7 @@ export interface WavRead extends ClipAudio {
   totalFrames: number;
 }
 
-type Reply = { id: number; ok: boolean; sampleRate?: number; sourceRate?: number; totalFrames?: number; channels?: Int16Array[]; channelCount?: number };
+type Reply = { id: number; ok: boolean; sampleRate?: number; sourceRate?: number; totalFrames?: number; channels?: Int16Array[]; channelCount?: number; peaks?: Uint8Array };
 
 const POOL_SIZE = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 2) - 1));
 const IDLE_TERMINATE_MS = 30_000;
@@ -15,6 +15,8 @@ let workers: Worker[] = [];
 // inteiro sendo aberto (preparo em segundo plano, importação).
 const rangeWorkers: Worker[] = [];
 const RANGE_POOL_SIZE = 2;
+// Resumo detalhado da onda (finePeaks): worker próprio, para não esperar na fila das leituras da tela
+let peaksWorker: Worker | null = null;
 let rangeTurn = 0;
 let turn = 0;
 let nextId = 0;
@@ -65,10 +67,12 @@ function ensureWorkers() {
   for (let i = 0; i < POOL_SIZE; i++) workers.push(makeWorker());
 }
 
-function ask(blob: Blob, targetRate: number, maxFrames: number, probeOnly: boolean, startFrame?: number): Promise<Reply> {
+function ask(blob: Blob, targetRate: number, maxFrames: number, probeOnly: boolean, startFrame?: number, background = false, peaksPer?: number): Promise<Reply> {
   if (idleTimer !== null) { window.clearTimeout(idleTimer); idleTimer = null; }
   let worker: Worker;
-  if (typeof startFrame === 'number') worker = rangeWorker();
+  // trecho para desenhar (background) não ocupa os workers da música no ar
+  if (peaksPer) worker = peaksWorker ??= makeWorker();
+  else if (typeof startFrame === 'number' && !background) worker = rangeWorker();
   else {
     ensureWorkers();
     worker = workers[turn++ % workers.length];
@@ -76,7 +80,7 @@ function ask(blob: Blob, targetRate: number, maxFrames: number, probeOnly: boole
   const id = ++nextId;
   return new Promise((resolve) => {
     pending.set(id, { resolve, worker });
-    worker.postMessage({ id, blob, targetRate, maxFrames, probeOnly, startFrame });
+    worker.postMessage({ id, blob, targetRate, maxFrames, probeOnly, startFrame, peaksPer });
   });
 }
 
@@ -118,5 +122,24 @@ export async function wavLayoutAtRate(blob: Blob, targetRate: number): Promise<{
 /** Lê só um trecho do WAV na taxa da saída (convertendo, se preciso), sem abrir o arquivo inteiro. */
 export async function readWavRange(blob: Blob, targetRate: number, startFrame: number, frames: number): Promise<Int16Array[] | null> {
   const r = await ask(blob, targetRate, frames, false, startFrame);
+  return r.ok && r.channels?.length ? r.channels : null;
+}
+
+/**
+ * Resumo detalhado da onda de um WAV inteiro (um byte por `peaksPer` quadros, na taxa do arquivo),
+ * montado no worker geral: a tela só recebe os bytes prontos.
+ */
+export async function readWavPeaks(blob: Blob, peaksPer: number, startFrame = 0, frames = 0): Promise<{ sampleRate: number; frames: number; data: Uint8Array } | null> {
+  // a taxa pedida não importa aqui (o resumo sai na taxa do arquivo), só precisa ser válida
+  const r = await ask(blob, 48000, frames, false, startFrame, true, peaksPer);
+  return r.ok && r.peaks && r.sampleRate && r.totalFrames ? { sampleRate: r.sampleRate, frames: r.totalFrames, data: r.peaks } : null;
+}
+
+/**
+ * Igual a readWavRange, mas nos workers gerais: para o que não é a música no ar (desenhar a onda).
+ * As leituras de trecho da reprodução nunca esperam atrás destas.
+ */
+export async function readWavRangeBackground(blob: Blob, targetRate: number, startFrame: number, frames: number): Promise<Int16Array[] | null> {
+  const r = await ask(blob, targetRate, frames, false, startFrame, true);
   return r.ok && r.channels?.length ? r.channels : null;
 }

@@ -6,7 +6,7 @@ import { clipPlayLength, ensureSongLoaded, getClipAudio, onAudioLibraryCleared, 
 import { deviceSampleRate } from '@/lib/audioDecoder';
 import { loadHeads, loadStretchedHeads, wantsStretchedHead } from '@/lib/instantStart';
 import { audioStreamer, diskStreamer, DISK_CHUNK_FRAMES, PRIORITY_NEXT, PRIORITY_ON_AIR } from '@/lib/audioStreamer';
-import type { DiskHandle, RangeReader, StreamHandle } from '@/lib/audioStreamer';
+import type { DiskHandle, InitialWindow, RangeReader, StreamHandle } from '@/lib/audioStreamer';
 import { openRangeReader, openRangeReaders } from '@/lib/diskSource';
 import type { HeadAudio, StretchedHead } from '@/lib/instantStart';
 import { entryExists, markUsed, readEntry, readyDir, renderedName, writeEntry } from '@/lib/readyStore';
@@ -42,6 +42,26 @@ const START_EXTRA_WAIT_MS = 50;
 // Primeira leitura (todas as faixas) mais lenta que isso: o leitor é lento (conversão de taxa) e o
 // extra não chegaria a tempo; só atrasaria o leitor antecipado.
 const START_FAST_FIRST_MS = 80;
+// Clipes que começam mais que isso depois do ponto de Play ficam fora da leitura da largada.
+const START_SKIP_AHEAD_S = 8;
+// Quanto o Play espera um preparo da mesma música que já está em andamento.
+const PLAY_WAITS_PREPARE_MS = 500;
+
+/**
+ * Trechos da largada de cada faixa, na ordem: o primeiro e, logo depois dele, o extra que chegou
+ * a tempo (cada um do jeito que veio do leitor, sem juntar num bloco novo).
+ */
+function windowsOf(first: Map<string, InitialWindow>, extra: Map<string, Int16Array[]>): Map<string, InitialWindow[]> {
+  const out = new Map<string, InitialWindow[]>();
+  for (const [id, w] of first) {
+    const list: InitialWindow[] = [w];
+    const more = extra.get(id);
+    if (more?.[0]?.length) list.push({ start: w.start + (w.channels[0]?.length ?? 0), channels: more });
+    out.set(id, list);
+  }
+  return out;
+}
+
 // Margem da troca do começo ajustado (BPM/tom) para o áudio inteiro: o timer roda na tela, e com
 // 1,5 s uma trava maior que isso deixava todas as faixas mudas no fim do trecho ajustado.
 const HANDOFF_MARGIN_SECONDS = 4;
@@ -100,7 +120,8 @@ export function isSpeechTrack(track: Track): boolean {
  * (10 a 20 ms) o primeiro click saía abafado, porque o som dele chega no pico em ~7 ms.
  */
 export function entersDry(track: Track): boolean {
-  return isSpeechTrack(track) || track.id === 'track-click' || track.parentId === 'track-click';
+  // a faixa Maestro de cima também é fala (gravada ou o Maestro IA consolidado)
+  return isSpeechTrack(track) || track.id === 'track-maestro' || track.id === 'track-click' || track.parentId === 'track-click';
 }
 
 export function isMelodicTrack(track: Track, all: Track[]): boolean {
@@ -499,7 +520,7 @@ class AudioEngine {
   private diskSongs = new Set<string>();
   private onAirDiskDone: { songId: string; done: Promise<void> } | null = null;
 
-  private feedDisk(node: AudioWorkletNode, reader: RangeReader, fromFrame: number, priority: number, initial?: { start: number; channels: Int16Array[] }): DiskHandle {
+  private feedDisk(node: AudioWorkletNode, reader: RangeReader, fromFrame: number, priority: number, initial?: InitialWindow[]): DiskHandle {
     this.feeds.get(node)?.cancel();
     const handle = diskStreamer.start(node.port, reader, { from: fromFrame, priority, initial });
     this.feeds.set(node, handle);
@@ -523,12 +544,15 @@ class AudioEngine {
 
   /** Lê já o trecho da largada de cada faixa (a música anterior segue tocando enquanto isso). */
   private async readStartWindows(clips: AudioClip[], readers: Map<string, RangeReader>, startOffset: number) {
-    const out = new Map<string, { start: number; channels: Int16Array[] }>();
+    const out = new Map<string, InitialWindow>();
     const firstLen = new Map<string, number>();
     const t0 = performance.now();
     await Promise.all(clips.map(async (clip) => {
       const r = readers.get(clip.id);
       if (!r) return;
+      // clipe que só entra bem depois do ponto de Play (falas do Maestro lá na frente): o leitor
+      // antecipado busca na hora dele. Ler agora só disputava o disco com as faixas da largada.
+      if (clip.startTime - startOffset > START_SKIP_AHEAD_S) return;
       const from = Math.min(r.length, Math.floor(Math.max(0, startOffset - clip.startTime) * r.sampleRate));
       if (from >= r.length) return;
       const want = Math.max(1, Math.round(START_FIRST_SECONDS * r.sampleRate));
@@ -544,7 +568,7 @@ class AudioEngine {
     // dos primeiros trechos que o leitor antecipado pede logo depois do Play.
     if (firstMs >= START_FAST_FIRST_MS) {
       registrarDiag({ tipo: 'largada', duracaoMs: 0, leituraMs: firstMs });
-      return out;
+      return windowsOf(out, extra);
     }
     // Resto da janela: um pedaço do leitor antecipado por faixa, todas juntas, com espera curta.
     // O que chegar a tempo entra no trecho da largada; o resto o leitor antecipado busca em seguida.
@@ -573,18 +597,9 @@ class AudioEngine {
       // para medir no show: quanto a largada esperou pelo extra e quantas faixas ele cobriu
       registrarDiag({ tipo: 'largada', duracaoMs: performance.now() - w0, leituraMs: firstMs, faixa: `${extra.size}/${rest.length}` });
     }
-    for (const [id, more] of extra) {
-      const w = out.get(id);
-      if (!w) continue;
-      w.channels = w.channels.map((head, c) => {
-        const tail = more[c] ?? more[0];
-        const joined = new Int16Array(head.length + tail.length);
-        joined.set(head, 0);
-        joined.set(tail, head.length);
-        return joined;
-      });
-    }
-    return out;
+    // O extra vai como um segundo trecho, logo depois do primeiro: sem juntar os dois num bloco
+    // novo (o reprodutor guarda cada um como chegou).
+    return windowsOf(out, extra);
   }
 
   private unfeed(node: AudioWorkletNode) {
@@ -608,6 +623,9 @@ class AudioEngine {
       } else if (type === 'recovered') {
         registrarDiag({ tipo: 'recovered', faixa: clipId });
         this.noteStarved(songId, clipId, false);
+      } else if (type === 'late') {
+        // ordem de largada chegou atrasada; o reprodutor já entrou adiantado pelo atraso
+        registrarDiag({ tipo: 'largada-atrasada', faixa: clipId, duracaoMs: ev.data.ms });
       }
     };
   }
@@ -1534,9 +1552,17 @@ class AudioEngine {
   }
 
   private async startSong(songId: string, startOffset = 0, options?: { fastSeek?: boolean }) {
+    // Preparo desta música ainda em andamento (depois de editar): espera um pouco por ele. Largar
+    // a frio junto criava dois conjuntos de reprodutores ao mesmo tempo bem no Play.
+    const inflight = this.preparing.get(songId);
+    if (inflight) {
+      const gen = this.playGeneration;
+      await Promise.race([inflight.catch(() => {}), new Promise((r) => setTimeout(r, PLAY_WAITS_PREPARE_MS))]);
+      if (gen !== this.playGeneration) return;
+    }
     let heads: Map<string, HeadAudio> | null = null;
     let disk: Map<string, RangeReader> | null = null;
-    let initial: Map<string, { start: number; channels: Int16Array[] }> | null = null;
+    let initial: Map<string, InitialWindow[]> | null = null;
     const ready0 = this.prepared.get(songId);
     const diskBundleReady = !!(ready0?.disk && ready0.signature === this.diskSignature(songId));
     if (!isSongLoaded(songId) && !diskBundleReady) {

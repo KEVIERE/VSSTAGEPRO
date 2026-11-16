@@ -553,6 +553,11 @@ export function subscribeGenerating(cb: () => void): () => void {
 export function generatingSnapshot(): number {
   return generatingVersion;
 }
+/** Alguma fala sendo gerada (ou esperando para gerar): o preparo da música espera terminar. */
+export function anyGenerating(): boolean {
+  return running.size > 0 || timers.size > 0;
+}
+
 export function isGenerating(narrationId: string): boolean {
   return running.has(narrationId) || timers.has(narrationId);
 }
@@ -608,6 +613,7 @@ function countGroupWords(songId: string, group: string): string[] {
   return sortedNarrations((song?.narrations ?? []).filter((x) => x.countGroup === group)).map((x) => x.text.trim()).filter(Boolean);
 }
 
+
 async function generateOnce(songId: string, narrationId: string): Promise<SpeechResult | null> {
   const n = findNarration(songId, narrationId);
   if (!n || !n.text.trim()) return null;
@@ -618,6 +624,9 @@ async function generateOnce(songId: string, narrationId: string): Promise<Speech
   // contagem: as palavras do grupo vão juntas (a voz fala a contagem de uma vez, no mesmo tom)
   const group = n.countGroup ? countGroupWords(songId, n.countGroup) : undefined;
   const pitch = n.pitch;
+  // Gera mesmo com a música tocando (a pessoa quer ouvir a fala no ar). O motor de voz roda com
+  // prioridade de fundo (taskpolicy em desktop/maestroQwen.js), então o áudio e a tela vêm primeiro,
+  // e a fala que fica pronta entra no tempo certo (o reprodutor desconta a largada atrasada).
   let result: SpeechResult;
   try {
     result = await synthesize(text, voice, span, pace, group, pitch);

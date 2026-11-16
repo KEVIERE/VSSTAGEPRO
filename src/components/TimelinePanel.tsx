@@ -1,9 +1,12 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered, Combine } from 'lucide-react';
+import { consolidateMaestroIa, CONSOLIDATE_MESSAGES } from '@/lib/maestroConsolidate';
 import SaveCancelButton from '@/components/SaveCancelButton';
 import { memo, useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import { flushSync } from 'react-dom';
+import { anchoredScroll, clampZoom, pastEndReach, previewLow, previewTarget, reachWidthFor, thumbGeometry, timelineWidthFor, visibleWindow, zoomOutWindow } from '@/lib/zoomPreview';
 import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
 import { audioRecorder, saveRecordingToMaestro, type MaestroInput } from '@/lib/audioRecorder';
@@ -22,14 +25,18 @@ import { MAESTRO_IA_TRACK_ID, NARRATION_MIN_LENGTH, beatStartAt, looseMaestroCli
 import NarrationDialog from '@/components/NarrationDialog';
 import CountInDialog, { type CountInTarget } from '@/components/CountInDialog';
 import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
-import { ClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
+import { ClipWaveform, ZoomedClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
+import { liveWaveFrame, liveWavePointer, liveWavePrepare, liveWaveScrolled, liveWaveSettle } from '@/lib/liveWaveHub';
+import { prefetchFinePeaks } from '@/lib/finePeaks';
 import MiniFader from '@/components/MiniFader';
 import { LedMeterH } from '@/components/MeterMask';
 import { dropSlot, laneMoves, laneOffset, reorderChildren } from '@/lib/trackOrder';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
 import { NARRATION_ROW, clipsInBox, marqueeSelection, rangeSelection, selectionRows, splitNarrationClips } from '@/lib/timelineSelection';
 import { mergeFolderPeaks, type FolderPreview } from '@/lib/folderPreview';
-import { BarRulerLayer, GridLinesOverlay, GridToolbar } from '@/components/TimelineGrid';
+import { BarRulerLayer, GridLinesCanvas, GridToolbar, RulerCanvas, StepLinesCanvas } from '@/components/TimelineGrid';
+import { createZoomCanvasHub, spanInView, zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
+import { getTimelineVisible, setTimelineVisible, subscribeTimelineVisible, useTimelineVisible } from '@/lib/timelineView';
 import { barBeatLabel, barStartAt, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { TIMECODE_TRACK_ID } from '@/lib/timecode';
@@ -48,6 +55,28 @@ import { AnEdgeMeter, AnVolumeKnob } from '@/components/AnalogPieces';
  * código copiava a posição depois que a timeline já tinha rolado, e a coluna vinha atrasada.
  * Navegador sem esse recurso: fica a cópia por código.
  */
+/** Sem eventos de zoom por esse tempo, o gesto acabou: aplica o zoom de verdade. */
+const ZOOM_COMMIT_MS = 140;
+/** Textos do zoom (o zoom ao vivo escreve os mesmos, sem React). */
+const zoomPctText = (zoom: number) => `${Math.round(zoom * 10)}%`;
+const zoomPxText = (zoom: number) => `${Math.round(zoom)}px/s`;
+/** Barra de rolagem durante o zoom ao vivo: onde o controle fica; null volta ao desenho do React. */
+type ScrollbarPreview = (view: { scrollLeft: number; timelineWidth: number } | null) => void;
+/**
+ * Zoom ao vivo em curso (pinça ou roda com Ctrl/Cmd): o zoom do quadro (target), o instante parado
+ * (anchorTime) no ponto da tela anchorScreen, o scrollLeft do quadro, o instante além do fim
+ * (reach, do começo do gesto), a posição do mouse (mouseX) e se a janela visível já foi aberta para
+ * afastar. O React continua no zoom de verdade (store) até o fim do gesto.
+ */
+interface LiveZoom {
+  target: number;
+  anchorTime: number;
+  anchorScreen: number;
+  mouseX: number;
+  scroll: number;
+  reach: number;
+  widened: boolean;
+}
 const FOLLOW_SCROLL_CSS = typeof CSS !== 'undefined' && typeof CSS.supports === 'function'
   && CSS.supports('animation-timeline', '--vs-tl-y') && CSS.supports('timeline-scope', '--vs-tl-y');
 
@@ -128,7 +157,7 @@ function InputVuMeter({ trackHeight = 40 }: { trackHeight?: number }) {
 }
 
 /** Bloco de gravação ao vivo na timeline para a faixa Maestro */
-function LiveRecordingTrackBlock({ startTime, zoomH }: { startTime: number; zoomH: number }) {
+function LiveRecordingTrackBlock({ startTime }: { startTime: number }) {
   const [nowTime, setNowTime] = useState(startTime);
 
   useEffect(() => {
@@ -142,14 +171,12 @@ function LiveRecordingTrackBlock({ startTime, zoomH }: { startTime: number; zoom
     return () => cancelAnimationFrame(animId);
   }, []);
 
-  const widthPx = Math.max(8, (nowTime - startTime) * zoomH);
-
   return (
     <div
       className="absolute top-1 bottom-1 rounded border border-logic-lcd-red bg-logic-lcd-red/40 z-20 flex items-center px-2 overflow-hidden shadow-[0_0_14px_rgba(255,69,58,0.6)] select-none pointer-events-none"
       style={{
-        left: `${startTime * zoomH}px`,
-        width: `${widthPx}px`,
+        left: zoomPx(startTime),
+        width: zoomPxMin(8, nowTime - startTime),
       }}
     >
       <div className="flex items-center gap-1.5 text-white font-bold text-2xs uppercase tracking-wider shrink-0 z-10 drop-shadow">
@@ -276,6 +303,24 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
   // A altura acompanha o tamanho das faixas (zoom vertical), igual à régua do Maestro na timeline.
   // Com altura fixa, TODA linha abaixo do Maestro saía deslocada da coluna dos nomes.
   const zoomV = useStore((s) => s.zoomV);
+  const hasIaAudio = useStore((s) => s.clips.some((c) => c.songId === songId && c.trackId === MAESTRO_IA_TRACK_ID));
+  const [consolidating, setConsolidating] = useState(false);
+  const onConsolidate = async () => {
+    if (consolidating) return;
+    setConsolidating(true);
+    try {
+      const result = await consolidateMaestroIa(songId);
+      const message = result === 'ok'
+        ? 'Falas do Maestro IA consolidadas num áudio só, na faixa Maestro. Cmd+Z desfaz.'
+        : CONSOLIDATE_MESSAGES[result];
+      useStore.getState().setImportProgress({ clipId: 'maestro-consolidado', status: result === 'ok' ? 'done' : 'error', message });
+      setTimeout(() => {
+        if (useStore.getState().importProgress?.clipId === 'maestro-consolidado') useStore.getState().setImportProgress(null);
+      }, 3500);
+    } finally {
+      setConsolidating(false);
+    }
+  };
   return (
     <div
       className="sk-narration-head flex items-center gap-1.5 border-b border-logic-border-dark bg-[#161b22] pr-2 text-2xs select-none"
@@ -300,6 +345,15 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
         aria-label="Nova fala no beat do cursor"
       >
         <Plus size={11} />
+      </button>
+      <button
+        className="h-5 w-5 rounded border border-sky-400/50 text-sky-200 hover:bg-sky-500/20 shrink-0 flex items-center justify-center disabled:opacity-40 disabled:hover:bg-transparent"
+        onClick={(e) => { e.stopPropagation(); void onConsolidate(); }}
+        disabled={!hasIaAudio || consolidating}
+        title="Consolidar: junta todas as falas do Maestro IA desta música num áudio só, na faixa Maestro (fica igual a um Maestro gravado e deixa o programa mais leve). Cmd+Z desfaz."
+        aria-label="Consolidar as falas do Maestro IA num áudio só"
+      >
+        {consolidating ? <Loader2 size={11} className="animate-spin" /> : <Combine size={11} />}
       </button>
       {iaTrack && (
         <button
@@ -845,7 +899,6 @@ function FadeHandle({
   seconds,
   curve = 'linear',
   playLength,
-  zoomH,
   editable,
 }: {
   clipId: string;
@@ -853,7 +906,6 @@ function FadeHandle({
   seconds: number;
   curve?: FadeCurve;
   playLength: number;
-  zoomH: number;
   editable: boolean;
 }) {
   const setClipFade = useStore((s) => s.setClipFade);
@@ -871,7 +923,11 @@ function FadeHandle({
 
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const widthPx = Math.max(0, Math.min(playLength, seconds)) * zoomH;
+  // Largura em segundos no estilo (var(--vs-zoom)): o zoom não re-renderiza o fade. Do zoom só
+  // interessa se a largura passa de 1 px (máscara) e de 2 px (linha), como antes.
+  const fadeSec = Math.max(0, Math.min(playLength, seconds));
+  const showMask = useStore((s) => fadeSec * s.zoomH > 1);
+  const showLine = useStore((s) => fadeSec * s.zoomH > 2);
 
   useEffect(() => {
     if (!menuPos) return;
@@ -894,7 +950,7 @@ function FadeHandle({
     const startSeconds = seconds;
     const move = (ev: PointerEvent) => {
       const deltaPx = side === 'in' ? ev.clientX - startX : startX - ev.clientX;
-      const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / zoomH));
+      const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / useStore.getState().zoomH));
       applyFade(side === 'in' ? { fadeIn: next } : { fadeOut: next });
     };
     const up = () => {
@@ -917,7 +973,7 @@ function FadeHandle({
   // Paths em viewBox 0 0 100 100
   // y = 0 é o topo do clipe (100% volume); y = 100 é a base (0% volume)
   const { linePath, maskPath } = useMemo(() => {
-    if (widthPx <= 1) return { linePath: '', maskPath: '' };
+    if (!showMask) return { linePath: '', maskPath: '' };
     if (side === 'in') {
       let line = 'M 0,100 L 100,0';
       let mask = 'M 0,0 L 100,0 L 0,100 Z';
@@ -947,16 +1003,16 @@ function FadeHandle({
       }
       return { linePath: line, maskPath: mask };
     }
-  }, [widthPx, side, curve]);
+  }, [showMask, side, curve]);
 
   return (
     <>
-      {widthPx > 1 && (
+      {showMask && (
         <div
           className="absolute top-0 bottom-0 pointer-events-none overflow-hidden"
           style={{
             [side === 'in' ? 'left' : 'right']: 0,
-            width: `${widthPx}px`,
+            width: zoomPx(fadeSec),
           }}
         >
           <svg
@@ -1010,11 +1066,11 @@ function FadeHandle({
           </div>
 
           {/* LINHA VERTICAL NO FINAL DO FADE (indicador visual + arrastável) */}
-          {widthPx > 2 && (
+          {showLine && (
             <div
               className="absolute top-0 bottom-0 z-20 group/fadeLine cursor-ew-resize select-none"
               style={{
-                [side === 'in' ? 'left' : 'right']: `${widthPx}px`,
+                [side === 'in' ? 'left' : 'right']: zoomPx(fadeSec),
                 transform: side === 'in' ? 'translateX(-50%)' : 'translateX(50%)',
                 width: '16px',
               }}
@@ -1085,38 +1141,40 @@ type ClipBlockProps = {
   clip: AudioClip; isSelected: boolean;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: 'start' | 'end') => void;
   onMoveStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
-  trim: TrimDrag; move: MoveDrag; trackHeight: number; zoomH: number; visible: VisibleRange; allowMove: boolean; timelineLocked: boolean;
+  trim: TrimDrag; move: MoveDrag; trackHeight: number; allowMove: boolean; timelineLocked: boolean;
 };
 
 /**
- * Rolagem horizontal troca só `visible`, e o zoom horizontal troca `zoomH` (e depois `visible`):
- * o clipe que estava fora da tela antes e continua fora depois não precisa redesenhar. Antes o
- * zoomH diferente redesenhava TODOS os clipes da música a cada passo da pinça, inclusive os fora
- * da tela, e a thread principal ficava sem tempo para os medidores. Qualquer outra prop diferente
- * redesenha normalmente.
+ * O clipe fica em segundos no estilo (calc com var(--vs-zoom), gravada no conteúdo da timeline) e
+ * a janela visível chega por variável CSS (rótulo) e pela onda (ZoomedClipWaveform): nem o zoom nem
+ * a rolagem passam pelas props. Quem decide se o clipe aparece é o painel (spanInView), então o
+ * clipe só redesenha quando muda o que é dele: o próprio clipe, a seleção, um arraste, a altura.
  */
 function sameClipBlockProps(a: ClipBlockProps, b: ClipBlockProps): boolean {
-  if (a.clip !== b.clip || a.isSelected !== b.isSelected || a.onTrimStart !== b.onTrimStart ||
-    a.onMoveStart !== b.onMoveStart || a.trim !== b.trim || a.move !== b.move ||
-    a.trackHeight !== b.trackHeight || a.allowMove !== b.allowMove ||
-    a.timelineLocked !== b.timelineLocked) return false;
-  if (a.zoomH === b.zoomH) {
-    if (a.visible === b.visible) return true;
-    if (a.visible.start === b.visible.start && a.visible.end === b.visible.end) return true;
-  }
-  // arrastando (aparar ou mover): a posição desenhada muda, então redesenha sempre
-  if (b.trim || b.move) return false;
-  // Mesma conta do ClipBlock (que devolve null fora da tela), cada lado com o seu zoom:
-  // fora antes = nada desenhado; fora depois = continua sem nada desenhado.
-  const outside = (p: ClipBlockProps) => {
-    const left = p.clip.startTime * p.zoomH;
-    const right = left + Math.max(30, p.clip.duration * p.zoomH);
-    return left > p.visible.end || right < p.visible.start;
-  };
-  return outside(a) && outside(b);
+  return a.clip === b.clip && a.isSelected === b.isSelected && a.onTrimStart === b.onTrimStart &&
+    a.onMoveStart === b.onMoveStart && a.trim === b.trim && a.move === b.move &&
+    a.trackHeight === b.trackHeight && a.allowMove === b.allowMove &&
+    a.timelineLocked === b.timelineLocked;
 }
 
-const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, trackHeight, zoomH, visible, allowMove, timelineLocked }: ClipBlockProps) {
+// Cor de cada faixa (como o clipe é pintado), calculada uma vez por lista de faixas e skin.
+const colorTables = new WeakMap<Track[], Map<string, Map<string, string>>>();
+function clipColorTable(tracks: Track[], skin: 'estudio' | 'oficina' | 'padrao'): Map<string, string> {
+  let bySkin = colorTables.get(tracks);
+  if (!bySkin) { bySkin = new Map(); colorTables.set(tracks, bySkin); }
+  let table = bySkin.get(skin);
+  if (table) return table;
+  table = new Map();
+  for (const t of tracks) {
+    table.set(t.id, skin === 'padrao'
+      ? shownTrackColor(t.color)
+      : (skin === 'estudio' ? esTrackColor : ofTrackColor)(t.color, esChannelOrder(tracks, ROUTABLE_TRACKS, t.id)));
+  }
+  bySkin.set(skin, table);
+  return table;
+}
+
+const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, trackHeight, allowMove, timelineLocked }: ClipBlockProps) {
   const dawMode = useStore((s) => s.dawMode);
   // Estúdio: o clipe é pintado na cor da faixa (viva) e a onda vai escura por cima
   const clipSkin = useSkin();
@@ -1125,16 +1183,11 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
   // cor da faixa lida do store de forma reativa (com o memo, o clipe não redesenha só porque a timeline redesenhou)
   // Assina só a lista de faixas: o seletor roda a cada tique do cursor, para todos os clipes, e a
   // conta da cor (com a ordem dos canais nas skins Estúdio e Oficina) fica para quando a lista muda.
-  const tracksRef = useStore((s) => s.tracks);
-  const trackColor = useMemo(() => {
-    const tracks = tracksRef;
-    const clipTrack = tracks.find((t) => t.id === clip.trackId);
-    if (!clipTrack) return routingColorOf(clip);
-    if (estudio || oficina) {
-      return (estudio ? esTrackColor : ofTrackColor)(clipTrack.color, esChannelOrder(useStore.getState().tracks, ROUTABLE_TRACKS, clipTrack.id));
-    }
-    return shownTrackColor(clipTrack.color);
-  }, [tracksRef, clip, estudio, oficina]);
+  // Só a cor da faixa deste clipe (uma string): mexer no fader, pan ou mudo de qualquer faixa
+  // trocava a lista de faixas e redesenhava todos os clipes da música. A tabela de cores é feita
+  // uma vez por lista de faixas (clipColorTable), então o seletor por tique é só uma consulta.
+  const trackColorRaw = useStore((s) => clipColorTable(s.tracks, estudio ? 'estudio' : oficina ? 'oficina' : 'padrao').get(clip.trackId));
+  const trackColor = trackColorRaw ?? routingColorOf(clip);
   const trimming = !!trim && trim.ids.has(clip.id);
   const isTrimStart = trimming && trim.side === "start";
   const isTrimEnd = trimming && trim.side !== "start";
@@ -1153,17 +1206,19 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
     : isTrimStart
       ? Math.max(0, clip.startTime + trim.delta)
       : clip.startTime;
-  const left = effectiveStart * zoomH;
-  const fullWidth = Math.max(30, clip.duration * zoomH);
-  const width = Math.max(8, playLength * zoomH);
-  if (left > visible.end || left + fullWidth < visible.start) return null;
+  // Geometria em segundos: o navegador multiplica pelo zoom (--vs-zoom). --vs-cl e --vs-cw são o
+  // começo e a largura do corpo, usados pelo rótulo junto com a janela visível (--vs-vis-start/end).
+  const left = zoomPx(effectiveStart);
+  const width = zoomPxMin(8, playLength);
   const isMuted = !!clip.mute;
   // Estúdio e Oficina: o clipe é pintado na cor da faixa e a onda vai escura por cima
   const filled = estudio || oficina;
   const routingColor = isMuted ? '#666670' : trackColor;
   const innerHeight = trackHeight - 4;
-  const labelLeft = Math.max(0, visible.start - left);
-  const labelWidth = Math.min(width, visible.end - left) - labelLeft;
+  // Rótulo no começo da janela visível, como antes: max(0, janela - começo) e até o fim do corpo
+  // ou da janela.
+  const labelLeft = 'max(0px, var(--vs-vis-start, 0px) - var(--vs-cl))';
+  const labelWidth = `max(0px, min(var(--vs-cw), var(--vs-vis-end, 1000000px) - var(--vs-cl)) - ${labelLeft})`;
   const isTrimmed = trimEnd > 0.001;
   const hasAdjustments = isMuted || clip.solo || (clip.gain !== undefined && clip.gain !== 1) || !!clip.fadeIn || !!clip.fadeOut;
   const showControls = dawMode && innerHeight >= 20;
@@ -1174,9 +1229,9 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
         <div
           className="absolute rounded-sm border border-dashed pointer-events-none"
           style={{
-            left: `${(effectiveStart - trimStart) * zoomH}px`,
+            left: zoomPx(effectiveStart - trimStart),
             top: '2px',
-            width: `${trimStart * zoomH}px`,
+            width: zoomPx(trimStart),
             height: `${innerHeight}px`,
             borderColor: isMuted ? '#4b4b52' : routingColor,
             opacity: isTrimStart ? 0.35 : 0.15,
@@ -1188,9 +1243,9 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
         <div
           className="absolute rounded-sm border border-dashed pointer-events-none"
           style={{
-            left: `${left + width}px`,
+            left: `calc(var(--vs-zoom) * ${effectiveStart}px + ${width})`,
             top: '2px',
-            width: `${trimEnd * zoomH}px`,
+            width: zoomPx(trimEnd),
             height: `${innerHeight}px`,
             borderColor: isMuted ? '#4b4b52' : routingColor,
             opacity: isTrimEnd ? 0.35 : 0.15,
@@ -1210,9 +1265,11 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
                 : 'bg-black/30'
         } ${allowMove ? 'cursor-grab active:cursor-grabbing hover:border-white' : timelineLocked ? 'cursor-default' : 'cursor-pointer'}`}
         style={{
-          left: `${left}px`,
+          '--vs-cl': left,
+          '--vs-cw': width,
+          left: 'var(--vs-cl)',
           top: '2px',
-          width: `${width}px`,
+          width: 'var(--vs-cw)',
           height: `${innerHeight}px`,
           borderColor: isSelected ? '#ffffff' : (isMuted ? '#52525b' : filled ? 'rgba(0, 0, 0, 0.45)' : routingColor),
           borderWidth: isSelected ? '2px' : '1px',
@@ -1223,7 +1280,7 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
           } : {}),
           lineHeight: 0,
           ...(leaving ? { opacity: 0.3 } : {}),
-        }}
+        } as React.CSSProperties}
         onClick={(e) => {
           e.stopPropagation();
         }}
@@ -1259,28 +1316,28 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
         <div
           className="absolute top-0 bottom-0 pointer-events-none overflow-hidden"
           style={{
-            left: `${-(trimStart || 0) * zoomH}px`,
-            width: `${fullWidth}px`,
+            left: zoomPx(-(trimStart || 0)),
+            width: zoomPxMin(30, clip.duration),
             height: `${innerHeight}px`,
           }}
         >
-          <ClipWaveform clip={clip} left={left - (trimStart || 0) * zoomH} width={fullWidth} height={innerHeight} visible={visible} color={filled && !isMuted ? shade(routingColor, oficina ? 0.7 : 0.62) : routingColor} />
+          <ZoomedClipWaveform clip={clip} startSec={effectiveStart - (trimStart || 0)} trimStart={trimStart || 0} trimEnd={trimEnd || 0} height={innerHeight} color={filled && !isMuted ? shade(routingColor, oficina ? 0.7 : 0.62) : routingColor} />
         </div>
         <FadeHandle
           clipId={clip.id} side="in" seconds={clip.fadeIn ?? 0}
           curve={clip.fadeCurveIn ?? 'linear'}
-          playLength={playLength} zoomH={zoomH}
+          playLength={playLength}
           editable={showControls && !timelineLocked}
         />
         <FadeHandle
           clipId={clip.id} side="out" seconds={clip.fadeOut ?? 0}
           curve={clip.fadeCurveOut ?? 'linear'}
-          playLength={playLength} zoomH={zoomH}
+          playLength={playLength}
           editable={showControls && !timelineLocked}
         />
         <div
           className="absolute top-0 bottom-0 flex items-start justify-start px-1.5 pt-0.5 text-xs font-medium pointer-events-none"
-          style={{ left: `${labelLeft}px`, width: `${Math.max(0, labelWidth)}px`, color: isMuted ? '#a1a1aa' : routingColor, textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
+          style={{ left: labelLeft, width: labelWidth, color: isMuted ? '#a1a1aa' : routingColor, textShadow: '0 1px 2px rgba(0,0,0,0.9)' }}
         >
           <span className="truncate flex items-center gap-1.5">
             <span>{clip.name}</span>
@@ -1360,9 +1417,11 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
   const filled = skin === 'estudio' || skin === 'oficina';
   const order = useStore((s) => (filled ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, folder.id) : -1));
   const color = skin === 'estudio' ? esTrackColor(folder.color, order) : skin === 'oficina' ? ofTrackColor(folder.color, order) : shownTrackColor(folder.color);
+  // quem monta segue o zoom de verdade; a posição vai pela variável do zoom (acompanha o zoom ao vivo)
   const left = preview.start * zoomH;
   const width = Math.max(8, preview.duration * zoomH);
   if (left > visible.end || left + width < visible.start) return null;
+  const leftCss = zoomPx(preview.start);
   // um "clipe" de mentira só para o desenho da onda (sem áudio na memória, usa os picos)
   const summary = {
     id: `folder-preview-${folder.id}`, songId, waveformPeaks: preview.peaks, duration: preview.duration, gain: 1,
@@ -1371,9 +1430,9 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
     <div
       className={`absolute border overflow-hidden pointer-events-none ${filled ? 'rounded' : 'rounded-sm'}`}
       style={{
-        left: `${left}px`,
+        left: leftCss,
         top: '2px',
-        width: `${width}px`,
+        width: zoomPxMin(8, preview.duration),
         height: `${height}px`,
         ...(filled
           ? {
@@ -1387,11 +1446,11 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
           }),
       }}
     >
-      <ClipWaveform clip={summary} left={left} width={width} height={height} visible={visible} color={filled ? shade(color, skin === 'oficina' ? 0.7 : 0.62) : color} />
+      <ClipWaveform clip={summary} left={left} width={width} height={height} visible={visible} color={filled ? shade(color, skin === 'oficina' ? 0.7 : 0.62) : color} zoomSec={preview.duration} zoomMinPx={8} startSec={preview.start} />
       {height >= 20 && (
         <span
           className="absolute top-0.5 px-1 rounded-sm bg-black/70 text-[10px] font-semibold leading-tight whitespace-nowrap"
-          style={{ left: `${Math.max(0, visible.start - left) + 3}px`, color: filled ? '#ffffff' : color }}
+          style={{ left: `calc(max(0px, var(--vs-vis-start, 0px) - ${leftCss}) + 3px)`, color: filled ? '#ffffff' : color }}
         >
           {folder.name} · {count} {count === 1 ? 'áudio' : 'áudios'}
         </span>
@@ -1461,6 +1520,8 @@ function TimelineHorizontalScrollbar({
   zoomH,
   onDoubleClickFit,
   onZoomTo,
+  previewRef,
+  paused,
 }: {
   scrollRef: React.RefObject<HTMLDivElement>;
   timelineWidth: number;
@@ -1469,20 +1530,28 @@ function TimelineHorizontalScrollbar({
   onDoubleClickFit?: () => void;
   /** Novo zoom (px/s) mantendo o instante `anchorTime` (s) no ponto `anchorX` (px) da tela. */
   onZoomTo?: (zoom: number, anchorTime: number, anchorX: number) => void;
+  /** Zoom ao vivo: o painel move o controle direto (sem React) enquanto o gesto dura. */
+  previewRef?: React.MutableRefObject<ScrollbarPreview | null>;
+  /** true durante o zoom ao vivo: a rolagem não passa pelo estado (nenhum setState por quadro). */
+  paused?: () => boolean;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const [scrollLeft, setScrollLeft] = useState(0);
   const [clientWidth, setClientWidth] = useState(1000);
   const [scrollWidth, setScrollWidth] = useState(2000);
+  /** Lê a rolagem para o estado (também no fim do zoom ao vivo, que pulou as leituras). */
+  const updateRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const update = () => {
+      if (paused?.()) return;
       setScrollLeft(el.scrollLeft);
       setClientWidth(el.clientWidth);
       setScrollWidth(el.scrollWidth);
     };
+    updateRef.current = update;
     update();
     el.addEventListener('scroll', update, { passive: true });
     window.addEventListener('resize', update);
@@ -1490,19 +1559,34 @@ function TimelineHorizontalScrollbar({
       el.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [scrollRef, headerWidth, timelineWidth]);
+  }, [scrollRef, headerWidth, timelineWidth, paused]);
 
   // A área visível da timeline (exclusiva das faixas)
-  const viewW = Math.max(10, clientWidth);
-  const totalW = Math.max(viewW, timelineWidth);
   const maxScroll = Math.max(1, scrollWidth - clientWidth);
 
-  // Proporção do thumb
-  const ratio = Math.min(1, Math.max(0.06, viewW / totalW));
-  const thumbWidthPct = ratio * 100;
-  const maxThumbLeftPct = 100 - thumbWidthPct;
-  const scrollRatio = Math.max(0, Math.min(1, scrollLeft / maxScroll));
-  const thumbLeftPct = scrollRatio * maxThumbLeftPct;
+  // Proporção e posição do thumb (a mesma conta do zoom ao vivo)
+  const { left: thumbLeftPct, width: thumbWidthPct } = thumbGeometry(scrollLeft, clientWidth, timelineWidth, scrollWidth);
+  const ratio = thumbWidthPct / 100;
+
+  // Zoom ao vivo: o controle acompanha o gesto direto no estilo; no fim volta ao último desenho do
+  // React (o que o React acha que está na tela) e lê a rolagem de novo, e a render segue dali.
+  const thumbRef = useRef<HTMLDivElement>(null);
+  const renderedThumb = useRef({ left: thumbLeftPct, width: thumbWidthPct });
+  useLayoutEffect(() => {
+    renderedThumb.current = { left: thumbLeftPct, width: thumbWidthPct };
+  });
+  useEffect(() => {
+    if (!previewRef) return;
+    previewRef.current = (view) => {
+      const th = thumbRef.current;
+      if (!th) return;
+      const g = view ? thumbGeometry(view.scrollLeft, clientWidth, view.timelineWidth, view.timelineWidth) : renderedThumb.current;
+      th.style.left = `${g.left}%`;
+      th.style.width = `${g.width}%`;
+      if (!view) updateRef.current();
+    };
+    return () => { previewRef.current = null; };
+  }, [previewRef, clientWidth]);
 
   // Arraste suave do thumb
   const handleThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1599,6 +1683,7 @@ function TimelineHorizontalScrollbar({
       title="Rolar a timeline. Pontas do controle: zoom. Duplo clique: a música inteira cabe na tela (vale também para as próximas músicas que você selecionar, até mudar o zoom à mão)"
     >
       <div
+        ref={thumbRef}
         className="absolute top-1/2 -translate-y-1/2 h-[8px] rounded-full bg-[#3e3e3e] hover:bg-[#525252] active:bg-[#626262] border border-white/[0.08] shadow-sm cursor-grab active:cursor-grabbing transition-colors"
         style={{
           left: `${thumbLeftPct}%`,
@@ -1648,6 +1733,18 @@ function TimelinePanel() {
   const playlist = useStore((s) => s.playlist);
   const clips = useStore((s) => s.clips);
   const selectedSongId = useStore((s) => s.selectedSongId);
+  // Projeto aberto (ou faixas mudaram): monta em segundo plano o resumo detalhado da onda que
+  // faltar, para nenhuma música abrir com a onda fora da grade. A da tela vem primeiro.
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const st = useStore.getState();
+      const order = new Map(st.playlistOrder.map((id, i) => [id, i]));
+      const current = st.selectedSongId;
+      const rank = (songId: string) => (songId === current ? -1 : order.get(songId) ?? 9999);
+      prefetchFinePeaks([...st.clips].sort((a, b) => rank(a.songId) - rank(b.songId)));
+    }, 3000);
+    return () => window.clearTimeout(t);
+  }, [clips]);
   const selectedClipIds = useStore((s) => s.selectedClipIds);
   const selectClip = useStore((s) => s.selectClip);
   const selectClips = useStore((s) => s.selectClips);
@@ -1682,7 +1779,8 @@ function TimelinePanel() {
   const [tempoDrag, setTempoDrag] = useState<{ from: number; to: number } | null>(null);
   const setTempoAt = useStore((s) => s.setTempoAt);
   const removeTempoAt = useStore((s) => s.removeTempoAt);
-  const [visible, setVisible] = useState<VisibleRange>({ start: 0, end: 4000 });
+  // Janela visível fora do React (src/lib/timelineView.ts): as ondas dos clipes leem direto dela
+  const visible = useTimelineVisible();
   const [noSpaceHint, setNoSpaceHint] = useState(false);
   // "Pare para dividir": a tecla S (ou o botão Dividir) com esta música tocando
   const [splitHint, setSplitHint] = useState(false);
@@ -1701,7 +1799,8 @@ function TimelinePanel() {
   const timelineLocked = useStore((s) => s.timelineLocked);
   const groupClips = useStore((s) => s.groupClips);
   const ungroupClips = useStore((s) => s.ungroupClips);
-  const zoomAnchorRef = useRef<{ time: number; mouseX: number } | null>(null);
+  // reach: instante na borda direita quando a tela já estava além do fim (pastEndReach), 0 se não
+  const zoomAnchorRef = useRef<{ time: number; mouseX: number; reach: number } | null>(null);
   const lastSelectedClipIdRef = useRef<string | null>(null);
 
   // Controle de expansão/recolhimento sincronizado entre a barra de cabeçalhos e as faixas da timeline
@@ -2276,41 +2375,24 @@ function TimelinePanel() {
     for (const r of song?.regions ?? []) end = Math.max(end, r.end);
     return end;
   }, [song, songClips]);
-  const timelineWidth = Math.max(200, Math.ceil(contentEnd * zoomH));
+  const timelineWidth = timelineWidthFor(contentEnd, zoomH);
+  // lido nas contas do zoom ao vivo (fora do React): a largura que a timeline vai ter no zoom novo
+  const contentEndRef = useRef(contentEnd);
+  contentEndRef.current = contentEnd;
 
-  const rulerStep = useMemo(() => {
-    const candidates = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
-    return candidates.find((step) => step * zoomH >= 60) ?? 600;
-  }, [zoomH]);
-  const stepPx = rulerStep * zoomH;
+  // Zoom ao vivo em curso (null parado) e os contêineres que recebem as variáveis do zoom: a régua
+  // de cima (cabeçalho) e o conteúdo da timeline.
+  const liveRef = useRef<LiveZoom | null>(null);
+  const isLiveZoom = useCallback(() => liveRef.current !== null, []);
+  const headerZoomRef = useRef<HTMLDivElement>(null);
+  const contentZoomRef = useRef<HTMLDivElement>(null);
 
-  const visibleTicks = useMemo(() => {
-    const first = Math.max(0, Math.floor(visible.start / stepPx));
-    const last = Math.min(Math.ceil(timelineWidth / stepPx), Math.ceil(visible.end / stepPx));
-    const out: number[] = [];
-    for (let i = first; i <= last; i++) out.push(i * rulerStep);
-    return out;
-  }, [visible, stepPx, rulerStep, timelineWidth]);
-
-  const formatTick = (sec: number): string => {
-    if (rulerStep < 1) {
-      const whole = Math.floor(sec);
-      const frac = Math.round((sec - whole) * 10);
-      return `${Math.floor(whole / 60)}:${(whole % 60).toString().padStart(2, '0')}.${frac}`;
-    }
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
-  // Quantizado para só re-renderizar quando a janela visível muda de bloco.
+  // Quantizado para só re-renderizar quando a janela visível muda de bloco. No zoom ao vivo fica
+  // parada no zoom de verdade (o quadro grava a dele só nas variáveis CSS, sem render).
   const updateVisible = useCallback(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const quantum = 256;
-    const start = Math.max(0, Math.floor((el.scrollLeft - VIEW_MARGIN_PX) / quantum) * quantum);
-    const end = Math.ceil((el.scrollLeft + el.clientWidth + VIEW_MARGIN_PX) / quantum) * quantum;
-    setVisible((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+    if (!el || liveRef.current) return;
+    setTimelineVisible(visibleWindow(el.scrollLeft, el.clientWidth, VIEW_MARGIN_PX));
   }, []);
 
   /**
@@ -2331,9 +2413,20 @@ function TimelinePanel() {
     if (!el || !root) return;
     const x = Math.max(0, el.scrollWidth - el.clientWidth);
     const y = Math.max(0, el.scrollHeight - el.clientHeight);
-    if (x !== followRange.current.x) root.style.setProperty('--vs-follow-max-x', String(x));
+    // O caminho da régua vai na própria régua: no zoom ao vivo ele muda a cada quadro, e no painel
+    // todo cada mudança recalcularia o estilo da coluna dos nomes também.
+    if (x !== followRange.current.x) (headerZoomRef.current ?? root).style.setProperty('--vs-follow-max-x', String(x));
     if (y !== followRange.current.y) root.style.setProperty('--vs-follow-max-y', String(y));
     followRange.current = { x, y };
+  }, []);
+
+  // Caminho da régua no zoom ao vivo, pela largura calculada (sem ler a tela no meio do quadro).
+  const applyFollowRangeLive = useCallback((scrollWidth: number, clientWidth: number) => {
+    const root = timelinePanelRef.current;
+    if (!root) return;
+    const x = Math.max(0, Math.round(scrollWidth) - clientWidth);
+    if (x !== followRange.current.x) (headerZoomRef.current ?? root).style.setProperty('--vs-follow-max-x', String(x));
+    followRange.current = { x, y: followRange.current.y };
   }, []);
 
   const syncHeaders = useCallback(() => {
@@ -2349,15 +2442,20 @@ function TimelinePanel() {
   }, [applyFollowRange]);
 
   const handleScroll = useCallback(() => {
+    // no zoom ao vivo o próprio quadro já acertou régua, caminho e janela (applyPending)
+    if (liveRef.current) return;
     syncHeaders();
     updateVisible();
   }, [updateVisible, syncHeaders]);
 
   // Rolar com dois dedos (pad) na coluna dos nomes: a rolagem é sempre a da timeline.
   useEffect(() => {
-    const at = (e: Event) => {
+    const at = () => {
+      if (liveRef.current) return;
       syncHeaders();
       updateVisible();
+      // logo depois do zoom ao vivo, as ondas do gesto acompanham a rolagem até o desenho normal assumir
+      liveWaveScrolled();
     };
     const heads = trackHeadersRef.current;
     const main = scrollRef.current;
@@ -2398,18 +2496,103 @@ function TimelinePanel() {
     return () => ro.disconnect();
   }, [updateVisible]);
 
+  // Zoom ao vivo, como numa DAW: durante a pinça ou a roda, cada quadro muda só as variáveis CSS do
+  // zoom (--vs-zoom e a largura --vs-tl-w), o scrollLeft e os canvas da régua e da grade, sem render
+  // do React. Clipes, nomes, bordas, fades, regiões, falas e cursor ficam nítidos no zoom do quadro
+  // (estão em segundos no estilo); só a onda fica esticada dentro do próprio clipe até o fim do
+  // gesto. O zoom de verdade (store) entra uma vez, quando o gesto para, no mesmo lugar: as ondas
+  // redesenham e nada salta (mesmas contas, src/lib/zoomPreview.ts).
+  const zoomPctRef = useRef<HTMLSpanElement>(null);
+  const zoomPxRef = useRef<HTMLSpanElement>(null);
+  /** A barra de rolagem de baixo acompanha o zoom ao vivo (sem React); null devolve o desenho dela. */
+  const scrollbarPreviewRef = useRef<ScrollbarPreview | null>(null);
+  /** Zoom ao vivo em curso para os canvas da régua e da grade (redesenham a cada quadro do gesto). */
+  const [canvasHub] = useState(createZoomCanvasHub);
+  /** Últimos valores gravados nas variáveis (setProperty só quando muda). */
+  const zoomVars = useRef({ zoom: '', width: '', visStart: '', visEnd: '' });
+
+  /**
+   * Zoom e largura da timeline como variáveis CSS da régua e do conteúdo. Só nesses dois
+   * contêineres, não no painel todo: a coluna dos nomes não recalcula estilo no zoom.
+   */
+  const writeZoomVars = useCallback((z: number) => {
+    const zoom = String(z);
+    const width = `${timelineWidthFor(contentEndRef.current, z)}px`;
+    const last = zoomVars.current;
+    if (zoom === last.zoom && width === last.width) return;
+    last.zoom = zoom;
+    last.width = width;
+    for (const el of [headerZoomRef.current, contentZoomRef.current]) {
+      if (!el) continue;
+      el.style.setProperty('--vs-zoom', zoom);
+      el.style.setProperty('--vs-tl-w', width);
+    }
+  }, []);
+  /** Janela visível (px do zoom mostrado) para os rótulos dos clipes, das pastas e das falas. */
+  const writeVisibleVars = useCallback((v: { start: number; end: number }) => {
+    const el = contentZoomRef.current;
+    if (!el) return;
+    const start = `${v.start}px`;
+    const end = `${v.end}px`;
+    const last = zoomVars.current;
+    if (start !== last.visStart) { el.style.setProperty('--vs-vis-start', start); last.visStart = start; }
+    if (end !== last.visEnd) { el.style.setProperty('--vs-vis-end', end); last.visEnd = end; }
+  }, []);
+
+  /**
+   * Parado, as variáveis seguem o store na hora em que o zoom e a janela mudam (antes da render). No
+   * zoom ao vivo quem grava é o quadro (applyPending); a janela do React fica no zoom de verdade.
+   */
+  useLayoutEffect(() => {
+    zoomVars.current = { zoom: '', width: '', visStart: '', visEnd: '' };
+    writeZoomVars(liveRef.current?.target ?? useStore.getState().zoomH);
+    if (!liveRef.current) writeVisibleVars(getTimelineVisible());
+    const offZoom = useStore.subscribe((st, prev) => { if (st.zoomH !== prev.zoomH && !liveRef.current) writeZoomVars(st.zoomH); });
+    const offVisible = subscribeTimelineVisible(() => { if (!liveRef.current) writeVisibleVars(getTimelineVisible()); });
+    return () => { offZoom(); offVisible(); };
+  }, [hasSong, writeZoomVars, writeVisibleVars]);
+  // a música mudou de tamanho: largura nova no mesmo zoom
+  useLayoutEffect(() => {
+    writeZoomVars(liveRef.current?.target ?? useStore.getState().zoomH);
+  }, [contentEnd, writeZoomVars]);
+
+  /** Porcentagem e px/s acompanham a mão (texto mexido direto, no mesmo nó que o React escreve). */
+  const showZoomIndicators = useCallback((preview: { zoom: number; scrollLeft: number } | null) => {
+    const z = preview ? preview.zoom : useStore.getState().zoomH;
+    const pct = zoomPctRef.current?.firstChild;
+    if (pct && pct.nodeType === Node.TEXT_NODE && pct.nodeValue !== zoomPctText(z)) pct.nodeValue = zoomPctText(z);
+    const px = zoomPxRef.current?.firstChild;
+    if (px && px.nodeType === Node.TEXT_NODE && px.nodeValue !== zoomPxText(z)) px.nodeValue = zoomPxText(z);
+    scrollbarPreviewRef.current?.(preview ? { scrollLeft: preview.scrollLeft, timelineWidth: timelineWidthFor(contentEndRef.current, z) } : null);
+  }, []);
+
+  /**
+   * Fim do zoom ao vivo: variáveis, régua, grade, indicadores e barra de rolagem de volta ao zoom de
+   * verdade. `redraw` quando não vem render depois (zoom igual ao de antes do gesto).
+   */
+  const settleLiveVisuals = useCallback((redraw: boolean) => {
+    canvasHub.live = null;
+    writeZoomVars(useStore.getState().zoomH);
+    writeVisibleVars(getTimelineVisible());
+    if (redraw) for (const draw of canvasHub.draws) draw();
+    showZoomIndicators(null);
+  }, [canvasHub, writeZoomVars, writeVisibleVars, showZoomIndicators]);
+
   useLayoutEffect(() => {
     const el = scrollRef.current;
+    // Zoom de verdade aplicado: indicadores e barra voltam ao desenho do React. O scroll é o mesmo
+    // que o último quadro do zoom ao vivo já mostrava (mesma conta), então nada salta.
+    if (!liveRef.current) settleLiveVisuals(false);
     const anchor = zoomAnchorRef.current;
     if (el && anchor) {
-      el.scrollLeft = Math.max(0, anchor.time * zoomH - anchor.mouseX);
+      el.scrollLeft = anchoredScroll(anchor.time, anchor.mouseX, zoomH, Math.max(timelineWidth, anchor.reach * zoomH), el.clientWidth);
       zoomAnchorRef.current = null;
     }
     if (el && headerScrollRef.current && !FOLLOW_SCROLL_CSS) headerScrollRef.current.scrollLeft = el.scrollLeft;
     // o zoom muda a área rolável: confere o caminho da coluna dos nomes aqui, sem recriar o observador
     if (FOLLOW_SCROLL_CSS) applyFollowRange();
     updateVisible();
-  }, [zoomH, timelineWidth, updateVisible, applyFollowRange]);
+  }, [zoomH, timelineWidth, updateVisible, applyFollowRange, settleLiveVisuals]);
 
   // O caminho da coluna dos nomes e da régua acompanha faixas e tamanho da janela. O zoom fica de
   // fora: recriar o ResizeObserver a cada passo da pinça custava um layout forçado por quadro, e o
@@ -2422,7 +2605,9 @@ function TimelinePanel() {
     applyFollowRange();
     const ro = new ResizeObserver(applyFollowRange);
     ro.observe(el);
-    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    // o conteúdo (não a camada em volta, que tem a largura da tela)
+    const content = contentZoomRef.current ?? el.firstElementChild;
+    if (content) ro.observe(content);
     return () => ro.disconnect();
   }, [hasSong, timelineWidth, applyFollowRange]);
   // a grade e as ondas desenhadas mais à frente mudam a área rolável sem mudar o tamanho de nada
@@ -2430,44 +2615,189 @@ function TimelinePanel() {
     if (FOLLOW_SCROLL_CSS) applyFollowRange();
   }, [visible, applyFollowRange]);
 
+  /**
+   * Zoom de verdade: o instante anchorTime fica no ponto anchorScreen da tela. Zoom e janela visível
+   * entram numa render só (o scroll vai no layout effect dela). Antes o setZoomH saía sozinho, e uma
+   * render com zoom novo e janela velha desmontava e remontava os blocos de onda já desenhados.
+   * Devolve false quando o zoom não muda (limite ou arredondamento): aí nada fica guardado, senão a
+   * âncora velha era aplicada mais tarde (trocar de música, importar) e a rolagem pulava.
+   * `sync` = false só dentro de efeito do React (flushSync ali gera aviso). `reachAt`: o instante
+   * além do fim guardado no começo do gesto (no zoom ao vivo o scroll já não é o do zoom de verdade).
+   */
+  const applyZoom = useCallback((zoom: number, anchorTime: number, anchorScreen: number, sync = true, reachAt?: number): boolean => {
+    const current = useStore.getState().zoomH;
+    const next = clampZoom(zoom);
+    if (next === current) return false;
+    const el0 = scrollRef.current;
+    // a mesma conta do zoom ao vivo: sem salto além do fim
+    const reach = reachAt ?? (el0 ? pastEndReach(contentEndRef.current, current, el0.scrollLeft, el0.clientWidth) : 0);
+    zoomAnchorRef.current = { time: anchorTime, mouseX: anchorScreen, reach };
+    const run = () => {
+      const el = scrollRef.current;
+      if (el) {
+        const cw = el.clientWidth;
+        const sl = anchoredScroll(anchorTime, anchorScreen, next, reachWidthFor(contentEndRef.current, next, reach), cw);
+        const win = visibleWindow(sl, cw, VIEW_MARGIN_PX);
+        setTimelineVisible(win);
+      }
+      setZoomH(next);
+    };
+    if (sync) flushSync(run);
+    else run();
+    return true;
+  }, [setZoomH]);
+
   const zoomAround = useCallback((factor: number, mouseX: number) => {
     const el = scrollRef.current;
     const current = useStore.getState().zoomH;
-    if (el) zoomAnchorRef.current = { time: (el.scrollLeft + mouseX) / current, mouseX };
-    setZoomH(Math.round(current * factor * 100) / 100);
-  }, [setZoomH]);
+    return applyZoom(current * factor, ((el?.scrollLeft ?? 0) + mouseX) / current, mouseX);
+  }, [applyZoom]);
+
+  /** Aplica na hora o zoom pendente do gesto (antes de rolar, clicar ou usar outro zoom). */
+  const flushZoomRef = useRef<(sync?: boolean) => void>(() => {});
 
   // Zoom da timeline com os dois dedos no trackpad do Mac (pinch-to-zoom e wheel com Ctrl)
   useEffect(() => {
     const el = timelinePanelRef.current;
     if (!el) return;
 
-    // O trackpad manda vários eventos por quadro; junta todos e aplica o zoom uma vez só por quadro.
+    // O trackpad manda vários eventos por quadro: o zoom ao vivo é atualizado uma vez por quadro e
+    // o zoom de verdade entra quando o gesto para (ZOOM_COMMIT_MS sem eventos).
     let pendingZoom: { factor: number; mouseX: number } | null = null;
     let zoomFrame = 0;
-    const queueZoom = (factor: number, mouseX: number) => {
-      pendingZoom = { factor: (pendingZoom?.factor ?? 1) * factor, mouseX };
-      if (zoomFrame) return;
-      zoomFrame = requestAnimationFrame(() => {
-        zoomFrame = 0;
-        const pending = pendingZoom;
-        pendingZoom = null;
-        if (pending) zoomAround(pending.factor, pending.mouseX);
+    let commitTimer: number | null = null;
+    const active = () => liveRef.current !== null || pendingZoom !== null;
+
+    // fim do zoom ao vivo: o zoom de verdade entra exatamente no lugar que o último quadro mostrava
+    const finishPreview = (sync: boolean) => {
+      const p = liveRef.current;
+      liveRef.current = null;
+      if (!p) return;
+      // a render do zoom novo já desenha régua e grade no zoom de verdade
+      canvasHub.live = null;
+      // as ondas ficam no canvas do gesto até o desenho normal ficar pronto na escala nova
+      liveWaveSettle(() => {
+        const sc = scrollRef.current;
+        return sc ? { zoom: useStore.getState().zoomH, scrollLeft: sc.scrollLeft, scrollTop: sc.scrollTop, clientWidth: sc.clientWidth } : null;
       });
+      // mudou: o layout effect do zoom novo grava o mesmo scroll do quadro
+      if (applyZoom(p.target, p.anchorTime, p.anchorScreen, sync, p.reach)) return;
+      // zoom igual (limite ou arredondamento): o quadro já está no zoom de verdade, só volta o resto
+      settleLiveVisuals(true);
+      if (p.widened) updateVisible();
     };
 
+    // Um quadro do zoom ao vivo (todos os eventos do quadro juntos). Custo: algumas variáveis CSS,
+    // o desenho dos canvas visíveis (régua e grade) e um scrollLeft (o único layout do quadro);
+    // nenhum setState, a não ser uma vez ao começar a afastar (janela maior para montar os clipes).
+    const applyPending = (sync: boolean) => {
+      if (zoomFrame) { cancelAnimationFrame(zoomFrame); zoomFrame = 0; }
+      const pending = pendingZoom;
+      pendingZoom = null;
+      const sc = scrollRef.current;
+      if (!pending || !sc) return;
+      const base = useStore.getState().zoomH;
+      const lp = liveRef.current;
+      // altura das ondas medida antes das escritas do quadro (no começo do gesto, todas)
+      liveWavePrepare(!lp);
+      const s = sc.scrollLeft;
+      const cw = sc.clientWidth;
+      const wanted = (lp ? lp.target : base) * pending.factor;
+      // limites do zoom (1 a 500 px/s, 0,01 px/s) e do zoom ao vivo (4x, 1/3)
+      const { target, limited } = previewTarget(base, wanted);
+      // Ponto parado: o instante sob o mouse. O mouse andou no meio do gesto (roda com Ctrl e o mouse
+      // indo para outro lugar): o ponto passa a ser o instante sob o mouse agora, no zoom do quadro
+      // (como fazia o zoom antigo a cada passo). Senão fica o do começo do gesto.
+      const moved = !!lp && Math.abs(pending.mouseX - lp.mouseX) > 2;
+      const anchorTime = lp && !moved ? lp.anchorTime : (s + pending.mouseX) / (lp ? lp.target : base);
+      const anchorScreen = lp && !moved ? lp.anchorScreen - (s - lp.scroll) : pending.mouseX;
+      // além do fim da música (a grade aumenta a área rolável): medido no começo do gesto, com scroll
+      // e zoom do mesmo momento; o corte do fim não puxa a tela de volta
+      const reach = lp ? lp.reach : pastEndReach(contentEndRef.current, base, s, cw);
+      const width = timelineWidthFor(contentEndRef.current, target);
+      const finalScroll = anchoredScroll(anchorTime, anchorScreen, target, Math.max(width, reach * target), cw);
+      const live: LiveZoom = {
+        target, anchorTime, anchorScreen, mouseX: lp && !moved ? lp.mouseX : pending.mouseX, scroll: finalScroll, reach,
+        widened: !moved && (lp?.widened ?? false),
+      };
+      liveRef.current = live;
+      // Afastando: a janela do React (zoom de verdade) passa a cobrir tudo o que o gesto pode trazer
+      // para a tela até o limite de 1/3. Uma render, no começo; no limite não precisa, o zoom de
+      // verdade entra já. Ponto novo (o mouse andou): a janela é refeita em volta dele, porque a
+      // conta da cobertura vale para telas com o mesmo instante parado.
+      if ((target < base || moved) && !limited && !live.widened) {
+        live.widened = true;
+        setTimelineVisible(zoomOutWindow(base, previewLow(base), anchorTime, cw, VIEW_MARGIN_PX));
+      }
+      // variáveis do zoom (clipes, regiões, falas, cursor e largura) e canvas no zoom do quadro
+      writeZoomVars(target);
+      writeVisibleVars(visibleWindow(finalScroll, cw, VIEW_MARGIN_PX));
+      canvasHub.live = { zoom: target, scrollLeft: finalScroll, clientWidth: cw, timelineWidth: width };
+      for (const draw of canvasHub.draws) draw();
+      // o scroll depois do estilo: um layout só, já com a largura nova
+      sc.scrollLeft = finalScroll;
+      // Sem ler de volta da tela (scrollLeft, scrollWidth): ler logo depois das escritas forçava um
+      // recálculo inteiro da tela a mais por quadro (medido: uns 7 ms por quadro tocando). Os
+      // valores são calculados; o layout effect do zoom de verdade confere tudo no fim do gesto.
+      live.scroll = finalScroll;
+      // as ondas visíveis no zoom e no scroll do quadro (nítidas, sem esticar; dentro do orçamento)
+      liveWaveFrame({ zoom: target, scrollLeft: live.scroll, clientWidth: cw });
+      if (FOLLOW_SCROLL_CSS) applyFollowRangeLive(Math.max(width, reach * target), cw);
+      else if (headerScrollRef.current) headerScrollRef.current.scrollLeft = live.scroll;
+      showZoomIndicators({ zoom: target, scrollLeft: live.scroll });
+      if (limited) {
+        // Passou de 4x (ou de 1/3): o zoom de verdade entra no limite e o gesto continua a partir
+        // dele. Sem isso a onda esticada borrava e o zoom de uma vez só trocava as ondas por vazio.
+        finishPreview(sync);
+        pendingZoom = { factor: wanted / target, mouseX: pending.mouseX };
+        if (!zoomFrame) zoomFrame = requestAnimationFrame(() => { zoomFrame = 0; applyPending(true); });
+      }
+    };
+
+    // Posição da área na tela, lida uma vez por gesto: ler a cada evento da roda, logo depois de o
+    // quadro anterior mudar estilos, forçava um layout inteiro por evento (medido no perfil).
+    let rectCache: DOMRect | null = null;
+    const gestureRect = (node: Element) => (rectCache ??= node.getBoundingClientRect());
+    const commit = (sync: boolean) => {
+      rectCache = null;
+      if (commitTimer !== null) { window.clearTimeout(commitTimer); commitTimer = null; }
+      // O quadro pendente entra antes: o zoom ao vivo sempre termina num zoom de verdade. Antes, com
+      // a máquina ocupada, o temporizador podia rodar antes do quadro e a timeline ficava no meio.
+      // Fora do flushSync o scroll novo ainda não foi gravado: aí só o primeiro passo entra.
+      for (let i = 0; pendingZoom && i < (sync ? 8 : 1); i++) applyPending(sync);
+      if (zoomFrame) { cancelAnimationFrame(zoomFrame); zoomFrame = 0; }
+      pendingZoom = null;
+      finishPreview(sync);
+    };
+
+    const queueZoom = (factor: number, mouseX: number) => {
+      pendingZoom = { factor: (pendingZoom?.factor ?? 1) * factor, mouseX };
+      if (commitTimer !== null) window.clearTimeout(commitTimer);
+      commitTimer = window.setTimeout(() => { commitTimer = null; commit(true); }, ZOOM_COMMIT_MS);
+      if (!zoomFrame) zoomFrame = requestAnimationFrame(() => { zoomFrame = 0; applyPending(true); });
+    };
+    flushZoomRef.current = (sync = true) => { if (active()) commit(sync); };
+
     const onWheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
+      if (!(e.ctrlKey || e.metaKey)) {
+        // rolar durante o zoom ao vivo: o zoom pendente entra antes, e a rolagem soma por cima do lugar certo
+        if (active()) commit(true);
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       const scrollEl = scrollRef.current;
-      const rect = scrollEl ? scrollEl.getBoundingClientRect() : el.getBoundingClientRect();
+      const rect = gestureRect(scrollEl ?? el);
       const mouseX = Math.max(0, e.clientX - rect.left);
+      liveWavePointer(e.clientY, rect.top, rect.bottom);
       const factor = Math.exp(-Math.max(-60, Math.min(60, e.deltaY)) * 0.015);
       queueZoom(factor, mouseX);
     };
+    // clicar (grade, régua, botões, barra de rolagem) durante o zoom ao vivo: o zoom entra antes, e
+    // o clique já lê o zoom de verdade (o flushSync termina antes do handler do React)
+    const onPointerDownCapture = () => { if (active()) commit(true); };
 
-    // Suporte a gestos nativos de pinça (pinch) no Safari e Chromium do macOS
+    // Gestos nativos de pinça do Safari (WebKit). No Chromium/Electron a pinça chega como roda com Ctrl.
     let gestureStartZoom = 1;
     const onGestureStart = (e: any) => {
       e.preventDefault();
@@ -2476,26 +2806,32 @@ function TimelinePanel() {
     const onGestureChange = (e: any) => {
       e.preventDefault();
       const scrollEl = scrollRef.current;
-      const rect = scrollEl ? scrollEl.getBoundingClientRect() : el.getBoundingClientRect();
+      const rect = gestureRect(scrollEl ?? el);
       const mouseX = Math.max(0, e.clientX - rect.left);
-      const targetZoom = Math.max(1, Math.min(200, gestureStartZoom * (e.scale || 1)));
-      const currentZoom = useStore.getState().zoomH * (pendingZoom?.factor ?? 1);
+      liveWavePointer(e.clientY, rect.top, rect.bottom);
+      // mesmos limites dos outros caminhos do zoom (1 a 500 px/s)
+      const targetZoom = Math.max(1, Math.min(500, gestureStartZoom * (e.scale || 1)));
+      const currentZoom = (liveRef.current?.target ?? useStore.getState().zoomH) * (pendingZoom?.factor ?? 1);
       const factor = targetZoom / Math.max(0.1, currentZoom);
       queueZoom(factor, mouseX);
     };
 
     el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('pointerdown', onPointerDownCapture, true);
     el.addEventListener('gesturestart', onGestureStart as EventListener, { passive: false });
     el.addEventListener('gesturechange', onGestureChange as EventListener, { passive: false });
     return () => {
-      if (zoomFrame) cancelAnimationFrame(zoomFrame);
+      flushZoomRef.current = () => {};
+      if (active()) commit(false);
       el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('pointerdown', onPointerDownCapture, true);
       el.removeEventListener('gesturestart', onGestureStart as EventListener);
       el.removeEventListener('gesturechange', onGestureChange as EventListener);
     };
-  }, [zoomAround]);
+  }, [applyZoom, applyFollowRange, applyFollowRangeLive, canvasHub, settleLiveVisuals, showZoomIndicators, updateVisible, writeVisibleVars, writeZoomVars]);
 
   const zoomButton = (factor: number) => {
+    flushZoomRef.current();
     const el = scrollRef.current;
     const st = useStore.getState();
     const playheadX = st.transport.currentTime * st.zoomH - (el?.scrollLeft ?? 0);
@@ -2580,10 +2916,16 @@ function TimelinePanel() {
     const clientW = scrollRef.current.clientWidth ?? 1000;
     const availableW = Math.max(300, clientW - 40);
     const targetZoom = Math.round(Math.max(1, Math.min(200, availableW / contentEnd)) * 100) / 100;
+    // zoom ao vivo em curso entra antes; e nenhuma âncora pendente passa por cima do scrollLeft = 0
+    flushZoomRef.current(false);
+    zoomAnchorRef.current = null;
     fitZoomRef.current = targetZoom;
     setZoomH(targetZoom);
+    // Volta régua, grade e variáveis já: se o zoom de caber na tela for igual ao de antes do gesto,
+    // a render não muda nada e o layout effect do zoom não roda (a régua ficava no zoom do gesto).
+    settleLiveVisuals(true);
     scrollRef.current.scrollLeft = 0;
-  }, [song, contentEnd, setZoomH]);
+  }, [song, contentEnd, setZoomH, settleLiveVisuals]);
   const handleFitSongToScreen = useCallback(() => {
     fitModeRef.current = true;
     fitToScreen();
@@ -2598,13 +2940,14 @@ function TimelinePanel() {
     if (fitModeRef.current && fitZoomRef.current !== null && Math.abs(zoomH - fitZoomRef.current) > 0.011) fitModeRef.current = false;
   }, [zoomH]);
   const zoomToAnchor = useCallback((zoom: number, anchorTime: number, anchorX: number) => {
-    zoomAnchorRef.current = { time: anchorTime, mouseX: anchorX };
-    setZoomH(Math.round(zoom * 100) / 100);
-  }, [setZoomH]);
+    flushZoomRef.current();
+    applyZoom(zoom, anchorTime, anchorX);
+  }, [applyZoom]);
 
-  const gridStyle = grid ? {} : {
-    backgroundImage: `repeating-linear-gradient(to right, transparent 0, transparent ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx - 1}px, rgba(255,255,255,0.045) ${stepPx}px)`,
-  };
+  // O clipe monta se cruza a janela visível no zoom atual (a conta que o ClipBlock fazia antes de
+  // devolver null); arrastando (aparar ou mover), monta sempre.
+  const clipShown = (c: AudioClip) =>
+    !!trimDrag?.ids.has(c.id) || !!moveDrag?.ids.has(c.id) || spanInView(c.startTime, c.duration, zoomH, visible);
 
   return (
     <div ref={timelinePanelRef} className={`flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative ${FOLLOW_SCROLL_CSS ? 'timeline-follow-scope' : ''}`}>
@@ -2661,7 +3004,7 @@ function TimelinePanel() {
             <div className="text-[10px] text-logic-text-muted select-none font-mono">
               {noSpaceHint ? <span className="text-logic-lcd-amber font-sans">Sem espaço</span>
                 : splitHint ? <span className="text-logic-lcd-amber font-sans">Pare para dividir</span>
-                : `${Math.round(zoomH * 10)}%`}
+                : <span ref={zoomPctRef}>{zoomPctText(zoomH)}</span>}
             </div>
             <div className="flex items-center gap-1">
               <button className="text-logic-text-muted hover:text-white p-1 rounded hover:bg-logic-bg-elevated transition-colors" onClick={() => zoomButton(0.75)} title="Diminuir zoom horizontal (Afastar)"><ZoomOut size={13} /></button>
@@ -2670,7 +3013,8 @@ function TimelinePanel() {
           </div>
         </div>
         <div ref={headerScrollRef} className="flex-1 overflow-hidden">
-          <div className={FOLLOW_SCROLL_CSS ? 'timeline-follow-x' : undefined} style={{ width: `${timelineWidth + 24}px` }}>
+          {/* variáveis do zoom (--vs-zoom, --vs-tl-w) e caminho da régua gravados aqui (sem React no zoom ao vivo) */}
+          <div ref={headerZoomRef} className={FOLLOW_SCROLL_CSS ? 'timeline-follow-x' : undefined} style={{ width: `calc(var(--vs-tl-w, ${timelineWidth}px) + 24px)` }}>
             {song ? (
               <MedleyLane song={song} zoomH={zoomH} />
             ) : (
@@ -2690,7 +3034,7 @@ function TimelinePanel() {
             )}
             <div
               className="relative h-10 cursor-pointer select-none"
-              style={{ width: `${timelineWidth}px` }}
+              style={{ width: `var(--vs-tl-w, ${timelineWidth}px)` }}
               onPointerDown={handleRulerPointerDown}
               onContextMenu={(e) => {
                 e.preventDefault();
@@ -2718,6 +3062,8 @@ function TimelinePanel() {
               }}
               title="Clique para posicionar cursor. Botão direito: cravar o andamento neste ponto (último recurso). Shift + botão direito: cravar início de compasso."
             >
+              {/* traços e números da régua num canvas da janela visível (as placas de BPM vêm depois, em DOM) */}
+              <RulerCanvas grid={song ? shownGrid : null} hasGrid={!!grid} zoomH={zoomH} visible={visible} contentEnd={contentEnd} hub={canvasHub} />
               {shownGrid && song && (
                 <BarRulerLayer
                   song={song}
@@ -2732,15 +3078,6 @@ function TimelinePanel() {
                   }}
                 />
               )}
-              {visibleTicks.map((tick) => (
-                <div
-                  key={tick}
-                  className={`absolute bottom-0 border-l border-logic-border-dark/60 flex items-end pb-0.5 pointer-events-none ${grid ? 'top-5' : 'top-0'}`}
-                  style={{ left: `${tick * zoomH}px` }}
-                >
-                  <span className="text-2xs text-logic-text-muted font-mono pl-1 whitespace-nowrap">{formatTick(tick)}</span>
-                </div>
-              ))}
             </div>
           </div>
         </div>
@@ -2804,10 +3141,13 @@ function TimelinePanel() {
               className={`flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10 ${FOLLOW_SCROLL_CSS ? 'timeline-follow-source' : ''}`}
               onScroll={handleScroll}
             >
+              {/* o conteúdo estica até a altura desta camada, como antes com min-height 100% */}
+              <div className="flex min-h-full">
               <div
+                ref={contentZoomRef}
                 data-selectable="timeline"
                 className="relative flex-shrink-0 z-10"
-                style={{ width: `${timelineWidth}px`, minHeight: '100%', ...gridStyle }}
+                style={{ width: `var(--vs-tl-w, ${timelineWidth}px)` }}
                 onPointerDown={(e) => {
                   const target = e.target as HTMLElement;
                   if (!target.closest('[data-selectable="clip"], button, input, [role="button"], .group\\/widthHandle')) {
@@ -2833,6 +3173,8 @@ function TimelinePanel() {
                   }
                 }}
               >
+                {/* música sem andamento: linha a cada passo da régua, por baixo dos clipes */}
+                {!grid && <StepLinesCanvas zoomH={zoomH} visible={visible} timelineWidth={timelineWidth} hub={canvasHub} />}
                 {/* retângulo de seleção (arrastar na grade vazia) */}
                 {marquee && (
                   <div
@@ -2843,7 +3185,8 @@ function TimelinePanel() {
                 {allVisibleTracks.map((track) => {
                   const isFolder = track.isSubgroup;
                   const isTc = track.id === TIMECODE_TRACK_ID;
-                  const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id);
+                  // só os clipes que cruzam a janela visível (e os que estão sendo arrastados) montam
+                  const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id && clipShown(c));
                   const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
                   // Logo abaixo da faixa Maestro fica a régua do Maestro por IA (falas geradas por voz).
                   // Ela acompanha a altura das faixas: com altura fixa, cada linha daqui para baixo
@@ -2869,9 +3212,9 @@ function TimelinePanel() {
                             key={`ghost-${g.clipId}`}
                             className="absolute rounded-sm border border-dashed border-[#ffab1f] bg-[#ffab1f]/15 pointer-events-none z-20 flex items-start px-1.5 pt-0.5 text-[10px] font-semibold text-[#ffcf7a] truncate"
                             style={{
-                              left: `${Math.max(0, c.startTime + moveDrag.delta) * zoomH}px`,
+                              left: zoomPx(Math.max(0, c.startTime + moveDrag.delta)),
                               top: '2px',
-                              width: `${Math.max(8, clipPlayLength(c) * zoomH)}px`,
+                              width: zoomPxMin(8, clipPlayLength(c)),
                               height: `${rowHeight - 4}px`,
                             }}
                           >
@@ -2900,14 +3243,12 @@ function TimelinePanel() {
                           trim={trimDrag}
                           move={moveDrag}
                           trackHeight={rowHeight}
-                          zoomH={zoomH}
-                          visible={visible}
                           allowMove={!timelineLocked}
                           timelineLocked={timelineLocked}
                         />
                       ))}
                       {track.id === 'track-maestro' && recordingMaestro?.isRecording && recordingMaestro.songId === song.id && (
-                        <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} zoomH={zoomH} />
+                        <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} />
                       )}
                     </div>
                     {isMaestroRow && (
@@ -2929,7 +3270,8 @@ function TimelinePanel() {
                           // Áudio da faixa Maestro IA que não é mais uma fala (dividido, emendado,
                           // colado): um clipe como qualquer outro, desenhado na régua das falas.
                           const loose = looseMaestroClips(songClips, song.narrations);
-                          return loose.length === 0 ? null : loose.map((clip) => (
+                          const shown = loose.filter(clipShown);
+                          return shown.length === 0 ? null : shown.map((clip) => (
                             <ClipBlock
                               key={clip.id}
                               clip={clip}
@@ -2939,8 +3281,6 @@ function TimelinePanel() {
                               trim={trimDrag}
                               move={moveDrag}
                               trackHeight={maestroLaneHeight}
-                              zoomH={zoomH}
-                              visible={visible}
                               allowMove={!timelineLocked}
                               timelineLocked={timelineLocked}
                             />
@@ -2952,12 +3292,12 @@ function TimelinePanel() {
                   );
                 })}
 
-                {shownGrid && <GridLinesOverlay grid={shownGrid} zoomH={zoomH} visible={visible} />}
+                {shownGrid && <GridLinesCanvas grid={shownGrid} zoomH={zoomH} visible={visible} timelineWidth={timelineWidth} hub={canvasHub} />}
 
-                <RegionGuides song={song} zoomH={zoomH} drag={regionDrag} />
+                <RegionGuides song={song} drag={regionDrag} />
 
                 {trimDrag && (
-                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${trimDrag.end * zoomH}px` }}>
+                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: zoomPx(trimDrag.end) }}>
                     <div className="absolute top-0 bottom-0 w-px bg-logic-lcd-amber/80" />
                     <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-amber/60 text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
                       Fim {trimDrag.label}{trimDrag.ids.size > 1 ? ` (${trimDrag.ids.size} áudios)` : ''}
@@ -2966,7 +3306,7 @@ function TimelinePanel() {
                 )}
 
                 {moveDrag && (
-                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: `${moveDrag.start * zoomH}px` }}>
+                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: zoomPx(moveDrag.start) }}>
                     <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
                     <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
                       Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}{moveDrag.laneLabel ? ` · para ${moveDrag.laneLabel}` : ''}
@@ -2974,7 +3314,8 @@ function TimelinePanel() {
                   </div>
                 )}
 
-                <Playhead zoomH={zoomH} songId={song.id} />
+                <Playhead songId={song.id} />
+              </div>
               </div>
             </div>
           </>
@@ -2991,9 +3332,7 @@ function TimelinePanel() {
           <span className="text-[10px] text-logic-text-muted truncate">
             {selectedClipIds.length > 0 ? `${selectedClipIds.length} sel.` : `${songClips.length} clips`}
           </span>
-          <span className="text-[10px] font-mono text-logic-text-muted">
-            {Math.round(zoomH)}px/s
-          </span>
+          <span ref={zoomPxRef} className="text-[10px] font-mono text-logic-text-muted">{zoomPxText(zoomH)}</span>
         </div>
 
         {/* Scrollbar Horizontal da Timeline, com alças de zoom nas pontas (a partir da aresta direita das faixas) */}
@@ -3004,6 +3343,8 @@ function TimelinePanel() {
           zoomH={zoomH}
           onDoubleClickFit={handleFitSongToScreen}
           onZoomTo={zoomToAnchor}
+          previewRef={scrollbarPreviewRef}
+          paused={isLiveZoom}
         />
       </div>
 

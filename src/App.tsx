@@ -7,6 +7,7 @@ import { captureAffiliateRef } from '@/lib/affiliateRef';
 import { claimAffiliateRef } from '@/lib/affiliateApi';
 import { trackSiteVisit } from '@/lib/siteVisits';
 import { audioEngine, headPitchFor } from '@/lib/audioEngine';
+import { anyGenerating } from '@/lib/maestroVoice';
 import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
 import { computeNextSongId } from '@/lib/playFlow';
@@ -148,6 +149,9 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
 
   return "director";
 }
+
+/** Depois de editar clipes com a música parada, espera a edição sossegar antes de preparar de novo. */
+const REPREPARE_AFTER_EDIT_MS = 1200;
 
 function App() {
   const [route, setRoute] = useState(routeFromUrl);
@@ -743,6 +747,18 @@ export function DirectorApp({ license }: { license: License }) {
       }, delay);
     };
 
+    // Preparar de novo depois de editar: espera a edição sossegar e as falas do Maestro IA
+    // terminarem de ser geradas (preparar a cada fala que chega deixava a geração lenta).
+    let editTimer: number | null = null;
+    const scheduleAfterEdit = () => {
+      if (editTimer !== null) window.clearTimeout(editTimer);
+      editTimer = window.setTimeout(() => {
+        editTimer = null;
+        if (anyGenerating() || useStore.getState().transport.isPlaying) { scheduleAfterEdit(); return; }
+        schedule(0);
+      }, REPREPARE_AFTER_EDIT_MS);
+    };
+
     let prev = useStore.getState();
     schedule(0);
     const unsub = useStore.subscribe((state) => {
@@ -757,6 +773,11 @@ export function DirectorApp({ license }: { license: License }) {
       // Reconstruir a cada clique no botão de BPM travaria o aplicativo.
       // Cortes e edições de clipes são tratados diretamente por audioEngine.updateLiveClipPosition
       // e stopClipsLive. Disparar reconstrução completa do preparo travaria o Play logo após o corte.
+      // Clipes mudaram com a música parada (falas do Maestro geradas, gravação, arraste): o preparo
+      // tinha sido descartado e o próximo Play largava "a frio", criando todos os reprodutores de uma
+      // vez (o que desalinhava instrumentos até o segundo Play). Prepara de novo, depois de a
+      // edição sossegar, para o Play sair do preparo.
+      const editedWhileStopped = clipsChanged && !state.transport.isPlaying;
       if (
         selectionChanged ||
         nextChanged ||
@@ -765,12 +786,16 @@ export function DirectorApp({ license }: { license: License }) {
       ) {
         prev = state;
         schedule(selectionChanged || nextChanged ? 0 : 180);
+      } else if (editedWhileStopped) {
+        prev = state;
+        scheduleAfterEdit();
       } else {
         prev = state;
       }
     });
     return () => {
       if (timer !== null) window.clearTimeout(timer);
+      if (editTimer !== null) window.clearTimeout(editTimer);
       unsub();
     };
   }, []);

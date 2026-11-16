@@ -14,6 +14,9 @@ const soundtouch = readFileSync(new URL('../src/lib/soundtouch.vendor.js', impor
   .replace(/export\s*\{[^}]*\}\s*;?/g, '');
 const processorSource = readFileSync(new URL('../src/lib/clipPlayerProcessor.js', import.meta.url), 'utf8');
 
+// Uma amostra da tabela de pedaços do reprodutor (canal 0 esquerdo, 1 direito).
+const sampleOf = (data, i, ch = 0) => { const slots = ch ? data.right : data.left; const s = slots[Math.floor(i / data.slotFrames)]; return s ? s[i % data.slotFrames] : 0; };
+
 // Float32Array que conta quantos foram criados dentro do reprodutor.
 function sandbox() {
   const counter = { n: 0 };
@@ -81,8 +84,8 @@ test('memória: música fora do ar vai em pedaços pequenos, um por vez; a do ar
   assert.ok(Math.max(...perTick) <= 1, 'no máximo um append por fatia');
   assert.ok(next.proc.port.messages.some((m) => m.type === 'loaded'));
   for (const i of [0, WINDOW_FRAMES + 3, total - 1]) {
-    assert.equal(next.proc.data.left[i], ((i % 30000) + 1));
-    assert.equal(next.proc.data.right[i], (((i + 5) % 30000) + 1));
+    assert.equal(sampleOf(next.proc.data, i), ((i % 30000) + 1));
+    assert.equal(sampleOf(next.proc.data, i, 1), (((i + 5) % 30000) + 1));
   }
 
   const airLog = [];
@@ -141,8 +144,8 @@ test('disco: com música tocando, a próxima entrega cada leitura em pedaços co
     assert.ok(log.some((m) => m.left.length === maxLen));
     assert.ok(proc.port.messages.some((m) => m.type === 'loaded'));
     for (const i of [0, LOW_PIECE_FRAMES - 1, LOW_PIECE_FRAMES, total - 1]) {
-      assert.equal(proc.data.left[i], ((i % 30000) + 1));
-      assert.equal(proc.data.right[i], -((i % 30000) + 1));
+      assert.equal(sampleOf(proc.data, i), ((i % 30000) + 1));
+      assert.equal(sampleOf(proc.data, i, 1), -((i % 30000) + 1));
     }
   }
 });
@@ -203,7 +206,7 @@ test('reprodutor: trechos fora de ordem se juntam e o aviso de completo sai uma 
   add(0, 100);
   assert.equal(JSON.stringify(proc.data.ranges), JSON.stringify([[0, 1000]]));
   assert.equal(proc.port.messages.filter((m) => m.type === 'loaded').length, 1);
-  for (let i = 0; i < total; i++) assert.equal(proc.data.left[i], full[i]);
+  for (let i = 0; i < total; i++) assert.equal(sampleOf(proc.data, i), full[i]);
 });
 
 test('reprodutor: aviso de falta de dado traz posição, folga e buraco (e mantém frame)', () => {

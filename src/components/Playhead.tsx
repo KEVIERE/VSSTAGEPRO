@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 
-export default function Playhead({ zoomH, songId }: { zoomH: number; songId: string }) {
+export default function Playhead({ songId }: { songId: string }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -11,12 +11,15 @@ export default function Playhead({ zoomH, songId }: { zoomH: number; songId: str
       const st = useStore.getState();
       const live = st.transport.isPlaying && st.transport.currentSongId === songId && audioEngine.isRunning() && !audioEngine.isUserSeeking();
       const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
-      if (ref.current) ref.current.style.transform = `translateX(${Math.max(0, t) * zoomH}px)`;
+      // Posição em segundos vezes o zoom da variável CSS do conteúdo (--vs-zoom): no zoom o cursor
+      // já sai no lugar certo no mesmo quadro (também no zoom ao vivo, que muda só a variável),
+      // sem esperar este rAF nem reiniciar o laço.
+      if (ref.current) ref.current.style.transform = `translateX(calc(var(--vs-zoom) * ${Math.max(0, t)}px))`;
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [zoomH, songId]);
+  }, [songId]);
 
   return (
     <div

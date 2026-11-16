@@ -11,6 +11,7 @@
 // - O Qwen3-TTS não tem controle de velocidade: aqui se calcula o fator (`tempo`) e a tela estica
 //   o áudio com o SoundTouch que o app já usa.
 const { spawn } = require('child_process');
+const TASKPOLICY = '/usr/sbin/taskpolicy';
 const crypto = require('crypto');
 const fs = require('fs');
 const fsp = require('fs/promises');
@@ -207,7 +208,12 @@ function startHelper() {
   const engine = engineDir();
   // VS_MAESTRO_CPU=1: só no teste do GitHub (máquina virtual sem a placa de vídeo completa)
   const args = ['--model', modelDir(), ...(process.env.VS_MAESTRO_CPU === '1' ? ['--cpu'] : [])];
-  const child = spawn(path.join(engine, HELPER), args, {
+  // Prioridade de fundo (QoS "utility" do macOS): a voz de IA usa muito processador e placa de
+  // vídeo, e rodando junto com a música tirava folga do áudio e da tela (engasgo e travada no Play).
+  // Com o taskpolicy, a música e a tela vêm primeiro; sem ele (Mac sem a ferramenta), roda direto.
+  const helper = path.join(engine, HELPER);
+  const lowPriority = fs.existsSync(TASKPOLICY);
+  const child = spawn(lowPriority ? TASKPOLICY : helper, lowPriority ? ['-c', 'utility', helper, ...args] : args, {
     cwd: engine,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME: os.homedir(), TMPDIR: os.tmpdir(), HF_HUB_OFFLINE: '1' },

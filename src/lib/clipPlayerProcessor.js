@@ -7,33 +7,198 @@
 // SEM parar o relógio da faixa — a faixa nunca atrasa em relação às outras e o fim de um
 // trecho parcial nunca é confundido com o fim do clipe ("ended" só sai no fim de verdade).
 
-// O áudio chega em 16 bits (inteiros) para ocupar metade da memória.
+// O áudio chega em 16 bits (inteiros) para ocupar metade da memória. Pelo tamanho do elemento,
+// não por instanceof: o pedaço pode vir de outro contexto (testes) e continua valendo.
 function sampleScale(arr) {
-  return arr instanceof Int16Array ? 1 / 32767 : 1;
+  return arr && arr.BYTES_PER_ELEMENT === 2 ? 1 / 32767 : 1;
 }
 
 const TAIL_PAD = 16384 * 2;
 // Fade-out da posição antiga numa busca com a música tocando (~5 ms a 48 kHz).
 const SEEK_FADE_OUT_FRAMES = 256;
+// Atraso de largada que vale descontar: abaixo disso é arredondamento do relógio (meio bloco).
+const LATE_TOLERANCE_S = 0.0015;
+const LATE_REPORT_S = 0.01;
 
 // ---------- dados do clipe (compartilhados por todas as vozes do reprodutor) ----------
+//
+// O áudio fica numa tabela de pedaços de tamanho fixo (por canal, um Int16Array por índice de
+// pedaço; vazio = ainda não chegou). Nada do tamanho da música inteira é criado: cada pedaço
+// nasce só quando o áudio dele chega, e um trecho que cobre o pedaço inteiro é guardado como
+// está (sem cópia). Mesmo valor de SLOT_FRAMES em audioStreamer.ts (o envio já sai alinhado).
+const SLOT_SHIFT = 14;
+const SLOT_FRAMES = 1 << SLOT_SHIFT;
+const SLOT_MASK = SLOT_FRAMES - 1;
+
+function slotCount(total) {
+  return total > 0 ? ((total + SLOT_MASK) >> SLOT_SHIFT) : 0;
+}
+
+// Tabela vazia para `total` quadros (só os ponteiros, um por pedaço).
+function emptySlots(total) {
+  const n = slotCount(total);
+  const a = new Array(n);
+  for (let i = 0; i < n; i++) a[i] = null;
+  return a;
+}
+
+// Áudio contínuo (opções do reprodutor, 'extend', 'rendered') visto como tabela de pedaços:
+// cada pedaço é um subarray do mesmo bloco, sem copiar nada.
+function sliceSlots(arr, total) {
+  const n = Math.max(slotCount(total), slotCount(arr.length));
+  const a = new Array(n);
+  for (let c = 0; c < n; c++) {
+    const s = c << SLOT_SHIFT;
+    if (s >= arr.length) { a[c] = null; continue; }
+    const e = Math.min(arr.length, s + SLOT_FRAMES);
+    a[c] = s === 0 && e === arr.length ? arr : arr.subarray(s, e);
+  }
+  return a;
+}
 
 function makeData(left, right, total, ranges) {
-  const l = left || new Int16Array(0);
-  const t = Math.max(0, typeof total === 'number' ? total | 0 : l.length);
+  const l = left || null;
+  const t = Math.max(0, typeof total === 'number' ? total | 0 : (l ? l.length : 0));
+  const mono = !l || !right || right === l;
+  const slotsL = l ? sliceSlots(l, t) : emptySlots(t);
   return {
-    left: l,
-    right: right || l,
-    scale: sampleScale(l),
+    left: slotsL,
+    right: mono ? slotsL : sliceSlots(right, t),
+    mono,
+    scale: l ? sampleScale(l) : 1 / 32767,
+    slotFrames: SLOT_FRAMES,
     total: t,
     // trechos recebidos, ordenados e sem sobreposição: [[início, fim), ...]
-    ranges: ranges || (l.length > 0 ? [[0, Math.min(l.length, t)]] : []),
+    ranges: ranges || (l && l.length > 0 ? [[0, Math.min(l.length, t)]] : []),
   };
+}
+
+// Pedaço c pronto para receber cópia de len quadros (criado na hora, ou aumentado se o que havia
+// era o fim curto de um áudio contínuo).
+function ownSlot(slots, c, len) {
+  const cur = slots[c];
+  if (cur && cur.length >= len) return cur;
+  const fresh = new Int16Array(len);
+  if (cur) fresh.set(cur.length > len ? cur.subarray(0, len) : cur);
+  slots[c] = fresh;
+  return fresh;
+}
+
+// [s, e) já está inteiro nos trechos recebidos.
+function hasRange(data, s, e) {
+  const rs = data.ranges;
+  for (let i = 0; i < rs.length; i++) {
+    const r = rs[i];
+    if (s < r[0]) return false;
+    if (s < r[1]) return e <= r[1];
+  }
+  return false;
+}
+
+// Guarda um trecho recebido [offset, offset + n) na tabela. O pedaço coberto inteiro fica com a
+// referência do trecho (subarray, sem cópia); só a ponta que cobre parte de um pedaço é copiada,
+// para um pedaço criado agora. Roda ao receber a mensagem, nunca no bloco de som.
+function putPiece(data, offset, left, right) {
+  if (!left) return false;
+  const total = data.total;
+  const s0 = Math.max(0, offset | 0);
+  const end = Math.min(total, (offset | 0) + left.length);
+  if (end <= s0) return false;
+  const r = right || left;
+  const base = offset | 0;
+  if (data.ranges.length === 0) data.scale = sampleScale(left);
+  let p = s0;
+  while (p < end) {
+    const c = p >> SLOT_SHIFT;
+    const cs = c << SLOT_SHIFT;
+    const ce = Math.min(total, cs + SLOT_FRAMES);
+    const stop = Math.min(end, ce);
+    const a = p - base;
+    const b = stop - base;
+    if (p === cs && stop === ce) {
+      data.left[c] = a === 0 && b === left.length ? left : left.subarray(a, b);
+      if (!data.mono) data.right[c] = a === 0 && b === r.length ? r : r.subarray(a, b);
+    } else if (!(data.left[c] && hasRange(data, p, stop))) {
+      // ponta: copia para dentro do pedaço (o que já tinha chegado nele continua lá)
+      ownSlot(data.left, c, ce - cs).set(left.subarray(a, b), p - cs);
+      if (!data.mono) ownSlot(data.right, c, ce - cs).set(r.subarray(a, b), p - cs);
+    }
+    p = stop;
+  }
+  addRange(data, s0, end);
+  return true;
+}
+
+// Copia [p, p + n) (já recebido) para outL/outR a partir de `at`, pedaço a pedaço, sem criar nada.
+// Pedaço ausente ou curto demais vira silêncio (nunca NaN na saída).
+function copyPlanar(d, p, n, outL, outR, at) {
+  const k = d.scale;
+  const Ls = d.left;
+  const Rs = d.right;
+  let i = 0;
+  while (i < n) {
+    const q = p + i;
+    const c = q >> SLOT_SHIFT;
+    const o = q & SLOT_MASK;
+    let run = SLOT_FRAMES - o;
+    if (run > n - i) run = n - i;
+    const L = Ls[c];
+    const R = Rs[c] || L;
+    let ok = 0;
+    if (L && R) {
+      ok = Math.min(run, L.length - o, R.length - o);
+      if (ok < 0) ok = 0;
+      const base = at + i;
+      for (let j = 0; j < ok; j++) {
+        outL[base + j] = L[o + j] * k;
+        outR[base + j] = R[o + j] * k;
+      }
+    }
+    for (let j = ok; j < run; j++) { outL[at + i + j] = 0; outR[at + i + j] = 0; }
+    i += run;
+  }
+}
+
+// O mesmo, intercalado (esquerdo, direito, ...) como o SoundTouch lê.
+function copyInterleaved(d, p, n, target, at) {
+  const k = d.scale;
+  const Ls = d.left;
+  const Rs = d.right;
+  let i = 0;
+  while (i < n) {
+    const q = p + i;
+    const c = q >> SLOT_SHIFT;
+    const o = q & SLOT_MASK;
+    let run = SLOT_FRAMES - o;
+    if (run > n - i) run = n - i;
+    const L = Ls[c];
+    const R = Rs[c] || L;
+    let ok = 0;
+    if (L && R) {
+      ok = Math.min(run, L.length - o, R.length - o);
+      if (ok < 0) ok = 0;
+      let w = (at + i) * 2;
+      for (let j = 0; j < ok; j++) {
+        target[w++] = L[o + j] * k;
+        target[w++] = R[o + j] * k;
+      }
+    }
+    for (let j = ok; j < run; j++) { target[(at + i + j) * 2] = 0; target[(at + i + j) * 2 + 1] = 0; }
+    i += run;
+  }
+}
+
+// Uma amostra (para testes e diagnóstico): canal 0 esquerdo, 1 direito.
+function sampleAt(data, i, channel) {
+  const slots = channel ? data.right : data.left;
+  const s = slots[i >> SLOT_SHIFT];
+  return s ? s[i & SLOT_MASK] : 0;
 }
 
 // Junta o trecho na lista no lugar (sem montar lista nova): roda na thread de áudio a cada
 // 'append', e lixo criado ali vira coleta de memória no meio do som.
 function addRange(data, start, end) {
+
   if (end <= start) return;
   const rs = data.ranges;
   let i = 0;
@@ -77,6 +242,20 @@ function spanAt(data, p) {
   return SPAN;
 }
 
+// Áudio já processado em segundo plano (contínuo, transferido): a tabela de pedaços é montada uma
+// vez aqui, e cada voz nova só aponta para ela.
+function makeRendered(left, right, tempo, pitch, partial, validFrames) {
+  const r = right || left;
+  const slotsL = sliceSlots(left, left.length);
+  return {
+    slotsL,
+    slotsR: r === left ? slotsL : sliceSlots(r, left.length),
+    scale: sampleScale(left),
+    length: left.length,
+    tempo, pitch, partial, validFrames,
+  };
+}
+
 function isComplete(data) {
   return data.ranges.length === 1 && data.ranges[0][0] === 0 && data.ranges[0][1] >= data.total;
 }
@@ -94,7 +273,6 @@ class ClipArraySource {
     const d = this.data;
     const n = d.total;
     const available = Math.min(numFrames, Math.max(0, n + TAIL_PAD - position));
-    const k = d.scale;
     let i = 0;
     while (i < available) {
       const p = position + i;
@@ -105,10 +283,8 @@ class ClipArraySource {
       const span = spanAt(d, p);
       const stop = Math.min(available, span.until - position);
       if (span.filled) {
-        for (; i < stop; i++) {
-          target[i * 2] = d.left[position + i] * k;
-          target[i * 2 + 1] = d.right[position + i] * k;
-        }
+        copyInterleaved(d, p, stop - i, target, i);
+        i = stop;
       } else {
         this.starved = true;
         for (; i < stop; i++) { target[i * 2] = 0; target[i * 2 + 1] = 0; }
@@ -194,7 +370,6 @@ class Voice {
   // Leitura direta: a posição sempre anda junto com o relógio, tenha ou não chegado o dado.
   readDirect(outL, outR, start, count) {
     const d = this.data;
-    const k = d.scale;
     const avail = Math.max(0, Math.min(count, d.total - this.pos));
     let i = 0;
     while (i < avail) {
@@ -202,10 +377,8 @@ class Voice {
       const span = spanAt(d, p);
       const stop = Math.min(avail, span.until - this.pos);
       if (span.filled) {
-        for (; i < stop; i++) {
-          outL[start + i] = d.left[this.pos + i] * k;
-          outR[start + i] = d.right[this.pos + i] * k;
-        }
+        copyPlanar(d, p, stop - i, outL, outR, start + i);
+        i = stop;
       } else {
         this.starved = true;
         for (; i < stop; i++) { outL[start + i] = 0; outR[start + i] = 0; }
@@ -286,8 +459,10 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     this.loadedPosted = isComplete(this.data);
     this.underrun = false;
     // Começo já processado (só os primeiros segundos): vale até validFrames; depois o motor troca para o áudio inteiro.
-    this.rendered = o.renderedLeft ? { left: o.renderedLeft, right: o.renderedRight || o.renderedLeft, tempo: o.renderedTempo, pitch: o.renderedPitch, partial: true, validFrames: o.renderedValidFrames | 0 } : null;
-    this.voice = this.makeVoice(o.offsetSamples | 0);
+    this.rendered = o.renderedLeft ? makeRendered(o.renderedLeft, o.renderedRight, o.renderedTempo, o.renderedPitch, true, o.renderedValidFrames | 0) : null;
+    // ponto (no áudio original) de onde a voz principal começa: base para descontar largada atrasada
+    this.voiceOffset = o.offsetSamples | 0;
+    this.voice = this.makeVoice(this.voiceOffset);
     this.fadeInTotal = (o.fadeInFrames | 0) || 0;
     this.fadeInDone = 0;
     this.jump = null;
@@ -310,28 +485,30 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     if (this.stopped) return;
     if (d.dropPartial && this.rendered && this.rendered.partial) this.rendered = null;
     // O áudio inteiro chegou de uma vez: o começo carregado antes é o início dele, então a leitura segue sem corte.
+    // Vira a tabela de pedaços por subarray, sem copiar.
     if (d.type === 'extend') {
       const left = d.left;
       this.replaceData(left, d.right || left, typeof d.total === 'number' ? d.total : left.length, [[0, left.length]]);
       return;
     }
-    // Novos blocos (já do tamanho total) para receber o áudio aos poucos; ranges diz o que já vem preenchido.
+    // Áudio novo deste reprodutor: só o total, se é estéreo e os trechos que já vêm junto
+    // (o da largada). A tabela nasce vazia; nada do tamanho da música é criado.
+    // Formato antigo (left/right do tamanho total + ranges) continua aceito.
     if (d.type === 'stream') {
-      this.replaceData(d.left, d.right || d.left, d.total, (d.ranges || []).map((r) => [r[0], r[1]]));
+      if (d.left) {
+        this.replaceData(d.left, d.right || d.left, d.total, (d.ranges || []).map((r) => [r[0], r[1]]));
+        return;
+      }
+      this.resetData(d.total, d.stereo === false);
+      const ps = d.pieces;
+      if (ps) for (let i = 0; i < ps.length; i++) putPiece(this.data, ps[i].offset, ps[i].left, ps[i].right);
+      this.afterDataChange();
       return;
     }
-    // Mais um trecho do áudio chegou.
+    // Mais um trecho do áudio chegou: a referência fica guardada (o trecho veio transferido).
     if (d.type === 'append') {
       const data = this.data;
-      const offset = d.offset | 0;
-      const n = Math.min(d.left.length, Math.max(0, data.left.length - offset));
-      if (n <= 0) return;
-      data.left.set(n === d.left.length ? d.left : d.left.subarray(0, n), offset);
-      if (data.right !== data.left) {
-        const r = d.right || d.left;
-        data.right.set(n === r.length ? r : r.subarray(0, n), offset);
-      }
-      addRange(data, offset, offset + n);
+      if (!putPiece(data, d.offset, d.left, d.right)) return;
       if (!this.loadedPosted && isComplete(data)) {
         this.loadedPosted = true;
         try { this.port.postMessage({ type: 'loaded' }); } catch (e) {}
@@ -358,7 +535,8 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       if (prevAudible && fo && !fo.drained && this.fadeOutDone < this.fadeOutTotal) {
         prevGain += this.fadeOutGain * (1 - this.fadeOutDone / this.fadeOutTotal);
       }
-      this.voice = this.makeVoice(d.offsetSamples | 0);
+      this.voiceOffset = d.offsetSamples | 0;
+      this.voice = this.makeVoice(this.voiceOffset);
       this.jump = null;
       this.readyPosted = false;
       this.endedPosted = false;
@@ -367,24 +545,31 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       this.fadeInDone = 0;
       if (typeof d.startTime === 'number') this.startTime = d.startTime;
       if (d.silent === true) this.startTime = Number.POSITIVE_INFINITY;
+      else this.catchUpLateStart();
       // Se a voz trocada nem chegou a soar (duas buscas seguidas), o fade-out em andamento continua.
       if (prevAudible) this.startSeekFadeOut(prev, prevGain);
       return;
     }
     if (d.type === 'jump') {
-      const resumeAt = typeof d.resumeAt === 'number' ? d.resumeAt : d.at;
+      let resumeAt = typeof d.resumeAt === 'number' ? d.resumeAt : d.at;
+      let offset = d.offsetSamples | 0;
+      // ordem que chegou depois da hora: a voz nova entra já adiantada pelo atraso
+      const late = this.lateBy(resumeAt);
+      const resumeOriginal = resumeAt;
+      if (late > 0) { offset += this.lateFrames(late); resumeAt = currentTime; this.noteLate(late); }
       this.jump = {
         at: d.at,
         resumeAt,
         crossfade: Math.max(1, d.crossfadeFrames | 0),
-        fadeIn: (d.offsetSamples | 0) > 0 && resumeAt <= d.at,
-        voice: this.makeVoice(d.offsetSamples | 0),
+        // entrando atrasada no meio do som, a voz nova também precisa de rampa (senão estala)
+        fadeIn: offset > 0 && (late > 0 || resumeOriginal <= d.at),
+        voice: this.makeVoice(offset),
       };
       return;
     }
     // Áudio já processado em segundo plano: as próximas vozes só leem, sem SoundTouch ao vivo.
     if (d.type === 'rendered') {
-      this.rendered = { left: d.left, right: d.right, tempo: d.tempo, pitch: d.pitch, partial: false, validFrames: d.left.length };
+      this.rendered = makeRendered(d.left, d.right, d.tempo, d.pitch, false, d.left.length);
       return;
     }
     // Troca BPM/tom de todas as faixas no mesmo instante, a partir da mesma posição.
@@ -393,12 +578,16 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       if (typeof d.pitch === 'number') this.pitch = d.pitch;
       if (typeof d.process === 'boolean') this.processAll = d.process;
       this.dropStaleRendered();
+      let at = d.at;
+      let offset = d.offsetSamples | 0;
+      const late = this.lateBy(at);
+      if (late > 0) { offset += this.lateFrames(late); at = currentTime; this.noteLate(late); }
       this.jump = {
-        at: d.at,
-        resumeAt: d.at,
+        at,
+        resumeAt: at,
         crossfade: Math.max(1, d.crossfadeFrames | 0),
         fadeIn: true,
-        voice: this.makeVoice(d.offsetSamples | 0),
+        voice: this.makeVoice(offset),
       };
       return;
     }
@@ -418,19 +607,75 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
         else this.fadeOutVoice.setParams(d.tempo, d.pitch, d.process);
       }
     }
-    if (typeof d.startTime === 'number') this.startTime = d.startTime;
+    if (typeof d.startTime === 'number') {
+      this.startTime = d.startTime;
+      this.catchUpLateStart();
+    }
     if (d.type === 'stop') this.release();
+  }
+
+  // Quanto (s) a hora marcada já passou quando a ordem chegou aqui.
+  lateBy(t) {
+    if (typeof t !== 'number' || !Number.isFinite(t)) return 0;
+    const late = currentTime - t;
+    return late > LATE_TOLERANCE_S ? late : 0;
+  }
+
+  // Segundos de atraso em amostras do áudio original (com BPM alterado, o original anda tempo vezes).
+  lateFrames(late) {
+    return Math.round(late * this.sr * (this.tempo || 1));
+  }
+
+  // A ordem de largada chegou depois da hora marcada (Play com muitos reprodutores sendo criados
+  // de uma vez, a tela ocupada): antes a faixa começava do ponto pedido AGORA e ficava atrasada em
+  // relação às outras até o próximo Play. Agora ela entra adiantada pelo atraso, no tempo certo.
+  catchUpLateStart() {
+    if (!this.voice || this.voice.heard) return;
+    const late = this.lateBy(this.startTime);
+    if (late <= 0) return;
+    this.voice = this.makeVoice(this.voiceOffset + this.lateFrames(late));
+    this.startTime = currentTime;
+    // entra no meio do som: um fade curto evita o estalo
+    if (!this.fadeInTotal || this.fadeInTotal < 256) { this.fadeInTotal = 256; this.fadeInDone = 0; }
+    this.noteLate(late);
+  }
+
+  // Para o diário: só atraso que dá para ouvir (arraste de clipe tocando sempre chega um pouco atrasado).
+  noteLate(late) {
+    if (late < LATE_REPORT_S) return;
+    try { this.port.postMessage({ type: 'late', ms: Math.round(late * 1000) }); } catch (e) {}
   }
 
   // Troca o áudio de todas as vozes ao mesmo tempo: elas leem o mesmo objeto de dados.
   replaceData(left, right, total, ranges) {
+    const t = Math.max(0, total | 0);
+    const fresh = makeData(left, right || left, t, []);
+    this.adoptData(fresh);
+    for (const r of ranges) addRange(this.data, Math.max(0, r[0]), Math.min(t, r[1]));
+    this.afterDataChange();
+  }
+
+  // Tabela vazia para `total` quadros; os trechos chegam depois (putPiece).
+  resetData(total, mono) {
+    const t = Math.max(0, total | 0);
+    const slotsL = emptySlots(t);
+    this.adoptData({ left: slotsL, right: mono ? slotsL : emptySlots(t), mono: !!mono, scale: 1 / 32767, slotFrames: SLOT_FRAMES, total: t, ranges: [] });
+  }
+
+  // Copia os campos para o objeto que as vozes já leem (não troca o objeto).
+  adoptData(fresh) {
     const data = this.data;
-    data.left = left;
-    data.right = right || left;
-    data.scale = sampleScale(left);
-    data.total = Math.max(0, total | 0);
-    data.ranges = [];
-    for (const r of ranges) addRange(data, Math.max(0, r[0]), Math.min(data.total, r[1]));
+    data.left = fresh.left;
+    data.right = fresh.right;
+    data.mono = fresh.mono;
+    data.scale = fresh.scale;
+    data.slotFrames = fresh.slotFrames;
+    data.total = fresh.total;
+    data.ranges = fresh.ranges;
+  }
+
+  afterDataChange() {
+    const data = this.data;
     this.loadedPosted = isComplete(data);
     for (const v of [this.voice, this.jump && this.jump.voice, this.fadeOutVoice]) {
       if (v && !v.rendered && !v.filter && v.drained && v.pos < v.length) v.drained = false;
@@ -467,8 +712,9 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       const r = this.rendered;
       // O começo ajustado cobre só parte do clipe: depois dele vem silêncio sem fim falso,
       // até o motor trocar para o áudio inteiro.
-      const total = r.partial ? Math.max(r.validFrames, Math.ceil(this.data.total / this.tempo)) : r.left.length;
-      const data = makeData(r.left, r.right, total, [[0, Math.min(r.validFrames, r.left.length)]]);
+      const total = r.partial ? Math.max(r.validFrames, Math.ceil(this.data.total / this.tempo)) : r.length;
+      // a tabela de pedaços do processado já foi montada ao receber; aqui só o objeto da voz
+      const data = { left: r.slotsL, right: r.slotsR, mono: r.slotsL === r.slotsR, scale: r.scale, slotFrames: SLOT_FRAMES, total, ranges: [[0, Math.min(r.validFrames, r.length)]] };
       const v = new Voice(data, this.sr, 1, 1, Math.floor(offset / this.tempo), this.primeTarget, false);
       v.rendered = true;
       v.tempoScale = this.tempo;

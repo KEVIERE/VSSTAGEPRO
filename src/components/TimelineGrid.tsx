@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Magnet, RefreshCw, Loader2, CheckCheck, Scissors } from 'lucide-react';
 import { useStore } from '@/store';
@@ -7,25 +7,379 @@ import { barBeatLabel, bpmAt, gridLines, moveTempoChange, SNAP_LABELS, snapTempo
 import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
 import { trimAllSongEnds, trimSongEnd } from '@/lib/songEndTools';
 import type { VisibleRange } from '@/components/ClipWaveform';
+import { useSkin } from '@/lib/useSkin';
+import { timelineWidthFor } from '@/lib/zoomPreview';
+import { canvasSpan, canvasX, canvasXAt, formatRulerTick, rulerStepFor, rulerTicks, stepLinesPx, textBaseline, zoomPx, type CanvasSpan, type ZoomCanvasHub } from '@/lib/zoomGeometry';
 
 const LINE_COLORS = {
   bar: 'rgba(255,255,255,0.22)',
   beat: 'rgba(255,255,255,0.11)',
   sub: 'rgba(255,255,255,0.05)',
 };
+/** Cor da grade sem andamento (antes o repeating-linear-gradient do fundo do conteúdo). */
+const STEP_LINE_COLOR = 'rgba(255,255,255,0.045)';
 
-export function GridLinesOverlay({ grid, zoomH, visible }: { grid: SongGrid; zoomH: number; visible: VisibleRange }) {
-  const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
+/** Posiciona o canvas (em px do conteúdo) e ajusta os pixels só quando mudam. */
+function placeCanvas(cv: HTMLCanvasElement, span: CanvasSpan, pixelHeight: number) {
+  if (cv.width !== span.pixelWidth) cv.width = span.pixelWidth;
+  if (cv.height !== pixelHeight) cv.height = pixelHeight;
+  const left = `${span.left}px`;
+  const width = `${span.cssWidth}px`;
+  if (cv.style.left !== left) cv.style.left = left;
+  if (cv.style.width !== width) cv.style.width = width;
+}
+
+/** Redesenha no layout (antes da pintura) quando as props mudam, na troca de tela e quando a fonte chega. */
+function useCanvasRedraw(draw: () => void, deps: unknown[], hub?: ZoomCanvasHub) {
+  useLayoutEffect(draw, [draw, ...deps]);
+  useEffect(() => {
+    // trocar de monitor (outra densidade de pixels) chega como resize
+    window.addEventListener('resize', draw);
+    const fonts = document.fonts;
+    fonts?.addEventListener?.('loadingdone', draw);
+    hub?.draws.add(draw);
+    return () => {
+      window.removeEventListener('resize', draw);
+      fonts?.removeEventListener?.('loadingdone', draw);
+      hub?.draws.delete(draw);
+    };
+  }, [draw, hub]);
+}
+
+/**
+ * Linhas da grade (compasso, tempo e meio tempo) por cima dos clipes, num canvas do tamanho da
+ * janela visível com 1 px de altura esticado na vertical (as linhas são verticais). Antes eram
+ * centenas de divs que o React refazia a cada zoom. No zoom ao vivo o canvas cobre a tela e é
+ * redesenhado a cada quadro no zoom do quadro: linhas com 1 px e na densidade do zoom novo.
+ */
+export function GridLinesCanvas({ grid, zoomH, visible, timelineWidth, hub }: {
+  grid: SongGrid;
+  zoomH: number;
+  visible: VisibleRange;
+  timelineWidth: number;
+  hub: ZoomCanvasHub;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const latest = useRef({ grid, zoomH, visible, timelineWidth });
+  latest.current = { grid, zoomH, visible, timelineWidth };
+  const draw = useCallback(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const p = latest.current;
+    const dpr = window.devicePixelRatio || 1;
+    const live = hub.live;
+    // no zoom ao vivo, além do fim da timeline vai só até a borda da tela (não aumenta a área rolável)
+    let span = canvasSpan(p.zoomH, p.visible, dpr, live, 32, live ? live.timelineWidth : Infinity);
+    const lines = gridLines(p.grid, span.from, span.to, span.zoom);
+    if (!live) {
+      // Como as divs de antes: além do fim da timeline, a grade vai até a última linha da janela
+      // (e aumenta a área rolável do mesmo jeito, ver pastEndReach); antes do fim, cobre a timeline.
+      const last = lines.length > 0 ? lines[lines.length - 1].time * p.zoomH + 1 : -Infinity;
+      const right = Math.min(p.visible.end, Math.max(p.timelineWidth, last));
+      span = canvasSpan(p.zoomH, { start: p.visible.start, end: Math.max(p.visible.start, right) }, dpr, null);
+    }
+    placeCanvas(cv, span, 1);
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const lw = Math.max(1, Math.round(dpr));
+    for (const l of lines) {
+      ctx.fillStyle = LINE_COLORS[l.kind];
+      ctx.fillRect(canvasXAt(span, l.time), 0, lw, 1);
+    }
+  }, [hub]);
+  useCanvasRedraw(draw, [grid, zoomH, visible, timelineWidth], hub);
   return (
     <div className="absolute inset-0 pointer-events-none z-20">
-      {lines.map((l) => (
-        <div
-          key={l.time}
-          className="absolute top-0 bottom-0 w-px pointer-events-none"
-          style={{ left: `${l.time * zoomH}px`, backgroundColor: LINE_COLORS[l.kind] }}
-        />
-      ))}
+      {/* camada própria: redesenhar (ao rolar, a cada bloco da janela, e a cada quadro do zoom ao
+          vivo) só troca a imagem do canvas, sem repintar os clipes embaixo */}
+      <canvas ref={ref} className="absolute top-0 block pointer-events-none will-change-transform" style={{ height: '100%' }} />
     </div>
+  );
+}
+
+/**
+ * Grade sem andamento (música sem BPM): uma linha clara a cada passo da régua de tempo, por baixo
+ * dos clipes, como o repeating-linear-gradient que ficava no fundo do conteúdo. No zoom ao vivo é
+ * redesenhada a cada quadro, como a grade com andamento.
+ */
+export function StepLinesCanvas({ zoomH, visible, timelineWidth, hub }: {
+  zoomH: number;
+  visible: VisibleRange;
+  timelineWidth: number;
+  hub: ZoomCanvasHub;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const latest = useRef({ zoomH, visible, timelineWidth });
+  latest.current = { zoomH, visible, timelineWidth };
+  const draw = useCallback(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const p = latest.current;
+    const dpr = window.devicePixelRatio || 1;
+    const live = hub.live;
+    const width = live ? live.timelineWidth : p.timelineWidth;
+    const span = live
+      ? canvasSpan(p.zoomH, p.visible, dpr, live, 32, width)
+      : canvasSpan(p.zoomH, { start: p.visible.start, end: Math.max(p.visible.start, Math.min(p.visible.end, width)) }, dpr, null);
+    placeCanvas(cv, span, 1);
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const lw = Math.max(1, Math.round(dpr));
+    ctx.fillStyle = STEP_LINE_COLOR;
+    const stepPx = rulerStepFor(span.zoom) * span.zoom;
+    for (const x of stepLinesPx(stepPx, span.left, span.left + span.cssWidth, width)) {
+      ctx.fillRect(canvasX(span, x), 0, lw, 1);
+    }
+  }, [hub]);
+  useCanvasRedraw(draw, [zoomH, visible, timelineWidth], hub);
+  return <canvas ref={ref} className="absolute top-0 block pointer-events-none" style={{ height: '100%' }} />;
+}
+
+interface TextStyle { font: string; color: string; lineHeight: number; tabular: boolean }
+interface RulerStyles { barLine: string; beatLine: string; tickLine: string; barLabel: TextStyle; beatLabel: TextStyle; tickLabel: TextStyle }
+
+function readTextStyle(el: Element): TextStyle {
+  const cs = getComputedStyle(el);
+  const size = parseFloat(cs.fontSize) || 10;
+  return {
+    font: `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`,
+    color: cs.color,
+    lineHeight: parseFloat(cs.lineHeight) || size * 1.2,
+    tabular: cs.fontVariantNumeric.includes('tabular-nums'),
+  };
+}
+
+/** Subida e descida da fonte e largura de um algarismo (lidas a cada desenho: a fonte pode chegar depois). */
+// Medidas de fonte e largura de cada caractere, guardadas por fonte: trocar ctx.font e medir texto
+// a cada número da régua custava mais de 1 s num zoom longo (medido no perfil do Electron).
+const fontCache = new Map<string, { ascent: number; descent: number; digit: number; widths: Map<string, number> }>();
+function fontMetrics(ctx: CanvasRenderingContext2D, font: string) {
+  let m = fontCache.get(font);
+  if (m) return m;
+  ctx.font = font;
+  const t = ctx.measureText('0');
+  m = { ascent: t.fontBoundingBoxAscent, descent: t.fontBoundingBoxDescent, digit: t.width, widths: new Map() };
+  fontCache.set(font, m);
+  return m;
+}
+
+function charWidth(ctx: CanvasRenderingContext2D, font: string, ch: string): number {
+  const m = fontMetrics(ctx, font);
+  let w = m.widths.get(ch);
+  if (w === undefined) { w = ctx.measureText(ch).width; m.widths.set(ch, w); }
+  return w;
+}
+
+// Atlas de caracteres por estilo e densidade de pixels: os números da régua são copiados de uma
+// imagem pronta (drawImage), sem trocar a fonte do canvas. Medido no Electron: cada troca de
+// ctx.font custava cerca de 3,4 ms, e o canvas da régua muda de tamanho a cada quadro do zoom (o
+// que apaga a fonte), então a régua gastava uns 7 ms por quadro só nisso.
+const ATLAS_CHARS = '0123456789:.,-+ /|';
+interface Glyph { sx: number; sw: number; w: number }
+interface Atlas { canvas: HTMLCanvasElement; glyphs: Map<string, Glyph>; ascentPx: number; heightPx: number; digit: number }
+const atlases = new Map<string, Atlas>();
+// fonte que termina de carregar depois: refaz atlas e medidas com a fonte certa
+if (typeof document !== 'undefined') {
+  document.fonts?.addEventListener?.('loadingdone', () => { atlases.clear(); fontCache.clear(); });
+}
+function atlasFor(s: TextStyle, dpr: number): Atlas | null {
+  const key = `${s.font}|${s.color}|${dpr}`;
+  const hit = atlases.get(key);
+  if (hit) return hit;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.font = s.font;
+  const t = ctx.measureText('0');
+  const ascent = t.fontBoundingBoxAscent;
+  const descent = t.fontBoundingBoxDescent;
+  const pad = 2;
+  const glyphs = new Map<string, Glyph>();
+  let x = 0;
+  for (const ch of ATLAS_CHARS) {
+    const w = ctx.measureText(ch).width;
+    const sw = Math.ceil(w * dpr) + pad * 2;
+    glyphs.set(ch, { sx: x, sw, w });
+    x += sw;
+  }
+  canvas.width = Math.max(1, x);
+  canvas.height = Math.max(1, Math.ceil((ascent + descent) * dpr) + pad * 2);
+  // mudar o tamanho apaga o estado: fonte e cor de novo, uma vez só
+  ctx.font = s.font;
+  ctx.fillStyle = s.color;
+  ctx.textBaseline = 'alphabetic';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  for (const [ch, g] of glyphs) ctx.fillText(ch, (g.sx + pad) / dpr, pad / dpr + ascent);
+  const atlas: Atlas = { canvas, glyphs, ascentPx: ascent * dpr + pad, heightPx: canvas.height, digit: t.width };
+  atlases.set(key, atlas);
+  return atlas;
+}
+
+/** Número da régua copiado do atlas (x e baseline em px CSS); false se algum caractere não está nele. */
+function drawLabelFromAtlas(ctx: CanvasRenderingContext2D, a: Atlas, text: string, x: number, baseline: number, tabular: boolean, dpr: number): boolean {
+  for (const ch of text) if (!a.glyphs.has(ch)) return false;
+  let at = x;
+  const top = Math.round(baseline * dpr - a.ascentPx);
+  for (const ch of text) {
+    const g = a.glyphs.get(ch)!;
+    const isDigit = ch >= '0' && ch <= '9';
+    const cx = tabular && isDigit ? at + (a.digit - g.w) / 2 : at;
+    ctx.drawImage(a.canvas, g.sx, 0, g.sw, a.heightPx, Math.round(cx * dpr) - 2, top, g.sw, a.heightPx);
+    at += tabular && isDigit ? a.digit : g.w;
+  }
+  return true;
+}
+
+/** Texto com algarismos de largura fixa quando a skin usa tabular-nums (o canvas não tem a opção). */
+function fillLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, tabular: boolean, digit: number, font: string) {
+  if (!tabular) { ctx.fillText(text, x, y); return; }
+  let at = x;
+  for (const ch of text) {
+    const w = charWidth(ctx, font, ch);
+    if (ch >= '0' && ch <= '9') {
+      ctx.fillText(ch, at + (digit - w) / 2, y);
+      at += digit;
+    } else {
+      ctx.fillText(ch, at, y);
+      at += w;
+    }
+  }
+}
+
+const RULER_H = 40;
+
+/**
+ * Régua (40 px): traços e números de compasso e tempo e, embaixo, os números de tempo (m:ss), num
+ * canvas do tamanho da janela visível. Cores, fonte e alturas vêm de elementos escondidos com as
+ * mesmas classes das divs de antes (cada skin troca as variáveis e a fonte). As placas de BPM
+ * continuam em DOM (BarRulerLayer), por cima.
+ */
+export function RulerCanvas({ grid, hasGrid, zoomH, visible, contentEnd, hub }: {
+  grid: SongGrid | null;
+  /** Com grade, os números de tempo ficam só na metade de baixo. */
+  hasGrid: boolean;
+  zoomH: number;
+  visible: VisibleRange;
+  contentEnd: number;
+  hub: ZoomCanvasHub;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const probesRef = useRef<HTMLDivElement>(null);
+  const skin = useSkin();
+  const stylesRef = useRef<RulerStyles | null>(null);
+  const latest = useRef({ grid, hasGrid, zoomH, visible, contentEnd });
+  latest.current = { grid, hasGrid, zoomH, visible, contentEnd };
+  const draw = useCallback(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const p = latest.current;
+    if (!stylesRef.current && probesRef.current) {
+      const q = (name: string) => probesRef.current!.querySelector(`[data-probe="${name}"]`)!;
+      stylesRef.current = {
+        barLine: getComputedStyle(q('bar-line')).borderLeftColor,
+        beatLine: getComputedStyle(q('beat-line')).borderLeftColor,
+        tickLine: getComputedStyle(q('tick-line')).borderLeftColor,
+        barLabel: readTextStyle(q('bar-label')),
+        beatLabel: readTextStyle(q('beat-label')),
+        tickLabel: readTextStyle(q('tick-label')),
+      };
+    }
+    const st = stylesRef.current;
+    if (!st) return;
+    const dpr = window.devicePixelRatio || 1;
+    const span = canvasSpan(p.zoomH, p.visible, dpr, hub.live);
+    const H = Math.round(RULER_H * dpr);
+    placeCanvas(cv, span, H);
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    const lw = Math.max(1, Math.round(dpr));
+    // x (px da tela) de um instante, sem arredondar: o texto fica onde o navegador poria
+    const exactX = (time: number) => ((time * span.zoom - span.left) * span.scale) / dpr;
+    // os textos são guardados e desenhados todos no fim, com uma transformação só e trocando a
+    // fonte só quando ela muda (trocar fonte e transformação a cada número pesava no zoom)
+    const labels: Array<{ label: string; x: number; boxTop: number; s: TextStyle }> = [];
+    const text = (label: string, x: number, boxTop: number, s: TextStyle) => { labels.push({ label, x, boxTop, s }); };
+    const flushLabels = () => {
+      if (labels.length === 0) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // por estilo: a fonte do canvas é trocada uma vez por estilo, não a cada número
+      const byStyle = new Map<TextStyle, typeof labels>();
+      for (const l of labels) {
+        const list = byStyle.get(l.s);
+        if (list) list.push(l); else byStyle.set(l.s, [l]);
+      }
+      for (const [s, list] of byStyle) {
+        const m = fontMetrics(ctx, s.font);
+        const atlas = atlasFor(s, dpr);
+        let fontSet = false;
+        for (const { label, x, boxTop } of list) {
+          const baseline = textBaseline(boxTop, s.lineHeight, m.ascent, m.descent);
+          if (atlas) {
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            if (drawLabelFromAtlas(ctx, atlas, label, x, baseline, s.tabular, dpr)) continue;
+          }
+          // caractere fora do atlas (raro): desenha com a fonte, como antes
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          if (!fontSet) { ctx.font = s.font; ctx.fillStyle = s.color; fontSet = true; }
+          fillLabel(ctx, label, x, baseline, s.tabular, m.digit, s.font);
+        }
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    };
+
+    if (p.grid) {
+      const g = p.grid;
+      const lines = gridLines(g, span.from, span.to, span.zoom);
+      const beatPx = g.beat * span.zoom;
+      const barPx = g.beat * g.beatsPerBar * span.zoom;
+      // Com pouco espaço por compasso, mostra o número só a cada N compassos (potência de 2) para
+      // nunca sobrepor os algarismos; o traço continua em todo compasso.
+      const barLabelStride = Math.max(1, 2 ** Math.ceil(Math.log2(32 / Math.max(barPx, 1e-3))));
+      for (const l of lines) {
+        const bar = l.kind === 'bar';
+        ctx.fillStyle = bar ? st.barLine : st.beatLine;
+        ctx.fillRect(canvasXAt(span, l.time), 0, lw, Math.round((bar ? 20 : 10) * dpr));
+        const showLabel = bar
+          ? (barLabelStride <= 1 || (l.bar - 1) % barLabelStride === 0)
+          : l.kind === 'beat' && beatPx >= 40; // meio tempo: só o traço, senão repete o número do tempo
+        // borda de 1 px + left-1 (4 px); pt-0.5 (2 px) em cima
+        if (showLabel) text(barBeatLabel(l.time, g), exactX(l.time) + 5, 2, bar ? st.barLabel : st.beatLabel);
+      }
+    }
+
+    const step = rulerStepFor(span.zoom);
+    const top = Math.round((p.hasGrid ? 20 : 0) * dpr);
+    const tw = timelineWidthFor(p.contentEnd, span.zoom);
+    for (const t of rulerTicks(step, span.zoom, span.from * span.zoom, span.to * span.zoom, tw)) {
+      ctx.fillStyle = st.tickLine;
+      ctx.fillRect(canvasXAt(span, t), top, lw, H - top);
+      // borda de 1 px + pl-1 (4 px); a caixa do texto encosta em baixo, com pb-0.5 (2 px)
+      text(formatRulerTick(t, step), exactX(t) + 5, RULER_H - 2 - st.tickLabel.lineHeight, st.tickLabel);
+    }
+    flushLabels();
+  }, [hub]);
+  // skin nova: cores e fonte lidas de novo
+  useLayoutEffect(() => { stylesRef.current = null; }, [skin]);
+  useCanvasRedraw(draw, [grid, hasGrid, zoomH, visible, contentEnd, skin], hub);
+  return (
+    <>
+      <canvas ref={ref} className="absolute top-0 block pointer-events-none" style={{ height: `${RULER_H}px` }} />
+      {/* mesmas classes das divs de antes: o canvas lê daqui cor, fonte e entrelinha de cada skin */}
+      <div ref={probesRef} hidden aria-hidden>
+        <span data-probe="bar-line" className="border-l border-logic-text-muted/60" />
+        <span data-probe="beat-line" className="border-l border-logic-border-light/60" />
+        <span data-probe="tick-line" className="border-l border-logic-border-dark/60" />
+        <span data-probe="bar-label" className="text-2xs font-mono whitespace-nowrap leading-none text-logic-text-dim font-medium" />
+        <span data-probe="beat-label" className="text-2xs font-mono whitespace-nowrap leading-none text-logic-text-muted/70" />
+        <span data-probe="tick-label" className="text-2xs text-logic-text-muted font-mono pl-1 whitespace-nowrap" />
+      </div>
+    </>
   );
 }
 
@@ -78,64 +432,49 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempo
     window.addEventListener('pointercancel', up);
     document.body.style.cursor = 'grabbing';
   };
-  const beatPx = grid.beat * zoomH;
-  const barPx = grid.beat * grid.beatsPerBar * zoomH;
-  // Com pouco espaço por compasso, mostra o número só a cada N compassos (potência de 2) para
-  // nunca sobrepor os algarismos — a linha vertical continua sendo desenhada em todo compasso.
-  const barLabelStride = Math.max(1, 2 ** Math.ceil(Math.log2(32 / Math.max(barPx, 1e-3))));
-
   // Anti-colisão: garante que duas placas de BPM nunca se sobreponham visualmente na régua
   let lastBadgePx = -9999;
   const MIN_BADGE_DIST_PX = 130;
+  const badges: { time: number; bpm: number; px: number }[] = [];
+  for (const l of lines) {
+    if (!l.bpmChange) continue;
+    const linePx = l.time * zoomH;
+    if (linePx - lastBadgePx >= MIN_BADGE_DIST_PX) {
+      badges.push({ time: l.time, bpm: l.bpmChange, px: linePx });
+      lastBadgePx = linePx;
+    }
+  }
 
+  // Os traços e números da régua são desenhados no RulerCanvas; aqui ficam só as placas de BPM
+  // (poucas e clicáveis), no mesmo lugar de antes (a borda transparente mantém o 1 px do traço).
   return (
     <>
-      {lines.map((l) => {
-        const showLabel = l.kind === 'bar'
-          ? (barLabelStride <= 1 || (l.bar - 1) % barLabelStride === 0)
-          : l.kind === 'beat' && beatPx >= 40; // meio tempo: só o traço, senão repete o número do tempo
-
-        const linePx = l.time * zoomH;
-        let showBpmBadge = false;
-        if (l.bpmChange && (linePx - lastBadgePx >= MIN_BADGE_DIST_PX)) {
-          showBpmBadge = true;
-          lastBadgePx = linePx;
-        }
-
-        return (
+      {badges.map((b) => (
+        <div
+          key={b.time}
+          className="absolute top-0 border-l border-transparent pointer-events-none"
+          style={{ left: zoomPx(b.time) }}
+        >
           <div
-            key={l.time}
-            className={`absolute top-0 border-l pointer-events-none ${l.kind === 'bar' ? 'h-5 border-logic-text-muted/60' : 'h-2.5 border-logic-border-light/60'}`}
-            style={{ left: `${linePx}px` }}
+            className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-grab active:cursor-grabbing hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
+            title={`Mudança de andamento: ${b.bpm} BPM. Arraste para mover (Alt: sem imã). Botão direito: editar, ajustar no beat ou excluir.`}
+            // a placa não move o cursor nem abre o menu da régua
+            onPointerDown={(e) => startTempoDrag(e, b.time)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setMenu({ x: e.clientX, y: e.clientY, time: b.time, bpm: b.bpm });
+            }}
+            onDoubleClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onEditTempo?.({ time: b.time, bpm: b.bpm, x: e.clientX, y: e.clientY });
+            }}
           >
-            {showLabel && (
-              <span className={`absolute top-0 left-1 text-2xs font-mono whitespace-nowrap leading-none pt-0.5 select-none ${l.kind === 'bar' ? 'text-logic-text-dim font-medium' : 'text-logic-text-muted/70'}`}>
-                {barBeatLabel(l.time, grid)}
-              </span>
-            )}
-            {showBpmBadge && (
-              <div
-                className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-grab active:cursor-grabbing hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
-                title={`Mudança de andamento: ${l.bpmChange} BPM. Arraste para mover (Alt: sem imã). Botão direito: editar, ajustar no beat ou excluir.`}
-                // a placa não move o cursor nem abre o menu da régua
-                onPointerDown={(e) => startTempoDrag(e, l.time)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setMenu({ x: e.clientX, y: e.clientY, time: l.time, bpm: l.bpmChange! });
-                }}
-                onDoubleClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  onEditTempo?.({ time: l.time, bpm: l.bpmChange!, x: e.clientX, y: e.clientY });
-                }}
-              >
-                <span>⚡ {l.bpmChange} BPM</span>
-              </div>
-            )}
+            <span>⚡ {b.bpm} BPM</span>
           </div>
-        );
-      })}
+        </div>
+      ))}
       {menu && (
         <TempoChangeMenu
           song={song}

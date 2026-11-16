@@ -19,6 +19,12 @@ export const PRIORITY_NEXT = 2;
 
 /** Tamanho de cada trecho enviado: pequeno o bastante para não pesar na thread de áudio. */
 export const CHUNK_FRAMES = 1 << 16;
+/**
+ * Tamanho do pedaço da tabela do reprodutor (igual a SLOT_FRAMES em clipPlayerProcessor.js).
+ * Todo envio sai alinhado a esta grade: o reprodutor guarda o trecho recebido sem copiar e nada
+ * do tamanho da música inteira é criado, nem aqui nem lá.
+ */
+export const SLOT_FRAMES = 1 << 14;
 /** Quanto é copiado de uma vez antes de devolver a vez para a tela e o som (por fatia de trabalho). */
 const SLICE_BYTES = 8 * 1024 * 1024;
 /**
@@ -26,12 +32,11 @@ const SLICE_BYTES = 8 * 1024 * 1024;
  * A cópia de cada mensagem é feita dentro da thread de áudio; pedaços menores, um por vez, não
  * tomam o tempo de um bloco de som da música no ar.
  */
-export const LOW_PIECE_FRAMES = 1 << 14;
+export const LOW_PIECE_FRAMES = SLOT_FRAMES;
 /**
  * Trecho em volta do ponto de largada que vai junto com os blocos, antes de qualquer espera
  * (~5,5 s a 48 kHz). Com 2,7 s, um tranco da tela logo depois do play/busca deixava a faixa sem
- * dado. Não gasta memória a mais: os blocos já nascem do tamanho da música inteira; só a cópia
- * inicial na tela cresce (~1 MB por faixa estéreo).
+ * dado. A cópia inicial na tela é só a janela (~1 MB por faixa estéreo), nunca a música inteira.
  */
 export const WINDOW_FRAMES = 1 << 18;
 const BACK_MARGIN_FRAMES = 1 << 15;
@@ -56,8 +61,13 @@ export interface StreamHandle {
   focus(frame: number, priority?: number): void;
 }
 
-/** Trechos [início, fim) ainda faltando, começando em `from` e depois voltando ao começo. */
-export function planChunks(total: number, have: Array<[number, number]>, from: number, chunk = CHUNK_FRAMES): Array<[number, number]> {
+/**
+ * Trechos [início, fim) ainda faltando, começando em `from` e depois voltando ao começo.
+ * Com `grid` > 1, os cortes caem na grade de pedaços do reprodutor: o ponto de partida desce até
+ * o começo do pedaço dele e uma ponta torta (vinda de um trecho já presente) sai sozinha até a
+ * próxima linha da grade, para os trechos seguintes chegarem alinhados (guardados sem cópia).
+ */
+export function planChunks(total: number, have: Array<[number, number]>, from: number, chunk = CHUNK_FRAMES, grid = 1): Array<[number, number]> {
   const missing: Array<[number, number]> = [];
   let cursor = 0;
   const sorted = [...have].sort((a, b) => a[0] - b[0]);
@@ -66,7 +76,9 @@ export function planChunks(total: number, have: Array<[number, number]>, from: n
     cursor = Math.max(cursor, e);
   }
   if (cursor < total) missing.push([cursor, total]);
-  const start = Math.max(0, Math.min(total, from | 0));
+  const g = Math.max(1, grid | 0);
+  const raw = Math.max(0, Math.min(total, from | 0));
+  const start = g > 1 ? raw - (raw % g) : raw;
   const ahead: Array<[number, number]> = [];
   const behind: Array<[number, number]> = [];
   for (const [s, e] of missing) {
@@ -76,9 +88,53 @@ export function planChunks(total: number, have: Array<[number, number]>, from: n
   }
   const out: Array<[number, number]> = [];
   for (const [s, e] of [...ahead, ...behind]) {
-    for (let a = s; a < e; a += chunk) out.push([a, Math.min(e, a + chunk)]);
+    let a = s;
+    if (g > 1 && a % g !== 0) {
+      const edge = Math.min(e, a - (a % g) + g);
+      out.push([a, edge]);
+      a = edge;
+    }
+    for (; a < e; a += chunk) out.push([a, Math.min(e, a + chunk)]);
   }
   return out;
+}
+
+/** Ordena e junta trechos que se tocam ou se sobrepõem. */
+function mergeRanges(list: Array<[number, number]>): Array<[number, number]> {
+  const sorted = list.filter((r) => r[1] > r[0]).sort((a, b) => a[0] - b[0]);
+  const out: Array<[number, number]> = [];
+  for (const [s, e] of sorted) {
+    const last = out[out.length - 1];
+    if (last && s <= last[1]) last[1] = Math.max(last[1], e);
+    else out.push([s, e]);
+  }
+  return out;
+}
+
+/** Trecho que vai junto na mensagem 'stream' (o reprodutor guarda cada pedaço sem copiar). */
+interface StreamPiece {
+  offset: number;
+  left: Int16Array;
+  right: Int16Array;
+}
+
+function alignDown(v: number): number {
+  return v - (v % SLOT_FRAMES);
+}
+
+function alignUp(v: number): number {
+  const r = v % SLOT_FRAMES;
+  return r === 0 ? v : v + SLOT_FRAMES - r;
+}
+
+/** Buffers para transferir, sem repetir (mono manda o mesmo bloco nos dois lados). */
+function transferList(pieces: StreamPiece[]): ArrayBuffer[] {
+  const set = new Set<ArrayBuffer>();
+  for (const p of pieces) {
+    set.add(p.left.buffer as ArrayBuffer);
+    set.add(p.right.buffer as ArrayBuffer);
+  }
+  return Array.from(set);
 }
 
 function remainingRanges(queue: Array<[number, number]>): Array<[number, number]> {
@@ -143,9 +199,9 @@ export class AudioStreamer {
   }
 
   /**
-   * Começa a entregar `audio` ao reprodutor: manda na hora os blocos do tamanho total com o
-   * trecho [from - pouco, from + WINDOW] já preenchido (e o começo, se `headFrames` > 0), e o
-   * resto em segundo plano.
+   * Começa a entregar `audio` ao reprodutor: manda na hora só o total e o trecho
+   * [from - pouco, from + WINDOW] (e o começo, se `headFrames` > 0), alinhados à grade de pedaços,
+   * e o resto em segundo plano. Nada do tamanho da música é criado.
    */
   start(port: StreamPort, audio: StreamAudio, options: { from: number; priority: number; headFrames?: number; window?: number; availableFrames?: number }): StreamHandle {
     const total = audio.length;
@@ -154,30 +210,30 @@ export class AudioStreamer {
     const available = Math.max(0, Math.min(total, options.availableFrames ?? total, audio.channels[0].length));
     const window = options.window ?? WINDOW_FRAMES;
     const from = Math.max(0, Math.min(total, options.from | 0));
-    const have: Array<[number, number]> = [];
-    const head = Math.min(available, Math.max(0, options.headFrames ?? 0));
-    if (head > 0) have.push([0, head]);
+    const wanted: Array<[number, number]> = [];
+    const head = Math.min(available, alignUp(Math.max(0, options.headFrames ?? 0)));
+    if (head > 0) wanted.push([0, head]);
     // um pouco antes do ponto pedido: até a mensagem chegar, a música já andou alguns milissegundos
-    // e o SoundTouch lê à frente
-    const wStart = Math.max(0, from - BACK_MARGIN_FRAMES);
-    const wEnd = Math.min(available, from + window);
-    if (wEnd > wStart) have.push([wStart, wEnd]);
+    // e o SoundTouch lê à frente. As pontas caem na grade de pedaços do reprodutor.
+    const wStart = alignDown(Math.max(0, from - BACK_MARGIN_FRAMES));
+    const wEnd = Math.min(available, alignUp(from + window));
+    if (wEnd > wStart) wanted.push([wStart, wEnd]);
+    const have = mergeRanges(wanted);
 
-    const left = new Int16Array(total);
     const src = audio.channels;
-    const right = src[1] ? new Int16Array(total) : left;
+    const pieces: StreamPiece[] = [];
     for (const [s, e] of have) {
-      left.set(src[0].subarray(s, e), s);
-      if (src[1]) right.set(src[1].subarray(s, e), s);
+      const left = src[0].slice(s, e);
+      pieces.push({ offset: s, left, right: src[1] ? src[1].slice(s, e) : left });
     }
-    port.postMessage({ type: 'stream', left, right, total, ranges: have }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
-    const queue = available < total ? [] : planChunks(total, have, from);
+    port.postMessage({ type: 'stream', total, stereo: !!src[1], pieces }, transferList(pieces));
+    const queue = available < total ? [] : planChunks(total, have, from, CHUNK_FRAMES, SLOT_FRAMES);
     return this.enqueue(port, audio, queue, options.priority);
   }
 
   /** O reprodutor já tem os blocos (ex.: começo pronto do disco); só envia o que falta. */
   resume(port: StreamPort, audio: StreamAudio, have: Array<[number, number]>, options: { from: number; priority: number }): StreamHandle {
-    return this.enqueue(port, audio, planChunks(audio.length, have, options.from), options.priority);
+    return this.enqueue(port, audio, planChunks(audio.length, have, options.from, CHUNK_FRAMES, SLOT_FRAMES), options.priority);
   }
 
   private enqueue(port: StreamPort, audio: StreamAudio, queue: Array<[number, number]>, priority: number): StreamHandle {
@@ -198,7 +254,7 @@ export class AudioStreamer {
       focus(frame: number, prio?: number) {
         if (job.done) return;
         if (typeof prio === 'number') job.priority = prio;
-        job.queue = planChunks(audio.length, invert(audio.length, remainingRanges(job.queue)), frame);
+        job.queue = planChunks(audio.length, invert(audio.length, remainingRanges(job.queue)), frame, CHUNK_FRAMES, SLOT_FRAMES);
         kick();
       },
     };
@@ -335,6 +391,23 @@ interface DiskJob {
   retries: number;
 }
 
+/** Trecho já lido do disco, a partir de `start` (quadros já com os cortes aplicados). */
+export interface InitialWindow {
+  start: number;
+  channels: Int16Array[];
+}
+
+/**
+ * Os n primeiros quadros de `arr` num bloco que pode ser transferido: o próprio array quando ele
+ * é o bloco inteiro (o caso normal, vindo do leitor), senão uma cópia só desse trecho.
+ * `same`/`sameOut`: o canal direito que é o mesmo array do esquerdo reaproveita a mesma saída.
+ */
+function ownedView(arr: Int16Array, n: number, same?: Int16Array, sameOut?: Int16Array): Int16Array {
+  if (same && arr === same && sameOut) return sameOut;
+  const whole = arr.byteOffset === 0 && arr.length === n && arr.byteLength === arr.buffer.byteLength && arr.buffer instanceof ArrayBuffer;
+  return whole ? arr : arr.slice(0, n);
+}
+
 /** Quantas leituras do disco ao mesmo tempo (para todas as faixas juntas). */
 const DISK_CONCURRENCY = 6;
 export const DISK_CHUNK_FRAMES = 1 << 16;
@@ -403,21 +476,30 @@ export class DiskStreamer {
     }, Math.max(1, Math.ceil(ms)));
   }
 
-  /** `initial`: trecho já lido (ex.: o da largada, lido antes de parar a música anterior). */
-  start(port: StreamPort, reader: RangeReader, options: { from: number; priority: number; initial?: { start: number; channels: Int16Array[] } }): DiskHandle {
+  /**
+   * `initial`: trecho(s) já lido(s) (ex.: o da largada, lido antes de parar a música anterior).
+   * Vão junto na mensagem 'stream' do jeito que chegaram do leitor (transferidos, sem cópia);
+   * o reprodutor monta a tabela de pedaços. Nada do tamanho da música é criado.
+   */
+  start(port: StreamPort, reader: RangeReader, options: { from: number; priority: number; initial?: InitialWindow | InitialWindow[] }): DiskHandle {
     const total = reader.length;
-    const left = new Int16Array(total);
-    const right = reader.channelCount > 1 ? new Int16Array(total) : left;
-    const have: Array<[number, number]> = [];
-    const init = options.initial;
-    if (init && init.channels[0]?.length) {
-      const s = Math.max(0, Math.min(total, init.start));
-      const n = Math.min(init.channels[0].length, total - s);
-      left.set(init.channels[0].subarray(0, n), s);
-      if (right !== left) right.set((init.channels[1] ?? init.channels[0]).subarray(0, n), s);
-      if (n > 0) have.push([s, s + n]);
+    const stereo = reader.channelCount > 1;
+    const wanted: Array<[number, number]> = [];
+    const pieces: StreamPiece[] = [];
+    const inits = options.initial ? (Array.isArray(options.initial) ? options.initial : [options.initial]) : [];
+    for (const init of inits) {
+      const c0 = init?.channels[0];
+      if (!c0?.length) continue;
+      const s = Math.max(0, Math.min(total, init.start | 0));
+      const n = Math.min(c0.length, total - s);
+      if (n <= 0) continue;
+      const left = ownedView(c0, n);
+      const right = stereo ? ownedView(init.channels[1] ?? c0, n, c0, left) : left;
+      pieces.push({ offset: s, left, right });
+      wanted.push([s, s + n]);
     }
-    port.postMessage({ type: 'stream', left, right, total, ranges: have }, right === left ? [left.buffer] : [left.buffer, right.buffer]);
+    const have = mergeRanges(wanted);
+    port.postMessage({ type: 'stream', total, stereo, pieces }, transferList(pieces));
     const from = Math.max(0, Math.min(total, options.from | 0));
     let resolve!: () => void;
     const done = new Promise<void>((r) => { resolve = r; });
@@ -425,7 +507,7 @@ export class DiskStreamer {
     const first = new Promise<boolean>((r) => { firstResolve = r; });
     const job: DiskJob = {
       port, reader, priority: options.priority,
-      queue: planChunks(total, have, from, this.chunk),
+      queue: planChunks(total, have, from, this.chunk, SLOT_FRAMES),
       inFlight: 0, done: false, failed: false, firstPending: have.length === 0, firstResolve, resolve, retries: 0,
     };
     if (!job.firstPending) firstResolve(true);

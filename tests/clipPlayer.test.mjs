@@ -264,3 +264,63 @@ test('troca de áudio ao vivo (stream) mantém as vozes no mesmo objeto de dados
   rig.run(10);
   assert.ok(close(pl.left[10 * Q + 300], val(10 * Q + 300, 500)));
 });
+
+test('ordem de largada que chega atrasada: a faixa entra adiantada pelo atraso e fica alinhada com as outras', () => {
+  const rig = makeRig();
+  const total = SR * 2;
+  const a = ramp(total, 0);
+  const b = ramp(total, 9);
+  const early = rig.create({ left: a, right: a });
+  const late = rig.create({ left: b, right: b });
+  const start = 0.01;
+  early.pl = early; late.pl = late;
+  early.send({ startTime: start });
+  // a outra faixa só recebe a ordem 40 blocos depois da hora marcada (Play com a tela ocupada)
+  rig.run(40);
+  const lateBySamples = 40 * Q - Math.round(start * SR);
+  late.send({ startTime: start });
+  rig.run(200);
+  assert.ok(late.messages.some((m) => m.type === 'late' && m.ms >= Math.floor((lateBySamples / SR) * 1000) - 1), 'avisa o atraso para o diário');
+  const startIdx = Math.round(start * SR);
+  // depois do fade curto de entrada, as duas tocam o mesmo ponto do arquivo no mesmo instante
+  for (const k of [40 * Q + 1000, 40 * Q + 9000, 40 * Q + 20000]) {
+    const pos = k - startIdx;
+    assert.ok(close(early.left[k], val(pos, 0)), 'faixa a tempo no lugar');
+    assert.ok(close(late.left[k], val(pos, 9)), `faixa atrasada também no lugar (amostra ${k})`);
+  }
+});
+
+test('busca com ordem atrasada também desconta o atraso', () => {
+  const rig = makeRig();
+  const total = SR * 2;
+  const data = ramp(total, 3);
+  const pl = rig.create({ left: data, right: data });
+  rig.run(10);
+  const t = 10 * Q / SR;
+  // ordem pedia começar em t no ponto SR/4; chegou 20 blocos depois
+  rig.run(20);
+  pl.send({ type: 'seek', offsetSamples: SR / 4, startTime: t, fadeInFrames: 1 });
+  rig.run(100);
+  const k = 30 * Q + 3000;
+  const expectedPos = SR / 4 + (k - 10 * Q);
+  assert.ok(close(pl.left[k], val(expectedPos, 3)), 'posição certa depois da busca atrasada');
+});
+
+test('salto de loop que chega atrasado entra adiantado e com rampa (sem estalo)', () => {
+  const rig = makeRig();
+  const total = SR * 2;
+  const data = ramp(total, 5);
+  const pl = rig.create({ left: data, right: data });
+  pl.send({ startTime: 0.001 });
+  rig.run(20);
+  const at = 10 * Q / SR;
+  // ordem pedia saltar para SR/2 em 'at'; chegou 10 blocos depois
+  pl.send({ type: 'jump', at, resumeAt: at, offsetSamples: SR / 2, crossfadeFrames: 256 });
+  rig.run(60);
+  const swap = 20 * Q;
+  // na troca só soa a voz antiga (saindo em fade): a nova começa do zero, com rampa
+  const oldPos = swap - Math.round(0.001 * SR);
+  assert.ok(close(pl.left[swap], val(oldPos, 5), 1e-3), 'a voz nova entra com rampa, sem degrau');
+  const k = swap + 2000;
+  assert.ok(close(pl.left[k], val(SR / 2 + (k - 10 * Q), 5)), 'e na posição certa, descontado o atraso');
+});

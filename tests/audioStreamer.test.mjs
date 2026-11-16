@@ -11,6 +11,9 @@ const soundtouch = readFileSync(new URL('../src/lib/soundtouch.vendor.js', impor
   .replace(/export\s*\{[^}]*\}\s*;?/g, '');
 const processorSource = readFileSync(new URL('../src/lib/clipPlayerProcessor.js', import.meta.url), 'utf8');
 
+// Uma amostra da tabela de pedaços do reprodutor (canal 0 esquerdo, 1 direito).
+const sampleOf = (data, i, ch = 0) => { const slots = ch ? data.right : data.left; const s = slots[Math.floor(i / data.slotFrames)]; return s ? s[i % data.slotFrames] : 0; };
+
 function sandbox() {
   const sb = { currentTime: 0, sampleRate: SR, Float32Array, Int16Array, Math, Number, console };
   sb.AudioWorkletProcessor = class {
@@ -99,7 +102,7 @@ test('o áudio inteiro chega em trechos e o reprodutor avisa quando completou', 
   assert.ok(proc.port.messages.some((m) => m.type === 'loaded'));
   // nenhum trecho foi mandado duas vezes: só o total do arquivo atravessou a ponte (+ o bloco inicial)
   assert.ok(port.bytes <= total * 2 * 2 + 1, `bytes enviados ${port.bytes}`);
-  for (const i of [0, 12345, total - 1]) assert.equal(proc.data.left[i], audio.channels[0][i]);
+  for (const i of [0, 12345, total - 1]) assert.equal(sampleOf(proc.data, i), audio.channels[0][i]);
 });
 
 test('a música no ar termina de chegar antes da próxima começar a ocupar a ponte', async () => {

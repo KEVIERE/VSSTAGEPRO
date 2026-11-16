@@ -70,6 +70,9 @@ for (const fmt of [
 const SR = 48000;
 const soundtouch = readFileSync(new URL('../src/lib/soundtouch.vendor.js', import.meta.url), 'utf8').replace(/export\s*\{[^}]*\}\s*;?/g, '');
 const processorSource = readFileSync(new URL('../src/lib/clipPlayerProcessor.js', import.meta.url), 'utf8');
+
+// Uma amostra da tabela de pedaços do reprodutor (canal 0 esquerdo, 1 direito).
+const sampleOf = (data, i, ch = 0) => { const slots = ch ? data.right : data.left; const s = slots[Math.floor(i / data.slotFrames)]; return s ? s[i % data.slotFrames] : 0; };
 function processorClass() {
   const sb = { currentTime: 0, sampleRate: SR, Float32Array, Int16Array, Math, Number, console };
   sb.AudioWorkletProcessor = class { constructor() { const messages = []; this.port = { onmessage: null, postMessage: (m) => messages.push(m), messages }; } };
@@ -111,7 +114,7 @@ test('leitor do disco: a faixa recebe tudo, começando pelo ponto de largada', a
   await h.done;
   assert.ok(log[0] >= from - (1 << 16) && log[0] <= from, 'primeira leitura no ponto de largada');
   assert.ok(proc.port.messages.some((m) => m.type === 'loaded'));
-  for (const i of [0, from, total - 1]) assert.equal(proc.data.left[i], reader.data[i]);
+  for (const i of [0, from, total - 1]) assert.equal(sampleOf(proc.data, i), reader.data[i]);
 });
 
 test('leitor do disco: trecho já lido antes da troca vai junto e o play não espera o disco', async () => {

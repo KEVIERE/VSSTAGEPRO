@@ -1103,7 +1103,6 @@
   animation-name: vs-follow-x;
   animation-timeline: --vs-tl-x;
 }
-
 /* Feixes de luz da entrada do programa balançando devagar (como no site) */
 @keyframes accessSway {
   from { rotate: -4deg; }
@@ -1128,6 +1127,12 @@
   letter-spacing: -0.01em;
   text-transform: none;
   text-indent: 0;
+}
+
+/* Zoom ao vivo: com o canvas do gesto na tela (ClipWaveform, liveWaveHub), o desenho normal da onda
+   fica escondido até ficar pronto na escala nova. */
+[data-vs-live] > .vs-wave-layer {
+  visibility: hidden !important;
 }
 
 /* ================= Skin Grafite (Visualizar > Skins) =================

@@ -2,10 +2,10 @@
 // Se a taxa do arquivo for outra, converte aqui mesmo. A conversão de cada amostra só depende
 // do arquivo, então ler só o começo dá exatamente o começo da leitura inteira.
 
-type Req = { id: number; blob: Blob; targetRate: number; maxFrames: number; probeOnly: boolean; startFrame?: number };
+type Req = { id: number; blob: Blob; targetRate: number; maxFrames: number; probeOnly: boolean; startFrame?: number; peaksPer?: number };
 
 type Res =
-  | { id: number; ok: true; sampleRate: number; sourceRate: number; totalFrames: number; channels: Int16Array[]; channelCount?: number }
+  | { id: number; ok: true; sampleRate: number; sourceRate: number; totalFrames: number; channels: Int16Array[]; channelCount?: number; peaks?: Uint8Array }
   | { id: number; ok: false };
 
 interface WavInfo {
@@ -52,6 +52,29 @@ async function parseHeader(blob: Blob): Promise<WavInfo | null> {
     o += 8 + size + (size & 1);
   }
   return null;
+}
+
+// Mesma conta de encodeFineChunk (src/lib/waveColumns.ts), repetida aqui: o worker fica sem
+// importações para também rodar nos testes do node (tests/onda-resumo-detalhado.test.mjs confere).
+function encodeFineChunk(channels: Int16Array[], firstFrame: number, framesPer: number, out: Uint8Array): void {
+  const chs = channels.slice(0, 2);
+  if (chs.length === 0) return;
+  const len = Math.min(...chs.map((c) => c.length));
+  const firstBin = Math.floor(firstFrame / framesPer);
+  for (let i = 0; i * framesPer < len; i++) {
+    const bin = firstBin + i;
+    if (bin >= out.length) break;
+    const a = i * framesPer;
+    const b = Math.min(len, a + framesPer);
+    let m = 0;
+    for (const ch of chs) {
+      for (let s = a; s < b; s++) {
+        const v = ch[s] < 0 ? -ch[s] : ch[s];
+        if (v > m) m = v;
+      }
+    }
+    out[bin] = Math.min(255, Math.round(Math.sqrt(Math.min(1, m / 32768)) * 255));
+  }
 }
 
 function clamp16(v: number): number {
@@ -195,7 +218,7 @@ function outFramesOf(info: WavInfo, targetRate: number): number {
 }
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
-  const { id, blob, targetRate, maxFrames, probeOnly, startFrame } = ev.data;
+  const { id, blob, targetRate, maxFrames, probeOnly, startFrame, peaksPer } = ev.data;
   const reply = (res: Res, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(res, transfer);
   try {
     const info = await parseHeader(blob);
@@ -204,6 +227,20 @@ self.onmessage = async (ev: MessageEvent<Req>) => {
     if (total <= 0) return reply({ id, ok: false });
     if (probeOnly) return reply({ id, ok: true, sampleRate: targetRate, sourceRate: info.rate, totalFrames: total, channels: [], channelCount: Math.min(2, info.channels) });
     const blockBytes = (info.bits / 8) * info.channels;
+    // Resumo detalhado da onda (finePeaks): o arquivo inteiro, na taxa dele, em pedaços grandes,
+    // e só os bytes de pico voltam para a tela (uns 360 KB numa faixa de 8 minutos).
+    // Pedido em fatias (startFrame múltiplo de peaksPer, maxFrames = tamanho da fatia): a tela pede uma
+    // por vez e para entre elas quando dão Play ou quando uma música está abrindo.
+    if (typeof peaksPer === 'number' && peaksPer > 0) {
+      const from = Math.max(0, Math.min(info.frames, startFrame ?? 0));
+      const count = maxFrames > 0 ? Math.min(maxFrames, info.frames - from) : info.frames - from;
+      const peaks = new Uint8Array(Math.ceil(count / peaksPer));
+      if (count > 0) {
+        const bytes = await blob.slice(info.dataStart + from * blockBytes, info.dataStart + (from + count) * blockBytes).arrayBuffer();
+        encodeFineChunk(convert(bytes, info, Math.floor(bytes.byteLength / blockBytes)), 0, peaksPer, peaks);
+      }
+      return reply({ id, ok: true, sampleRate: info.rate, sourceRate: info.rate, totalFrames: info.frames, channels: [], peaks }, [peaks.buffer]);
+    }
     // Trecho do meio do arquivo (leitura antecipada do disco): só na mesma taxa da saída,
     // onde cada amostra lida é exatamente a da leitura inteira.
     if (typeof startFrame === 'number') {

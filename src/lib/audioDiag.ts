@@ -5,7 +5,9 @@
 
 // 'largada': quanto o Play esperou pelo trecho extra (duracaoMs; 0 = pulou) e quanto levou a
 // primeira leitura (leituraMs); faixa = quantas faixas o extra cobriu ("3/8").
-export type AudioDiagTipo = 'underrun' | 'recovered' | 'longtask' | 'largada';
+// 'largada-atrasada': a ordem de largada chegou depois da hora (duracaoMs = atraso); o reprodutor
+// entrou adiantado por esse tanto, no tempo das outras faixas.
+export type AudioDiagTipo = 'underrun' | 'recovered' | 'longtask' | 'largada' | 'largada-atrasada';
 
 export interface AudioDiagEvento {
   /** performance.now() do momento do evento. */

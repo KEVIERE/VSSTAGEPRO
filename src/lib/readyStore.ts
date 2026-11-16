@@ -177,9 +177,41 @@ export async function purgeStale(dir: FileSystemDirectoryHandle, projectNames: S
     next[name] = last;
   }
   await trimRenderedForSpace(dir, inUse, next);
+  await trimToCap(dir, inUse, next);
   try {
     localStorage.setItem(SEEN_KEY, JSON.stringify(next));
   } catch { /* sem espaço: só deixa de limpar */ }
+}
+
+/** Teto das cópias prontas no disco (todos os projetos juntos): o que passar sai, das mais antigas. */
+const MAX_TOTAL_BYTES = 8 * 1024 ** 3;
+const CAP_MIN_IDLE_MS = 3 * 24 * 60 * 60 * 1000;
+
+// Teto fixo: sem ele a pasta passava de 13 GB num Mac de 228 GB. Sai primeiro o que nenhum projeto
+// aberto usa, do uso mais antigo para o mais novo, de qualquer tipo (o que sai é refeito se precisar).
+async function trimToCap(dir: FileSystemDirectoryHandle, inUse: Set<string>, seen: Record<string, number>) {
+  const sizes: Array<{ name: string; size: number }> = [];
+  let total = 0;
+  for (const name of Object.keys(seen)) {
+    try {
+      const size = (await (await dir.getFileHandle(name)).getFile()).size;
+      sizes.push({ name, size });
+      total += size;
+    } catch { /* já saiu */ }
+  }
+  if (total <= MAX_TOTAL_BYTES) return;
+  // só o que ninguém usa há alguns dias (o projeto aberto pode ainda não ter marcado os dele)
+  const old = Date.now() - CAP_MIN_IDLE_MS;
+  const candidates = sizes.filter((x) => !inUse.has(x.name) && seen[x.name] < old).sort((a, b) => seen[a.name] - seen[b.name]);
+  for (const { name, size } of candidates) {
+    if (total <= MAX_TOTAL_BYTES) break;
+    try {
+      await dir.removeEntry(name);
+      known.delete(name);
+      delete seen[name];
+      total -= size;
+    } catch { /* ignore */ }
+  }
 }
 
 // Com o disco apertado, as músicas ajustadas que o projeto aberto não usa saem primeiro, das mais antigas.

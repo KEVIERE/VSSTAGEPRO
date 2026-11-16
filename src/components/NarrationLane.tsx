@@ -17,6 +17,7 @@ import { audioEngine } from '@/lib/audioEngine';
 import { masterAudioClip } from '@/lib/clipMastering';
 import { MASTER_PROFILES } from '@/lib/mastering';
 import { ClipWaveform } from '@/components/ClipWaveform';
+import { zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
 import { ClipMenuItems } from '@/components/ContextMenu';
 
 /** Altura da régua do Maestro por IA (a coluna de nomes das faixas usa a mesma). */
@@ -282,7 +283,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
       {narrations.length === 0 && !draft && !clipLayer && (
         <div
           className="absolute top-0 h-full flex items-center gap-1.5 px-3 text-2xs text-logic-text-muted pointer-events-none whitespace-nowrap"
-          style={{ left: `${Math.max(0, visible.start)}px` }}
+          style={{ left: 'var(--vs-vis-start, 0px)' }}
         >
           <Sparkles size={10} className="text-sky-300/70" />
           <span>{emptyHint}</span>
@@ -297,7 +298,6 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
         const end = isDragging ? dragging!.end : n.end + shift;
         // fora da tela: fica de fora do desenho
         if (start * zoomH > visible.end || end * zoomH < visible.start) return null;
-        const width = Math.max(6, (end - start) * zoomH);
         const span = end - start;
         const wpm = wpmForSpan(n.text, span);
         const busy = isGenerating(n.id);
@@ -330,7 +330,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
             className={`absolute top-[3px] bottom-[3px] rounded-sm flex items-center select-none touch-none group overflow-hidden border hover:brightness-125 ${tone} ${
               isDragging ? 'cursor-grabbing z-20 shadow-lg' : 'cursor-grab z-10'
             } ${inSelection || selectedId === n.id ? 'ring-2 ring-white/80 brightness-125' : ''} ${clip?.mute ? 'opacity-45 saturate-0' : ''}`}
-            style={{ left: `${start * zoomH}px`, width: `${width}px` }}
+            style={{ left: zoomPx(start), width: zoomPxMin(6, end - start) }}
             onPointerDown={(e) => handleBarPointerDown(e, n)}
             onDoubleClick={(e) => { e.stopPropagation(); onEdit(n); }}
             onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, id: n.id }); }}
@@ -342,7 +342,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
               // aplica o volume da fala. Antes a onda era esticada até o alto e nunca mudava.
               <div
                 className="absolute top-0 bottom-0 pointer-events-none opacity-60"
-                style={{ left: `${(clip.startTime + shift - (clip.trimStart ?? 0) - start) * zoomH}px`, width: `${Math.max(1, clip.duration * zoomH)}px` }}
+                style={{ left: zoomPx(clip.startTime + shift - (clip.trimStart ?? 0) - start), width: zoomPxMin(1, clip.duration) }}
               >
                 <ClipWaveform
                   clip={clip}
@@ -351,6 +351,9 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
                   height={Math.max(4, height - 8)}
                   visible={visible}
                   color={clip.mute ? '#8a8f98' : '#bae6fd'}
+                  zoomSec={clip.duration}
+                  zoomMinPx={1}
+                  startSec={clip.startTime + shift - (clip.trimStart ?? 0)}
                 />
               </div>
             )}
@@ -376,7 +379,7 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
       {draft && (
         <div
           className="absolute top-[3px] bottom-[3px] rounded-sm border border-dashed border-sky-300 bg-sky-400/20 pointer-events-none flex items-center px-1.5 text-[9px] font-mono text-sky-100 whitespace-nowrap overflow-hidden"
-          style={{ left: `${draft.start * zoomH}px`, width: `${Math.max(2, (draft.end - draft.start) * zoomH)}px` }}
+          style={{ left: zoomPx(draft.start), width: zoomPxMin(2, draft.end - draft.start) }}
         >
           {(draft.end - draft.start).toFixed(1)}s
         </div>

@@ -7,6 +7,7 @@ import { cutBounds, medleySlices, partsWithCut, sortedParts, type MedleySlice } 
 import { formatRegionTime } from '@/lib/regions';
 import { snapTime, songGrid } from '@/lib/grid';
 import { seekToPosition } from '@/lib/transportControl';
+import { zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
 import { LaneActionMenu } from '@/components/LanePopover';
 
 const DRAG_THRESHOLD_PX = 3;
@@ -95,7 +96,7 @@ export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
           className={`absolute top-0.5 bottom-0.5 flex items-center select-none cursor-pointer overflow-hidden border-y border-r border-logic-border-light/70 hover:bg-white/[0.09] transition-colors ${
             i % 2 === 0 ? 'bg-white/[0.06]' : 'bg-white/[0.03]'
           } ${editingId === s.id ? 'ring-1 ring-white' : ''}`}
-          style={{ left: `${s.start * zoomH}px`, width: `${Math.max(2, (s.end - s.start) * zoomH)}px` }}
+          style={{ left: zoomPx(s.start), width: zoomPxMin(2, s.end - s.start) }}
           onClick={() => seekToPosition(song.id, s.start)}
           onDoubleClick={(e) => { e.stopPropagation(); setEditingId(null); setMenuId(s.id); }}
           title={`${s.name} · ${formatRegionTime(s.start)}–${formatRegionTime(s.end)}\nClique para ir · Clique duplo para renomear ou excluir`}
@@ -109,7 +110,7 @@ export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
         <div
           key={`cut-${s.id}`}
           className="absolute top-0 bottom-0 w-2.5 -ml-[5px] z-10 cursor-ew-resize group touch-none"
-          style={{ left: `${s.start * zoomH}px` }}
+          style={{ left: zoomPx(s.start) }}
           onPointerDown={(e) => handleCutPointerDown(e, s)}
           onDoubleClick={(e) => { e.stopPropagation(); setEditingId(null); setMenuId(s.id); }}
           title="Arraste para mover o corte (Option desliga o alinhamento ao BPM) · Clique duplo para renomear ou excluir"
