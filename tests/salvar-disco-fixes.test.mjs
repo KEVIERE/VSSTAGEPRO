@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createRequire, register } from 'node:module';
 import { createCoalescedSave } from '../src/lib/coalesceSave.ts';
 
@@ -41,7 +42,7 @@ export async function resolve(spec, ctx, next) {
 const saver = await import('../src/lib/projectSaver.ts');
 const backups = await import('../src/lib/projectBackups.ts');
 
-const read = (...p) => fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname), '..', ...p), 'utf8');
+const read = (...p) => fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', ...p), 'utf8');
 
 // ---------- picos da onda ----------
 
