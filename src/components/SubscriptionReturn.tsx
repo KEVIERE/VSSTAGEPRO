@@ -21,6 +21,7 @@ import VsLogo from '@/components/VsLogo';
 import { supportWhatsAppUrl } from '@/lib/support';
 import { supabase } from '@/lib/supabaseClient';
 import { getLatestPix, getPixStatus, type PixCharge } from '@/lib/pixCheckout';
+import { metaPurchase } from '@/lib/metaPixel';
 import { readPixReturn } from '@/lib/pixReturn';
 import { formatBrasiliaDate } from '@/lib/pixFormat';
 import { refreshLicense } from '@/lib/licenseEvents';
@@ -72,7 +73,11 @@ export default function SubscriptionReturn() {
       idRef.current = c.id;
       const next = viewOf(c);
       setView(next);
-      if (next.kind === 'paid') refreshLicense();
+      if (next.kind === 'paid') {
+        refreshLicense();
+        // Mesmo event_id do servidor: a Meta conta a venda uma vez só.
+        metaPurchase(next.charge);
+      }
     } catch (e) {
       const code = (e as Error).message;
       setView(code === 'unauthorized' || code === 'not_authenticated' ? { kind: 'nosession' } : { kind: 'unknown' });

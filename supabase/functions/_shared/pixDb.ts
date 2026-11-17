@@ -2,6 +2,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.57.4';
 import type { ApplyResult } from './asaasWebhook.ts';
 import type { Confirmation } from './infinitepay.ts';
+import { type MetaTracking, type PurchaseInput, metaConfigFromEnv, reportPurchaseToMeta } from './metaCapi.ts';
 
 export async function applyPixPayment(admin: SupabaseClient, asaasPaymentId: string, paidCents: number): Promise<ApplyResult> {
   const { data, error } = await admin.rpc('pix_apply_payment', { p_asaas_payment_id: asaasPaymentId, p_paid_cents: paidCents });
@@ -49,4 +50,44 @@ export async function closePendingPix(admin: SupabaseClient, asaasPaymentId: str
     .select('id');
   if (error) throw new Error(`pix_payments: ${error.message}`);
   return (data ?? []).length > 0;
+}
+
+/**
+ * Pedido pago com o que a API de Conversões da Meta precisa (metaCapi.ts): valor,
+ * plano, e-mail e telefone da conta e os cookies gravados ao abrir o pagamento.
+ * Se a migração da meta_tracking ainda não estiver no banco, segue sem ela.
+ */
+export async function loadPurchaseForMeta(admin: SupabaseClient, orderNsu: string): Promise<Omit<PurchaseInput, 'eventTime'> | null> {
+  const cols = 'id, user_id, plan, amount_cents, order_nsu';
+  type Res = { data: unknown; error: { message: string } | null };
+  let res: Res = await admin.from('pix_payments').select(`${cols}, meta_tracking`).eq('order_nsu', orderNsu).maybeSingle();
+  if (res.error) res = await admin.from('pix_payments').select(cols).eq('order_nsu', orderNsu).maybeSingle();
+  if (res.error) throw new Error(`pix_payments: ${res.error.message}`);
+  const row = res.data as { id: string; user_id: string; plan: string; amount_cents: number; order_nsu: string; meta_tracking?: MetaTracking | null } | null;
+  if (!row) return null;
+  const { data: u } = await admin.auth.admin.getUserById(row.user_id);
+  const meta = (u?.user?.user_metadata ?? {}) as { phone?: string };
+  return {
+    paymentId: row.id,
+    orderNsu: row.order_nsu,
+    plan: row.plan,
+    amountCents: row.amount_cents,
+    userId: row.user_id,
+    email: u?.user?.email ?? null,
+    phone: u?.user?.phone || meta.phone || null,
+    tracking: row.meta_tracking ?? null,
+  };
+}
+
+/** Purchase da Meta pelo servidor, para quem acabou de liberar um pedido ('activated'). */
+export function metaPurchaseReporter(admin: SupabaseClient, siteUrl: string) {
+  const config = metaConfigFromEnv((k) => Deno.env.get(k), siteUrl);
+  return (orderNsu: string) => reportPurchaseToMeta({
+    config,
+    loadPurchase: (nsu) => loadPurchaseForMeta(admin, nsu),
+    fetch: (url, init) => fetch(url, init),
+    now: () => Date.now(),
+    log: (...a) => console.log(...a),
+    error: (...a) => console.error(...a),
+  }, orderNsu);
 }

@@ -37,6 +37,7 @@ import { friendlyError } from '@/lib/friendlyError';
 import PixCheckout from '@/components/PixCheckout';
 import { AccessCard } from '@/components/access/AccessChrome';
 import { resolveAffiliateCoupon } from '@/lib/affiliateApi';
+import { metaCompleteRegistration, metaViewContent } from '@/lib/metaPixel';
 
 export type Plan = 'monthly' | 'yearly';
 
@@ -134,6 +135,9 @@ export default function PricingPage() {
     setPixPlan(plan);
   };
 
+  // Pixel da Meta: abriu a página de planos.
+  useEffect(() => { metaViewContent(); }, []);
+
   useEffect(() => {
     document.documentElement.style.overflow = 'auto';
     document.body.style.overflow = 'auto';
@@ -221,6 +225,9 @@ export default function PricingPage() {
             setAuthBusy(false);
             return;
           }
+
+          // Conta nova: começa o teste de 48 horas (Pixel da Meta).
+          metaCompleteRegistration(signUpData.user?.id);
 
           if (signUpData.user && !signUpData.session) {
             setAuthSuccessMsg(

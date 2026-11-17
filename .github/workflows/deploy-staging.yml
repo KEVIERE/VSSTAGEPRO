@@ -34,12 +34,20 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Pixel da Meta: Settings > Secrets and variables > Actions > aba Variables >
+          # META_PIXEL_ID (só números; não é segredo, vai no site). Vazio: site sem Pixel.
+          META_PIXEL_ID: ${{ vars.META_PIXEL_ID }}
         run: |
           if [ -z "$VITE_SUPABASE_URL" ] || [ -z "$VITE_SUPABASE_ANON_KEY" ]; then
             echo "::error::Cadastre VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY em Settings > Secrets and variables > Actions."
             exit 1
           fi
           printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+          if [ -n "$META_PIXEL_ID" ]; then
+            printf 'VITE_META_PIXEL_ID=%s\n' "$META_PIXEL_ID" >> .env
+          else
+            echo "::warning::META_PIXEL_ID vazio: o site sai sem o Pixel da Meta."
+          fi
 
       - run: npm ci
 

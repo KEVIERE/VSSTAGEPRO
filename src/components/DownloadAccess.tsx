@@ -15,6 +15,7 @@ function savedLogin(): { email: string; remember: boolean } {
 }
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
+import { metaCompleteRegistration } from '@/lib/metaPixel';
 import { friendlyError } from '@/lib/friendlyError';
 import VsLogo from '@/components/VsLogo';
 import Field from '@/components/auth/Field';
@@ -107,6 +108,8 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
         if (signUpData.user && signUpData.user.identities?.length === 0) {
           throw new Error('already_registered');
         }
+        // Conta nova: começa o teste de 48 horas (Pixel da Meta; só no site).
+        metaCompleteRegistration(signUpData.user?.id);
         if (!signUpData.session) {
           setInfo('Enviamos um e-mail de confirmação. Clique no link para ativar sua conta.');
           setBusy(false);

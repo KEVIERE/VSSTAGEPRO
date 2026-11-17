@@ -75,6 +75,7 @@ import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
 import { startSongKeyWatcher } from '@/lib/songKeyWatcher';
+import { metaPageView } from '@/lib/metaPixel';
 
 // Enquanto chega o código de uma página do site: só o fundo, sem piscar branco.
 function SitePageFallback() {
@@ -167,6 +168,8 @@ function App() {
   // Visitas do site para a aba "Acessos" do admin (o próprio admin não conta).
   useEffect(() => {
     if (route !== 'admin') trackSiteVisit(route);
+    // Pixel da Meta: só nas páginas públicas do site, nunca no programa do Mac.
+    metaPageView(route);
   }, [route]);
 
   // Trava scroll apenas quando o editor/DAW estiver aberto. Em páginas públicas

@@ -7,13 +7,16 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.57.4';
 import { infinitePayClient } from '../_shared/infinitepay.ts';
 import { handleInfinitePayWebhook } from '../_shared/infinitepayWebhook.ts';
-import { applyPaymentByOrder } from '../_shared/pixDb.ts';
+import { applyPaymentByOrder, metaPurchaseReporter } from '../_shared/pixDb.ts';
 
 const infinitepay = infinitePayClient(Deno.env.get('INFINITEPAY_API_KEY') ?? '');
 
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false },
 });
+
+// Purchase para a Meta (API de Conversões) quando o pedido é liberado agora. Nunca falha.
+const reportPurchase = metaPurchaseReporter(admin, Deno.env.get('SITE_URL') ?? 'https://vsstagepro.com.br');
 
 /** Uma linha por aviso em webhook_events_log, para o monitoramento saber a hora do último.
  *  Sem dados pessoais: só o resultado. Falha aqui nunca muda a resposta à InfinitePay. */
@@ -44,7 +47,11 @@ Deno.serve(async (req) => {
       return data as { status: string } | null;
     },
     checkPayment: (input) => infinitepay.conferirPagamento(input),
-    applyPayment: (orderNsu, paidCents, confirmation) => applyPaymentByOrder(admin, orderNsu, paidCents, confirmation),
+    applyPayment: async (orderNsu, paidCents, confirmation) => {
+      const r = await applyPaymentByOrder(admin, orderNsu, paidCents, confirmation);
+      if (r.result === 'activated') await reportPurchase(orderNsu);
+      return r;
+    },
     log: (...args) => console.log(...args),
     error: (...args) => console.error(...args),
   });

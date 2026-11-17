@@ -11,6 +11,7 @@ import {
   cpfCnpjDigits, formatBRL, formatBrasiliaDate, formatBrasiliaDateTime, formatCountdown, maskCpfCnpj,
 } from '@/lib/pixFormat';
 import { refreshLicense } from '@/lib/licenseEvents';
+import { metaInitiateCheckout, metaPurchase } from '@/lib/metaPixel';
 import { supportWhatsAppUrl } from '@/lib/support';
 
 // Enquanto o link vale, confere o pagamento a cada 4 s, e na hora quando a
@@ -76,7 +77,9 @@ export default function PixCheckout({
     setError(null);
     currentIdRef.current = null;
     try {
-      show(await createPix(plan, { cpfCnpj, couponCode }));
+      const c = await createPix(plan, { cpfCnpj, couponCode });
+      metaInitiateCheckout(c);
+      show(c);
     } catch (e) {
       const code = (e as Error).message;
       // A InfinitePay coleta os dados do pagador na página dela, então o CPF
@@ -139,6 +142,7 @@ export default function PixCheckout({
   // depois pede ao programa para conferir a licença.
   useEffect(() => {
     if (phase !== 'paid') return;
+    if (charge) metaPurchase(charge);
     const before = document.title;
     document.title = 'Pagamento confirmado · VS Stage Pro';
     const t = window.setTimeout(() => { refreshLicense(); onPaidRef.current?.(); }, PAID_HOLD_MS);

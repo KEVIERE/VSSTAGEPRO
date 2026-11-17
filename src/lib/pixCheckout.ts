@@ -1,5 +1,6 @@
 // Chamadas da tela para a função pix-checkout (Supabase), que fala com a InfinitePay.
 import { supabase } from '@/lib/supabaseClient';
+import { metaTrackingForCheckout } from '@/lib/metaPixel';
 
 export type PixPlan = 'monthly' | 'yearly';
 export type PixStatus = 'pending' | 'paid' | 'expired' | 'canceled' | 'amount_mismatch' | 'refunded';
@@ -42,7 +43,8 @@ async function call(body: Record<string, unknown>): Promise<PixCharge> {
 }
 
 export const createPix = (plan: PixPlan, opts: { cpfCnpj?: string; couponCode?: string } = {}) =>
-  call({ action: 'create', plan, ...opts });
+  // `meta`: cookies do Pixel, para o Purchase pelo servidor sair ligado ao clique no anúncio.
+  call({ action: 'create', plan, ...opts, meta: metaTrackingForCheckout() });
 
 export const getPixStatus = (id: string, codes: PixReturnCodes = {}) => call({ action: 'status', id, ...codes });
 

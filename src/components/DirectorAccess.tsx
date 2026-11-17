@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { BadgeCheck, CheckCircle2, CloudOff, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, WifiOff, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import { clearLocalSession, emailLinkType, rpcWithStoredSession, storedSession, supabase } from '@/lib/supabaseClient';
+import { metaCompleteRegistration } from '@/lib/metaPixel';
 import { REFUSED_TEXT, REPLACED_TEXT, lastSeenText, otherDeviceLabel, readDeviceVerdict, type DeviceVerdict } from '@/lib/deviceLock';
 import { useStore } from '@/store';
 import { NEED_INTERNET_TEXT, decideOffline, type LicenseCache, type NeedInternetReason } from '@/lib/offlineLicense';
@@ -546,6 +547,8 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         if (signUpData.user && signUpData.user.identities?.length === 0) {
           throw new Error('already_registered');
         }
+        // Conta nova: começa o teste de 48 horas (Pixel da Meta; só no site).
+        metaCompleteRegistration(signUpData.user?.id);
         if (!signUpData.session) {
           setInfo('Enviamos um e-mail de confirmação. Clique no link para ativar sua conta.');
           setBusy(false);

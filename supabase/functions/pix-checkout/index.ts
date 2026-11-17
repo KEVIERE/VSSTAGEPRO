@@ -18,7 +18,8 @@ import {
 import {
   MIN_PIX_CENTS, PIX_PLANS, type Plan, discountedCents, pixLinkExpiresAt, reusableLink, statusCheckPlan,
 } from '../_shared/pix.ts';
-import { applyPaymentByOrder } from '../_shared/pixDb.ts';
+import { applyPaymentByOrder, metaPurchaseReporter } from '../_shared/pixDb.ts';
+import { sanitizeTracking } from '../_shared/metaCapi.ts';
 import { couponRefusal } from '../_shared/affiliate.ts';
 
 const corsHeaders = {
@@ -37,6 +38,9 @@ const infinitepay = infinitePayClient(API_KEY);
 const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, {
   auth: { persistSession: false },
 });
+
+// Purchase para a Meta (API de Conversões) quando o pedido é liberado agora. Nunca falha.
+const reportPurchase = metaPurchaseReporter(admin, SITE_URL);
 
 // Com o link aberto há tempo, a tela pergunta à InfinitePay no máximo a cada 15 s.
 const RECHECK_MS = 15_000;
@@ -140,6 +144,7 @@ async function aplicar(orderNsu: string, valor: number | null, conf: Confirmatio
   if (r.result === 'transaction_reused') {
     console.error('pix-checkout transacao ja usada em outro pedido, nao liberado', orderNsu);
   }
+  if (r.result === 'activated') await reportPurchase(orderNsu);
   return r;
 }
 
@@ -195,7 +200,7 @@ async function loadRowById(id: string): Promise<PixRow | null> {
   return data as PixRow | null;
 }
 
-async function create(user: User, body: Record<string, unknown>) {
+async function create(user: User, body: Record<string, unknown>, req: Request) {
   const plan = body.plan;
   if (plan !== 'monthly' && plan !== 'yearly') return json({ error: 'invalid_plan' }, 400);
 
@@ -281,6 +286,18 @@ async function create(user: User, body: Record<string, unknown>) {
     .single();
   if (insErr) throw insErr;
   const row = inserted as PixRow;
+
+  // Cookies da Meta e o navegador de quem abriu o pagamento: o Purchase pelo servidor
+  // (metaCapi.ts) sai ligado ao clique no anúncio. Separado do insert e sem travar nada:
+  // antes da migração 20261117120000 a coluna não existe e o pagamento segue igual.
+  const tracking = sanitizeTracking(body.meta, {
+    ip: req.headers.get('cf-connecting-ip') ?? req.headers.get('x-forwarded-for'),
+    ua: req.headers.get('user-agent'),
+  }, SITE_URL);
+  if (tracking) {
+    const { error: trackErr } = await admin.from('pix_payments').update({ meta_tracking: tracking }).eq('id', row.id);
+    if (trackErr) console.error('pix-checkout meta_tracking', trackErr.message);
+  }
 
   try {
     const link = await infinitepay.criarLink({
@@ -374,7 +391,7 @@ Deno.serve(async (req) => {
   if (authErr || !auth.user) return json({ error: 'unauthorized' }, 401);
 
   try {
-    if (body.action === 'create') return await create(auth.user, body);
+    if (body.action === 'create') return await create(auth.user, body, req);
     if (body.action === 'status') return await status(auth.user, body);
     if (body.action === 'latest') return await latest(auth.user, body);
     return json({ error: 'invalid_action' }, 400);
