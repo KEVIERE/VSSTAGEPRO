@@ -1,0 +1,49 @@
+name: Teste de velocidade da voz clonada (CPU)
+
+# Só roda nesta branch de teste. Mede quanto tempo o motor de voz (Qwen3-TTS 0.6B Base,
+# PyTorch no processador) leva para falar num PC Windows e num Mac Intel de verdade.
+on:
+  push:
+    branches: [teste/voz-cpu]
+
+jobs:
+  medir:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Processador
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then powershell -c "Get-CimInstance Win32_Processor | Select Name,NumberOfCores,NumberOfLogicalProcessors | Format-List"; else sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize; fi
+      - name: Instalar o motor (mesmas versões do VS Stage)
+        run: |
+          python -m pip install -q "numpy==1.26.4" "torch==2.2.2" "torchaudio==2.2.2" "soundfile==0.12.1"
+          python -m pip install -q --no-deps qwen-tts
+          python -m pip install -q --only-binary=:all: "transformers==4.57.3" "accelerate==1.12.0" librosa einops sox "numba==0.60.0" "llvmlite==0.43.0" "onnxruntime==1.19.2"
+          python -m pip install -q --no-deps "numpy==1.26.4"
+      - name: Baixar o modelo
+        run: |
+          B=https://huggingface.co/Qwen/Qwen3-TTS-12Hz-0.6B-Base/resolve/main
+          mkdir -p model/speech_tokenizer
+          for f in config.json generation_config.json merges.txt model.safetensors preprocessor_config.json tokenizer_config.json vocab.json speech_tokenizer/config.json speech_tokenizer/configuration.json speech_tokenizer/model.safetensors speech_tokenizer/preprocessor_config.json; do
+            curl -fL -sS --retry 3 -o "model/$f" "$B/$f"
+          done
+      - name: Clonar a voz e medir
+        run: |
+          mkdir -p out
+          python desktop/scripts/testeVozCpu.py model desktop/maestro-voices/feminina.wav desktop/maestro-voices/feminina.txt out 2>&1 | grep -E "^\[|clonada|tempo real|Error|error"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: falas-${{ matrix.os }}
+          path: out
