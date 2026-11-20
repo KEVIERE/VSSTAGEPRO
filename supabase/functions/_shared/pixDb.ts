@@ -81,9 +81,9 @@ export async function loadPurchaseForMeta(admin: SupabaseClient, orderNsu: strin
 
 /** Purchase da Meta pelo servidor, para quem acabou de liberar um pedido ('activated'). */
 export function metaPurchaseReporter(admin: SupabaseClient, siteUrl: string) {
-  const config = metaConfigFromEnv((k) => Deno.env.get(k), siteUrl);
+  const configs = metaConfigFromEnv((k) => Deno.env.get(k), siteUrl);
   return (orderNsu: string) => reportPurchaseToMeta({
-    config,
+    configs,
     loadPurchase: (nsu) => loadPurchaseForMeta(admin, nsu),
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now(),

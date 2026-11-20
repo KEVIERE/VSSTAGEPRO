@@ -28,6 +28,8 @@ test('Pixel só liga no site, com Pixel ID, fora do programa do Mac e das telas 
   assert.equal(pixel.configuredPixelId(' 1234567890 '), '1234567890');
   assert.equal(pixel.configuredPixelId('abc'), '');
   assert.equal(pixel.configuredPixelId(undefined), '');
+  assert.deepEqual(pixel.configuredPixelIds('1074429838967668, 2021834145149783,1074429838967668,lixo'), ['1074429838967668', '2021834145149783']);
+  assert.deepEqual(pixel.configuredPixelIds(undefined), []);
   const ok = { pixelId: '1234567890', desktop: false };
   for (const r of ['sales', 'pricing', 'download', 'subscribed']) assert.equal(pixel.pixelAllowed({ ...ok, route: r }), true, r);
   for (const r of ['admin', 'director', 'remote', 'screen', 'musician', 'producer']) assert.equal(pixel.pixelAllowed({ ...ok, route: r }), false, r);
@@ -126,10 +128,14 @@ test('envio: token no corpo, nunca no endereço, e código de teste quando houve
 });
 
 test('sem Pixel ou sem token não manda nada; erro da Meta nunca lança', async () => {
-  assert.equal(metaConfigFromEnv(() => undefined, SITE), null);
-  assert.equal(metaConfigFromEnv((k) => (k === 'META_PIXEL_ID' ? '1234567890' : undefined), SITE), null);
-  const cfg = metaConfigFromEnv((k) => ({ META_PIXEL_ID: '1234567890', META_CAPI_TOKEN: 'tk' })[k], SITE);
+  assert.deepEqual(metaConfigFromEnv(() => undefined, SITE), []);
+  assert.deepEqual(metaConfigFromEnv((k) => (k === 'META_PIXEL_ID' ? '1234567890' : undefined), SITE), []);
+  const [cfg] = metaConfigFromEnv((k) => ({ META_PIXEL_ID: '1234567890', META_CAPI_TOKEN: 'tk' })[k], SITE);
   assert.deepEqual(cfg, { pixelId: '1234567890', token: 'tk', testEventCode: undefined, siteUrl: SITE });
+  // Dois Pixels: o token geral vale só para o primeiro; o segundo precisa do token dele.
+  const dois = (extra) => metaConfigFromEnv((k) => ({ META_PIXEL_ID: '1111111111,2222222222', META_CAPI_TOKEN: 'tk1', ...extra })[k], SITE);
+  assert.deepEqual(dois({}).map((c) => c.pixelId), ['1111111111']);
+  assert.deepEqual(dois({ META_CAPI_TOKEN_2222222222: 'tk2' }).map((c) => [c.pixelId, c.token]), [['1111111111', 'tk1'], ['2222222222', 'tk2']]);
 
   const erros = [];
   const base = {
@@ -139,15 +145,22 @@ test('sem Pixel ou sem token não manda nada; erro da Meta nunca lança', async 
     error: (...a) => erros.push(a.join(' ')),
   };
   let chamou = false;
-  assert.equal(await reportPurchaseToMeta({ ...base, config: null, fetch: async () => { chamou = true; } }, 'vs-abc-1'), 'skipped');
+  assert.equal(await reportPurchaseToMeta({ ...base, configs: [], fetch: async () => { chamou = true; } }, 'vs-abc-1'), 'skipped');
   assert.equal(chamou, false);
 
-  assert.equal(await reportPurchaseToMeta({ ...base, config: cfg, fetch: async () => { throw new Error('rede caiu'); } }, 'vs-abc-1'), 'failed');
-  assert.equal(await reportPurchaseToMeta({ ...base, config: cfg, fetch: async () => ({ ok: false, status: 400, text: async () => 'erro' }) }, 'vs-abc-1'), 'failed');
-  assert.equal(await reportPurchaseToMeta({ ...base, config: cfg, loadPurchase: async () => { throw new Error('banco'); }, fetch: async () => ({}) }, 'vs-abc-1'), 'failed');
+  assert.equal(await reportPurchaseToMeta({ ...base, configs: [cfg], fetch: async () => { throw new Error('rede caiu'); } }, 'vs-abc-1'), 'failed');
+  assert.equal(await reportPurchaseToMeta({ ...base, configs: [cfg], fetch: async () => ({ ok: false, status: 400, text: async () => 'erro' }) }, 'vs-abc-1'), 'failed');
+  assert.equal(await reportPurchaseToMeta({ ...base, configs: [cfg], loadPurchase: async () => { throw new Error('banco'); }, fetch: async () => ({}) }, 'vs-abc-1'), 'failed');
   assert.ok(erros.every((e) => !e.includes('tk')), 'token apareceu no log');
 
-  const enviado = await reportPurchaseToMeta({ ...base, config: cfg, fetch: async () => ({ ok: true, status: 200, text: async () => '{}' }) }, 'vs-abc-1');
+  // Dois Pixels: o mesmo evento vai para os dois, cada um com o seu token.
+  const urls = [];
+  const cfg2 = { ...cfg, pixelId: '2222222222', token: 'tk2' };
+  const r2 = await reportPurchaseToMeta({ ...base, configs: [cfg, cfg2], fetch: async (url, init) => { urls.push([url.split('/')[4], JSON.parse(init.body).access_token, JSON.parse(init.body).data[0].event_id]); return { ok: true, status: 200, text: async () => '{}' }; } }, 'vs-abc-1');
+  assert.equal(r2, 'sent');
+  assert.deepEqual(urls, [['1234567890', 'tk', 'purchase_pay-1'], ['2222222222', 'tk2', 'purchase_pay-1']]);
+
+  const enviado = await reportPurchaseToMeta({ ...base, configs: [cfg], fetch: async () => ({ ok: true, status: 200, text: async () => '{}' }) }, 'vs-abc-1');
   assert.equal(enviado, 'sent');
 });
 

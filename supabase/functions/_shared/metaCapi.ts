@@ -11,10 +11,11 @@
 // pessoa abriu o pagamento (pix_payments.meta_tracking).
 //
 // Segredos (Supabase → Edge Functions → Secrets), nunca no repositório:
-//   META_PIXEL_ID         id do conjunto de dados (Pixel)
-//   META_CAPI_TOKEN       token da API de Conversões (Gerenciador de Eventos)
+//   META_PIXEL_ID         id do conjunto de dados (Pixel); mais de um, separados por vírgula
+//   META_CAPI_TOKEN       token da API de Conversões do PRIMEIRO Pixel da lista
+//   META_CAPI_TOKEN_<id>  token de um Pixel específico (vale para qualquer um da lista)
 //   META_TEST_EVENT_CODE  opcional: código da aba "Testar eventos", só enquanto testa
-// Sem META_PIXEL_ID ou META_CAPI_TOKEN nada é enviado.
+// Pixel sem token fica de fora; sem nenhum Pixel com token, nada é enviado.
 //
 // Nada aqui pode atrapalhar o pagamento: reportPurchaseToMeta nunca lança erro.
 // Testado em tests/metaPixel.test.mjs (npm test), sem rede.
@@ -143,7 +144,8 @@ export async function sendMetaEvents(
 }
 
 export type ReportDeps = {
-  config: MetaConfig | null;
+  /** Um por Pixel com token. Lista vazia: nada é enviado. */
+  configs: MetaConfig[];
   /** Pedido pago com o e-mail e o telefone da conta, ou null. */
   loadPurchase(orderNsu: string): Promise<Omit<PurchaseInput, 'eventTime'> | null>;
   fetch: FetchLike;
@@ -152,32 +154,47 @@ export type ReportDeps = {
   error(message: string, ...extra: unknown[]): void;
 };
 
-/** Lê os segredos da Meta. Sem o Pixel ou sem o token, devolve null (nada é enviado). */
-export function metaConfigFromEnv(get: (k: string) => string | undefined, siteUrl: string): MetaConfig | null {
-  const pixelId = (get('META_PIXEL_ID') ?? '').trim();
-  const token = (get('META_CAPI_TOKEN') ?? '').trim();
-  if (!/^\d{6,20}$/.test(pixelId) || !token) return null;
+/** Pixels da lista META_PIXEL_ID (separados por vírgula), válidos e sem repetir. */
+export function metaPixelIdsFromEnv(get: (k: string) => string | undefined): string[] {
+  const ids = String(get('META_PIXEL_ID') ?? '').split(/[\s,;]+/).map((x) => x.trim()).filter((x) => /^\d{6,20}$/.test(x));
+  return [...new Set(ids)];
+}
+
+/**
+ * Lê os segredos da Meta: um config por Pixel que tem token (META_CAPI_TOKEN_<id>, ou
+ * META_CAPI_TOKEN para o primeiro da lista). Pixel sem token fica de fora.
+ */
+export function metaConfigFromEnv(get: (k: string) => string | undefined, siteUrl: string): MetaConfig[] {
   const testEventCode = (get('META_TEST_EVENT_CODE') ?? '').trim() || undefined;
-  return { pixelId, token, testEventCode, siteUrl };
+  return metaPixelIdsFromEnv(get).flatMap((pixelId, i) => {
+    const token = ((get(`META_CAPI_TOKEN_${pixelId}`) ?? '') || (i === 0 ? get('META_CAPI_TOKEN') ?? '' : '')).trim();
+    return token ? [{ pixelId, token, testEventCode, siteUrl }] : [];
+  });
 }
 
 /** Manda o Purchase de um pedido recém-liberado. Nunca lança: o pagamento já valeu. */
 export async function reportPurchaseToMeta(deps: ReportDeps, orderNsu: string): Promise<'sent' | 'skipped' | 'failed'> {
-  if (!deps.config) return 'skipped';
+  if (!deps.configs.length) return 'skipped';
   try {
     const p = await deps.loadPurchase(orderNsu);
     if (!p) {
       deps.error('meta-capi pedido nao encontrado', orderNsu);
       return 'failed';
     }
-    const event = await buildPurchaseEvent({ ...p, eventTime: deps.now() / 1000 }, deps.config.siteUrl);
-    const r = await sendMetaEvents(deps.fetch, deps.config, [event]);
-    if (!r.ok) {
-      deps.error('meta-capi recusou', orderNsu, r.status, r.body);
-      return 'failed';
+    const event = await buildPurchaseEvent({ ...p, eventTime: deps.now() / 1000 }, deps.configs[0].siteUrl);
+    // O mesmo evento (mesmo event_id) para cada Pixel. Um que falhe não impede os outros.
+    let ok = true;
+    for (const cfg of deps.configs) {
+      try {
+        const r = await sendMetaEvents(deps.fetch, cfg, [event]);
+        if (r.ok) deps.log('meta-capi purchase enviado', orderNsu, cfg.pixelId);
+        else { ok = false; deps.error('meta-capi recusou', orderNsu, cfg.pixelId, r.status, r.body); }
+      } catch (e) {
+        ok = false;
+        deps.error('meta-capi falhou', orderNsu, cfg.pixelId, e instanceof Error ? e.message : e);
+      }
     }
-    deps.log('meta-capi purchase enviado', orderNsu);
-    return 'sent';
+    return ok ? 'sent' : 'failed';
   } catch (e) {
     deps.error('meta-capi falhou', orderNsu, e instanceof Error ? e.message : e);
     return 'failed';

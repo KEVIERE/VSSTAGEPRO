@@ -11,6 +11,8 @@
 // Só liga no site, no navegador: nunca dentro do programa do Mac (window.vsDesktop),
 // nunca no admin nem nas telas do show (editor, controle, tela do palco, músico,
 // produtor). Sem VITE_META_PIXEL_ID no build, nada carrega e as funções não fazem nada.
+// VITE_META_PIXEL_ID aceita mais de um ID separado por vírgula: cada Pixel recebe init e
+// todos os eventos (o fbq manda cada track para todos os Pixels iniciados).
 //
 // Sem import de '@/...': os testes (tests/metaPixel.test.mjs) importam este arquivo direto.
 
@@ -38,9 +40,15 @@ export function configuredPixelId(raw: unknown): string {
   return PIXEL_ID_RE.test(id) ? id : '';
 }
 
-const PIXEL_ID = configuredPixelId(
+/** Todos os Pixels do build (IDs separados por vírgula ou espaço), sem repetir e sem inválidos. */
+export function configuredPixelIds(raw: unknown): string[] {
+  return [...new Set(String(raw ?? '').split(/[\s,;]+/).map(configuredPixelId).filter(Boolean))];
+}
+
+const PIXEL_IDS = configuredPixelIds(
   (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_META_PIXEL_ID,
 );
+const PIXEL_ID = PIXEL_IDS[0] ?? '';
 
 /** Páginas públicas que contam para a campanha. As telas do show e o admin ficam de fora. */
 export const PIXEL_ROUTES: ReadonlySet<string> = new Set([
@@ -143,8 +151,10 @@ function load(): boolean {
     document.head.appendChild(s);
   }
   // Sem os eventos automáticos (cliques em botão, dados de formulário): só os nossos.
-  window.fbq('set', 'autoConfig', false, PIXEL_ID);
-  window.fbq('init', PIXEL_ID);
+  for (const id of PIXEL_IDS) {
+    window.fbq('set', 'autoConfig', false, id);
+    window.fbq('init', id);
+  }
   loaded = true;
   return true;
 }
