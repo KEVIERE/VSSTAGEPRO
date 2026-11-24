@@ -22,6 +22,16 @@ export function bpmLabel(song: Song | undefined): string {
   return String(effectiveBpm(song.bpm, song.bpmDetected, song.bpmAdjust) ?? '-');
 }
 
+/** Duração somada do show. Conta só com a lista e as músicas: não depende do tempo tocando. */
+export function showTotalSeconds(playlist: PlaylistEntry[] = [], songs: Song[] = []): number {
+  const list = Array.isArray(playlist) ? playlist : [];
+  return list.reduce((a, p) => {
+    if (!p) return a;
+    const dur = playedDuration(songs.find((s) => s.id === p.songId), p.duration ?? 0);
+    return a + (Number.isFinite(dur) && dur > 0 ? dur : 0);
+  }, 0);
+}
+
 export function useShowTotals(playlist: PlaylistEntry[] = [], songs: Song[] = []) {
   const currentSongId = useStore((s) => s.transport.currentSongId);
   const isPlaying = useStore((s) => s.transport.isPlaying);

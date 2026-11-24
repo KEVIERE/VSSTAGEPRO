@@ -3,6 +3,7 @@
 // A cor vem do texto (currentColor) e o tamanho, da altura: <SegmentDisplay text="-3:21" className="h-12 text-logic-lcd-green" />
 // Nas skins Grafite e Estúdio o mesmo lugar vira um visor de tela: números lisos, sem segmentos, no
 // mesmo tamanho (a caixa é a mesma, então nada sai do lugar ao trocar de skin).
+import { memo } from 'react';
 import { useSkin } from '@/lib/useSkin';
 
 const SEGMENTS: Record<string, string> = {
@@ -60,7 +61,10 @@ function layout(text: string): { cells: Cell[]; width: number } {
   return { cells, width: Math.max(0, x - SPACING) };
 }
 
-export default function SegmentDisplay({
+// memo: o display só redesenha quando o texto (ou a skin) muda, não a cada render do painel.
+export default memo(SegmentDisplay);
+
+function SegmentDisplay({
   text,
   className = '',
   label,

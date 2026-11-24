@@ -1,6 +1,8 @@
 // Regras puras das marcações de fala do Maestro por IA (sem store, sem áudio): a ordem, o
 // encaixe no espaço livre, o beat do cursor e as palavras por minuto que o tamanho pede.
 import type { MaestroNarration, Song, SongTempoSegment } from '@/types';
+import { beatSpans, beatStartTime, beatsFrom, nearestBeatOf, spanIndexAt } from './grid.ts';
+import { realTempoChanges } from './tempoFollow.ts';
 
 export const NARRATION_MIN_LENGTH = 0.35;
 
@@ -164,6 +166,12 @@ const NUMBER_WORDS = [
   'Nove', 'Dez', 'Onze', 'Doze', 'Treze', 'Catorze', 'Quinze', 'Dezesseis',
 ];
 
+/** A palavra é um dos 16 números do pacote de contagem da voz clonada? */
+export function isCountPackWord(word: string): boolean {
+  const key = word.normalize('NFC').replace(/[.!?,;:…]+/g, '').trim().toLowerCase();
+  return NUMBER_WORDS.some((w) => w.normalize('NFC').toLowerCase() === key);
+}
+
 /**
  * Os números falados da contagem. `restartEachBar`: 1-2-3-4, 1-2-3-4 (recomeça a cada compasso);
  * senão segue 1, 2, 3 ... até o total.
@@ -180,29 +188,34 @@ export function countWords(total: number, beatsPerBar: number, restartEachBar: b
  * Os tempos da grade a partir de `start` (já em cima de um tempo): `count` inícios seguidos, um
  * por click, seguindo as mudanças de andamento da música. Sem BPM, devolve vazio.
  */
-export function beatTimesFrom(song: Pick<Song, 'bpm'> & { tempoSegments?: SongTempoSegment[] }, start: number, count: number): number[] {
-  if (!tempoAt(song, start)) return [];
-  const times: number[] = [];
-  let t = beatStartAt(song, start);
-  for (let i = 0; i < count; i++) {
-    times.push(t);
-    const beat = tempoAt(song, t)!.beat;
-    // o próximo tempo: um tempo adiante, encaixado na grade (se o andamento muda no caminho,
-    // o começo do trecho novo manda)
-    t = beatStartAt(song, t + beat);
-  }
-  return times;
+export function beatTimesFrom(song: NarrationTempo, start: number, count: number): number[] {
+  if (!hasTempo(song)) return [];
+  return beatsFrom(beatSpans(song), start, count, BEAT_TOLERANCE);
 }
 
-/** Trecho de andamento que vale em `time` (o BPM da música quando não há mudanças cadastradas). */
-function tempoAt(song: Pick<Song, 'bpm'> & { tempoSegments?: SongTempoSegment[] }, time: number): { origin: number; beat: number } | null {
-  const segs = (song.tempoSegments ?? []).filter((s) => s.bpm > 0).sort((a, b) => a.startTime - b.startTime);
-  if (segs.length > 1) {
-    const seg = [...segs].reverse().find((s) => time >= s.startTime - 1e-6) ?? segs[0];
-    return { origin: seg.startTime, beat: 60 / seg.bpm };
-  }
-  if (!song.bpm || song.bpm <= 0) return null;
-  return { origin: 0, beat: 60 / song.bpm };
+/**
+ * A contagem atravessa uma troca real de andamento? `times` são os inícios dos números e, por
+ * último, o fim do último número. Terminar exatamente na troca vale: é a contagem de entrada do
+ * trecho novo, toda no andamento em que ela foi falada. Trecho só repartido, sem mudar o BPM nem a
+ * fase, não é troca.
+ */
+export function crossesTempoChange(song: Pick<Song, 'tempoSegments'>, times: number[]): boolean {
+  const segs = [...(song.tempoSegments ?? [])].sort((a, b) => a.startTime - b.startTime);
+  if (segs.length < 2 || times.length < 2) return false;
+  const first = times[0];
+  const lastSpoken = times[times.length - 2];
+  return realTempoChanges(segs).some((i) => {
+    const at = segs[i].startTime;
+    return first < at - 1e-6 && lastSpoken >= at - 1e-6;
+  });
+}
+
+type NarrationTempo = Pick<Song, 'bpm'> & { tempoSegments?: SongTempoSegment[] };
+
+/** A música tem andamento? Sem BPM e sem trechos não há grade para seguir. */
+function hasTempo(song: NarrationTempo): boolean {
+  const withBpm = (song.tempoSegments ?? []).filter((s) => s.bpm > 0);
+  return withBpm.length > 1 || (!!song.bpm && song.bpm > 0);
 }
 
 /**
@@ -210,19 +223,17 @@ function tempoAt(song: Pick<Song, 'bpm'> & { tempoSegments?: SongTempoSegment[] 
  * "sincar" tocando a música aperta um pouco depois do beat, então volta para o começo dele.
  * Sem BPM, devolve o próprio tempo.
  */
-export function beatStartAt(song: Pick<Song, 'bpm'> & { tempoSegments?: SongTempoSegment[] }, time: number): number {
-  const t = tempoAt(song, time);
-  if (!t) return Math.max(0, time);
-  const k = Math.floor((time - t.origin) / t.beat + BEAT_TOLERANCE);
-  return Math.max(0, t.origin + k * t.beat);
+export function beatStartAt(song: NarrationTempo, time: number): number {
+  if (!hasTempo(song)) return Math.max(0, time);
+  return beatStartTime(beatSpans(song), time, BEAT_TOLERANCE);
 }
 
 /** Um início já está em cima de um beat (menos de 2% do beat fora dele)? */
-export function isOnBeat(song: Pick<Song, 'bpm'> & { tempoSegments?: SongTempoSegment[] }, time: number): boolean {
-  const t = tempoAt(song, time);
-  if (!t) return false;
-  const pos = (time - t.origin) / t.beat;
-  return Math.abs(pos - Math.round(pos)) < 0.02;
+export function isOnBeat(song: NarrationTempo, time: number): boolean {
+  if (!hasTempo(song)) return false;
+  const spans = beatSpans(song);
+  const near = nearestBeatOf(spans, time);
+  return !!near && Math.abs(time - near.time) < 0.02 * spans[spanIndexAt(spans, time)].beat;
 }
 
 /**

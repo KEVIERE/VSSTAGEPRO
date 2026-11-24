@@ -8,6 +8,7 @@ import {
   currentAndNextSlice, isSliceEnabled, medleySlices, paramsAt, playedDuration, sliceDuration, sliceParams,
 } from '@/lib/medley';
 import { effectiveBpm } from '@/lib/musicianApi';
+import { bpmAt } from '@/lib/grid';
 import { songKeyLabel } from '@/lib/musicKey';
 import { bpmAdjustToAlpha } from '@/lib/timeStretch';
 import { durationFor, getShowClock, resetShowClock, setShowDuration, showKeyOf, startShowClock } from '@/lib/showClock';
@@ -62,7 +63,7 @@ function showTotal(st: Store): number {
 function cardOf(st: Store, song: Song | undefined, name: string | null, medley: string | null, at: number, duration: number): RemoteCard | null {
   if (!song || !name) return null;
   const p = paramsAt(song, at);
-  const bpm = effectiveBpm(song.bpm, song.bpmDetected, p.bpmAdjust);
+  const bpm = effectiveBpm(bpmAt(song, at), song.bpmDetected, p.bpmAdjust);
   return {
     name,
     medley,

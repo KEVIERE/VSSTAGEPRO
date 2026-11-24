@@ -243,6 +243,16 @@ export function delaySeconds(bpm: number): number {
 }
 
 /**
+ * Tempo do DelayNode dentro do laço de realimentação. O Web Audio soma um bloco de render (128
+ * amostras) a cada volta de um laço, então a repetição atrasava 2,7 ms por volta a 48 kHz e saía
+ * da grade. O bloco é descontado aqui e devolvido uma vez só, antes do laço (DELAY_BLOCK_FRAMES).
+ */
+export const DELAY_BLOCK_FRAMES = 128;
+export function delayLoopSeconds(bpm: number, sampleRate: number): number {
+  return delaySeconds(bpm) - DELAY_BLOCK_FRAMES / sampleRate;
+}
+
+/**
  * Resposta de sala para o reverb: ruído estéreo que some aos poucos (cauda de ~2 s), um pouco
  * escurecido, com 12 ms de pré-atraso. Sempre igual (semente fixa).
  */

@@ -8,8 +8,7 @@ import { isTimecodeTrackId } from '@/lib/timecode';
 import { isMedley, isSliceEnabled, medleySlices, sliceParams } from '@/lib/medley';
 import { evaluateFadeCurve } from '@/types';
 import { analyzeKey, analyzeLoudness } from '@/lib/audioAnalysis';
-import { songLevelGain } from '@/lib/songLevel';
-import { gainToFader } from '@/lib/faderScale';
+import { isFixedLevelTrack, songLevelGain } from '@/lib/songLevel';
 import { ANTI_CLIP_CEILING, limitInPlace } from '@/lib/peakLimiter.js';
 import { antiClipActive } from '@/lib/antiClip';
 import { splitByAntiClip } from '@/lib/antiClipMix';
@@ -234,7 +233,9 @@ async function renderSliceOffline(
         const panner = ctx.createStereoPanner();
         // LR mágico: mesma soma a -6 dB da reprodução (o canal estéreo vai todo para um lado)
         const magicSum = magic && !isTimecodeTrackId(targetTrack.id) ? MAGIC_SUM_GAIN : 1;
-        gain.gain.value = (respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume)) * magicSum;
+        // "volume igual": só a banda; click, guia e Maestro ficam fixos, como na reprodução
+        const songLevel = isFixedLevelTrack(targetTrack.id, tracks) ? 1 : channelLevel;
+        gain.gain.value = (respectMuteSolo ? channelGainFor(targetTrack, tracks, targetTrack.volume) : faderToGain(targetTrack.volume)) * magicSum * songLevel;
         panner.pan.value = effectivePan(targetTrack.id, targetTrack.pan, lrMasterActive);
         gain.connect(panner);
         panner.connect(ctx.destination);
@@ -320,9 +321,8 @@ async function renderSliceOffline(
   if (groups.length > 0) {
     const chL = new Float32Array(totalFrames);
     const chR = new Float32Array(totalFrames);
-    // Na reprodução o "volume igual" entra antes do limitador; aqui ele vem depois, no master
-    // (channelLevel): o teto é ajustado para o resultado ficar igual.
-    const ceiling = ANTI_CLIP_CEILING / (channelLevel > 0 ? channelLevel : 1);
+    // o "volume igual" já entrou no canal, antes do limitador, igual à reprodução
+    const ceiling = ANTI_CLIP_CEILING;
     for (const group of groups) {
       chL.fill(0);
       chR.fill(0);
@@ -588,20 +588,15 @@ function multitrackJobs(song: Song, state: ProjectState, cancelled: () => boolea
 }
 
 /**
- * Loudness (LUFS) e pico real da gravação da música: o mix com todos os faders em 0 dB, sem
- * fader master nem limiter. É a medida usada pelo "volume igual entre os VS".
+ * Loudness (LUFS) e pico real só da banda: sem click, guia e Maestro, com os faders em 0 dB, sem
+ * fader master, limiter nem LR mágico. É a medida usada pelo "volume igual entre os VS".
  */
 export async function measureSongLoudness(song: Song, state: ProjectState, cancelled: () => boolean = () => false): Promise<{ lufs: number; peak: number }> {
   const unity = state.tracks.map((t) => ({ ...t, volume: 0.8, antiClip: false }));
-  const buf = await withSongAudio(song.id, () => renderOffline(song, unity, state.clips, state.lrMasterActive, undefined, false, cancelled, 0.8));
+  const isBand = (t: Track) => !isFixedLevelTrack(t.id, unity);
+  const buf = await withSongAudio(song.id, () => renderOffline(song, unity, state.clips, false, isBand, false, cancelled, 0.8, 1, true));
   // o cálculo (~0,7 s por música no M2) vai para o worker: a tela e o streaming do disco seguem livres
   return analyzeLoudness(buf);
-}
-
-/** Fader master desta música no mix (LR/show contínuo): com o volume igual ligado, já nivelada. */
-function masterFor(state: ProjectState, songId: string): number {
-  const g = songLevelGain(state, songId);
-  return g === 1 ? state.masterVolume : gainToFader(faderToGain(state.masterVolume) * g);
 }
 
 /**
@@ -620,7 +615,7 @@ async function renderSongWithRetry(song: Song, state: ProjectState, cancelled: (
   let last: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, masterFor(state, song.id), songLevelGain(state, song.id)));
+      return await withSongAudio(song.id, () => renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, cancelled, state.masterVolume, songLevelGain(state, song.id)));
     } catch (err) {
       if ((err as DOMException)?.name === 'AbortError') throw err;
       last = err;
@@ -837,7 +832,7 @@ export async function runExport(req: ExportRequest, state: ProjectState, hooks: 
         ? [{
             name: lrFileName || `${sanitize(song.name)} - LR MASTER.wav`,
             label: 'mix LR Master',
-            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, masterFor(state, song.id), songLevelGain(state, song.id))),
+            render: async () => encodeWavPcm24(await renderOffline(song, state.tracks, state.clips, state.lrMasterActive, undefined, true, hooks.cancelled, state.masterVolume, songLevelGain(state, song.id))),
           }]
         : multitrackJobs(song, state, hooks.cancelled);
       total += jobs.length - estimates[si];
@@ -1110,8 +1105,8 @@ async function runRppExport(
           const songSeconds = frames[si] / sampleRate;
           const length = stem.timecode ? Math.min(out.seconds, Math.max(0.01, songSeconds - out.offset)) : out.seconds;
           const list = items.get(stem.rowId) ?? [];
-          // "volume igual entre os VS": o ajuste da música vai no volume do item
-          const volume = stem.timecode ? 1 : songLevelGain(state, song.id);
+          // "volume igual entre os VS": o ajuste da música vai no volume do item, só na banda
+          const volume = stem.timecode || isFixedLevelTrack(stem.rowId, state.tracks) ? 1 : songLevelGain(state, song.id);
           list.push({ name: `${song.name} - ${stem.name}`, position: start + out.offset, length, file: rel, volume });
           items.set(stem.rowId, list);
           saved++;

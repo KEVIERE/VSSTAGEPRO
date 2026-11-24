@@ -1,10 +1,14 @@
 // Mede em segundo plano o loudness das músicas do show quando o "volume igual" está ligado.
 // Uma música por vez, a que está no ar e a próxima primeiro; cada medida fica guardada no
 // projeto e só é refeita se o áudio da música mudar (clipes, cortes, ganho de clipe).
+// A medida mixa a música inteira na thread da tela: só roda pelo portão de fundo, com a música
+// parada e nada abrindo, e para no próximo clipe se o Play vier no meio (mede de novo depois).
 import { useStore } from '@/store';
-import { audioEngine } from '@/lib/audioEngine';
 import { measureSongLoudness } from '@/lib/bounceEngine';
 import { loudnessSignature, validLoudness } from '@/lib/songLevel';
+import { acquireBackgroundTurn } from '@/lib/backgroundGate';
+
+const isAbort = (err: unknown) => (err as { name?: string } | null)?.name === 'AbortError';
 
 let running = false;
 let again = false;
@@ -24,7 +28,7 @@ function pending(): string[] {
   add(st.transport.nextSongId);
   add(st.selectedSongId);
   st.playlist.forEach((p) => add(p.songId));
-  const sigOf = (id: string) => loudnessSignature(id, st.clips);
+  const sigOf = (id: string) => loudnessSignature(id, st.clips, st.tracks);
   return order.filter((id) => st.songs.some((s) => s.id === id) && !validLoudness(st, id) && failed.get(id) !== sigOf(id));
 }
 
@@ -39,20 +43,34 @@ async function run() {
       let done = 0;
       if (total > 0) setProgress({ done, total });
       for (const id of todo) {
-        const st = useStore.getState();
-        if (!st.levelMatch) break;
-        // o Play tem a vez, e o começo da música no ar também (o disco ainda está entregando)
-        while (audioEngine.isSettling()) await new Promise((r) => setTimeout(r, 200));
-        const song = st.songs.find((s) => s.id === id);
-        if (!song || validLoudness(st, id)) { done++; continue; }
-        const sig = loudnessSignature(id, st.clips);
+        if (!useStore.getState().levelMatch) break;
+        // o show tem a vez: música tocando, abrindo, o começo da música no ar, clique recente
+        const turn = await acquireBackgroundTurn();
+        let stopped = false;
         try {
-          const m = await measureSongLoudness(song, st);
-          useStore.getState().setSongLoudness(id, { ...m, sig });
-        } catch (err) {
-          console.warn('[volume igual] não consegui medir', song.name, err);
-          failed.set(id, sig);
+          // o estado é lido depois da espera: durante o show a música pode ter mudado
+          const st = useStore.getState();
+          if (!st.levelMatch) break;
+          const song = st.songs.find((s) => s.id === id);
+          if (!song || validLoudness(st, id)) { done++; continue; }
+          const sig = loudnessSignature(id, st.clips, st.tracks);
+          if (failed.get(id) === sig) { done++; continue; }
+          try {
+            const m = await measureSongLoudness(song, st, turn.shouldStop);
+            if (!turn.stale()) useStore.getState().setSongLoudness(id, { ...m, sig });
+          } catch (err) {
+            if (turn.stale() || (isAbort(err) && turn.shouldStop())) {
+              // o Play veio no meio (ou o projeto trocou): não é falha, mede de novo depois
+              stopped = true;
+            } else {
+              console.warn('[volume igual] não consegui medir', song.name, err);
+              failed.set(id, sig);
+            }
+          }
+        } finally {
+          turn.release();
         }
+        if (stopped) { again = true; break; }
         done++;
         setProgress({ done, total });
         await new Promise((r) => setTimeout(r, 50));
@@ -68,6 +86,6 @@ export function startSongLevelWatcher(): () => void {
   if (useStore.getState().levelMatch) void run();
   return useStore.subscribe((s, prev) => {
     if (!s.levelMatch) return;
-    if (s.levelMatch !== prev.levelMatch || s.clips !== prev.clips || s.playlist !== prev.playlist || s.songs !== prev.songs) void run();
+    if (s.levelMatch !== prev.levelMatch || s.clips !== prev.clips || s.tracks !== prev.tracks || s.playlist !== prev.playlist || s.songs !== prev.songs) void run();
   });
 }

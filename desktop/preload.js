@@ -2,6 +2,23 @@ const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 const call = (name) => (...args) => ipcRenderer.invoke(`local:${name}`, ...args);
 
+// RAM total do computador em bytes, lida uma vez. O principal manda no argumento da janela (mesmo
+// nome em main.js); a reserva é a medida do Electron, em KB. 0: não deu para saber (a tela fica
+// com a conta de hoje). Nunca a memória livre: no macOS ela não conta a que pode ser reaproveitada.
+const TOTAL_MEMORY_ARG = '--vs-total-memory=';
+function readTotalMemory() {
+  try {
+    const arg = (process.argv || []).find((a) => typeof a === 'string' && a.startsWith(TOTAL_MEMORY_ARG));
+    const bytes = arg ? Number(arg.slice(TOTAL_MEMORY_ARG.length)) : NaN;
+    if (Number.isFinite(bytes) && bytes > 0) return bytes;
+  } catch { /* segue para a reserva */ }
+  try {
+    const kb = Number(process.getSystemMemoryInfo?.()?.total);
+    if (Number.isFinite(kb) && kb > 0) return kb * 1024;
+  } catch { /* sem a medida */ }
+  return 0;
+}
+
 contextBridge.exposeInMainWorld('vsLocal', {
   getInfo: call('getInfo'),
   start: call('start'),
@@ -41,6 +58,8 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   // Arquitetura do programa: 'x64' é a versão Intel (num Mac Intel, ou traduzida pelo Rosetta num
   // Mac com chip Apple). A tela usa para ligar o modo leve, com menos efeitos de desenho.
   arch: process.arch,
+  // RAM total em bytes (0 se não deu para saber): a tela decide quanto áudio guarda na memória.
+  totalMemory: readTotalMemory(),
   appReady: () => ipcRenderer.send('app:ready'),
   // Caminho no disco de um arquivo aberto pela janela do navegador (projeto antigo nos recentes):
   // com ele o salvar usa o caminho rápido do app (só o que mudou) em vez de copiar o arquivo inteiro.
@@ -78,6 +97,37 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   maestroVoices: call('maestroVoices'),
   maestroSpeak: call('maestroSpeak'),
   maestroVoiceStatus: call('maestroVoiceStatus'),
+  maestroSpeechReady: call('maestroSpeechReady'),
+  maestroSpeechState: call('maestroSpeechState'),
+  maestroSpeakCancel: call('maestroSpeakCancel'),
+  maestroCloneList: call('maestroCloneList'),
+  maestroClonePrepare: call('maestroClonePrepare'),
+  maestroCloneSave: call('maestroCloneSave'),
+  maestroCloneRemove: call('maestroCloneRemove'),
+  maestroWarm: call('maestroWarm'),
+  maestroPinPhrase: call('maestroPinPhrase'),
+  maestroUnpinPhrase: call('maestroUnpinPhrase'),
+  maestroPinnedStates: call('maestroPinnedStates'),
+  maestroCountPackEnsure: call('maestroCountPackEnsure'),
+  maestroCountPackStatus: call('maestroCountPackStatus'),
+  maestroCountWord: call('maestroCountWord'),
+  onMaestroCountPackProgress: (cb) => {
+    const listener = (_e, p) => cb(p);
+    ipcRenderer.on('maestroCountPack:progress', listener);
+    return () => ipcRenderer.removeListener('maestroCountPack:progress', listener);
+  },
+  onMaestroCloneProgress: (cb) => {
+    const listener = (_event, data) => cb(data);
+    ipcRenderer.on('maestroClone:progress', listener);
+    return () => ipcRenderer.removeListener('maestroClone:progress', listener);
+  },
+  maestroPackStatus: call('maestroPackStatus'),
+  maestroPackFile: call('maestroPackFile'),
+  onMaestroPackProgress: (cb) => {
+    const listener = (_event, p) => cb(p);
+    ipcRenderer.on('maestroPack:progress', listener);
+    return () => ipcRenderer.removeListener('maestroPack:progress', listener);
+  },
   maestroVoicePlaying: call('maestroVoicePlaying'),
   lyricsReaderStatus: call('lyricsReaderStatus'),
   lyricsReaderPrepare: call('lyricsReaderPrepare'),
@@ -86,6 +136,10 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   separateStemsLocal: call('separateStemsLocal'),
   cancelStemSeparation: call('cancelStemSeparation'),
   separateDrumPieces: call('separateDrumPieces'),
+  // Faixas separadas deixadas no disco (separação pedida com `{ files: true }`): a tela lê cada
+  // uma por este endereço e avisa quando terminou, para a pasta temporária sair.
+  stemFileUrl: (token, name) => `vsstage://stems/${encodeURIComponent(String(token))}/${encodeURIComponent(String(name))}.wav`,
+  stemFilesRelease: call('stemFilesRelease'),
   drumPiecesStatus: call('drumPiecesStatus'),
   openVoiceSettings: call('openVoiceSettings'),
   licenseCacheLoad: call('licenseCacheLoad'),

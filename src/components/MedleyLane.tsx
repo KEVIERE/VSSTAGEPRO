@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Trash2, Scissors, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
@@ -29,7 +29,8 @@ export function cutMedleyAt(song: Song, at: number): boolean {
   return true;
 }
 
-export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
+// memo: só redesenha pela música, pelo zoom e pelo próprio arraste (não a cada render da timeline)
+export const MedleyLane = memo(function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
   const updateSong = useStore((s) => s.updateSong);
   const snapStep = useStore((s) => s.snapStep);
   const [drag, setDrag] = useState<{ id: string; start: number } | null>(null);
@@ -140,7 +141,7 @@ export function MedleyLane({ song, zoomH }: { song: Song; zoomH: number }) {
       })()}
     </div>
   );
-}
+});
 
 function MedleyEditor({ song, slice, onClose }: { song: Song; slice: MedleySlice; onClose: () => void }) {
   const updateSong = useStore((s) => s.updateSong);

@@ -1,6 +1,6 @@
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
-import { computeNextSongId } from '@/lib/playFlow';
+import { computeNextSongId, cursorFor } from '@/lib/playFlow';
 import { previousRegionStart } from '@/lib/regions';
 import { entryPoint } from '@/lib/medley';
 import { audioRecorder, saveRecordingToMaestro } from '@/lib/audioRecorder';
@@ -56,13 +56,20 @@ export async function startPlayback() {
   const song = st.songs.find((sg) => sg.id === songId);
   // Se o usuário cortou o fim do VS, o cursor pode estar além da nova duração:
   // nesse caso toca da última fatia ou volta ao início, sem travar
-  const cursor = !st.transport.currentSongId || st.transport.currentSongId === songId ? st.transport.currentTime : 0;
+  // Com a música trocada, vale o cursor que foi posto nela; um cursor deixado pela música anterior, não.
+  const cursor = cursorFor(st.transport, songId) ?? 0;
   const maxSafe = song ? Math.max(0, song.duration - 0.05) : 0;
   const safeCursor = Math.min(cursor, maxSafe);
   const offset = song && safeCursor > 0 ? safeCursor : entryPoint(song);
   st.setPlaybackError(null);
+  // O motor sai na frente: a parte síncrona do playSong vai até a primeira espera e deixa na fila
+  // de microtarefas a continuação que marca a hora da largada. O st.play() vem logo depois, e o
+  // redesenho que ele pede (o React desenha numa microtarefa) entra na fila atrás dela. Antes o
+  // redesenho da tela rodava primeiro e a hora da largada esperava por ele. A hora continua marcada
+  // num instante só para todas as faixas, e o motor não lê o isPlaying do store para largar.
+  const started = audioEngine.playSong(songId, offset);
   st.play();
-  audioEngine.playSong(songId, offset)
+  started
     .catch((err) => console.error('[play] falha', err))
     .finally(() => verifyStarted(songId));
   refreshNextSong(songId);

@@ -4,10 +4,10 @@ import { audioEngine } from '@/lib/audioEngine';
 import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { belowTarget, levelTarget, parseTargetDb, songLevelGain, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
+import { belowTarget, levelTarget, parseTargetLufs, songLevelGain, TARGET_LUFS_MAX, TARGET_LUFS_MIN } from '@/lib/songLevel';
 import { levelProgress, onLevelProgress } from '@/lib/songLevelWatcher';
 import { LedMeter } from '@/components/MeterMask';
-import OutputMenu from '@/components/OutputMenu';
+import OutputMenu, { MasterOutputMenu } from '@/components/OutputMenu';
 import TrackContextMenu from '@/components/TrackContextMenu';
 import type { Track } from '@/types';
 import TimecodeMixerChannel from '@/components/TimecodeMixerChannel';
@@ -23,14 +23,13 @@ import { EsCap, EsDbBoxes, EsKey, EsKnob, EsMeter, EsMeterScale, EsName, esTrack
 import { OfCap, OfKey, OfKnob, OfMeter, OfName, OfPeak, ofTrackColor } from '@/components/OficinaPieces';
 import { VS_CAP_H, VS_CAP_W, VsCap, VsKnobFace } from '@/components/AnalogPieces';
 
-// Volume igual entre os VS: o usuário escolhe um pico em dB e o maior pico de cada música fica
-// nele (as mais baixas sobem, as mais altas descem). Ligado, mostra o valor editável: digitar
-// outro e apertar Enter aplica na hora.
+// Volume igual entre os VS: a banda de todas as músicas fica no mesmo volume percebido (LUFS), em
+// todos os canais do multipista. Click, guia e Maestro não mudam. Ligado, mostra o valor editável:
+// digitar outro e apertar Enter aplica na hora.
 function LevelMatchButton() {
   const on = useStore((s) => !!s.levelMatch);
   const setLevelMatch = useStore((s) => s.setLevelMatch);
-  const setLevelMatchDb = useStore((s) => s.setLevelMatchDb);
-  const storedDb = useStore((s) => s.levelMatchDb);
+  const setLevelMatchLufs = useStore((s) => s.setLevelMatchLufs);
   const target = useStore((s) => levelTarget(s));
   const current = useStore((s) => s.transport.currentSongId ?? s.selectedSongId);
   const gainDb = useStore((s) => (current ? 20 * Math.log10(songLevelGain(s, current)) : 0));
@@ -45,20 +44,20 @@ function LevelMatchButton() {
   }, [editing]);
 
   const commit = () => {
-    const db = parseTargetDb(draft);
-    if (db !== null) setLevelMatchDb(db);
+    const lufs = parseTargetLufs(draft);
+    if (lufs !== null) setLevelMatchLufs(lufs);
     setEditing(false);
   };
 
-  const targetText = target.toFixed(1);
+  const targetText = `${target} LUFS`;
   const low = useStore((s) => (current ? belowTarget(s, current) : false));
   const title = !on
-    ? 'Volume igual entre os VS: clique para o maior pico de todas as músicas ficar no mesmo volume (em dB). As mais baixas sobem e as mais altas descem. Depois de ligado, dá para digitar o pico desejado.'
-    : `Volume igual ligado: o maior pico de cada música fica em ${targetText} dB (com os faders em 0 dB).`
+    ? 'Volume igual entre os VS: deixa a banda de todas as músicas no mesmo volume, em todos os canais do multipista. Click, guia e Maestro não mudam.'
+    : `Volume igual ligado: a banda de cada música fica em ${targetText}, em todas as saídas. Click, guia e Maestro não mudam.`
       + (progress ? ` Medindo as músicas: ${progress.done} de ${progress.total}.` : '')
       + (current ? ` Esta música: ${gainDb >= 0 ? '+' : ''}${gainDb.toFixed(1)} dB.` : '')
-      + (low ? ' Ela é baixa demais para chegar ao pico pedido mesmo subindo +24 dB.' : '')
-      + ` Clique no número para escolher o pico (de ${TARGET_DB_MIN} a ${TARGET_DB_MAX} dB). Clique em IGUALAR para desligar.`;
+      + (low ? ' Ela fica um pouco abaixo das outras para não estourar.' : '')
+      + ` Clique no número para escolher o volume (de ${TARGET_LUFS_MIN} a ${TARGET_LUFS_MAX} LUFS). Clique em IGUALAR para desligar.`;
 
   if (on && editing) {
     return (
@@ -75,13 +74,13 @@ function LevelMatchButton() {
         }}
         onClick={(e) => e.stopPropagation()}
         className="console-readout w-[52px] text-logic-lcd-green outline-none ring-1 ring-logic-lcd-green/70"
-        title={`Pico desejado em dB (${TARGET_DB_MIN} a ${TARGET_DB_MAX}; "2" vale como -2). Enter aplica, Esc cancela.`}
-        aria-label="Pico desejado em dB"
+        title={`Volume da banda em LUFS (${TARGET_LUFS_MIN} a ${TARGET_LUFS_MAX}; "14" vale como -14). Enter aplica, Esc cancela.`}
+        aria-label="Volume da banda em LUFS"
       />
     );
   }
 
-  // Ligado: "IGUALAR" vira o botão de desligar e embaixo aparece o pico desejado (clicável).
+  // Ligado: "IGUALAR" vira o botão de desligar e embaixo aparece o volume desejado (clicável).
   // Um embaixo do outro: lado a lado não cabem nos 72 px do canal Master.
   return (
     <div className="flex flex-col items-center justify-center gap-0.5">
@@ -97,10 +96,10 @@ function LevelMatchButton() {
       {on && (
         <button
           className="console-readout console-glow text-logic-lcd-green hover:brightness-125 transition"
-          onClick={() => { setDraft(String(storedDb ?? target)); setEditing(true); }}
-          title={`Pico de todas as músicas: ${targetText} dB. Clique para digitar outro (${TARGET_DB_MIN} a ${TARGET_DB_MAX} dB).`}
+          onClick={() => { setDraft(String(target)); setEditing(true); }}
+          title={`Volume da banda em todas as músicas: ${targetText}. Clique para digitar outro (${TARGET_LUFS_MIN} a ${TARGET_LUFS_MAX} LUFS).`}
         >
-          {`${targetText} dB`}
+          {targetText}
         </button>
       )}
     </div>
@@ -901,7 +900,7 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
                   />
                 </div>
               </div>
-              <OfName name="MASTER" number="M" color="#8f8f8f" />
+              <MasterOutputMenu>{(route) => <OfName name={route ?? 'MASTER'} number="M" color="#8f8f8f" />}</MasterOutputMenu>
             </div>
           ) : skin === 'estudio' ? (
             // Master da Estúdio: IGUALAR em cima, roteamento mágico, dB, fader, AC e o nome
@@ -950,7 +949,7 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
                     : 'Anti-Clip desligado: clique para limitar a saída do master em -0,1 dBFS, sem mexer no fader.'}
                 />
               </div>
-              <EsName name="Master" color="#636366" />
+              <MasterOutputMenu>{(route) => <EsName name={route ?? 'Master'} color="#636366" />}</MasterOutputMenu>
             </div>
           ) : grafite ? (
             // Master da Grafite: tela vermelha, roteamento mágico, IGUALAR, CLIP e o fader
@@ -958,13 +957,17 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
               <div className="min-h-[20px] flex items-center justify-center">
                 <LevelMatchButton />
               </div>
-              <GfScreen
-                number="LR"
-                name="MASTER"
-                value={faderDbText(masterVolume)}
-                color="#ff4d42"
-                tags={<GfTag on={masterAntiClip} tone="clip">L</GfTag>}
-              />
+              <MasterOutputMenu>
+                {(route) => (
+                  <GfScreen
+                    number={route === 'Desligado' ? 'OFF' : route ?? 'LR'}
+                    name="MASTER"
+                    value={faderDbText(masterVolume)}
+                    color="#ff4d42"
+                    tags={<GfTag on={masterAntiClip} tone="clip">L</GfTag>}
+                  />
+                )}
+              </MasterOutputMenu>
               <button
                 className={`console-key flex items-center justify-center w-[28px] h-[28px] !rounded-full ${magicRoutingActive ? 'is-lit-amber animate-pulse' : ''}`}
                 onClick={() => toggleMagicRouting()}
@@ -1011,7 +1014,7 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
           // a fita, o fader, a tecla ANTI-CLIP e o M/S caírem nas mesmas alturas dos outros.
           <div className="console-strip flex flex-col items-center w-[72px] min-w-[72px] bg-black/25 border-l-2 border-black py-1.5 px-1 gap-[3px]">
           {/* mesma altura do seletor de saída dos canais (2xs: 14px de linha + py-0.5 + borda) */}
-          <div className="h-[20px] flex items-center justify-center text-[9px] font-bold tracking-wider text-logic-text-dim" title="Saída: a do Dispositivo de Áudio escolhido">
+          <div className="h-[20px] flex items-center justify-center text-[9px] font-bold tracking-wider text-logic-text-dim">
             SAÍDA
           </div>
 
@@ -1029,7 +1032,9 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
           </button>
 
           {/* mesma altura da fita dos canais (h-[22px]): a fita do master não pode levantar o fader */}
-          <div className="console-tape console-lcdname w-full h-[22px] flex items-center justify-center px-1.5 text-[11.5px] tracking-wide">MASTER</div>
+          <MasterOutputMenu>
+            {(route) => <div className="console-tape console-lcdname w-full h-[22px] flex items-center justify-center px-1.5 text-[11.5px] tracking-wide whitespace-nowrap">{route ?? 'MASTER'}</div>}
+          </MasterOutputMenu>
 
           <div className="flex gap-[3px] items-end">
             <Fader

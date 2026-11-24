@@ -91,13 +91,21 @@ const failed = {
 /** Pediram montagem enquanto o disco ainda era conferido: monta quando a conferência terminar. */
 const wantBuild = new Set<string>();
 const loading = new Map<string, Promise<void>>();
+/** Já conferidos no disco (o arquivo existe): a pré-carga depois de cada edição não confere de novo. */
+const onDisk = new Set<string>();
 const listeners = new Set<() => void>();
 let version = 0;
+/**
+ * Versão de cada resumo (a global de quando ele mudou): cada onda da tela só redesenha quando muda
+ * o resumo dela. Antes, cada resumo que chegava re-renderizava todas as ondas da timeline.
+ */
+const changedAt = new Map<string, number>();
 
 // Vários resumos chegando juntos (troca de música): um aviso só por quadro para a tela.
 let notifyFrame = 0;
-function notify() {
+function notify(name: string) {
   version++;
+  changedAt.set(name, version);
   if (notifyFrame) return;
   const flush = () => {
     notifyFrame = 0;
@@ -113,6 +121,15 @@ export function subscribeFinePeaks(fn: () => void): () => void {
 
 export function finePeaksVersion(): number {
   return version;
+}
+
+/**
+ * Marca do resumo detalhado desta faixa para a tela (useSyncExternalStore): muda quando muda o
+ * resumo dela ou o nome dele (outra fonte, outro áudio), e não quando chega o de outra faixa.
+ */
+export function finePeaksSnapshot(clip: ClipLike): string {
+  const name = finePeaksName(clip);
+  return `${name}#${changedAt.get(name) ?? 0}`;
 }
 
 function keep(name: string, fine: FinePeaks) {
@@ -162,6 +179,7 @@ export function requestFinePeaks(clip: ClipLike, build: boolean): void {
     const fine = await readFine(name);
     if (fine) {
       keep(name, fine);
+      onDisk.add(name);
       markUsed(name);
     } else {
       missing.add(name);
@@ -172,7 +190,7 @@ export function requestFinePeaks(clip: ClipLike, build: boolean): void {
       loading.delete(name);
       if (!loaded.has(name) && wantBuild.has(name)) enqueueBuild(clip, name);
       wantBuild.delete(name);
-      notify();
+      notify(name);
     });
   loading.set(name, job);
 }
@@ -256,6 +274,9 @@ async function drain() {
       queued.delete(name);
       if (loaded.has(name)) continue;
       currentBuild = name;
+      // só a onda desta faixa: passa a esperar o resumo que está sendo montado (antes ela via isso
+      // de carona no aviso global da faixa anterior)
+      notify(name);
       try {
         const fine = await build(clip);
         // a faixa mudou de áudio durante a montagem: o resumo é do áudio antigo, descarta
@@ -268,13 +289,13 @@ async function drain() {
           keep(name, fine);
           missing.delete(name);
           markUsed(name);
-          await writeFine(name, fine).catch(() => { /* sem espaço: fica só na memória */ });
+          await writeFine(name, fine).then(() => { onDisk.add(name); }, () => { /* sem espaço: fica só na memória */ });
         }
       } catch {
         failed.add(name);
       }
       currentBuild = null;
-      notify();
+      notify(name);
     }
   } finally {
     building = false;
@@ -374,8 +395,9 @@ export function prefetchFinePeaks(clips: ClipLike[]): void {
     for (const clip of clips) {
       if (!(clip.sampleRate > 0) || !(clip.duration > 0) || !clip.waveformPeaks?.length || !getClipSource(clip.id)) continue;
       const name = finePeaksName(clip);
-      if (loaded.has(name) || loading.has(name) || queued.has(name) || failed.has(name)) continue;
-      if (await entryExists(dir, name)) { markUsed(name); continue; }
+      // já conferido (nesta ou numa pré-carga anterior): a edição seguinte não confere tudo de novo
+      if (onDisk.has(name) || loaded.has(name) || loading.has(name) || queued.has(name) || failed.has(name)) continue;
+      if (await entryExists(dir, name)) { onDisk.add(name); markUsed(name); continue; }
       missing.add(name);
       if (queued.has(name)) continue;
       queued.add(name);
@@ -402,4 +424,6 @@ export function clearFinePeaksMemory(): void {
   missing.clear();
   failedAt.clear();
   wantBuild.clear();
+  onDisk.clear();
+  changedAt.clear();
 }

@@ -1,3 +1,4 @@
+import { beatSpans, gridBeatTimes, nearestBeatOf, reachSongStart, spanIndexAt } from './grid.ts';
 import type { AudioClip, Song } from '@/types';
 
 // Contas do click (compasso antes do início, recriar metrônomo e o click do VS por IA). Sem áudio,
@@ -9,22 +10,19 @@ type SongTempo = Pick<Song, 'bpm' | 'beatsPerBar' | 'tempoSegments'>;
 
 /** Andamento que vale no instante `at` (o trecho de andamento dele, ou o BPM da música). */
 export function bpmAt(song: SongTempo, at: number): number {
-  const segs = song.tempoSegments;
-  if (segs && segs.length > 1) {
-    const seg = segs.find((s) => at >= s.startTime && at < s.endTime)
-      ?? (at < segs[0].startTime ? segs[0] : segs[segs.length - 1]);
-    if (seg?.bpm > 0) return seg.bpm;
-  }
-  return song.bpm > 0 ? song.bpm : 120;
+  const spans = beatSpans(song);
+  return spans[spanIndexAt(spans, at)].bpm;
 }
 
 export function beatsPerBarOf(song: Pick<Song, 'beatsPerBar'>): number {
   return song.beatsPerBar ?? 4;
 }
 
-/** Duração de um compasso no instante `at`. */
+/** Duração de um compasso no instante `at`, no compasso do trecho (valsa no medley tem 3 tempos). */
 export function barSeconds(song: SongTempo, at: number): number {
-  return beatsPerBarOf(song) * 60 / bpmAt(song, at);
+  const spans = beatSpans(song);
+  const span = spans[spanIndexAt(spans, at)];
+  return span.perBar * span.beat;
 }
 
 /** Tempo que o clipe toca (sem as partes cortadas). Igual ao `clipPlayLength` do audioLibrary. */
@@ -41,8 +39,8 @@ export function clickClipsOf(clips: AudioClip[], songId: string): AudioClip[] {
 
 /**
  * Empurra tudo da música `seconds` para a direita: clipes, regiões, falas do Maestro, trechos
- * de andamento, partes do medley e marcadores antigos. O primeiro trecho de andamento e a
- * primeira parte do medley continuam começando no 0 (a grade sempre começa no 0).
+ * de andamento, partes do medley e marcadores antigos. A primeira parte do medley continua no 0 e
+ * o primeiro trecho de andamento volta a cobrir desde o 0, na mesma fase das batidas.
  * Os marcadores de dentro do clipe são relativos ao clipe e não mudam.
  */
 export function shiftSong(song: Song, clips: AudioClip[], seconds: number): { song: Song; clips: AudioClip[] } {
@@ -55,12 +53,12 @@ export function shiftSong(song: Song, clips: AudioClip[], seconds: number): { so
     narrations: song.narrations?.map((n) => ({ ...n, start: move(n.start), end: move(n.end) })),
     markers: song.markers?.map((m) => ({ ...m, position: move(m.position) })),
     medley: song.medley?.map((p) => (p.start <= 1e-6 ? p : { ...p, start: move(p.start) })),
-    tempoSegments: song.tempoSegments?.map((s, i) => ({
+    tempoSegments: song.tempoSegments && reachSongStart(song.tempoSegments.map((s) => ({
       ...s,
-      startTime: i === 0 && s.startTime <= 1e-6 ? 0 : move(s.startTime),
+      startTime: move(s.startTime),
       endTime: move(s.endTime),
-      ...(s.downbeat !== undefined ? { downbeat: i === 0 && s.startTime <= 1e-6 ? s.downbeat : move(s.downbeat) } : {}),
-    })),
+      ...(s.downbeat !== undefined ? { downbeat: move(s.downbeat) } : {}),
+    })), beatsPerBarOf(song)),
   };
   return {
     song: next,
@@ -113,12 +111,32 @@ export function clickHits(data: Float32Array, sampleRate: number, ratio = 0.3, m
   const look = Math.round(0.02 * sampleRate);
   const back = Math.round(0.01 * sampleRate);
   const pre = Math.round(0.04 * sampleRate);
+  // Tempo fraco entre dois acentos fortes fica abaixo do volume da região. Ele ainda conta quando é
+  // um ataque limpo: pelo menos 4 vezes acima do que soava de 40 a 10 ms antes (contas em blocos de 1 ms).
+  const fine = Math.max(1, Math.round(0.001 * sampleRate));
+  const finePeak = new Float32Array(Math.ceil(data.length / fine));
+  for (let i = 0; i < data.length; i++) {
+    const v = Math.abs(data[i]);
+    const b = (i / fine) | 0;
+    if (v > finePeak[b]) finePeak[b] = v;
+  }
+  const fineFar = Math.max(1, Math.round(pre / fine));
+  const fineNear = Math.max(1, Math.round(back / fine));
+  const cleanAttack = new Uint8Array(finePeak.length);
+  for (let b = 0; b < finePeak.length; b++) {
+    if (finePeak[b] < floor) continue;
+    let prior = 0;
+    for (let k = Math.max(0, b - fineFar); k <= b - fineNear; k++) if (finePeak[k] > prior) prior = finePeak[k];
+    if (finePeak[b] >= prior * 4) cleanAttack[b] = 1;
+  }
   const hits: number[] = [];
   let free = 0;
   for (let i = 0; i < data.length; i++) {
     if (i < free) continue;
     const v = Math.abs(data[i]);
-    if (v < floor || v < regionPeak[(i / block) | 0] * ratio) continue;
+    if (v < floor) continue;
+    const region = regionPeak[(i / block) | 0];
+    if (v < region * ratio && (v < region * 0.08 || !cleanAttack[(i / fine) | 0])) continue;
     let local = 0;
     for (let k = i; k < Math.min(data.length, i + look); k++) local = Math.max(local, Math.abs(data[k]));
     // Batida é subida: o pico dela tem de ser pelo menos o dobro do que soava de 40 a 10 ms antes.
@@ -135,73 +153,43 @@ export function clickHits(data: Float32Array, sampleRate: number, ratio = 0.3, m
   return hits;
 }
 
-/** A batida da grade mais perto de `t` (a grade começa no 0; com trechos, cada um recomeça na mudança). */
+/** A batida da grade mais perto de `t` (a mesma lista de batidas que a régua desenha). */
 export function nearestGridBeat(song: SongTempo, t: number): number {
-  const segs = song.tempoSegments;
-  if (segs && segs.length > 1) {
-    const seg = segs.find((s) => t >= s.startTime && t < s.endTime) ?? (t < segs[0].startTime ? segs[0] : segs[segs.length - 1]);
-    const spb = 60 / (seg.bpm > 0 ? seg.bpm : song.bpm || 120);
-    return seg.startTime + Math.round((t - seg.startTime) / spb) * spb;
-  }
-  const spb = 60 / (song.bpm > 0 ? song.bpm : 120);
-  return Math.max(0, Math.round(t / spb) * spb);
+  return nearestBeatOf(beatSpans(song), t)?.time ?? Math.max(0, t);
 }
 
 /**
- * Leva as batidas para a grade só onde o click e a grade concordam: as batidas vizinhas (até 4
- * de cada lado) estão deslocadas da linha pelo MESMO tanto (até 2 ms de diferença) e esse tanto
- * é pequeno (até 15 ms). É o caso do click antigo, todo adiantado ~6 ms.
- * Onde a grade não acompanha a música (ex.: medley com andamentos que a grade não conhece), o
- * deslocamento muda de batida em batida e elas ficam exatamente onde o click de referência está.
+ * Leva o click para a grade só quando o clipe INTEIRO está deslocado pelo mesmo tanto: pelo menos
+ * 90% das batidas a até 0,5 ms do mesmo deslocamento, e ele pequeno (até 15 ms). É o caso do click
+ * antigo do programa, todo adiantado ~6 ms. A decisão é uma só para o clipe, nunca por trecho: com
+ * um mapa levemente errado o deslocamento vai mudando ao longo da música e nenhuma batida se move.
+ * Batida fora desse deslocamento fica onde está.
  */
-export function alignHitsToGrid(times: number[], gridBeat: (t: number) => number, maxOffset = 0.015, spread = 0.002): number[] {
+export function alignHitsToGrid(times: number[], gridBeat: (t: number) => number, maxOffset = 0.015, spread = 0.0005): number[] {
+  if (times.length < 5) return times;
   const offsets = times.map((t) => t - gridBeat(t));
-  return times.map((t, i) => {
-    const win = offsets.slice(Math.max(0, i - 4), i + 5);
-    if (win.length < 5) return t;
-    const sorted = [...win].sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)];
-    if (Math.abs(median) > maxOffset || Math.abs(offsets[i] - median) > spread) return t;
-    const agree = win.filter((o) => Math.abs(o - median) <= spread).length;
-    return agree >= Math.ceil(win.length * 0.7) ? gridBeat(t) : t;
-  });
+  const sorted = [...offsets].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  if (Math.abs(median) > maxOffset) return times;
+  const agree = offsets.filter((o) => Math.abs(o - median) <= spread).length;
+  if (agree < Math.ceil(times.length * 0.9)) return times;
+  return times.map((t, i) => (Math.abs(offsets[i] - median) <= spread ? gridBeat(t) : t));
 }
 
 /**
  * Batidas da grade da música de 0 até antes de `durationSeconds`: o click que o VS por IA põe na
- * faixa. Mesma conta da grade da timeline (gridLines) e do nearestGridBeat do Recriar metrônomo:
- * com trechos de andamento, cada trecho recomeça a contar na própria mudança. Conta por índice
- * (início + k × tempo) para não acumular erro de soma.
+ * faixa. Vem da mesma fonte da grade da timeline (beatSpans): com trechos, cada um recomeça na
+ * própria mudança, e não há click duplo na emenda.
  */
 export function clickGridTimes(song: SongTempo, durationSeconds: number): number[] {
-  const times: number[] = [];
-  const segs = song.tempoSegments;
-  if (segs && segs.length > 1) {
-    const sorted = [...segs].sort((a, b) => a.startTime - b.startTime);
-    sorted.forEach((seg, idx) => {
-      const spb = 60 / (seg.bpm > 0 ? seg.bpm : song.bpm || 120);
-      const end = idx === sorted.length - 1 ? durationSeconds : Math.min(seg.endTime, durationSeconds);
-      for (let k = 0; ; k++) {
-        const t = seg.startTime + k * spb;
-        if (t >= end - 1e-6) break;
-        times.push(t);
-      }
-    });
-    return times;
-  }
-  const spb = 60 / (song.bpm > 0 ? song.bpm : 120);
-  for (let k = 0; ; k++) {
-    const t = k * spb;
-    if (t >= durationSeconds - 1e-6) break;
-    times.push(t);
-  }
-  return times;
+  return gridBeatTimes(song, 0, durationSeconds);
 }
 
 /**
  * Som do click em cada instante de `times` (segundos), num áudio de `length` amostras. O começo
- * do som da amostra (clickOnsetIndex) fica em cima do instante; batida bem no começo entra
- * inteira a partir do 0, sem cortar o ataque. É a conta do Recriar metrônomo e do VS por IA.
+ * do som da amostra (clickOnsetIndex) fica em cima do instante. Batida antes de caber o que vem
+ * antes do ataque pula esse pedaço (quase silêncio), em vez de atrasar o ataque. É a conta do
+ * Recriar metrônomo e do VS por IA.
  */
 export function placeClickSamples(
   times: number[], length: number, sampleRate: number, sL: Float32Array, sR: Float32Array,
@@ -210,9 +198,11 @@ export function placeClickSamples(
   const outR = new Float32Array(length);
   const onset = clickOnsetIndex(sL);
   for (const t of times) {
-    const start = Math.max(0, Math.round(t * sampleRate) - onset);
-    for (let i = 0; i < sL.length; i++) {
-      const dest = start + i;
+    const at = Math.round(t * sampleRate) - onset;
+    const skip = Math.max(0, -at);
+    const start = at + skip;
+    for (let i = skip; i < sL.length; i++) {
+      const dest = start + i - skip;
       if (dest >= length) break;
       outL[dest] += sL[i];
       outR[dest] += sR[i];
@@ -239,16 +229,6 @@ export function placeAccentedClicks(
   return [nL, nR];
 }
 
-/** Início e tamanho do tempo do trecho de andamento em `t` (a grade recomeça a contar em cada trecho). */
-function gridSegmentAt(song: SongTempo, t: number): { start: number; spb: number } {
-  const segs = song.tempoSegments;
-  if (segs && segs.length > 1) {
-    const seg = segs.find((s) => t >= s.startTime && t < s.endTime) ?? (t < segs[0].startTime ? segs[0] : segs[segs.length - 1]);
-    return { start: seg.startTime, spb: 60 / (seg.bpm > 0 ? seg.bpm : song.bpm || 120) };
-  }
-  return { start: 0, spb: 60 / (song.bpm > 0 ? song.bpm : 120) };
-}
-
 /**
  * Quais batidas (em segundos da timeline) são o 1 do compasso, para o som de dois toques:
  * 1 2 3 4 | 1 2 3 4. Segue a grade da timeline: o compasso começa no 0 e, com trechos de
@@ -257,16 +237,22 @@ function gridSegmentAt(song: SongTempo, t: number): { start: number; spb: number
  * conhece), continua a contagem da batida anterior, e depois de uma pausa recomeça no 1.
  */
 export function barStartFlags(song: SongTempo, times: number[], tolerance = 0.03): boolean[] {
-  const bpb = beatsPerBarOf(song);
+  const spans = beatSpans(song);
   let prev = -1;
   let prevT = 0;
   let prevGap = 0;
   return times.map((t) => {
-    const { start, spb } = gridSegmentAt(song, t);
-    const k = Math.round((t - start) / spb);
+    const near = nearestBeatOf(spans, t);
+    const span = near?.span ?? spans[spanIndexAt(spans, t)];
+    const bpb = span.perBar;
     const gap = prev < 0 ? 0 : t - prevT;
+    // ataque entre duas batidas da grade (swing, colcheia): é subdivisão, não conta como tempo
+    if (near && prev >= 0 && gap < span.beat * 0.75 && Math.abs(t - near.time) > Math.min(tolerance, span.beat / 4)) {
+      prevT = t;
+      return false;
+    }
     let pos: number;
-    if (Math.abs(t - (start + k * spb)) <= Math.min(tolerance, spb / 4)) pos = ((k % bpb) + bpb) % bpb;
+    if (near && Math.abs(t - near.time) <= Math.min(tolerance, span.beat / 4)) pos = (((near.k - span.pickup) % bpb) + bpb) % bpb;
     else if (prev < 0 || (prevGap > 0 && gap > prevGap * 1.75)) pos = 0;
     else pos = (prev + 1) % bpb;
     prev = pos;
@@ -284,11 +270,13 @@ export function clickBufferLength(durationSeconds: number, sampleRate: number): 
 /**
  * Batidas do click que está na faixa, em segundos a partir do começo do clipe (Recriar
  * metrônomo). Lê o canal mais forte de cada amostra (click em um lado só também vale) entre
- * `playStart` e `playStart + playLen`, e leva para a grade só onde o click inteiro está deslocado
- * por igual (alignHitsToGrid).
+ * `playStart` e `playStart + playLen`, e leva para a grade só quando o click inteiro está
+ * deslocado por igual (alignHitsToGrid). Com `preserve` (click importado), as batidas ficam
+ * exatamente onde estão: ele é a referência da música.
  */
 export function remakeClickTimes(
   channels: Float32Array[], playStart: number, playLen: number, sampleRate: number, clipStart: number, song: SongTempo,
+  preserve = false,
 ): number[] {
   const data = new Float32Array(playLen);
   for (const ch of channels) {
@@ -298,6 +286,8 @@ export function remakeClickTimes(
     }
   }
   const hits = clickHits(data, sampleRate);
+  if (preserve) return hits.map((h) => h / sampleRate);
   const onTimeline = hits.map((h) => clipStart + h / sampleRate);
-  return alignHitsToGrid(onTimeline, (t) => nearestGridBeat(song, t)).map((t) => t - clipStart);
+  const spans = beatSpans(song);
+  return alignHitsToGrid(onTimeline, (t) => nearestBeatOf(spans, t)?.time ?? t).map((t) => t - clipStart);
 }

@@ -144,6 +144,13 @@ async function ensureModel() {
  * pip falhava ao instalar e o código desistia sem tentar os outros.
  */
 function pythonCandidates() {
+  if (process.platform === 'win32') {
+    // No Windows só vale o motor embutido no instalador (python-build-standalone: python\\python.exe)
+    return [
+      process.resourcesPath ? path.join(process.resourcesPath, 'ai-engine', 'python', 'python.exe') : null,
+      path.join(__dirname, 'ai-engine', 'python', 'python.exe'),
+    ].filter(Boolean);
+  }
   const appPython = process.resourcesPath
     ? path.join(process.resourcesPath, 'ai-engine', 'python', 'bin', 'python3')
     : null;
@@ -170,11 +177,35 @@ function findPython() {
   return pythonCandidates().find((p) => { try { return fs.existsSync(p); } catch { return false; } }) ?? null;
 }
 
+// Processos em andamento: ao fechar o programa eles não podem seguir sozinhos ocupando memória.
+const running = new Set();
+function track(child) {
+  running.add(child);
+  child.once('close', () => running.delete(child));
+  child.once('error', () => running.delete(child));
+  return child;
+}
+function stop() {
+  for (const child of running) { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }
+  running.clear();
+}
+
+/**
+ * Prioridade abaixo do normal (nice 10 no Mac, BELOW_NORMAL no Windows): quando a tela e o som
+ * disputam o processador com a IA da bateria, eles vêm primeiro, e a IA usa todo o resto.
+ */
+function lowerPriority(child) {
+  try {
+    if (child && child.pid) os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+  } catch { /* já saiu, ou o sistema não deixou: segue na prioridade normal */ }
+  return child;
+}
+
 function runCapture(cmd, args, timeoutMs) {
   return new Promise((resolve) => {
     let out = '';
     let done = false;
-    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = track(lowerPriority(spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })));
     const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, timeoutMs);
     child.stdout.on('data', (c) => { out += c.toString(); });
     child.stderr.on('data', (c) => { out += c.toString(); });
@@ -199,16 +230,31 @@ async function installRuntime(python) {
 }
 
 /**
+ * O Python que já mostrou ter o runtime nesta sessão. As músicas seguintes pulam o teste de
+ * `import torch`, que abria mais um Python por alguns segundos a cada música. Esquecido quando o
+ * separador não abre ou responde erro, para a próxima separação testar de novo.
+ */
+let provenPython = null;
+function remember(python) {
+  provenPython = python;
+  return { python };
+}
+function forget(python) {
+  if (provenPython === python) provenPython = null;
+}
+
+/**
  * Acha um Python que consiga rodar o modelo: primeiro os que já têm o runtime, depois tenta
  * instalar em cada um até um dar certo. Devolve { python } ou { why }.
  */
 async function pickPython(onProgress) {
+  if (provenPython && fs.existsSync(provenPython)) return { python: provenPython };
   const candidates = pythonCandidates().filter((p) => { try { return fs.existsSync(p); } catch { return false; } });
   if (!candidates.length) return { why: 'O Python do motor de IA não está instalado neste Mac.' };
 
   // 1. Algum já tem tudo pronto? (o embutido no instalador tem)
   for (const python of candidates) {
-    if (await hasRuntime(python)) return { python };
+    if (await hasRuntime(python)) return remember(python);
   }
 
   // 2. Instala no primeiro em que der certo. O pip falha no 3.14 (sem pacote do onnxruntime),
@@ -216,7 +262,7 @@ async function pickPython(onProgress) {
   onProgress?.('Instalando o componente de separação da bateria (uma vez só)...');
   const errors = [];
   for (const python of candidates) {
-    if (await installRuntime(python)) return { python };
+    if (await installRuntime(python)) return remember(python);
     const version = await runCapture(python, ['-V'], 5_000);
     errors.push(`${python.replace(os.homedir(), '~')} (${version.out.trim() || 'versão desconhecida'})`);
   }
@@ -251,7 +297,11 @@ async function ensureReady(onProgress) {
  * @returns {Promise<{bumbo?:Buffer, caixa?:Buffer, pratos?:Buffer, tons?:Buffer, why?:string}>}
  *   Cada peça em WAV. Se não der, devolve `why` e nenhuma peça: quem chamou fica com a bateria inteira.
  */
-async function separateDrumPieces(drumsWav, onProgress) {
+/**
+ * @param opts `{ files: true }`: devolve `{ files: { bumbo: caminho, ... }, dir, elapsedMs }` sem ler
+ *   as peças; a pasta fica para o principal servir e apagar depois. Sem isso, os bytes de sempre.
+ */
+async function separateDrumPieces(drumsWav, onProgress, opts) {
   const ready = await ensureReady(onProgress);
   if (!ready.ok) return { why: ready.why };
 
@@ -262,6 +312,7 @@ async function separateDrumPieces(drumsWav, onProgress) {
 
   const workDir = path.join(os.tmpdir(), `vs-drums-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
   const outDir = path.join(workDir, 'pecas');
+  let keepDir = false;
   try {
     await fsp.mkdir(outDir, { recursive: true });
     const inputPath = path.join(workDir, 'bateria.wav');
@@ -271,10 +322,13 @@ async function separateDrumPieces(drumsWav, onProgress) {
     const started = Date.now();
     const result = await new Promise((resolve) => {
       let out = '';
-      const child = spawn(ready.python, ['-I', script, '--model', baseDir(), '--in', inputPath, '--out', outDir], {
+      const child = track(lowerPriority(spawn(ready.python, ['-I', script, '--model', baseDir(), '--in', inputPath, '--out', outDir], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TMPDIR: os.tmpdir() },
-      });
+        windowsHide: true,
+        env: process.platform === 'win32'
+          ? { ...process.env, TMP: os.tmpdir(), TEMP: os.tmpdir() }
+          : { ...process.env, PATH: '/usr/bin:/bin:/usr/sbin:/sbin', TMPDIR: os.tmpdir() },
+      })));
       // O MDX23C leva de 1 a 12 minutos, dependendo da memória livre do Mac. 30 min é teto de
       // segurança: melhor esperar do que pendurar a tela sem explicação.
       const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* já saiu */ } }, 15 * 60_000);
@@ -295,8 +349,22 @@ async function separateDrumPieces(drumsWav, onProgress) {
       });
     });
 
-    if (!result.ok) return { why: result.why };
+    if (!result.ok) {
+      // o separador não abriu ou respondeu erro: a próxima separação testa o Python de novo
+      forget(ready.python);
+      return { why: result.why };
+    }
 
+    if (opts && opts.files) {
+      const files = {};
+      for (const piece of PIECES) {
+        const file = path.join(outDir, piece.file);
+        if (fs.existsSync(file)) files[piece.id] = file;
+      }
+      if (!files.bumbo && !files.caixa) return { why: 'O separador não devolveu as peças da bateria.' };
+      keepDir = true;
+      return { files, dir: workDir, elapsedMs: Date.now() - started };
+    }
     const out = {};
     for (const piece of PIECES) {
       const file = path.join(outDir, piece.file);
@@ -308,7 +376,7 @@ async function separateDrumPieces(drumsWav, onProgress) {
   } catch (err) {
     return { why: err instanceof Error ? err.message : String(err) };
   } finally {
-    await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    if (!keepDir) await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -321,6 +389,7 @@ module.exports = {
   ensureModel,
   ensureReady,
   separateDrumPieces,
+  stop,
   // para os testes
   _findPython: findPython,
 };

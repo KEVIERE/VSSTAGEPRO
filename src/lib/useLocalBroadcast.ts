@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { snapshot } from '@/lib/useLiveBroadcast';
 import { buildRemoteState, onRemoteReply, remoteSignature, startRemoteMeterFeed } from '@/lib/remoteHost';
@@ -17,6 +17,31 @@ function remoteInputsChanged(a: RemoteSigInputs, b: RemoteSigInputs): boolean {
     a.masterVolume !== b.masterVolume || a.queuedRegion !== b.queuedRegion || a.selectedSongId !== b.selectedSongId ||
     a.audioInterface !== b.audioInterface || a.audioInterfaceConnected !== b.audioInterfaceConnected ||
     a.outputChannelCount !== b.outputChannelCount || a.incompleteSongIds !== b.incompleteSongIds || a.tracks !== b.tracks;
+}
+
+const sameList = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i]);
+const sameRecord = (a: Record<string, string | null>, b: Record<string, string | null>) => {
+  const ka = Object.keys(a);
+  return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
+};
+
+/**
+ * A consulta da Rede Local (a cada 2 s) trouxe algo que a tela mostra? Compara só o que as janelas
+ * usam: endereço, PINs, QR, links, erro e quem está conectado (sem o "último sinal" de cada aparelho,
+ * que muda a toda consulta). As letras e o pedido de salvar do produtor não entram: são lidos da
+ * própria consulta, não do estado. Igual: o estado fica com o objeto antigo e nada redesenha.
+ */
+export function sameLocalInfo(a: LocalInfo | null, b: LocalInfo | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.running !== b.running || a.port !== b.port || a.hostName !== b.hostName || a.error !== b.error) return false;
+  if (!sameList(a.addresses, b.addresses)) return false;
+  if (!sameRecord(a.pins, b.pins) || !sameRecord(a.qr, b.qr) || !sameRecord(a.urls, b.urls)) return false;
+  if (a.clients.length !== b.clients.length) return false;
+  return a.clients.every((c, i) => {
+    const d = b.clients[i];
+    return c.id === d.id && c.role === d.role && c.name === d.name && c.address === d.address && (c.accountId ?? null) === (d.accountId ?? null);
+  });
 }
 
 const INFO_POLL_MS = 2000;
@@ -170,7 +195,8 @@ export function useLocalBroadcast(): LocalBroadcast {
         const i = await bridge.getInfo();
         if (!alive) return;
         remotePhones.current = i.clients.some((c) => c.role === 'remote');
-        setInfo(i);
+        // antes: objeto novo a cada 2 s, e o programa inteiro redesenhava com a música tocando
+        setInfo((prev) => (sameLocalInfo(prev, i) ? prev : i));
         setError(i.error);
         const req = i.lyricsSaveRequestedAt;
         if (req && req !== appliedSaveAt.current) {
@@ -235,5 +261,9 @@ export function useLocalBroadcast(): LocalBroadcast {
 
   const dismissLyrics = useCallback(() => setLyricsReceived(null), []);
 
-  return { available: !!bridge, mode, info, error, lyricsReceived, dismissLyrics, setMode, regeneratePin, kick };
+  const available = !!bridge;
+  return useMemo(
+    () => ({ available, mode, info, error, lyricsReceived, dismissLyrics, setMode, regeneratePin, kick }),
+    [available, mode, info, error, lyricsReceived, dismissLyrics, setMode, regeneratePin, kick],
+  );
 }

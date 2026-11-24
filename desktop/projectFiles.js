@@ -74,6 +74,81 @@ async function writeAll(fh, buf, position) {
   }
 }
 
+/**
+ * Grava vários pedaços seguidos (manifest e rodapé) sem juntar antes num buffer só: o manifest de
+ * um show grande tem dezenas de MB, e o Buffer.concat copiava tudo de novo na memória do app.
+ */
+async function writeAllv(fh, bufs, position) {
+  let done = 0;
+  if (typeof fh.writev === 'function') done = (await fh.writev(bufs, position)).bytesWritten;
+  // o que ficou de fora (gravação pela metade), pedaço por pedaço
+  let skip = done;
+  for (const b of bufs) {
+    if (skip >= b.length) { skip -= b.length; continue; }
+    const rest = skip ? b.subarray(skip) : b;
+    skip = 0;
+    await writeAll(fh, rest, position + done);
+    done += rest.length;
+  }
+}
+
+/** Os bytes que a tela mandou, sem cópia (antes `Buffer.from(new Uint8Array(...))` copiava 8 MB por pedaço). */
+function toBuffer(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return Buffer.from(data);
+}
+
+// O manifest de um show grande tem dezenas de MB (os picos da onda) e era analisado inteiro aqui,
+// na thread do app (de 80 a 120 ms parada a cada ⌘S, e o dobro no primeiro depois de abrir), só
+// para saber até onde vão os áudios. O programa grava o índice `assets` como última chave: dele
+// basta o fim. Manifest pequeno continua sendo conferido inteiro (custa pouco e acha texto quebrado).
+const FULL_PARSE_MAX = 512 * 1024;
+// Até onde, do fim, procurar o índice no manifest antigo do disco (o índice de 225 áudios tem uns 30 KB).
+const TAIL_WINDOW = 1024 * 1024;
+const ASSETS_KEY = Buffer.from('"assets":[', 'latin1');
+
+/**
+ * O índice `assets` lido só do fim do manifest, quando ele é a última chave e o texto está sem
+ * espaços (como o programa grava). null quando não dá: aí quem chamou analisa o manifest inteiro.
+ * Num JSON válido, `"assets":[` logo depois de `,` ou `{` só pode ser chave (aspas dentro de texto
+ * vão como \"), e a última vez que aparece é a da chave de fora: qualquer outra deixaria colchete
+ * ou chave sobrando no resto, e o JSON.parse do resto falha.
+ */
+function tailAssets(buf) {
+  if (buf.length < ASSETS_KEY.length + 3 || buf[buf.length - 1] !== 0x7d) return null;
+  const at = buf.lastIndexOf(ASSETS_KEY);
+  if (at < 1 || (buf[at - 1] !== 0x2c && buf[at - 1] !== 0x7b)) return null;
+  let list;
+  try {
+    list = JSON.parse(buf.toString('utf8', at + ASSETS_KEY.length - 1, buf.length - 1));
+  } catch {
+    return null;
+  }
+  return Array.isArray(list) ? list : null;
+}
+
+/** Até onde vão os áudios que o manifest novo (vindo da tela) aponta. */
+function newManifestAssetsEnd(bytes) {
+  if (bytes.length > FULL_PARSE_MAX) {
+    const list = tailAssets(bytes);
+    if (list) return maxAssetEnd({ assets: list });
+  }
+  let parsed;
+  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Projeto inválido.'); }
+  return maxAssetEnd(parsed);
+}
+
+/** Até onde vão os áudios que o manifest gravado no disco aponta. Grande: lê só o fim dele. */
+async function storedAssetsEnd(fh, tail) {
+  if (tail.manifestLen > FULL_PARSE_MAX) {
+    const len = Math.min(tail.manifestLen, TAIL_WINDOW);
+    const list = tailAssets(await readRange(fh, tail.manifestStart + tail.manifestLen - len, len));
+    if (list) return maxAssetEnd({ assets: list });
+  }
+  return maxAssetEnd(JSON.parse((await readRange(fh, tail.manifestStart, tail.manifestLen)).toString('utf8')));
+}
+
 function checkProjectPath(filePath) {
   if (typeof filePath !== 'string' || !path.isAbsolute(filePath) || !PROJECT_EXT.test(filePath)) {
     throw new Error('Arquivo de projeto inválido.');
@@ -130,9 +205,8 @@ function writtenAssetsEnd(filePath, st, tail) {
 async function writeTail(filePath, { expectedSize, expectedManifestStart, manifest }) {
   checkProjectPath(filePath);
   if (appending(filePath)) return { ok: false, reason: 'busy' };
-  const bytes = Buffer.from(manifest);
-  let parsed;
-  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Projeto inválido.'); }
+  const bytes = toBuffer(manifest);
+  const newEnd = newManifestAssetsEnd(bytes);
   const fh = await fsp.open(filePath, 'r+');
   try {
     const st = await fh.stat();
@@ -142,17 +216,16 @@ async function writeTail(filePath, { expectedSize, expectedManifestStart, manife
       return { ok: false, reason: 'changed' };
     }
     let keep = writtenAssetsEnd(filePath, st, tail);
-    if (keep === null) keep = maxAssetEnd(JSON.parse((await readRange(fh, tail.manifestStart, tail.manifestLen)).toString('utf8')));
-    const newEnd = maxAssetEnd(parsed);
+    if (keep === null) keep = await storedAssetsEnd(fh, tail);
     // o manifest novo só pode apontar para áudio que já está no arquivo
     if (newEnd > keep || keep > tail.manifestStart) return { ok: false, reason: 'assets' };
 
     const oldEnd = st.size;
-    await writeAll(fh, Buffer.concat([bytes, trailer(oldEnd, bytes.length)]), oldEnd);
+    await writeAllv(fh, [bytes, trailer(oldEnd, bytes.length)], oldEnd);
     await fh.sync();
     let size = oldEnd + bytes.length + TRAILER_SIZE;
     if (keep + bytes.length + TRAILER_SIZE <= oldEnd) {
-      await writeAll(fh, Buffer.concat([bytes, trailer(keep, bytes.length)]), keep);
+      await writeAllv(fh, [bytes, trailer(keep, bytes.length)], keep);
       await fh.sync();
       size = keep + bytes.length + TRAILER_SIZE;
       await fh.truncate(size);
@@ -191,7 +264,7 @@ function writer(id) {
 
 async function writeData(id, data) {
   const w = writer(id);
-  const buf = Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+  const buf = toBuffer(data);
   await writeAll(w.fh, buf, w.pos);
   w.pos += buf.length;
   return w.pos;
@@ -326,7 +399,7 @@ function appender(id) {
 
 async function appendData(id, data) {
   const a = appender(id);
-  const buf = Buffer.from(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
+  const buf = toBuffer(data);
   await writeAll(a.fh, buf, a.pos);
   a.pos += buf.length;
   return a.pos;
@@ -358,13 +431,11 @@ async function appendCopy(id, srcPath, begin, size) {
 /** Fecha o salvar: manifest novo e rodapé depois dos áudios novos. */
 async function appendClose(id, manifest) {
   const a = appender(id);
-  const bytes = Buffer.from(manifest);
-  let parsed;
-  try { parsed = JSON.parse(bytes.toString('utf8')); } catch { throw new Error('Projeto inválido.'); }
+  const bytes = toBuffer(manifest);
   // o manifest só pode apontar para áudio que está no arquivo
-  const assetsEnd = maxAssetEnd(parsed);
+  const assetsEnd = newManifestAssetsEnd(bytes);
   if (assetsEnd > a.pos) throw new Error('O projeto aponta para áudio que não foi gravado.');
-  await writeAll(a.fh, Buffer.concat([bytes, trailer(a.pos, bytes.length)]), a.pos);
+  await writeAllv(a.fh, [bytes, trailer(a.pos, bytes.length)], a.pos);
   const size = a.pos + bytes.length + TRAILER_SIZE;
   await a.fh.truncate(size);
   await a.fh.sync();
@@ -392,18 +463,46 @@ async function appendAbort(id) {
 
 // A tela recebe o arquivo do disco como se a pessoa tivesse escolhido num campo de arquivo (o mesmo
 // que os testes automáticos do Chrome fazem). Assim ela lê os áudios em pedaços, direto do disco.
+//
+// O depurador da janela fica ligado só enquanto entrega o arquivo. Antes ficava ligado o resto da
+// sessão depois do primeiro projeto aberto, e cada menu, dica ou janela que aparecia mandava
+// eventos a mais ao app (400 com 200 avisos aparecendo e sumindo, contados no Electron 33). O
+// arquivo continua no campo e lendo depois de soltar. Só solta o que esta função ligou: se outro
+// já estava ligado (a ferramenta de medição), não mexe.
+//
+// Uma entrega por vez em cada janela: o DOM.getDocument de uma invalida o número do campo que a
+// outra acabou de achar ("Could not find node with given id", e um dos projetos abria sem arquivo).
+const giveQueue = new WeakMap();
+
 async function giveFile(webContents, filePath, selector) {
   checkProjectPath(filePath);
   await recover(filePath);
   await fsp.access(filePath, fs.constants.R_OK);
   if (typeof selector !== 'string' || !/^#vs-project-file-[a-z0-9]+$/.test(selector)) throw new Error('Campo inválido.');
   const dbg = webContents.debugger;
-  if (!dbg.isAttached()) dbg.attach('1.3');
-  const { root } = await dbg.sendCommand('DOM.getDocument', { depth: 0 });
-  const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector });
-  if (!nodeId) throw new Error('Campo não encontrado.');
-  await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId });
-  return true;
+  const before = giveQueue.get(dbg) || Promise.resolve();
+  let done;
+  const turn = new Promise((resolve) => { done = resolve; });
+  giveQueue.set(dbg, before.then(() => turn));
+  await before;
+  try {
+    const mine = !dbg.isAttached();
+    if (mine) dbg.attach('1.3');
+    try {
+      const { root } = await dbg.sendCommand('DOM.getDocument', { depth: 0 });
+      const { nodeId } = await dbg.sendCommand('DOM.querySelector', { nodeId: root.nodeId, selector });
+      if (!nodeId) throw new Error('Campo não encontrado.');
+      await dbg.sendCommand('DOM.setFileInputFiles', { files: [filePath], nodeId });
+      return true;
+    } finally {
+      if (mine) {
+        try { dbg.sendCommand('DOM.disable').catch(() => {}); } catch { /* já solto */ }
+        try { dbg.detach(); } catch { /* já solto */ }
+      }
+    }
+  } finally {
+    done();
+  }
 }
 
 function vssPath(chosen) {
@@ -489,4 +588,6 @@ module.exports = {
   writeOpen, writeData, writeCopy, writeClose, writeAbort,
   appendOpen, appendData, appendCopy, appendClose, appendAbort, recover, locate,
   giveFile, pickOpen, pickSave,
+  // só para os testes
+  tailAssets, writeAllv,
 };

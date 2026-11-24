@@ -5,13 +5,15 @@ import { deviceSampleRate } from '@/lib/audioDecoder';
 import { clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio } from '@/lib/audioLibrary';
 import type { ClipAudio } from '@/lib/audioLibrary';
 import { hasSliceParams } from '@/lib/medley';
-import { entryExists, fullCopyName, hash, purgeStale, readEntry, readyDir, sourceIdentity, writeEntry } from '@/lib/readyStore';
+import { computeNextSongId } from '@/lib/playFlow';
+import { entryExists, fullCopyName, hash, purgeStale, readEntry, readyDir, renderVersion, sourceIdentity, writeEntry } from '@/lib/readyStore';
 import { isTimecodeTrackId } from '@/lib/timecode';
 import { stretchClipAudio, tempoFromBpm } from '@/lib/timeStretch';
-import { canReadWavDirect, readWav, wavConvertsRate } from '@/lib/wavReader';
+import { canReadWavDirect, readWav, readWavRangeBackground, wavConvertsRate, wavLayoutAtRate } from '@/lib/wavReader';
 import { isUserInteracting } from '@/lib/interactionTracker';
 import { useStore } from '@/store';
 import type { AudioClip, Song } from '@/types';
+import type { BackgroundLease } from '@/lib/backgroundGate';
 
 export const HEAD_SECONDS = 10;
 // Margem mínima de começo pronto à frente do ponto de largada.
@@ -39,7 +41,7 @@ function headName(clip: AudioClip, source: Blob, rate: number): string {
 }
 
 function stretchedName(clip: AudioClip, source: Blob, rate: number, tempo: number, pitch: number): string {
-  return `s_${hash(`${identity(clip, source)}|${rate}|${tempo.toFixed(6)}|${pitch.toFixed(6)}`)}`;
+  return `s_${hash(`${identity(clip, source)}|${rate}|${tempo.toFixed(6)}|${pitch.toFixed(6)}${renderVersion(tempo, pitch)}`)}`;
 }
 
 /** Só BPM/tom da música inteira têm começo ajustado guardado; fatias com valores próprios são processadas ao vivo. */
@@ -159,7 +161,10 @@ interface ClipPlan {
 let deps: BuilderDeps | null = null;
 let running = false;
 let restart = false;
+/** Só a cópia convertida precisa ser conferida de novo (parou, ou a próxima mudou parada). */
+let copiesAgain = false;
 let runTimer: number | null = null;
+let copyTimer: number | null = null;
 let readyTimer: number | null = null;
 const priority: string[] = [];
 const attempts = new Map<string, number>();
@@ -181,17 +186,39 @@ function scheduleRun(delay: number) {
       restart = true;
       return;
     }
-    void runPasses();
+    void runPasses(true);
   }, delay);
 }
 
-async function runPasses() {
+/** Confere só a cópia convertida (sem refazer a conferência dos começos prontos). */
+function scheduleCopies(delay: number) {
+  if (!deps) return;
+  if (copyTimer !== null) window.clearTimeout(copyTimer);
+  copyTimer = window.setTimeout(() => {
+    copyTimer = null;
+    if (running) {
+      copiesAgain = true;
+      return;
+    }
+    void runPasses(false);
+  }, delay);
+}
+
+// Primeiro os começos prontos (é o que deixa o Play imediato); depois, com tudo parado, a cópia convertida.
+async function runPasses(heads: boolean) {
   running = true;
   try {
-    do {
+    for (;;) {
       restart = false;
-      await buildPass();
-    } while (restart);
+      if (heads) await buildPass();
+      if (restart) { heads = true; continue; }
+      copiesAgain = false;
+      // a cópia é só um ganho: um erro nela não pode derrubar o preparo dos começos
+      await buildConvertedCopies().catch((err) => console.warn('[instantStart] cópia convertida', err));
+      if (restart) { heads = true; continue; }
+      if (copiesAgain) { heads = false; continue; }
+      break;
+    }
   } finally {
     running = false;
   }
@@ -378,6 +405,266 @@ async function buildPass() {
   await purgeStale(dir, inUse);
 }
 
+// ---------- cópia convertida dos WAVs em outra taxa ----------
+// Um WAV em taxa diferente da saída (ex.: 44,1 kHz numa saída de 48 kHz) toca direto do arquivo,
+// convertido trecho a trecho nos workers de leitura, a cada Play. A cópia já convertida (`f_`, a
+// mesma que openClipAudio grava) tira essa conversão do show: o leitor do disco usa a cópia
+// quando ela existe (diskSource.openRangeReader). Só para a selecionada e a próxima, e só com
+// tudo parado de vez (Stop): tocando ou na pausa, os leitores da música já estão abertos, a
+// cópia só serviria na próxima abertura e a gravação disputaria disco e memória com o show.
+// O ganho chega quando os leitores da música abrem de novo: na sessão seguinte, ou ao voltar a
+// uma música que saiu da selecionada e da próxima. As cópias não são apagadas aqui (um leitor
+// aberto nelas pararia de tocar), então o teto do projeto fica com as primeiras que couberem.
+// Com o teto cheio, cada Stop só confere as faixas dos dois alvos e sai, sem recontar nem esperar.
+
+const MIB = 1024 ** 2;
+const GIB = 1024 ** 3;
+/** Trecho lido por vez (cerca de 1,4 s a 48 kHz): o worker geral fica poucos ms ocupado por trecho. */
+export const COPY_CHUNK_FRAMES = 1 << 16;
+/**
+ * Tetos da cópia convertida (objeto para os testes poderem apertar).
+ * - clipBytes: a cópia é montada inteira na memória antes de gravar (o formato do arquivo é do
+ *   readyStore); 64 MB é uma faixa estéreo de cerca de 5,8 min a 48 kHz. Maior que isso segue
+ *   convertida na leitura, como antes, até haver gravação por trechos.
+ * - projectBytes: teto das cópias convertidas do projeto aberto.
+ * - readyBytes: a pasta das cópias prontas inteira (todos os projetos) só passa disso com a cópia
+ *   nova se ela couber; fica 1 GB abaixo do teto de 8 GB do readyStore (MAX_TOTAL_BYTES), para a
+ *   cópia nunca fazer o readyStore apagar o que outros projetos guardaram.
+ */
+export const copyLimits = {
+  clipBytes: 64 * MIB,
+  projectBytes: 3 * GIB,
+  readyBytes: 7 * GIB,
+};
+/** Espaço que precisa sobrar para o navegador depois de gravar uma cópia. */
+const COPY_DISK_RESERVE_BYTES = 4 * GIB;
+/** Espera depois de parar ou de trocar a próxima, para o preparo da música passar antes. */
+const COPY_DELAY_MS = 2000;
+const copyAttempts = new Map<string, number>();
+
+/** Muda quando as faixas, os arquivos ou as músicas do projeto mudam (o espaço das cópias é recontado). */
+let structureGen = 0;
+/** Espaço das cópias conferido por último: com o teto cheio, cada parada não varre o projeto de novo. */
+interface CopySpace { gen: number; rate: number; projectBytes: number; readyBytes: number }
+let copySpace: CopySpace | null = null;
+
+function roomOf(space: CopySpace): number {
+  return Math.min(copyLimits.projectBytes - space.projectBytes, copyLimits.readyBytes - space.readyBytes);
+}
+
+interface ConvertedClip { plan: ClipPlan; frames: number; channels: number; need: number; exists: boolean }
+
+/** WAVs em outra taxa de uma música, com o tamanho da cópia de cada um e se ela já existe. */
+async function convertedOf(dir: FileSystemDirectoryHandle, song: Song, rate: number): Promise<ConvertedClip[]> {
+  const out: ConvertedClip[] = [];
+  for (const p of await planSong(song, rate)) {
+    if (!p.keepName) continue;
+    const layout = await wavLayoutAtRate(p.source, rate).catch(() => null);
+    if (!layout) continue;
+    out.push({ plan: p, frames: layout.frames, channels: layout.channels, need: layout.frames * layout.channels * 2, exists: await entryExists(dir, p.keepName) });
+  }
+  return out;
+}
+
+/** Tamanho da pasta das cópias prontas (todos os projetos); null se não der para contar. */
+async function readyDirBytes(dir: FileSystemDirectoryHandle): Promise<number | null> {
+  let total = 0;
+  try {
+    for await (const name of (dir as unknown as { keys: () => AsyncIterable<string> }).keys()) {
+      if (copyStopped()) return null;
+      try {
+        total += (await (await dir.getFileHandle(name)).getFile()).size;
+      } catch { /* saiu ou não é arquivo */ }
+    }
+  } catch {
+    return null;
+  }
+  return total;
+}
+
+/** Conta as cópias convertidas que o projeto já tem e a pasta inteira. Só roda quando há o que gravar. */
+async function countCopySpace(dir: FileSystemDirectoryHandle, rate: number, songs: Song[], gen: number): Promise<CopySpace | null> {
+  let projectBytes = 0;
+  for (const song of songs) {
+    if (copyStopped()) return null;
+    for (const c of await convertedOf(dir, song, rate)) if (c.exists) projectBytes += c.need;
+  }
+  const readyBytes = await readyDirBytes(dir);
+  if (readyBytes === null) return null;
+  return { gen, rate, projectBytes, readyBytes };
+}
+
+/**
+ * Monta a cópia inteira convertida a partir de trechos do WAV. Cada trecho sai idêntico ao do
+ * arquivo convertido inteiro (mesmo filtro e mesmas fases, ver wavReader.worker), então a cópia
+ * é a mesma que openClipAudio grava. `between` roda antes de cada trecho e devolve false para
+ * parar; aí, ou se um trecho falhar, devolve null.
+ */
+export async function assembleConvertedCopy(
+  frames: number,
+  channelCount: number,
+  readChunk: (start: number, count: number) => Promise<Int16Array[] | null>,
+  between: () => Promise<boolean>,
+): Promise<Int16Array[] | null> {
+  if (frames <= 0 || channelCount < 1 || channelCount > 2) return null;
+  const channels = Array.from({ length: channelCount }, () => new Int16Array(frames));
+  for (let start = 0; start < frames; start += COPY_CHUNK_FRAMES) {
+    if (!(await between())) return null;
+    const count = Math.min(COPY_CHUNK_FRAMES, frames - start);
+    const part = await readChunk(start, count);
+    if (!part || part.length !== channelCount || part.some((ch) => ch.length !== count)) return null;
+    for (let c = 0; c < channelCount; c++) channels[c].set(part[c], start);
+  }
+  return channels;
+}
+
+/** A selecionada e a próxima, do mesmo jeito que o App escolhe o que guardar; nada fora do Stop. */
+function copyTargets(): string[] {
+  const st = useStore.getState();
+  // tocando ou na pausa, os leitores da música já estão abertos: a cópia não serviria ao retomar
+  if (st.transport.isPlaying || !st.transport.isStopped) return [];
+  const selId = st.selectedSongId ?? st.playlist[0]?.songId ?? null;
+  const nextId = st.transport.nextSongId
+    ?? (selId ? computeNextSongId(selId, st.playlist, st.playlistOrder, st.transport.playFlow) : null);
+  const out: string[] = [];
+  for (const id of [selId, nextId]) if (id && !out.includes(id)) out.push(id);
+  return out;
+}
+
+function copyStopped(): boolean {
+  if (restart || copiesAgain || !deps) return true;
+  const t = useStore.getState().transport;
+  return t.isPlaying || !t.isStopped;
+}
+
+async function copyRoom(need: number): Promise<boolean> {
+  const estimate = await navigator.storage?.estimate?.().catch(() => null);
+  if (!estimate?.quota || estimate.usage === undefined) return true;
+  return estimate.quota - estimate.usage >= need + COPY_DISK_RESERVE_BYTES;
+}
+
+/** Espera parada que desiste logo se a música tocar, a seleção mudar ou o preparo for desligado. */
+async function copyWait(ms: number): Promise<boolean> {
+  const end = performance.now() + ms;
+  for (let left = ms; left > 0; left = end - performance.now()) {
+    if (copyStopped()) return false;
+    await new Promise((r) => setTimeout(r, Math.min(100, left)));
+  }
+  return !copyStopped();
+}
+
+/**
+ * Vez no portão do trabalho de fundo (Lote 10): a cópia convertida é trabalho pesado, então espera
+ * a música parada, a pessoa sem mexer e nenhuma outra análise pesada (tom, volume) rodando junto.
+ * Import sob demanda: o portão importa o audioEngine, que importa este arquivo.
+ * Desiste da espera (e devolve a vez assim que ela chegar) se a música tocar ou o preparo mudar,
+ * para os começos prontos nunca ficarem presos atrás da cópia.
+ */
+let gateModule: Promise<typeof import('@/lib/backgroundGate')> | null = null;
+async function copyTurn(): Promise<BackgroundLease | null> {
+  gateModule ??= import('@/lib/backgroundGate');
+  const turn = gateModule.then((m) => m.acquireBackgroundTurn());
+  let lease: BackgroundLease | null = null;
+  let failed = false;
+  turn.then((l) => { lease = l; }, () => { failed = true; });
+  for (;;) {
+    if (lease) return lease;
+    if (failed) return null;
+    if (copyStopped()) {
+      turn.then((l) => l.release(), () => {});
+      return null;
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+/** Contadores para os testes: quantas vezes o espaço foi recontado e quantas esperas começaram. */
+export const copyStats = { scans: 0, waits: 0 };
+
+async function buildConvertedCopies() {
+  const dir = await readyDir();
+  const targets = copyTargets();
+  if (!dir || !deps || targets.length === 0) return;
+  const rate = deviceSampleRate();
+  const gen = structureGen;
+  const st = useStore.getState();
+  const byId = new Map(st.songs.map((s) => [s.id, s]));
+
+  // só as faixas da selecionada e da próxima (na ordem dos alvos), nunca o projeto inteiro aqui
+  const todo: ConvertedClip[] = [];
+  for (const id of targets) {
+    const song = byId.get(id);
+    if (!song) continue;
+    if (copyStopped()) return;
+    for (const c of await convertedOf(dir, song, rate)) {
+      if (!c.exists && c.need <= copyLimits.clipBytes && (copyAttempts.get(c.plan.keepName!) ?? 0) < MAX_ATTEMPTS) todo.push(c);
+    }
+  }
+  if (todo.length === 0 || copyStopped()) return;
+  // o espaço das cópias é recontado só quando o projeto muda; com o teto cheio sai aqui, sem esperar
+  if (!copySpace || copySpace.gen !== gen || copySpace.rate !== rate) {
+    copyStats.scans++;
+    const space = await countCopySpace(dir, rate, st.songs, gen);
+    if (!space || copyStopped()) return;
+    copySpace = space;
+  }
+  const room = roomOf(copySpace);
+  if (!todo.some((c) => c.need <= room)) return;
+  copyStats.waits++;
+  if (!(await copyWait(COPY_DELAY_MS))) return;
+  const lease = await copyTurn();
+  if (!lease) return;
+  try {
+    await writeCopies(dir, todo, rate, gen, lease);
+  } finally {
+    lease.release();
+  }
+}
+
+async function writeCopies(dir: FileSystemDirectoryHandle, todo: ConvertedClip[], rate: number, gen: number, lease: BackgroundLease) {
+  const stopped = () => copyStopped() || lease.shouldStop();
+  for (const { plan: p, frames, channels: count, need } of todo) {
+    const space = copySpace;
+    if (stopped() || structureGen !== gen || !space || space.gen !== gen) return;
+    // uma faixa menor da lista ainda pode caber
+    if (need > roomOf(space)) continue;
+    if (!(await copyRoom(need))) return;
+    const name = p.keepName!;
+    const counted = () => { space.projectBytes += need; space.readyBytes += need; };
+    if (await entryExists(dir, name)) { counted(); continue; }
+    // metade do tempo trabalhando, metade esperando: com 2 núcleos (Intel antigo) a tela não sente
+    let last = 0;
+    const between = async () => {
+      if (last > 0) await new Promise((r) => setTimeout(r, Math.max(4, performance.now() - last)));
+      if (stopped()) return false;
+      await yieldToPlayback();
+      if (stopped()) return false;
+      last = performance.now();
+      return true;
+    };
+    try {
+      const channels = await assembleConvertedCopy(frames, count, (s, n) => readWavRangeBackground(p.source, rate, s, n), between);
+      if (stopped()) return;
+      if (!channels) {
+        copyAttempts.set(name, (copyAttempts.get(name) ?? 0) + 1);
+        continue;
+      }
+      // openClipAudio pode ter gravado a mesma cópia enquanto esta era montada
+      if (await entryExists(dir, name)) { counted(); continue; }
+      // a gravação não para no meio: o Play que chegou durante a conferência acima vence
+      if (stopped()) return;
+      await writeEntry(dir, name, rate, channels, frames, frames);
+      counted();
+    } catch (err) {
+      if (stopped()) return;
+      copyAttempts.set(name, (copyAttempts.get(name) ?? 0) + 1);
+      console.warn('[instantStart] não consegui gravar a cópia convertida', p.clip.name, err);
+      // disco cheio: não tenta as outras agora
+      if (err instanceof DOMException && err.name === 'QuotaExceededError') return;
+    }
+  }
+}
+
 // Só o que muda o áudio preparado: troca de faixas, de arquivo, de BPM ou de tom.
 function structureKey(): string {
   const st = useStore.getState();
@@ -390,6 +677,9 @@ function structureKey(): string {
 /** Liga o preparo em segundo plano; refaz só o que mudou quando as faixas ou o BPM/tom mudam. */
 export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
   deps = builderDeps;
+  // outro projeto (ou o mesmo reaberto): o espaço das cópias é recontado na primeira vez
+  structureGen++;
+  copySpace = null;
   let prev = useStore.getState();
   let prevKey = structureKey();
   scheduleRun(150);
@@ -399,6 +689,13 @@ export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
     // Ao selecionar ou trocar de música, coloca ela no topo da fila para preparar imediatamente
     if (state.selectedSongId !== before.selectedSongId && state.selectedSongId) {
       requestPriority(state.selectedSongId);
+    }
+    // A cópia convertida só anda no Stop: confere ao parar e quando a próxima muda com tudo parado.
+    const t = state.transport;
+    const b = before.transport;
+    if (t.isStopped && !t.isPlaying && (b.isPlaying || !b.isStopped || t.nextSongId !== b.nextSongId
+      || t.playFlow !== b.playFlow || state.playlistOrder !== before.playlistOrder)) {
+      scheduleCopies(150);
     }
     if (state.songs === before.songs && state.clips === before.clips && state.tracks === before.tracks) return;
     if (state.songs !== before.songs) {
@@ -414,6 +711,7 @@ export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
     const key = structureKey();
     if (key === prevKey) return;
     prevKey = key;
+    structureGen++;
     scheduleRun(150);
   });
   return () => {
@@ -421,6 +719,8 @@ export function startInstantStartBuilder(builderDeps: BuilderDeps): () => void {
     deps = null;
     if (runTimer !== null) window.clearTimeout(runTimer);
     runTimer = null;
+    if (copyTimer !== null) window.clearTimeout(copyTimer);
+    copyTimer = null;
     if (readyTimer !== null) window.clearTimeout(readyTimer);
     readyTimer = null;
     restart = true;

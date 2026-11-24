@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { Check, CornerDownRight } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
@@ -17,13 +18,13 @@ interface MedleySlicesProps {
 }
 
 export function MedleySlices({ song, songNumber, showStart, isCurrent, cols, showBpm, showTuner }: MedleySlicesProps) {
-  const slices = medleySlices(song);
-  const currentTime = useStore((s) => (isCurrent ? s.transport.currentTime : -1));
+  const slices = useMemo(() => medleySlices(song), [song]);
+  // Só o id da parte no ar: antes a lista assinava o cursor e redesenhava 10 vezes por segundo.
+  const playingId = useStore((s) => (isCurrent ? sliceAt(slices, s.transport.currentTime)?.id ?? null : null));
   const updateMedleyPart = useStore((s) => s.updateMedleyPart);
   const selectSong = useStore((s) => s.selectSong);
   if (slices.length === 0) return null;
 
-  const playing = isCurrent ? sliceAt(slices, currentTime) : null;
   const enabledCount = slices.filter(isSliceEnabled).length;
   let elapsed = 0;
 
@@ -36,7 +37,7 @@ export function MedleySlices({ song, songNumber, showStart, isCurrent, cols, sho
     <div className="pb-2" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       {slices.map((s, i) => {
         const enabled = isSliceEnabled(s);
-        const isPlaying = playing?.id === s.id;
+        const isPlaying = playingId === s.id;
         const locked = enabled && enabledCount <= 1;
         const params = sliceParams(song, s);
         const duration = sliceDuration(song, s);

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Trash2, CornerDownRight, Repeat, SkipForward, Pencil } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useStore } from '@/store';
@@ -12,8 +12,10 @@ import type { RegionLayout } from '@/lib/regions';
 import { snapTime, songGrid } from '@/lib/grid';
 import { seekToPosition } from '@/lib/transportControl';
 import { zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
+import { regionDragView, useViewValue, type RegionDrag } from '@/lib/timelineView';
 
-export type RegionDrag = { id: string; start: number; end: number; layout?: RegionLayout | null } | null;
+// O arraste da região mora em timelineView (regionDragView); o tipo continua saindo daqui também.
+export type { RegionDrag };
 type DragMode = 'move' | 'start' | 'end';
 
 const DRAG_THRESHOLD_PX = 3;
@@ -22,13 +24,14 @@ const EDGE_PX = 6;
 interface RegionLaneProps {
   song: Song;
   zoomH: number;
-  drag: RegionDrag;
-  onDragChange: (drag: RegionDrag) => void;
   editingId: string | null;
   onEdit: (id: string | null) => void;
 }
 
-export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit }: RegionLaneProps) {
+// memo: só redesenha pela música, pelo zoom, pela região em edição e pelo próprio arraste
+export const RegionLane = memo(function RegionLane({ song, zoomH, editingId, onEdit }: RegionLaneProps) {
+  const drag = useViewValue(regionDragView);
+  const onDragChange = regionDragView.set;
   const updateSongRegion = useStore((s) => s.updateSongRegion);
   const removeSongRegion = useStore((s) => s.removeSongRegion);
   // clique duplo numa região: menu Editar / Excluir
@@ -239,7 +242,7 @@ export function RegionLane({ song, zoomH, drag, onDragChange, editingId, onEdit 
       )}
     </div>
   );
-}
+});
 
 function RegionToggle({ active, label, onToggle, children }: { active: boolean; label: string; onToggle: () => void; children: React.ReactNode }) {
   return (
@@ -260,7 +263,8 @@ function RegionToggle({ active, label, onToggle, children }: { active: boolean; 
 }
 
 /** Faixas das regiões por cima dos clipes, na variável do zoom (acompanham o zoom ao vivo). */
-export function RegionGuides({ song, drag }: { song: Song; drag: RegionDrag }) {
+export const RegionGuides = memo(function RegionGuides({ song }: { song: Song }) {
+  const drag = useViewValue(regionDragView);
   const regions = song.regions ?? [];
   if (regions.length === 0) return null;
   return (
@@ -285,7 +289,7 @@ export function RegionGuides({ song, drag }: { song: Song; drag: RegionDrag }) {
       })}
     </>
   );
-}
+});
 
 function RegionEditor({ song, region, queued, onClose }: { song: Song; region: SongRegion; queued: boolean; onClose: () => void }) {
   const updateSongRegion = useStore((s) => s.updateSongRegion);

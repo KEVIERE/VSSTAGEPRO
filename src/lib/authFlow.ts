@@ -1,5 +1,3 @@
-import { supabase } from '@/lib/supabaseClient';
-
 // Código promocional digitado na tela de entrada: é resgatado assim que a conta entra
 // (fica guardado caso o cadastro ainda precise ser confirmado).
 export const PENDING_PROMO_LS = 'vs-pending-promo';
@@ -28,14 +26,4 @@ export function maskEmail(email: string) {
   const [user, domain] = email.split('@');
   if (!domain) return email;
   return `${user.slice(0, 2)}${'•'.repeat(Math.max(1, user.length - 2))}@${domain}`;
-}
-
-export async function phoneSignup(body: Record<string, unknown>): Promise<{ ok: true; phone_hint?: string }> {
-  const { data, error } = await supabase.functions.invoke('signup-phone', { body });
-  if (error) {
-    const res = await (error as { context?: Response }).context?.json?.().catch(() => null);
-    throw new Error(res?.error ?? 'request_failed');
-  }
-  if (data?.error) throw new Error(data.error);
-  return data;
 }

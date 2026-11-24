@@ -102,3 +102,40 @@ test('pico digitado: "2" vale -2, aceita vírgula e "dB", e fica na faixa', () =
   assert.equal(parseTargetDb('abc'), null);
   assert.equal(clampTarget(3), 0);
 });
+
+// ---------- IGUALAR no multipista: volume percebido da banda ----------
+import { clampLufs, isFixedLevelTrack, parseTargetLufs, TARGET_LUFS_MAX, TARGET_LUFS_MIN, LEVEL_CEILING_DBTP } from '../src/lib/levelTarget.ts';
+
+test('IGUALAR: músicas de volumes diferentes terminam no mesmo LUFS, sem passar do teto', () => {
+  const sr = 48000;
+  const tone = (amp) => { const x = new Float32Array(sr * 6); for (let i = 0; i < x.length; i++) x[i] = amp * Math.sin((2 * Math.PI * 1000 * i) / sr); return [x, x]; };
+  const alvo = -20;
+  const finais = [0.02, 0.05, 0.12].map((amp) => {
+    const ch = tone(amp);
+    const g = matchGain(integratedLoudness(ch, sr), truePeak(ch), alvo, LEVEL_CEILING_DBTP);
+    const out = ch[0].map((v) => v * g);
+    assert.ok(truePeak([out, out]) <= dbToGain(LEVEL_CEILING_DBTP) + 1e-3);
+    return integratedLoudness([out, out], sr);
+  });
+  finais.forEach((l) => assert.ok(Math.abs(l - alvo) < 0.1, `ficou em ${l}`));
+});
+
+test('IGUALAR: click, guia, Maestro e timecode ficam fixos, inclusive dentro da pasta', () => {
+  const tracks = [
+    { id: 'track-guia', parentId: null }, { id: 'voz', parentId: 'track-guia' },
+    { id: 'track-click', parentId: null }, { id: 'track-maestro', parentId: null },
+    { id: 'track-timecode', parentId: null }, { id: 'track-bateria', parentId: null }, { id: 'caixa', parentId: 'track-bateria' },
+  ];
+  for (const id of ['track-guia', 'voz', 'track-click', 'track-maestro', 'track-timecode']) assert.equal(isFixedLevelTrack(id, tracks), true, id);
+  for (const id of ['track-bateria', 'caixa']) assert.equal(isFixedLevelTrack(id, tracks), false, id);
+});
+
+test('IGUALAR: lê o alvo em LUFS digitado', () => {
+  assert.equal(parseTargetLufs('-16'), -16);
+  assert.equal(parseTargetLufs('14'), -14);
+  assert.equal(parseTargetLufs('-12 LUFS'), -12);
+  assert.equal(parseTargetLufs('-90'), TARGET_LUFS_MIN);
+  assert.equal(parseTargetLufs('-2'), TARGET_LUFS_MAX);
+  assert.equal(parseTargetLufs('abc'), null);
+  assert.equal(clampLufs(-14.4), -14);
+});

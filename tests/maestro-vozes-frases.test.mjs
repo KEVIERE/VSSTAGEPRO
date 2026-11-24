@@ -18,7 +18,7 @@ const texts = (q, n = Infinity) => searchReadyCues(q, n).map((h) => h.cue.text);
 
 test('Felipe é a voz padrão; a escolha antiga passa para Felipe (Masculina) ou Bianca (Feminina)', () => {
   assert.equal(DEFAULT_READY_VOICE, 'pronta:felipe');
-  assert.equal(readyVoice(DEFAULT_READY_VOICE)?.label, 'Felipe');
+  assert.equal(readyVoice(DEFAULT_READY_VOICE)?.label, 'Maestro 1', 'a voz pronta:felipe aparece como Maestro 1');
   assert.equal(voiceFromOldChoice(null), 'pronta:felipe', 'nada guardado: Felipe');
   assert.equal(voiceFromOldChoice('masculina'), 'pronta:felipe');
   assert.equal(voiceFromOldChoice('qwen:masculina'), 'pronta:felipe');
@@ -37,16 +37,18 @@ test('a última voz usa a chave nova e só migra a escolha antiga', () => {
   assert.ok(!/return 'feminina';\s*\n\}/.test(src), 'a Feminina não é mais a padrão');
 });
 
-test('o seletor mostra Felipe e Bianca primeiro, como as vozes principais', () => {
+test('o seletor oferece só o Maestro IA e as vozes clonadas', () => {
   const picker = read('src', 'components', 'MaestroVoicePicker.tsx');
-  const ready = picker.indexOf('{READY_VOICES.map(');
-  const mac = picker.indexOf('{VOICE_PRESETS.map(');
-  assert.ok(ready > 0 && mac > 0 && ready < mac, 'Felipe e Bianca vêm antes de Feminina e Masculina');
-  assert.match(picker.slice(ready - 400, ready), />Voz<\/span>/, 'a linha das prontas é a linha "Voz"');
+  assert.match(picker, /\{readyChoices\.map\(/);
+  assert.doesNotMatch(picker, /VOICE_PRESETS/, 'sem as teclas Feminina e Masculina');
+  const ready = picker.indexOf('{readyChoices.map(');
+  assert.match(picker.slice(ready - 400, ready), />Voz<\/span>/, 'a linha do Maestro IA é a linha "Voz"');
+  const chip = picker.slice(ready, picker.indexOf('</VoiceChip>') > 0 ? picker.indexOf('</VoiceChip>') : ready + 500).slice(0, 500);
+  assert.doesNotMatch(chip, /onRemove/, 'o Maestro IA não tem tecla de apagar');
 });
 
 test('o banco tem cerca de cinco vezes mais falas, sem id ou texto repetido', () => {
-  assert.ok(all.length >= 1000 && all.length <= 1100, `${all.length} falas`);
+  assert.equal(all.length, 1344, 'as 1.027 de antes, as 313 novas e os números 11, 13, 14 e 15');
   assert.equal(new Set(all.map((c) => c.id)).size, all.length, 'id repetido');
   assert.equal(new Set(all.map((c) => cueKey(c.text))).size, all.length, 'texto repetido');
   for (const c of all) {
@@ -61,10 +63,9 @@ test('o banco tem cerca de cinco vezes mais falas, sem id ou texto repetido', ()
 
 test('toda fala da lista tem a voz gravada, e os ids antigos não mudaram', () => {
   const ids = new Set(all.map((c) => c.id));
-  assert.equal(RECORDED_CUE_IDS.size, all.length);
+  assert.equal(RECORDED_CUE_IDS.size, 1027, 'as novas só entram quando tiverem o arquivo');
   for (const id of RECORDED_CUE_IDS) assert.ok(ids.has(id), id);
   assert.equal(findReadyCue('Vai pro refrão')?.id, 'vai-pro-refrao');
-  for (const c of all) assert.ok(hasRecording(c), c.id);
   for (const w of ['Um', 'Dois', 'Três', 'Quatro']) assert.ok(hasRecording(findReadyCue(w)), w);
 });
 
@@ -80,11 +81,11 @@ test('intensidade que a fala ainda não tem sai na Normal (nunca dá arquivo fal
   assert.equal(recordedIntensity(antiga, 'normal'), 'normal');
 });
 
-test('fala pronta sem gravação cai na voz do Mac com aviso, sem erro', () => {
+test('fala pronta sem gravação cai na voz reserva com aviso, sem erro', () => {
   const src = read('src', 'lib', 'maestroVoice.ts');
-  assert.match(src, /if \(cue && hasRecording\(cue\)\) \{\s*try \{\s*buffer = await readyCueBuffer\(ready, cue\);/);
-  assert.match(src, /ainda não foi gravada na voz \$\{ready\.label\}: saiu na voz \$\{mac\} do Mac\./);
-  assert.match(src, /Essa fala não está nas falas prontas: saiu na voz \$\{mac\} do Mac\./, 'o aviso de antes continua');
+  assert.match(src, /if \(cue && voiceHasCue\(ready, cue, ready\.intensity\)\) \{\s*try \{\s*buffer = await readyCueBuffer\(ready, cue\);/);
+  assert.match(src, /ainda não foi gravada na voz \$\{ready\.label\}: saiu na voz reserva do sistema\./);
+  assert.match(src, /Essa fala não está nas falas prontas: saiu na voz reserva do sistema\./, 'o aviso de antes continua');
   assert.match(src, /voice = ready\.fallback;/);
 });
 
@@ -132,7 +133,7 @@ test('busca: destaca os trechos que bateram, nas posições do texto original', 
 test('a janela da fala usa a busca: foco ao abrir, Enter escolhe, Esc limpa', () => {
   const dialog = read('src', 'components', 'NarrationDialog.tsx');
   const picker = read('src', 'components', 'maestro', 'ReadyCuePicker.tsx');
-  assert.match(dialog, /<ReadyCuePicker text=\{text\} busy=\{busy\} onPick=\{pickCue\}/);
+  assert.match(dialog, /<ReadyCuePicker text=\{text\} onPick=\{pickCue\}/);
   assert.match(dialog, /hasAttribute\?\.\(ESC_CLEARS_ATTR\) && t\.value\) return;/, 'Esc com busca escrita não fecha a janela');
   assert.match(picker, /useEffect\(\(\) => \{ if \(autoFocus\) inputRef\.current\?\.focus\(\); \}, \[autoFocus\]\);/);
   assert.match(picker, /e\.key === 'Enter'[\s\S]{0,200}const hit = shown\[active\] \?\? shown\[0\];/);
@@ -140,5 +141,6 @@ test('a janela da fala usa a busca: foco ao abrir, Enter escolhe, Esc limpa', ()
   assert.match(picker, /role="combobox"/);
   assert.match(picker, /console-well/);
   assert.match(picker, /console-key/);
-  assert.match(picker, /sem gravação ainda/);
+  assert.match(picker, /cueInPicker\(voice, c\)/, 'a lista mostra só o que a voz tem gravado');
+  assert.doesNotMatch(picker, /sem gravação ainda/, 'nada de fala muda na lista');
 });

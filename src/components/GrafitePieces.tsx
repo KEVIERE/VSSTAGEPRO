@@ -3,8 +3,8 @@
 // de LED, teclas escuras que acendem por dentro (SOLO amarelo, MUTE vermelho, CLIP azul) e fader
 // de capa preta fosca com a linha colorida, com o medidor de LEDs fino ao lado. Só aparecem com a
 // Grafite vestida; a Analógica continua com as peças de sempre.
-import { useRef, type ReactNode } from 'react';
-import { useMeterLevel } from '@/lib/meterBus';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { bindMeter, holdDeadline, holdStep, levelDb, type MeterHold } from '@/components/EstudioPieces';
 
 export type GfCapTone = 'band' | 'cue' | 'master' | 'tc';
 
@@ -107,6 +107,36 @@ export function GfKnob({ value, color = '#46b4ff', bipolar = true, className = '
 // Medidor de LEDs fino ao lado do fader: segmentos miúdos, verde → amarelo → vermelho, com o pico
 // segurando 1,5 s e o LED de clip em cima (clique apaga).
 const FM_SEGS = 30;
+
+/** Classe do LED `n` (1 embaixo, 30 em cima): a zona da cor e se está aceso. */
+function gfSegClass(n: number, on: boolean): string {
+  const zone = n > FM_SEGS - 2 ? 'is-red' : n > FM_SEGS - 7 ? 'is-yellow' : 'is-green';
+  return `${zone} ${on ? 'is-on' : ''}`;
+}
+
+/** Quantos LEDs acendem com o nível (de -54 a 0 dBFS); o canal mudo apaga tudo. */
+function gfLitCount(level: number, off: boolean): number {
+  const db = levelDb(level);
+  return off ? 0 : Math.max(0, Math.min(FM_SEGS, Math.round(((db + 54) / 54) * FM_SEGS)));
+}
+
+/** Desenho do medidor fino direto nos LEDs (na ordem do JSX, de cima para baixo): só troca a classe do LED que mudou. */
+function gfFaderMeterPaint(segs: ArrayLike<{ className: string }>, off: boolean, hold: MeterHold) {
+  const shown = Array.from(segs, (s) => s.className);
+  return (level: number, now: number): number => {
+    const lit = gfLitCount(level, off);
+    holdStep(hold, lit, now);
+    const peak = hold.v;
+    for (let k = 0; k < segs.length; k += 1) {
+      const n = FM_SEGS - k; // de cima para baixo
+      const cls = gfSegClass(n, n <= lit || (n === peak && peak > 0));
+      if (cls !== shown[k]) { shown[k] = cls; segs[k].className = cls; }
+    }
+    return holdDeadline(hold, lit);
+  };
+}
+
+/** Os LEDs acendem pelo efeito, fora do React (veja bindMeter); o JSX só monta os 30 apagados. */
 export function GfFaderMeter({ id, height, off, clipping, onClick }: {
   id: string;
   height: number;
@@ -114,22 +144,19 @@ export function GfFaderMeter({ id, height, off, clipping, onClick }: {
   clipping?: boolean;
   onClick?: (e: React.MouseEvent) => void;
 }) {
-  const level = useMeterLevel(id);
-  const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
-  const lit = off ? 0 : Math.max(0, Math.min(FM_SEGS, Math.round(((db + 54) / 54) * FM_SEGS)));
-  const hold = useRef({ n: 0, at: 0 });
-  const now = performance.now();
-  if (lit >= hold.current.n || now - hold.current.at > 1500) hold.current = { n: lit, at: now };
-  const peak = hold.current.n;
+  const ref = useRef<HTMLDivElement>(null);
+  const hold = useRef<MeterHold>({ v: 0, at: 0 });
+  const isOff = !!off;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const segs = el.querySelectorAll<HTMLElement>(':scope > i:not(.gf-fmeter-clip)');
+    return bindMeter(id, gfFaderMeterPaint(segs, isOff, hold.current));
+  }, [id, isOff]);
   return (
-    <div className="gf-fmeter" style={{ height }} onClick={onClick} title={clipping ? 'Clique para apagar o indicador de clip' : undefined}>
+    <div ref={ref} className="gf-fmeter" style={{ height }} onClick={onClick} title={clipping ? 'Clique para apagar o indicador de clip' : undefined}>
       <i className={`gf-fmeter-clip ${clipping ? 'is-on' : ''}`} />
-      {Array.from({ length: FM_SEGS }, (_, k) => {
-        const n = FM_SEGS - k; // de cima para baixo
-        const zone = n > FM_SEGS - 2 ? 'is-red' : n > FM_SEGS - 7 ? 'is-yellow' : 'is-green';
-        const on = n <= lit || (n === peak && peak > 0);
-        return <i key={k} className={`${zone} ${on ? 'is-on' : ''}`} />;
-      })}
+      {Array.from({ length: FM_SEGS }, (_, k) => <i key={k} className={gfSegClass(FM_SEGS - k, false)} />)}
     </div>
   );
 }

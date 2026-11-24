@@ -7,6 +7,7 @@ import { withoutLoops } from '@/lib/regions';
 import { keptAssetIndex, packageTrailer, readPackageTail, TRAILER_SIZE, VSC_MAGIC, writePackageTail, type KeptAsset, type PackageAsset, type PackageTail } from '@/lib/vssPackage';
 import { desktopFile, desktopFilePath, desktopProjects, locateDesktopPath, sameFileVersion } from '@/lib/desktopProjectFiles';
 import { extraManifestFields, projectExtras, type ProjectExtraAsset } from '@/lib/projectHooks';
+import { isBlobUrl } from '@/lib/clipBlobUrls';
 
 type ProgressFn = (msg: string) => void;
 
@@ -38,9 +39,13 @@ export type SavedManifest = {
   zoomV: number;
   lrMasterActive: boolean;
   masterAntiClip?: boolean;
+  masterOutputChannel?: number;
+  masterOutputStereo?: boolean;
+  masterOutputOff?: boolean;
   levelMatch?: boolean;
   /** Alvo em LUFS do "volume igual" escolhido pelo usuário. */
   levelMatchDb?: number;
+  levelMatchLufs?: number;
   /** LR mágico ligado e os pans de antes dele (para o botão poder voltar depois de reabrir). */
   magicRoutingActive?: boolean;
   prevOutputChannels?: Record<string, number> | null;
@@ -86,15 +91,16 @@ function sanitize(name: string): string {
 
 // Salvar de novo sem ter mudado o áudio não deve recodificar o WAV outra vez: o clipe que não
 // mudou usa o mesmo blob já codificado da vez anterior. A chave inclui a referência do buffer em
-// memória (troca sozinha se o áudio for substituído) e o chip de indexador (length), então um
-// áudio realmente diferente nunca reaproveita o blob de outro.
-const wavEncodeCache = new Map<string, { audio: ClipAudio; blob: Blob }>();
+// memória (troca sozinha se o áudio for substituído), então um áudio diferente nunca reaproveita
+// o blob de outro. Fraca de propósito: quando a biblioteca solta o áudio, a cópia sai junto. Antes
+// cada clipe salvo ficava com áudio e WAV presos na memória até fechar o programa.
+const wavEncodeCache = new WeakMap<ClipAudio, Blob>();
 
-function encodeWavCached(clipId: string, audio: ClipAudio): Blob {
-  const cached = wavEncodeCache.get(clipId);
-  if (cached && cached.audio === audio) return cached.blob;
+function encodeWavCached(audio: ClipAudio): Blob {
+  const cached = wavEncodeCache.get(audio);
+  if (cached) return cached;
   const blob = new Blob([encodeWavInt16(audio)], { type: 'audio/wav' });
-  wavEncodeCache.set(clipId, { audio, blob });
+  wavEncodeCache.set(audio, blob);
   return blob;
 }
 
@@ -127,11 +133,16 @@ export function compactPeaks(peaks: number[]): number[] {
 }
 
 export function buildManifestBase(state: ProjectState): SavedManifest {
+  return manifestFrom(state, state.clips.map((c) => (Array.isArray(c.waveformPeaks) ? { ...c, waveformPeaks: compactPeaks(c.waveformPeaks) } : { ...c })));
+}
+
+// Os campos do manifest na ordem de sempre; `clips` entra pronto (a ordem das chaves decide o texto).
+function manifestFrom(state: ProjectState, clips: AudioClip[]): SavedManifest {
   return {
     version: 3,
     projectName: state.projectName,
     tracks: state.tracks,
-    clips: state.clips.map((c) => (Array.isArray(c.waveformPeaks) ? { ...c, waveformPeaks: compactPeaks(c.waveformPeaks) } : { ...c })),
+    clips,
     songs: state.songs.map(withoutLoops),
     blocks: state.blocks,
     playlist: projectPlaylist(state),
@@ -148,8 +159,12 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     zoomV: state.zoomV,
     lrMasterActive: state.lrMasterActive,
     masterAntiClip: state.masterAntiClip ?? false,
+    masterOutputChannel: state.masterOutputChannel,
+    masterOutputStereo: state.masterOutputStereo,
+    masterOutputOff: state.masterOutputOff ?? false,
     levelMatch: state.levelMatch ?? false,
     levelMatchDb: state.levelMatchDb,
+    levelMatchLufs: state.levelMatchLufs,
     magicRoutingActive: (state as ProjectState & { magicRoutingActive?: boolean }).magicRoutingActive ?? false,
     prevOutputChannels: (state as ProjectState & { prevOutputChannels?: Record<string, number> | null }).prevOutputChannels ?? null,
     songLoudness: state.songLoudness ?? {},
@@ -162,6 +177,72 @@ export function buildManifestBase(state: ProjectState): SavedManifest {
     // pads do Modo Show e outras partes que vivem fora do estado principal
     ...extraManifestFields(),
   };
+}
+
+// Texto do manifest montado por partes. Antes cada ⌘S transformava em texto todos os picos da onda
+// de novo (num show grande, uns 20 MB de números, de 190 a 280 ms com a tela parada), mesmo sem
+// nenhum clipe mexido. Agora o texto dos picos de cada clipe é feito uma vez e guardado junto do
+// próprio array de picos (que nunca é mexido depois de pronto, como já supõe `compactPeaks`): o
+// resto do clipe e do manifest, que é pequeno, continua saindo do JSON.stringify de sempre, com uma
+// marca no lugar dos picos e dos clipes. O resultado é o mesmo texto, byte a byte, de antes, e a
+// comparação "nada mudou" (`lastSaved.json === json`) continua valendo. Guardado pelo array de
+// picos, e não pelo clipe, o texto não se repete a cada versão do clipe no Desfazer.
+const MARK = `@@vs-manifesto-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}@@`;
+const MARK_JSON = JSON.stringify(MARK);
+const peaksJson = new WeakMap<number[], string>();
+
+/** Troca o valor-marca da chave `key` (a primeira que aparece) pelo texto `value`; null se não achar. */
+function spliceMark(json: string, key: string, value: string): string | null {
+  const needle = `"${key}":${MARK_JSON}`;
+  const at = json.indexOf(needle);
+  if (at < 0) return null;
+  return json.slice(0, at + key.length + 3) + value + json.slice(at + needle.length);
+}
+
+function peaksText(peaks: number[]): string {
+  let text = peaksJson.get(peaks);
+  if (text === undefined) {
+    text = JSON.stringify(peaks);
+    peaksJson.set(peaks, text);
+  }
+  return text;
+}
+
+/** O texto de um clipe no manifest: o mesmo de `{ ...c, waveformPeaks: compactPeaks(...), filePath }`. */
+function clipJson(c: AudioClip, filePath: string | undefined): string {
+  const peaks = Array.isArray(c.waveformPeaks) ? compactPeaks(c.waveformPeaks) : null;
+  const base = peaks ? { ...c, waveformPeaks: MARK as unknown as number[] } : { ...c };
+  const text = JSON.stringify(filePath ? { ...base, filePath } : base);
+  if (!peaks) return text;
+  const withPeaks = spliceMark(text, 'waveformPeaks', peaksText(peaks));
+  if (withPeaks !== null) return withPeaks;
+  const full = { ...c, waveformPeaks: peaks };
+  return JSON.stringify(filePath ? { ...full, filePath } : full);
+}
+
+/**
+ * O texto do manifest que vai para o arquivo: igual a montar `buildManifestBase`, trocar o nome,
+ * pôr o caminho de cada áudio (`withAssetPaths`), o índice (`assets`) e fazer o JSON.stringify.
+ */
+export function manifestJson(
+  state: ProjectState,
+  projectName: string,
+  assets: ReadonlyArray<{ clip: { id: string }; relPath: string }>,
+  index?: PackageAsset[],
+): string {
+  const manifest = manifestFrom(state, MARK as unknown as AudioClip[]);
+  manifest.projectName = projectName;
+  if (index) manifest.assets = index;
+  const pathById = new Map(assets.map((a) => [a.clip.id, a.relPath]));
+  const clips = `[${state.clips.map((c) => clipJson(c, pathById.get(c.id))).join(',')}]`;
+  const json = spliceMark(JSON.stringify(manifest), 'clips', clips);
+  if (json !== null) return json;
+  // não acontece (a marca é única): do jeito de antes
+  const legacy = buildManifestBase(state);
+  legacy.projectName = projectName;
+  withAssetPaths(legacy, assets as AssetPlan[]);
+  if (index) legacy.assets = index;
+  return JSON.stringify(legacy);
 }
 
 // O arquivo original vai como foi importado (um MP3 continua MP3); só o áudio sem arquivo vira WAV.
@@ -211,23 +292,77 @@ async function forEachAsset(
   const songOrder = new Map(plan.filter((p) => p.assets.length > 0).map((p, i) => [p.songId, i + 1]));
   const songsWithAudio = plan.filter((p) => p.assets.length > 0).length;
   let done = 0;
+  const progress = throttledProgress(onProgress);
 
-  for (const a of all) {
-    checkCancelled(signal);
-    done++;
-    const extra = extraById.get(a.clip.id);
-    if (extra) {
-      onProgress(`Salvando os sons dos pads: ${done} de ${total} arquivos`);
-    } else {
-      const song = songNames.get(a.clip.songId) ?? 'Música';
-      const track = trackNames.get(a.clip.trackId) ?? 'Faixa';
-      onProgress(`Salvando os áudios: ${done} de ${total} arquivos · música ${songOrder.get(a.clip.songId) ?? 1} de ${Math.max(1, songsWithAudio)} · ${song}, ${track}`);
+  try {
+    for (const a of all) {
+      checkCancelled(signal);
+      done++;
+      const extra = extraById.get(a.clip.id);
+      if (extra) {
+        progress.report(`Salvando os sons dos pads: ${done} de ${total} arquivos`);
+      } else {
+        const song = songNames.get(a.clip.songId) ?? 'Música';
+        const track = trackNames.get(a.clip.trackId) ?? 'Faixa';
+        progress.report(`Salvando os áudios: ${done} de ${total} arquivos · música ${songOrder.get(a.clip.songId) ?? 1} de ${Math.max(1, songsWithAudio)} · ${song}, ${track}`);
+      }
+      const data = await assetData(a, extra);
+      checkCancelled(signal);
+      await write(a, data);
     }
-    const data = await assetData(a, extra);
-    checkCancelled(signal);
-    await write(a, data);
+    progress.flush();
+  } finally {
+    progress.cancel();
   }
   return all;
+}
+
+const PROGRESS_MS = 100;
+const clockNow = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+/**
+ * Mensagens de progresso do salvar, no máximo uma a cada 100 ms. Cada mensagem redesenha a barra
+ * de baixo (e, com ela, parte da tela): com 225 áudios que já estão no disco, eram centenas de
+ * redesenhos em poucos segundos. A que fica guardada sai quando dá o tempo (um áudio demorado
+ * mostra o nome certo) ou no fim do laço (`flush`); `cancel` descarta (erro ou cancelado).
+ */
+export function throttledProgress(onProgress: ProgressFn, ms = PROGRESS_MS, now: () => number = clockNow) {
+  let last = -Infinity;
+  let pending: string | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const send = (msg: string) => {
+    last = now();
+    pending = null;
+    onProgress(msg);
+  };
+  const stop = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    report(msg: string) {
+      const wait = last + ms - now();
+      if (wait <= 0 && timer === null) {
+        send(msg);
+        return;
+      }
+      pending = msg;
+      if (timer === null) {
+        timer = setTimeout(() => {
+          timer = null;
+          if (pending !== null) send(pending);
+        }, Math.max(0, wait));
+      }
+    },
+    flush() {
+      stop();
+      if (pending !== null) send(pending);
+    },
+    cancel() {
+      stop();
+      pending = null;
+    },
+  };
 }
 
 /**
@@ -252,7 +387,7 @@ async function assetData(a: AssetPlan, extra?: ProjectExtraAsset): Promise<Blob 
     }
     if (audio) {
       try {
-        data = encodeWavCached(a.clip.id, audio);
+        data = encodeWavCached(audio);
       } catch { /* ignore: salva sem este áudio e avisa no resumo */ }
     }
   }
@@ -421,14 +556,10 @@ async function writeProjectFolder(projDir: FileSystemDirectoryHandle, projName: 
     await writeFile(dir, fileName, data, signal);
   }, signal);
 
-  const manifest = buildManifestBase(state);
-  manifest.projectName = projName;
-  withAssetPaths(manifest, assets);
-
   checkCancelled(signal);
   onProgress('Gravando arquivo do projeto...');
   // sem recuo: com os picos da onda um por linha, o recuo deixava o arquivo com quase o dobro
-  await writeFile(projDir, `${projName}.vsproj`, new Blob([JSON.stringify(manifest)], { type: 'application/json' }), signal);
+  await writeFile(projDir, `${projName}.vsproj`, new Blob([manifestJson(state, projName, assets)], { type: 'application/json' }), signal);
 }
 
 export async function saveProjectAsFolder(state: ProjectState, projectName: string, onProgress: ProgressFn, signal?: AbortSignal, requireNew = false): Promise<SaveTarget> {
@@ -490,14 +621,9 @@ async function writePackage(
     offset += size;
   }, signal);
 
-  const manifest = buildManifestBase(state);
-  manifest.projectName = projectName;
-  withAssetPaths(manifest, assets);
-  manifest.assets = index;
-
   checkCancelled(signal);
   onProgress('Gravando pacote...');
-  const json = JSON.stringify(manifest);
+  const json = manifestJson(state, projectName, assets, index);
   const manifestBytes = enc.encode(json);
   await write(manifestBytes.buffer as ArrayBuffer);
 
@@ -552,6 +678,7 @@ async function rebindPackageSources(state: ProjectState, handle: FileSystemFileH
       if (src) registerClipSource(c.id, c.songId, src);
     }
     projectExtras().forEach((x) => x.rebind(sources));
+    releaseSavedBlobUrls(state, sources);
   } catch (err) {
     // Não-crítico: se o handle ainda estiver temporariamente bloqueado pelo OS após o close(),
     // o arquivo já foi gravado no disco com sucesso absoluto.
@@ -666,11 +793,7 @@ function splitAssets(state: ProjectState, fromThisFile: (file: File) => boolean)
 }
 
 function tailManifestJson(state: ProjectState, projectName: string, assets: AssetPlan[], index: PackageAsset[]): string {
-  const manifest = buildManifestBase(state);
-  manifest.projectName = projectName;
-  withAssetPaths(manifest, assets);
-  manifest.assets = index;
-  return JSON.stringify(manifest);
+  return manifestJson(state, projectName, assets, index);
 }
 
 type TailResult = WrittenIndex | 'unchanged' | false;
@@ -787,12 +910,13 @@ async function writeAppendToPath(
   let missingCount = 0;
   const written = new Map<Blob, { offset: number; size: number }>();
   const sameVersion = new Map<string, boolean>();
+  const progress = throttledProgress(onProgress);
   try {
     let done = 0;
     for (const { plan, extra } of split.fresh) {
       checkCancelled(signal);
       done++;
-      onProgress(`Salvando só o que mudou: ${done} de ${split.fresh.length} ${split.fresh.length === 1 ? 'áudio novo' : 'áudios novos'}`);
+      progress.report(`Salvando só o que mudou: ${done} de ${split.fresh.length} ${split.fresh.length === 1 ? 'áudio novo' : 'áudios novos'}`);
       const data = await assetData(plan, extra);
       checkCancelled(signal);
       if (!data || data.size === 0) {
@@ -834,6 +958,7 @@ async function writeAppendToPath(
       index.push({ clipId: plan.clip.id, path: plan.relPath, ...entry });
       pos += data.size;
     }
+    progress.flush();
     checkCancelled(signal);
     onProgress('Gravando o projeto...');
     const json = tailManifestJson(state, stripProjectExt(target.name), split.plans, index);
@@ -842,6 +967,7 @@ async function writeAppendToPath(
     lastSaved = { version: pathVersion(target.path, res), json };
     return { missingCount, written: { size: res.size, manifestStart: res.manifestStart, index } };
   } catch (err) {
+    progress.cancel();
     await api.projectAppendAbort(open.id).catch(() => undefined);
     throw err;
   }
@@ -950,8 +1076,24 @@ async function rebindDesktopSources(state: ProjectState, filePath: string, writt
       if (src) registerClipSource(c.id, c.songId, src);
     }
     projectExtras().forEach((x) => x.rebind(sources));
+    releaseSavedBlobUrls(state, sources);
   } catch (err) {
     console.warn('[projectSaver] rebind pós-salvamento ignorado:', err);
+  }
+}
+
+/**
+ * Áudio gerado pelo programa (separação, gravação, colagem, click, Maestro) entra no clipe com um
+ * endereço blob: no `filePath`, e o endereço prende o áudio inteiro na memória até o clipe sair do
+ * projeto e do Desfazer. Depois de salvo, o clipe passa a ser lido do pedaço do arquivo (a
+ * biblioteca lê pela fonte registrada, nunca pelo endereço), então o endereço pode sair já. Só os
+ * clipes que acabaram de receber o pedaço; a store não muda (nada entra no Desfazer e o projeto
+ * não fica marcado como alterado). Liberar de novo depois (App.tsx) não faz nada.
+ */
+function releaseSavedBlobUrls(state: ProjectState, sources: Map<string, Blob>) {
+  for (const c of state.clips) {
+    if (!sources.has(c.id) || !isBlobUrl(c.filePath)) continue;
+    try { URL.revokeObjectURL(c.filePath); } catch { /* já liberado */ }
   }
 }
 

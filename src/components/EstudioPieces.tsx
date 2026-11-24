@@ -2,8 +2,8 @@
 // do sistema, faixas em cores vivas, knob de pan com arco azul, caixinhas de dB, fader cinza claro,
 // medidor liso (verde, amarelo, vermelho), teclas M / S arredondadas e o nome do canal embaixo na
 // cor da faixa. Só aparecem com a Estúdio vestida.
-import { useRef, type ReactNode } from 'react';
-import { useMeterLevel } from '@/lib/meterBus';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
+import { meterLevel, subscribeMeters } from '@/lib/meterBus';
 import { volumeToDb } from '@/lib/audioEngine';
 
 // ---------- cores ----------
@@ -140,6 +140,64 @@ export function EsKnob({ value, className = '' }: { value: number; bipolar?: boo
   );
 }
 
+// ---------- medidor fora do React (Estúdio, Oficina e Grafite) ----------
+
+// O nível chega umas 30 vezes por segundo com o programa tocando. Antes cada chegada redesenhava
+// pelo React cada medidor e cada caixinha de pico do mixer (o da Grafite com 31 LEDs). Agora cada
+// um ouve o meterBus direto e escreve no elemento só o que mudou, como o MeterMask e o mostrador
+// de dB do mixer (LevelReadout). O desenho é o mesmo.
+
+/** Quanto tempo o pico fica segurado: o mesmo do mostrador de dB do mixer. */
+const METER_HOLD_MS = 1500;
+// Folga do timer que apaga o pico quando as publicações param. Maior que o intervalo entre elas
+// (33 ms): tocando, o pico vence na publicação seguinte, como antes; o timer só desenha com o Stop
+// ou com o canal parado no mesmo nível (silêncio), quando antes o pico ficava preso.
+const METER_HOLD_SLACK_MS = 50;
+
+/** Pico segurado de um medidor. Fica num ref: continua quando o efeito é refeito (mudo liga e desliga). */
+export type MeterHold = { v: number; at: number };
+
+/** Amplitude em dBFS; abaixo de 1e-5 é silêncio. */
+export function levelDb(level: number): number {
+  return level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
+}
+
+/** Um passo da retenção: o valor novo entra na hora se for maior ou igual; o antigo fica até vencer 1,5 s. */
+export function holdStep(hold: MeterHold, v: number, now: number): void {
+  if (v >= hold.v || now - hold.at > METER_HOLD_MS) { hold.v = v; hold.at = now; }
+}
+
+/** Quando o desenho muda sozinho: o pico segurado acima do valor de agora vence em `at` + 1,5 s. */
+export function holdDeadline(hold: MeterHold, v: number): number {
+  return hold.v > v ? hold.at + METER_HOLD_MS : Infinity;
+}
+
+/**
+ * Liga um medidor ao meterBus sem o React. `paint(level, now)` escreve direto no elemento (só o
+ * que mudou) e devolve a hora em que o desenho muda sozinho (o pico vencendo), ou Infinity.
+ * Como antes (o React só redesenhava quando o nível deste canal mudava), uma publicação só desenha
+ * quando o nível deste canal mudou; a de outro canal (pads, entrada do Maestro) não mexe aqui.
+ * O timer só entra quando o pico segurado já venceu e o nível não mudou. Devolve a função que desliga.
+ */
+export function bindMeter(id: string, paint: (level: number, now: number) => number): () => void {
+  let last = Number.NaN; // o primeiro desenho sempre acontece
+  let due = Infinity;
+  let timer = 0;
+  const apply = (expired: boolean) => {
+    const level = meterLevel(id);
+    const now = performance.now();
+    if (level !== last || (expired && now > due)) {
+      last = level;
+      due = paint(level, now);
+    }
+    if (due !== Infinity && !timer) timer = window.setTimeout(fire, Math.max(0, due - now) + METER_HOLD_SLACK_MS);
+  };
+  const fire = () => { timer = 0; apply(true); };
+  apply(false);
+  const off = subscribeMeters(() => apply(false));
+  return () => { off(); window.clearTimeout(timer); timer = 0; };
+}
+
 // ---------- medidor ----------
 
 // Escala como a das DAWs: de 0 a -24 dB ocupa 60% do medidor (onde a música acontece) e de -24 a
@@ -152,27 +210,68 @@ export function esMeterPct(db: number): number {
 const pctOf = esMeterPct;
 export const ES_METER_MARKS = [0, -6, -12, -18, -24, -40, -60];
 
+type MeterFillEl = { style: { clipPath: string } };
+type MeterPeakEl = { style: { bottom: string; display: string } };
+
+/** Recorte do degradê (de cima para baixo) e traço do pico; escreve só quando muda. */
+export function meterBarWriter(fills: ArrayLike<MeterFillEl>, peaks: ArrayLike<MeterPeakEl>) {
+  let clip = '';
+  let peak: string | null = null; // ainda não escrito: o primeiro desenho esconde ou põe o traço
+  return (p: number, held: number) => {
+    const nextClip = `inset(${(1 - p) * 100}% 0 0 0)`;
+    if (nextClip !== clip) {
+      clip = nextClip;
+      for (let i = 0; i < fills.length; i += 1) fills[i].style.clipPath = nextClip;
+    }
+    // o traço aparece com o pico acima de 2% (antes o React tirava o elemento; agora ele some)
+    const nextPeak = held > 0.02 ? `${held * 100}%` : '';
+    if (nextPeak !== peak) {
+      peak = nextPeak;
+      for (let i = 0; i < peaks.length; i += 1) {
+        const s = peaks[i].style;
+        if (nextPeak) { s.bottom = nextPeak; s.display = ''; } else s.display = 'none';
+      }
+    }
+  };
+}
+
+/** Desenho do medidor da Estúdio: as duas barras mostram o mesmo nível (um por canal). */
+function esMeterPaint(fills: ArrayLike<MeterFillEl>, peaks: ArrayLike<MeterPeakEl>, off: boolean, hold: MeterHold) {
+  const write = meterBarWriter(fills, peaks);
+  return (level: number, now: number): number => {
+    const p = off ? 0 : pctOf(levelDb(level));
+    holdStep(hold, p, now);
+    write(p, hold.v);
+    return holdDeadline(hold, p);
+  };
+}
+
 /**
  * Medidor em duas barrinhas finas, como nas DAWs do Mac: verde, amarelo perto do topo, vermelho
  * no 0 dB; o pico segura 1,5 s. O motor dá um nível por canal: as duas barras mostram o mesmo.
+ * O nível e o pico são escritos pelo efeito, fora do React (veja bindMeter).
  */
 export function EsMeter({ id, height, off, clipping, onClick }: {
   id: string; height: number; off?: boolean; clipping?: boolean; onClick?: (e: React.MouseEvent) => void;
 }) {
-  const level = useMeterLevel(id);
-  const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
-  const p = off ? 0 : pctOf(db);
-  const hold = useRef({ p: 0, at: 0 });
-  const now = performance.now();
-  if (p >= hold.current.p || now - hold.current.at > 1500) hold.current = { p, at: now };
+  const ref = useRef<HTMLDivElement>(null);
+  const hold = useRef<MeterHold>({ v: 0, at: 0 });
+  const isOff = !!off;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fills = el.querySelectorAll<HTMLElement>('.es-meter-fill');
+    const peaks = el.querySelectorAll<HTMLElement>('.es-meter-peak');
+    return bindMeter(id, esMeterPaint(fills, peaks, isOff, hold.current));
+  }, [id, isOff]);
   const bar = (
     <div className="es-meter-bar">
-      <div className="es-meter-fill" style={{ clipPath: `inset(${(1 - p) * 100}% 0 0 0)` }} />
-      {hold.current.p > 0.02 && <div className="es-meter-peak" style={{ bottom: `${hold.current.p * 100}%` }} />}
+      <div className="es-meter-fill" />
+      <div className="es-meter-peak" />
     </div>
   );
   return (
-    <div className="es-meter" style={{ height }} onClick={onClick} title={clipping ? 'Clique para apagar o indicador de clip' : undefined}>
+    <div ref={ref} className="es-meter" style={{ height }} onClick={onClick} title={clipping ? 'Clique para apagar o indicador de clip' : undefined}>
       <i className={`es-meter-clip ${clipping ? 'is-on' : ''}`} />
       <div className="flex gap-[1px] flex-1 min-h-0">{bar}{bar}</div>
     </div>
@@ -192,22 +291,45 @@ export function EsMeterScale({ height }: { height: number }) {
 
 // ---------- caixinhas de dB ----------
 
+type MeterTextEl = { textContent: string | null; className: string };
+
+/** Texto e classe da caixinha do pico (dBFS segurado 1,5 s); abaixo de -60 dB fica vazia. */
+function esPeakBoxView(peak: number): { text: string; className: string } {
+  const live = peak > -60;
+  const tone = peak >= 0 ? 'is-red' : peak >= -6 ? 'is-yellow' : 'is-green';
+  return { text: live ? peak.toFixed(1) : ' ', className: `es-dbbox ${live ? tone : ''}` };
+}
+
+/** Escreve um mostrador de texto (pico em dB) só quando o texto ou a cor mudam. */
+export function meterTextPaint(el: MeterTextEl, hold: MeterHold, view: (peak: number) => { text: string; className: string }) {
+  let text: string | null = null; // ainda não escrito
+  let cls = el.className;
+  return (level: number, now: number): number => {
+    const db = levelDb(level);
+    holdStep(hold, db, now);
+    const next = view(hold.v);
+    if (next.text !== text) { text = next.text; el.textContent = next.text; }
+    if (next.className !== cls) { cls = next.className; el.className = next.className; }
+    return holdDeadline(hold, db);
+  };
+}
+
 /** Duas caixinhas: o volume do fader (branco) e o pico do sinal agora (verde, amarelo ou vermelho). */
 export function EsDbBoxes({ volume, meterId, title }: { volume: number; meterId: string; title?: string }) {
   const fdb = volumeToDb(volume);
   const fader = fdb === -Infinity ? '-∞' : fdb.toFixed(1);
-  const level = useMeterLevel(meterId);
-  const hold = useRef({ db: -Infinity, at: 0 });
-  const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
-  const now = performance.now();
-  if (db >= hold.current.db || now - hold.current.at > 1500) hold.current = { db, at: now };
-  const peak = hold.current.db;
-  const live = peak > -60;
-  const tone = peak >= 0 ? 'is-red' : peak >= -6 ? 'is-yellow' : 'is-green';
+  const ref = useRef<HTMLSpanElement>(null);
+  const hold = useRef<MeterHold>({ v: -Infinity, at: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    return bindMeter(meterId, meterTextPaint(el, hold.current, esPeakBoxView));
+  }, [meterId]);
   return (
     <div className="flex gap-[2px] w-full" title={title}>
       <span className="es-dbbox">{fader}</span>
-      <span className={`es-dbbox ${live ? tone : ''}`}>{live ? peak.toFixed(1) : ' '}</span>
+      {/* o texto e a cor do pico são do efeito (escritos antes de pintar); o React não guarda um nó de texto aqui */}
+      <span ref={ref} className="es-dbbox " />
     </div>
   );
 }

@@ -79,12 +79,69 @@ const lastUsed = new Map<string, number>();
 
 const DECODE_CONCURRENCY = 3;
 
-// Quanto áudio aberto pode ficar na memória: músicas já abertas ficam até esse limite.
-const MEMORY_BUDGET_BYTES = (() => {
-  const gb = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-  const share = typeof window !== 'undefined' && window.vsDesktop ? 0.35 : 0.2;
-  return Math.max(0.6, Math.min(3, gb * share)) * 1024 ** 3;
-})();
+const GIB = 1024 ** 3;
+const MIB = 1024 ** 2;
+/** Tetos de hoje dos sons dos pads e do estoque de click remontado (continuam valendo sem a RAM). */
+const PADS_MAX_BYTES = 200 * MIB;
+const CLICK_MAX_BYTES = 320 * MIB;
+/** De 16 GB para cima: 3 GB de músicas mais os tetos dos pads e do click (as partes cheias). */
+const TOP_TOTAL_BYTES = 3 * GIB + PADS_MAX_BYTES + CLICK_MAX_BYTES;
+
+export interface AudioMemoryBudget {
+  /** Tudo o que o programa guarda de áudio aberto (músicas, pads e click), em bytes. */
+  total: number;
+  /** Músicas já abertas fora da protegida (no ar, selecionada, próxima e abrindo). */
+  songs: number;
+  /** Sons decodificados dos pads fora do banco aberto e dos que estão tocando. */
+  pads: number;
+  /** Estoque do click remontado (para o motor usar; hoje ele ainda tem o teto fixo dele). */
+  click: number;
+  /** true quando a conta saiu da RAM real do computador. */
+  fromRam: boolean;
+}
+
+/**
+ * Orçamento do áudio aberto. Com a RAM real do computador (`vsDesktop.totalMemory`, em bytes):
+ * até 8 GB, 15% da RAM (no mínimo 0,6 GB); de 16 GB para cima, 3 GB só para as músicas, mais os
+ * 200 MB dos pads e os 320 MB do click (nunca menos que os 2,8 GB de músicas de hoje); entre os
+ * dois, na proporção. Músicas, pads e click dividem essa conta. Sem a RAM (programa antigo ou navegador) fica a conta
+ * de antes: `deviceMemory` (o Chromium para em 8) e os tetos fixos dos pads e do click.
+ * Valores de partida, a calibrar com a medição.
+ */
+export function memoryBudgetFor(env: { totalMemory?: number; deviceMemory?: number; desktop: boolean }): AudioMemoryBudget {
+  const ram = Number(env.totalMemory);
+  if (!Number.isFinite(ram) || ram <= 0) {
+    const gb = env.deviceMemory ?? 8;
+    const songs = Math.max(0.6, Math.min(3, gb * (env.desktop ? 0.35 : 0.2))) * GIB;
+    return { total: songs + PADS_MAX_BYTES + CLICK_MAX_BYTES, songs, pads: PADS_MAX_BYTES, click: CLICK_MAX_BYTES, fromRam: false };
+  }
+  const low = 8 * GIB;
+  const high = 16 * GIB;
+  let total: number;
+  if (ram <= low) total = Math.max(0.6 * GIB, ram * 0.15);
+  else if (ram >= high) total = TOP_TOTAL_BYTES;
+  else total = 0.15 * low + ((ram - low) / (high - low)) * (TOP_TOTAL_BYTES - 0.15 * low);
+  const pads = Math.min(PADS_MAX_BYTES, total / 8);
+  const click = Math.min(CLICK_MAX_BYTES, total / 6);
+  return { total, songs: total - pads - click, pads, click, fromRam: true };
+}
+
+let budgetMemo: AudioMemoryBudget | null = null;
+
+/** Orçamento do áudio aberto desta máquina (calculado uma vez). */
+export function audioMemoryBudget(): AudioMemoryBudget {
+  if (!budgetMemo) {
+    const desktop = typeof window !== 'undefined'
+      ? (window as unknown as { vsDesktop?: { totalMemory?: number } }).vsDesktop
+      : undefined;
+    budgetMemo = memoryBudgetFor({
+      totalMemory: desktop?.totalMemory,
+      deviceMemory: typeof navigator !== 'undefined' ? (navigator as Navigator & { deviceMemory?: number }).deviceMemory : undefined,
+      desktop: !!desktop,
+    });
+  }
+  return budgetMemo;
+}
 
 function isProtected(songId: string) {
   return retained.has(songId) || loading.has(songId);
@@ -110,12 +167,13 @@ function trimToBudget() {
     total += b;
     bySong.set(e.songId, (bySong.get(e.songId) ?? 0) + b);
   }
-  if (total <= MEMORY_BUDGET_BYTES) return;
+  const budget = audioMemoryBudget().songs;
+  if (total <= budget) return;
   const victims = Array.from(bySong.keys())
     .filter((id) => !isProtected(id))
     .sort((a, b) => (lastUsed.get(a) ?? 0) - (lastUsed.get(b) ?? 0));
   for (const id of victims) {
-    if (total <= MEMORY_BUDGET_BYTES) break;
+    if (total <= budget) break;
     for (const e of entries.values()) if (e.songId === id) e.buffer = null;
     total -= bySong.get(id) ?? 0;
   }
@@ -145,6 +203,17 @@ export function putClipAudio(clipId: string, songId: string, audio: ClipAudio) {
 export function releaseClipAudio(clipId: string) {
   const entry = entries.get(clipId);
   if (entry?.source && !retained.has(entry.songId) && !loading.has(entry.songId)) entry.buffer = null;
+}
+
+/** Solta a cópia decodificada mesmo com a música aberta: o clipe saiu de uso e o arquivo continua. */
+export function dropClipBuffer(clipId: string) {
+  const entry = entries.get(clipId);
+  if (entry?.source) entry.buffer = null;
+}
+
+/** Esquece o áudio de um clipe (memória e arquivo). Só para áudio que o programa sabe montar de novo. */
+export function forgetClipAudio(clipId: string) {
+  entries.delete(clipId);
 }
 
 export function getClipSource(clipId: string): Blob | null {

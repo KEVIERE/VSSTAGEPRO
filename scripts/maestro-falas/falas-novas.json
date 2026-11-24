@@ -1,0 +1,1947 @@
+{
+ "groups": [
+  {
+   "group": "Levada e groove",
+   "existingGroupId": "levada",
+   "cues": [
+    {
+     "id": "levada-de-vaneirao",
+     "text": "Levada de vaneirão",
+     "spoken": "Levada de vaneirão",
+     "origin": "dono"
+    },
+    {
+     "id": "levada-de-piseiro",
+     "text": "Levada de piseiro",
+     "spoken": "Levada de piseiro",
+     "origin": "dono"
+    },
+    {
+     "id": "levada-de-seresta",
+     "text": "Levada de seresta",
+     "spoken": "Levada de seresta",
+     "origin": "dono"
+    },
+    {
+     "id": "levada-de-vaneira",
+     "text": "Levada de vaneira",
+     "spoken": "Levada de vaneira",
+     "origin": "dono"
+    },
+    {
+     "id": "JA-EXISTE-levada-de-xote",
+     "text": "Levada de xote",
+     "spoken": "Levada de xote",
+     "origin": "dono"
+    },
+    {
+     "id": "JA-EXISTE-levada-de-axe",
+     "text": "Levada de axé",
+     "spoken": "Levada de axé",
+     "origin": "dono"
+    },
+    {
+     "id": "levada-de-carnaval",
+     "text": "Levada de carnaval",
+     "spoken": "Levada de carnaval",
+     "origin": "dono"
+    },
+    {
+     "id": "levada-de-xaxado",
+     "text": "Levada de xaxado",
+     "spoken": "Levada de xaxado",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-arrasta-pe",
+     "text": "Levada de arrasta-pé",
+     "spoken": "Levada de arrasta-pé",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-forro-pe-de-serra",
+     "text": "Levada de forró pé de serra",
+     "spoken": "Levada de forró pé de serra",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-forro-eletronico",
+     "text": "Levada de forró eletrônico",
+     "spoken": "Levada de forró eletrônico",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-quadrilha",
+     "text": "Levada de quadrilha",
+     "spoken": "Levada de quadrilha",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-coco",
+     "text": "Levada de coco",
+     "spoken": "Levada de coco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-ciranda",
+     "text": "Levada de ciranda",
+     "spoken": "Levada de ciranda",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-maracatu",
+     "text": "Levada de maracatu",
+     "spoken": "Levada de maracatu",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-frevo",
+     "text": "Levada de frevo",
+     "spoken": "Levada de frevo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-toada",
+     "text": "Levada de toada",
+     "spoken": "Levada de toada",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-carimbo",
+     "text": "Levada de carimbó",
+     "spoken": "Levada de carimbó",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-lambada",
+     "text": "Levada de lambada",
+     "spoken": "Levada de lambada",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-guitarrada",
+     "text": "Levada de guitarrada",
+     "spoken": "Levada de guitarrada",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-boi-bumba",
+     "text": "Levada de boi-bumbá",
+     "spoken": "Levada de boi-bumbá",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-brega",
+     "text": "Levada de brega",
+     "spoken": "Levada de brega",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-tecnobrega",
+     "text": "Levada de tecnobrega",
+     "spoken": "Levada de tecno brega",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-brega-funk",
+     "text": "Levada de brega funk",
+     "spoken": "Levada de brega fânque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-calypso",
+     "text": "Levada de calypso",
+     "spoken": "Levada de calipso",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-arrocha",
+     "text": "Levada de arrocha",
+     "spoken": "Levada de arrocha",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-modao",
+     "text": "Levada de modão",
+     "spoken": "Levada de modão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-moda-de-viola",
+     "text": "Levada de moda de viola",
+     "spoken": "Levada de moda de viola",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-caterete",
+     "text": "Levada de cateretê",
+     "spoken": "Levada de cateretê",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-sertanejo-universitario",
+     "text": "Levada de sertanejo universitário",
+     "spoken": "Levada de sertanejo universitário",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-guarania",
+     "text": "Levada de guarânia",
+     "spoken": "Levada de guarânia",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-chamame",
+     "text": "Levada de chamamé",
+     "spoken": "Levada de chamamé",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-rasqueado",
+     "text": "Levada de rasqueado",
+     "spoken": "Levada de rasqueado",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-polca",
+     "text": "Levada de polca",
+     "spoken": "Levada de polca",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-bugio",
+     "text": "Levada de bugio",
+     "spoken": "Levada de bugio",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-milonga",
+     "text": "Levada de milonga",
+     "spoken": "Levada de milonga",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-rancheira",
+     "text": "Levada de rancheira",
+     "spoken": "Levada de rancheira",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-samba-de-roda",
+     "text": "Levada de samba de roda",
+     "spoken": "Levada de samba de roda",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-partido-alto",
+     "text": "Levada de partido-alto",
+     "spoken": "Levada de partido-alto",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-samba-enredo",
+     "text": "Levada de samba-enredo",
+     "spoken": "Levada de samba-enredo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-samba-cancao",
+     "text": "Levada de samba-canção",
+     "spoken": "Levada de samba-canção",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-samba-rock",
+     "text": "Levada de samba-rock",
+     "spoken": "Levada de samba róque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-samba-reggae",
+     "text": "Levada de samba-reggae",
+     "spoken": "Levada de samba régui",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-samba-de-breque",
+     "text": "Levada de samba de breque",
+     "spoken": "Levada de samba de breque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-pagodao",
+     "text": "Levada de pagodão",
+     "spoken": "Levada de pagodão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-choro",
+     "text": "Levada de choro",
+     "spoken": "Levada de choro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-maxixe",
+     "text": "Levada de maxixe",
+     "spoken": "Levada de maxixe",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-ijexa",
+     "text": "Levada de ijexá",
+     "spoken": "Levada de ijexá",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-afoxe",
+     "text": "Levada de afoxé",
+     "spoken": "Levada de afoxé",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-marcha",
+     "text": "Levada de marcha",
+     "spoken": "Levada de marcha",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-marchinha",
+     "text": "Levada de marchinha",
+     "spoken": "Levada de marchinha",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-marcha-rancho",
+     "text": "Levada de marcha-rancho",
+     "spoken": "Levada de marcha-rancho",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-funk-carioca",
+     "text": "Levada de funk carioca",
+     "spoken": "Levada de fânque carioca",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-funk-americano",
+     "text": "Levada de funk americano",
+     "spoken": "Levada de fânque americano",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-soul",
+     "text": "Levada de soul",
+     "spoken": "Levada de sôul",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-disco",
+     "text": "Levada de disco",
+     "spoken": "Levada de disco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-r-b",
+     "text": "Levada de R&B",
+     "spoken": "Levada de ár ên bi",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-hip-hop",
+     "text": "Levada de hip-hop",
+     "spoken": "Levada de rípi rópi",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-eletronica",
+     "text": "Levada eletrônica",
+     "spoken": "Levada eletrônica",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-salsa",
+     "text": "Levada de salsa",
+     "spoken": "Levada de salsa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-merengue",
+     "text": "Levada de merengue",
+     "spoken": "Levada de merengue",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-bolero",
+     "text": "Levada de bolero",
+     "spoken": "Levada de bolero",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-cumbia",
+     "text": "Levada de cúmbia",
+     "spoken": "Levada de cúmbia",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-rumba",
+     "text": "Levada de rumba",
+     "spoken": "Levada de rumba",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-mambo",
+     "text": "Levada de mambo",
+     "spoken": "Levada de mambo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-cha-cha-cha",
+     "text": "Levada de chá-chá-chá",
+     "spoken": "Levada de chá chá chá",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-bachata",
+     "text": "Levada de bachata",
+     "spoken": "Levada de batchata",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-tango",
+     "text": "Levada de tango",
+     "spoken": "Levada de tango",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-reggaeton",
+     "text": "Levada de reggaeton",
+     "spoken": "Levada de reguetom",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-zouk",
+     "text": "Levada de zouk",
+     "spoken": "Levada de zúqui",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-latina",
+     "text": "Levada latina",
+     "spoken": "Levada latina",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-pop-rock",
+     "text": "Levada de pop rock",
+     "spoken": "Levada de pópi róque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-rock-pesado",
+     "text": "Levada de rock pesado",
+     "spoken": "Levada de róque pesado",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-balada-rock",
+     "text": "Levada de balada rock",
+     "spoken": "Levada de balada róque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-blues",
+     "text": "Levada de blues",
+     "spoken": "Levada de blúz",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-jazz",
+     "text": "Levada de jazz",
+     "spoken": "Levada de djéz",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-country",
+     "text": "Levada de country",
+     "spoken": "Levada de cântri",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-ska",
+     "text": "Levada de ska",
+     "spoken": "Levada de escá",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-gospel",
+     "text": "Levada gospel",
+     "spoken": "Levada góspel",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-worship",
+     "text": "Levada de worship",
+     "spoken": "Levada de uôrchip",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-louvor",
+     "text": "Levada de louvor",
+     "spoken": "Levada de louvor",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-de-adoracao",
+     "text": "Levada de adoração",
+     "spoken": "Levada de adoração",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-dois-por-quatro",
+     "text": "Levada dois por quatro",
+     "spoken": "Levada dois por quatro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-tres-por-quatro",
+     "text": "Levada três por quatro",
+     "spoken": "Levada três por quatro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-quatro-por-quatro",
+     "text": "Levada quatro por quatro",
+     "spoken": "Levada quatro por quatro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-doze-por-oito",
+     "text": "Levada doze por oito",
+     "spoken": "Levada doze por oito",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-no-chimbal",
+     "text": "Levada no chimbal",
+     "spoken": "Levada no chimbal",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-no-surdo",
+     "text": "Levada no surdo",
+     "spoken": "Levada no surdo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-no-cajon",
+     "text": "Levada no cajón",
+     "spoken": "Levada no carrón",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-nas-congas",
+     "text": "Levada nas congas",
+     "spoken": "Levada nas congas",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-so-de-percussao",
+     "text": "Levada só de percussão",
+     "spoken": "Levada só de percussão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-mais-aberta",
+     "text": "Levada mais aberta",
+     "spoken": "Levada mais aberta",
+     "origin": "sugestao"
+    },
+    {
+     "id": "levada-mais-fechada",
+     "text": "Levada mais fechada",
+     "spoken": "Levada mais fechada",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vira-forro",
+     "text": "Vira forró",
+     "spoken": "Vira forró",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vira-piseiro",
+     "text": "Vira piseiro",
+     "spoken": "Vira piseiro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vira-xote",
+     "text": "Vira xote",
+     "spoken": "Vira xote",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vira-samba",
+     "text": "Vira samba",
+     "spoken": "Vira samba",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vira-axe",
+     "text": "Vira axé",
+     "spoken": "Vira axé",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vira-rock",
+     "text": "Vira rock",
+     "spoken": "Vira róque",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Entradas e solos",
+   "existingGroupId": "entradas-e-solos",
+   "cues": [
+    {
+     "id": "solo-de-bongo",
+     "text": "Solo de bongô",
+     "spoken": "Solo de bongô",
+     "origin": "dono"
+    },
+    {
+     "id": "solo-de-repique",
+     "text": "Solo de repique",
+     "spoken": "Solo de repique",
+     "origin": "dono"
+    },
+    {
+     "id": "solo-de-congas",
+     "text": "Solo de congas",
+     "spoken": "Solo de congas",
+     "origin": "dono"
+    },
+    {
+     "id": "solo-de-timbales",
+     "text": "Solo de timbales",
+     "spoken": "Solo de timbales",
+     "origin": "dono"
+    },
+    {
+     "id": "solo-de-surdo",
+     "text": "Solo de surdo",
+     "spoken": "Solo de surdo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-tamborim",
+     "text": "Solo de tamborim",
+     "spoken": "Solo de tamborim",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-tanta",
+     "text": "Solo de tantã",
+     "spoken": "Solo de tantã",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-rebolo",
+     "text": "Solo de rebolo",
+     "spoken": "Solo de rebolo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-cuica",
+     "text": "Solo de cuíca",
+     "spoken": "Solo de cuíca",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-agogo",
+     "text": "Solo de agogô",
+     "spoken": "Solo de agogô",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-triangulo",
+     "text": "Solo de triângulo",
+     "spoken": "Solo de triângulo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-atabaque",
+     "text": "Solo de atabaque",
+     "spoken": "Solo de atabaque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-caixa",
+     "text": "Solo de caixa",
+     "spoken": "Solo de caixa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-alfaia",
+     "text": "Solo de alfaia",
+     "spoken": "Solo de alfaia",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-berimbau",
+     "text": "Solo de berimbau",
+     "spoken": "Solo de berimbau",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-rabeca",
+     "text": "Solo de rabeca",
+     "spoken": "Solo de rabeca",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solo-de-guitarra-baiana",
+     "text": "Solo de guitarra baiana",
+     "spoken": "Solo de guitarra baiana",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-bongo",
+     "text": "Entra o bongô",
+     "spoken": "Entra o bongô",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entram-os-timbales",
+     "text": "Entram os timbales",
+     "spoken": "Entram os timbales",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-repique",
+     "text": "Entra o repique",
+     "spoken": "Entra o repique",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-surdo",
+     "text": "Entra o surdo",
+     "spoken": "Entra o surdo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-tamborim",
+     "text": "Entra o tamborim",
+     "spoken": "Entra o tamborim",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-tanta",
+     "text": "Entra o tantã",
+     "spoken": "Entra o tantã",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-rebolo",
+     "text": "Entra o rebolo",
+     "spoken": "Entra o rebolo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-a-cuica",
+     "text": "Entra a cuíca",
+     "spoken": "Entra a cuíca",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-agogo",
+     "text": "Entra o agogô",
+     "spoken": "Entra o agogô",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-atabaque",
+     "text": "Entra o atabaque",
+     "spoken": "Entra o atabaque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-ganza",
+     "text": "Entra o ganzá",
+     "spoken": "Entra o ganzá",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-a-alfaia",
+     "text": "Entra a alfaia",
+     "spoken": "Entra a alfaia",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-berimbau",
+     "text": "Entra o berimbau",
+     "spoken": "Entra o berimbau",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-reco-reco",
+     "text": "Entra o reco-reco",
+     "spoken": "Entra o reco-reco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-a-rabeca",
+     "text": "Entra a rabeca",
+     "spoken": "Entra a rabeca",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-a-guitarra-baiana",
+     "text": "Entra a guitarra baiana",
+     "spoken": "Entra a guitarra baiana",
+     "origin": "sugestao"
+    },
+    {
+     "id": "duelo-de-percussao",
+     "text": "Duelo de percussão",
+     "spoken": "Duelo de percussão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "duelo-de-guitarras",
+     "text": "Duelo de guitarras",
+     "spoken": "Duelo de guitarras",
+     "origin": "sugestao"
+    },
+    {
+     "id": "duelo-de-sanfona-e-guitarra",
+     "text": "Duelo de sanfona e guitarra",
+     "spoken": "Duelo de sanfona e guitarra",
+     "origin": "sugestao"
+    },
+    {
+     "id": "troca-de-solos",
+     "text": "Troca de solos",
+     "spoken": "Troca de solos",
+     "origin": "sugestao"
+    },
+    {
+     "id": "percussao-na-frente",
+     "text": "Percussão na frente",
+     "spoken": "Percussão na frente",
+     "origin": "sugestao"
+    },
+    {
+     "id": "virada-de-percussao",
+     "text": "Virada de percussão",
+     "spoken": "Virada de percussão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "virada-de-timbales",
+     "text": "Virada de timbales",
+     "spoken": "Virada de timbales",
+     "origin": "sugestao"
+    },
+    {
+     "id": "virada-de-surdo",
+     "text": "Virada de surdo",
+     "spoken": "Virada de surdo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "virada-de-repique",
+     "text": "Virada de repique",
+     "spoken": "Virada de repique",
+     "origin": "sugestao"
+    },
+    {
+     "id": "chamada-de-repique",
+     "text": "Chamada de repique",
+     "spoken": "Chamada de repique",
+     "origin": "sugestao"
+    },
+    {
+     "id": "chamada-de-timbales",
+     "text": "Chamada de timbales",
+     "spoken": "Chamada de timbales",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Quem toca",
+   "existingGroupId": "quem-toca",
+   "cues": [
+    {
+     "id": "so-harmonia",
+     "text": "Só harmonia",
+     "spoken": "Só harmonia",
+     "origin": "dono"
+    },
+    {
+     "id": "so-harmonia-e-voz",
+     "text": "Só harmonia e voz",
+     "spoken": "Só harmonia e voz",
+     "origin": "sugestao"
+    },
+    {
+     "id": "so-ritmo",
+     "text": "Só ritmo",
+     "spoken": "Só ritmo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "so-as-congas",
+     "text": "Só as congas",
+     "spoken": "Só as congas",
+     "origin": "sugestao"
+    },
+    {
+     "id": "so-o-surdo",
+     "text": "Só o surdo",
+     "spoken": "Só o surdo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "so-sanfona-e-zabumba",
+     "text": "Só sanfona e zabumba",
+     "spoken": "Só sanfona e zabumba",
+     "origin": "sugestao"
+    },
+    {
+     "id": "so-zabumba-e-triangulo",
+     "text": "Só zabumba e triângulo",
+     "spoken": "Só zabumba e triângulo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "sem-harmonia",
+     "text": "Sem harmonia",
+     "spoken": "Sem harmonia",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Intensidade",
+   "existingGroupId": "intensidade",
+   "cues": [
+    {
+     "id": "preparar-para-crescente",
+     "text": "Preparar para crescente",
+     "spoken": "Preparar para crescente",
+     "origin": "dono"
+    },
+    {
+     "id": "crescente",
+     "text": "Crescente",
+     "spoken": "Crescente",
+     "origin": "dono"
+    },
+    {
+     "id": "ataque",
+     "text": "Ataque",
+     "spoken": "Ataque",
+     "origin": "dono"
+    },
+    {
+     "id": "banda-bem-baixinho",
+     "text": "Banda bem baixinho",
+     "spoken": "Banda bem baixinho",
+     "origin": "dono"
+    },
+    {
+     "id": "banda-la-embaixo",
+     "text": "Banda lá embaixo",
+     "spoken": "Banda lá embaixo",
+     "origin": "dono"
+    },
+    {
+     "id": "crescente-no-refrao",
+     "text": "Crescente no refrão",
+     "spoken": "Crescente no refrão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "crescente-na-ponte",
+     "text": "Crescente na ponte",
+     "spoken": "Crescente na ponte",
+     "origin": "sugestao"
+    },
+    {
+     "id": "crescente-de-quatro-compassos",
+     "text": "Crescente de quatro compassos",
+     "spoken": "Crescente de quatro compassos",
+     "origin": "sugestao"
+    },
+    {
+     "id": "crescente-de-oito-compassos",
+     "text": "Crescente de oito compassos",
+     "spoken": "Crescente de oito compassos",
+     "origin": "sugestao"
+    },
+    {
+     "id": "crescente-ate-o-ataque",
+     "text": "Crescente até o ataque",
+     "spoken": "Crescente até o ataque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "crescente-na-caixa",
+     "text": "Crescente na caixa",
+     "spoken": "Crescente na caixa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "rufo",
+     "text": "Rufo",
+     "spoken": "Rufo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "rufo-de-caixa",
+     "text": "Rufo de caixa",
+     "spoken": "Rufo de caixa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "rufo-de-prato",
+     "text": "Rufo de prato",
+     "spoken": "Rufo de prato",
+     "origin": "sugestao"
+    },
+    {
+     "id": "decrescendo",
+     "text": "Decrescendo",
+     "spoken": "Decrescendo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "pianissimo",
+     "text": "Pianíssimo",
+     "spoken": "Pianíssimo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "fortissimo",
+     "text": "Fortíssimo",
+     "spoken": "Fortíssimo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "banda-la-em-cima",
+     "text": "Banda lá em cima",
+     "spoken": "Banda lá em cima",
+     "origin": "sugestao"
+    },
+    {
+     "id": "banda-no-talo",
+     "text": "Banda no talo",
+     "spoken": "Banda no talo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "banda-bem-leve",
+     "text": "Banda bem leve",
+     "spoken": "Banda bem leve",
+     "origin": "sugestao"
+    },
+    {
+     "id": "deixa-a-voz-na-frente",
+     "text": "Deixa a voz na frente",
+     "spoken": "Deixa a voz na frente",
+     "origin": "sugestao"
+    },
+    {
+     "id": "baixa-pra-fala",
+     "text": "Baixa pra fala",
+     "spoken": "Baixa pra fala",
+     "origin": "sugestao"
+    },
+    {
+     "id": "sobe-tudo",
+     "text": "Sobe tudo",
+     "spoken": "Sobe tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "baixa-tudo",
+     "text": "Baixa tudo",
+     "spoken": "Baixa tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "prepara-o-ataque",
+     "text": "Prepara o ataque",
+     "spoken": "Prepara o ataque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ataque-forte",
+     "text": "Ataque forte",
+     "spoken": "Ataque forte",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ataque-seco",
+     "text": "Ataque seco",
+     "spoken": "Ataque seco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ataque-junto",
+     "text": "Ataque junto",
+     "spoken": "Ataque junto",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ataque-no-refrao",
+     "text": "Ataque no refrão",
+     "spoken": "Ataque no refrão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "explode-no-um",
+     "text": "Explode no um",
+     "spoken": "Explode no um",
+     "origin": "sugestao"
+    },
+    {
+     "id": "nao-cresce-ainda",
+     "text": "Não cresce ainda",
+     "spoken": "Não cresce ainda",
+     "origin": "sugestao"
+    },
+    {
+     "id": "segura-pra-explodir",
+     "text": "Segura pra explodir",
+     "spoken": "Segura pra explodir",
+     "origin": "sugestao"
+    },
+    {
+     "id": "guarda-pro-refrao",
+     "text": "Guarda pro refrão",
+     "spoken": "Guarda pro refrão",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Arranjo e convenções",
+   "cues": [
+    {
+     "id": "atencao-pro-arranjo",
+     "text": "Atenção pro arranjo",
+     "spoken": "Atenção pro arranjo",
+     "origin": "dono"
+    },
+    {
+     "id": "marcacao",
+     "text": "Marcação",
+     "spoken": "Marcação",
+     "origin": "dono"
+    },
+    {
+     "id": "marca",
+     "text": "Marca",
+     "spoken": "Marca",
+     "origin": "dono"
+    },
+    {
+     "id": "marcacao-forte",
+     "text": "Marcação forte",
+     "spoken": "Marcação forte",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marcacao-no-um",
+     "text": "Marcação no um",
+     "spoken": "Marcação no um",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marcacao-no-surdo",
+     "text": "Marcação no surdo",
+     "spoken": "Marcação no surdo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marcacao-no-bumbo",
+     "text": "Marcação no bumbo",
+     "spoken": "Marcação no bumbo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "mantem-a-marcacao",
+     "text": "Mantém a marcação",
+     "spoken": "Mantém a marcação",
+     "origin": "sugestao"
+    },
+    {
+     "id": "sem-marcacao",
+     "text": "Sem marcação",
+     "spoken": "Sem marcação",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marca-o-tempo",
+     "text": "Marca o tempo",
+     "spoken": "Marca o tempo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marca-junto",
+     "text": "Marca junto",
+     "spoken": "Marca junto",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marca-comigo",
+     "text": "Marca comigo",
+     "spoken": "Marca comigo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "marca-no-prato",
+     "text": "Marca no prato",
+     "spoken": "Marca no prato",
+     "origin": "sugestao"
+    },
+    {
+     "id": "olha-o-arranjo",
+     "text": "Olha o arranjo",
+     "spoken": "Olha o arranjo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "segue-o-arranjo",
+     "text": "Segue o arranjo",
+     "spoken": "Segue o arranjo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "muda-o-arranjo",
+     "text": "Muda o arranjo",
+     "spoken": "Muda o arranjo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "arranjo-original",
+     "text": "Arranjo original",
+     "spoken": "Arranjo original",
+     "origin": "sugestao"
+    },
+    {
+     "id": "arranjo-do-ensaio",
+     "text": "Arranjo do ensaio",
+     "spoken": "Arranjo do ensaio",
+     "origin": "sugestao"
+    },
+    {
+     "id": "arranjo-da-gravacao",
+     "text": "Arranjo da gravação",
+     "spoken": "Arranjo da gravação",
+     "origin": "sugestao"
+    },
+    {
+     "id": "arranjo-reduzido",
+     "text": "Arranjo reduzido",
+     "spoken": "Arranjo reduzido",
+     "origin": "sugestao"
+    },
+    {
+     "id": "arranjo-completo",
+     "text": "Arranjo completo",
+     "spoken": "Arranjo completo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "prepara-a-convencao",
+     "text": "Prepara a convenção",
+     "spoken": "Prepara a convenção",
+     "origin": "sugestao"
+    },
+    {
+     "id": "atencao-na-convencao",
+     "text": "Atenção na convenção",
+     "spoken": "Atenção na convenção",
+     "origin": "sugestao"
+    },
+    {
+     "id": "convencao-no-refrao",
+     "text": "Convenção no refrão",
+     "spoken": "Convenção no refrão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "convencao-na-ponte",
+     "text": "Convenção na ponte",
+     "spoken": "Convenção na ponte",
+     "origin": "sugestao"
+    },
+    {
+     "id": "convencao-no-final",
+     "text": "Convenção no final",
+     "spoken": "Convenção no final",
+     "origin": "sugestao"
+    },
+    {
+     "id": "convencao-de-metais",
+     "text": "Convenção de metais",
+     "spoken": "Convenção de metais",
+     "origin": "sugestao"
+    },
+    {
+     "id": "frase-de-metais",
+     "text": "Frase de metais",
+     "spoken": "Frase de metais",
+     "origin": "sugestao"
+    },
+    {
+     "id": "frase-de-sanfona",
+     "text": "Frase de sanfona",
+     "spoken": "Frase de sanfona",
+     "origin": "sugestao"
+    },
+    {
+     "id": "frase-de-baixo",
+     "text": "Frase de baixo",
+     "spoken": "Frase de baixo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "riff-de-metais",
+     "text": "Riff de metais",
+     "spoken": "Rífi de metais",
+     "origin": "sugestao"
+    },
+    {
+     "id": "riff-de-sanfona",
+     "text": "Riff de sanfona",
+     "spoken": "Rífi de sanfona",
+     "origin": "sugestao"
+    },
+    {
+     "id": "riff-de-teclado",
+     "text": "Riff de teclado",
+     "spoken": "Rífi de teclado",
+     "origin": "sugestao"
+    },
+    {
+     "id": "riff-principal",
+     "text": "Riff principal",
+     "spoken": "Rífi principal",
+     "origin": "sugestao"
+    },
+    {
+     "id": "contracanto",
+     "text": "Contracanto",
+     "spoken": "Contracanto",
+     "origin": "sugestao"
+    },
+    {
+     "id": "contracanto-de-metais",
+     "text": "Contracanto de metais",
+     "spoken": "Contracanto de metais",
+     "origin": "sugestao"
+    },
+    {
+     "id": "contracanto-de-guitarra",
+     "text": "Contracanto de guitarra",
+     "spoken": "Contracanto de guitarra",
+     "origin": "sugestao"
+    },
+    {
+     "id": "resposta-dos-metais",
+     "text": "Resposta dos metais",
+     "spoken": "Resposta dos metais",
+     "origin": "sugestao"
+    },
+    {
+     "id": "resposta-da-sanfona",
+     "text": "Resposta da sanfona",
+     "spoken": "Resposta da sanfona",
+     "origin": "sugestao"
+    },
+    {
+     "id": "resposta-da-guitarra",
+     "text": "Resposta da guitarra",
+     "spoken": "Resposta da guitarra",
+     "origin": "sugestao"
+    },
+    {
+     "id": "metais-em-bloco",
+     "text": "Metais em bloco",
+     "spoken": "Metais em bloco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "banda-em-unissono",
+     "text": "Banda em uníssono",
+     "spoken": "Banda em uníssono",
+     "origin": "sugestao"
+    },
+    {
+     "id": "tutti",
+     "text": "Tutti",
+     "spoken": "Túti",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bem-curto",
+     "text": "Bem curto",
+     "spoken": "Bem curto",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bem-ligado",
+     "text": "Bem ligado",
+     "spoken": "Bem ligado",
+     "origin": "sugestao"
+    },
+    {
+     "id": "antecipa",
+     "text": "Antecipa",
+     "spoken": "Antecipa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "antecipa-o-um",
+     "text": "Antecipa o um",
+     "spoken": "Antecipa o um",
+     "origin": "sugestao"
+    },
+    {
+     "id": "cama-de-teclado",
+     "text": "Cama de teclado",
+     "spoken": "Cama de teclado",
+     "origin": "sugestao"
+    },
+    {
+     "id": "cama-de-cordas",
+     "text": "Cama de cordas",
+     "spoken": "Cama de cordas",
+     "origin": "sugestao"
+    },
+    {
+     "id": "cama-de-pad",
+     "text": "Cama de pad",
+     "spoken": "Cama de pédi",
+     "origin": "sugestao"
+    },
+    {
+     "id": "arpejo",
+     "text": "Arpejo",
+     "spoken": "Arpejo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "metais-na-frente",
+     "text": "Metais na frente",
+     "spoken": "Metais na frente",
+     "origin": "sugestao"
+    },
+    {
+     "id": "cordas-na-frente",
+     "text": "Cordas na frente",
+     "spoken": "Cordas na frente",
+     "origin": "sugestao"
+    },
+    {
+     "id": "sanfona-na-frente",
+     "text": "Sanfona na frente",
+     "spoken": "Sanfona na frente",
+     "origin": "sugestao"
+    },
+    {
+     "id": "guitarra-na-frente",
+     "text": "Guitarra na frente",
+     "spoken": "Guitarra na frente",
+     "origin": "sugestao"
+    },
+    {
+     "id": "primeira-casa",
+     "text": "Primeira casa",
+     "spoken": "Primeira casa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "segunda-casa",
+     "text": "Segunda casa",
+     "spoken": "Segunda casa",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vai-pra-coda",
+     "text": "Vai pra coda",
+     "spoken": "Vai pra coda",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vai-pro-tema",
+     "text": "Vai pro tema",
+     "spoken": "Vai pro tema",
+     "origin": "sugestao"
+    },
+    {
+     "id": "volta-pro-tema",
+     "text": "Volta pro tema",
+     "spoken": "Volta pro tema",
+     "origin": "sugestao"
+    },
+    {
+     "id": "toca-o-tema",
+     "text": "Toca o tema",
+     "spoken": "Toca o tema",
+     "origin": "sugestao"
+    },
+    {
+     "id": "tema-principal",
+     "text": "Tema principal",
+     "spoken": "Tema principal",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Paradas e finais",
+   "existingGroupId": "paradas-e-finais",
+   "cues": [
+    {
+     "id": "final-com-ataque",
+     "text": "Final com ataque",
+     "spoken": "Final com ataque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "final-com-convencao",
+     "text": "Final com convenção",
+     "spoken": "Final com convenção",
+     "origin": "sugestao"
+    },
+    {
+     "id": "final-com-rufo",
+     "text": "Final com rufo",
+     "spoken": "Final com rufo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "final-com-tudo",
+     "text": "Final com tudo",
+     "spoken": "Final com tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ultimo-ataque",
+     "text": "Último ataque",
+     "spoken": "Último ataque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "dois-ataques",
+     "text": "Dois ataques",
+     "spoken": "Dois ataques",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Momentos do show",
+   "existingGroupId": "momentos-do-show",
+   "cues": [
+    {
+     "id": "vai-comecar-o-show",
+     "text": "Vai começar o show",
+     "spoken": "Vai começar o show",
+     "origin": "dono"
+    },
+    {
+     "id": "preparar-para-abertura",
+     "text": "Preparar para abertura",
+     "spoken": "Preparar para abertura",
+     "origin": "dono"
+    },
+    {
+     "id": "JA-EXISTE-abertura",
+     "text": "Abertura",
+     "spoken": "Abertura",
+     "origin": "dono"
+    },
+    {
+     "id": "preparar-para-o-tema-final",
+     "text": "Preparar para o tema final",
+     "spoken": "Preparar para o tema final",
+     "origin": "dono"
+    },
+    {
+     "id": "tema-final",
+     "text": "Tema final",
+     "spoken": "Tema final",
+     "origin": "dono"
+    },
+    {
+     "id": "todo-mundo-no-palco",
+     "text": "Todo mundo no palco",
+     "spoken": "Todo mundo no palco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "banda-no-palco",
+     "text": "Banda no palco",
+     "spoken": "Banda no palco",
+     "origin": "sugestao"
+    },
+    {
+     "id": "todo-mundo-a-postos",
+     "text": "Todo mundo a postos",
+     "spoken": "Todo mundo a postos",
+     "origin": "sugestao"
+    },
+    {
+     "id": "dois-minutos-pro-show",
+     "text": "Dois minutos pro show",
+     "spoken": "Dois minutos pro show",
+     "origin": "sugestao"
+    },
+    {
+     "id": "um-minuto-pro-show",
+     "text": "Um minuto pro show",
+     "spoken": "Um minuto pro show",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solta-a-abertura",
+     "text": "Solta a abertura",
+     "spoken": "Solta a abertura",
+     "origin": "sugestao"
+    },
+    {
+     "id": "tema-de-abertura",
+     "text": "Tema de abertura",
+     "spoken": "Tema de abertura",
+     "origin": "sugestao"
+    },
+    {
+     "id": "abertura-instrumental",
+     "text": "Abertura instrumental",
+     "spoken": "Abertura instrumental",
+     "origin": "sugestao"
+    },
+    {
+     "id": "abertura-com-tudo",
+     "text": "Abertura com tudo",
+     "spoken": "Abertura com tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "abertura-so-percussao",
+     "text": "Abertura só percussão",
+     "spoken": "Abertura só percussão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-o-cantor",
+     "text": "Entra o cantor",
+     "spoken": "Entra o cantor",
+     "origin": "sugestao"
+    },
+    {
+     "id": "entra-a-cantora",
+     "text": "Entra a cantora",
+     "spoken": "Entra a cantora",
+     "origin": "sugestao"
+    },
+    {
+     "id": "solta-o-tema-final",
+     "text": "Solta o tema final",
+     "spoken": "Solta o tema final",
+     "origin": "sugestao"
+    },
+    {
+     "id": "tema-final-com-tudo",
+     "text": "Tema final com tudo",
+     "spoken": "Tema final com tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "tema-final-instrumental",
+     "text": "Tema final instrumental",
+     "spoken": "Tema final instrumental",
+     "origin": "sugestao"
+    },
+    {
+     "id": "preparar-para-o-encerramento",
+     "text": "Preparar para o encerramento",
+     "spoken": "Preparar para o encerramento",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vai-terminar-o-show",
+     "text": "Vai terminar o show",
+     "spoken": "Vai terminar o show",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ultima-do-show",
+     "text": "Última do show",
+     "spoken": "Última do show",
+     "origin": "sugestao"
+    },
+    {
+     "id": "final-do-show",
+     "text": "Final do show",
+     "spoken": "Final do show",
+     "origin": "sugestao"
+    },
+    {
+     "id": "prepara-o-bis",
+     "text": "Prepara o bis",
+     "spoken": "Prepara o bis",
+     "origin": "sugestao"
+    },
+    {
+     "id": "volta-pro-bis",
+     "text": "Volta pro bis",
+     "spoken": "Volta pro bis",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bis-com-tudo",
+     "text": "Bis com tudo",
+     "spoken": "Bis com tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vinheta-de-saida",
+     "text": "Vinheta de saída",
+     "spoken": "Vinheta de saída",
+     "origin": "sugestao"
+    },
+    {
+     "id": "banda-sai-tocando",
+     "text": "Banda sai tocando",
+     "spoken": "Banda sai tocando",
+     "origin": "sugestao"
+    },
+    {
+     "id": "prepara-o-medley",
+     "text": "Prepara o medley",
+     "spoken": "Prepara o médlei",
+     "origin": "sugestao"
+    },
+    {
+     "id": "medley-de-forro",
+     "text": "Medley de forró",
+     "spoken": "Médlei de forró",
+     "origin": "sugestao"
+    },
+    {
+     "id": "medley-de-sertanejo",
+     "text": "Medley de sertanejo",
+     "spoken": "Médlei de sertanejo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "medley-de-axe",
+     "text": "Medley de axé",
+     "spoken": "Médlei de axé",
+     "origin": "sugestao"
+    },
+    {
+     "id": "medley-de-samba",
+     "text": "Medley de samba",
+     "spoken": "Médlei de samba",
+     "origin": "sugestao"
+    },
+    {
+     "id": "medley-de-carnaval",
+     "text": "Medley de carnaval",
+     "spoken": "Médlei de carnaval",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-forro",
+     "text": "Bloco de forró",
+     "spoken": "Bloco de forró",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-sertanejo",
+     "text": "Bloco de sertanejo",
+     "spoken": "Bloco de sertanejo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-samba",
+     "text": "Bloco de samba",
+     "spoken": "Bloco de samba",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-pagode",
+     "text": "Bloco de pagode",
+     "spoken": "Bloco de pagode",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-axe",
+     "text": "Bloco de axé",
+     "spoken": "Bloco de axé",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-carnaval",
+     "text": "Bloco de carnaval",
+     "spoken": "Bloco de carnaval",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-de-rock",
+     "text": "Bloco de rock",
+     "spoken": "Bloco de róque",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-gospel",
+     "text": "Bloco gospel",
+     "spoken": "Bloco góspel",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-romantico",
+     "text": "Bloco romântico",
+     "spoken": "Bloco romântico",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bloco-dancante",
+     "text": "Bloco dançante",
+     "spoken": "Bloco dançante",
+     "origin": "sugestao"
+    }
+   ]
+  },
+  {
+   "group": "Com a banda",
+   "existingGroupId": "com-a-banda",
+   "cues": [
+    {
+     "id": "atencao-musicos",
+     "text": "Atenção, músicos",
+     "spoken": "Atenção, músicos",
+     "origin": "sugestao"
+    },
+    {
+     "id": "olho-no-maestro",
+     "text": "Olho no maestro",
+     "spoken": "Olho no maestro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "segue-o-maestro",
+     "text": "Segue o maestro",
+     "spoken": "Segue o maestro",
+     "origin": "sugestao"
+    },
+    {
+     "id": "segue-a-marcacao",
+     "text": "Segue a marcação",
+     "spoken": "Segue a marcação",
+     "origin": "sugestao"
+    },
+    {
+     "id": "mais-atencao",
+     "text": "Mais atenção",
+     "spoken": "Mais atenção",
+     "origin": "sugestao"
+    },
+    {
+     "id": "concentra",
+     "text": "Concentra",
+     "spoken": "Concentra",
+     "origin": "sugestao"
+    },
+    {
+     "id": "todo-mundo-atento",
+     "text": "Todo mundo atento",
+     "spoken": "Todo mundo atento",
+     "origin": "sugestao"
+    },
+    {
+     "id": "todo-mundo-comigo",
+     "text": "Todo mundo comigo",
+     "spoken": "Todo mundo comigo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "presta-atencao",
+     "text": "Presta atenção",
+     "spoken": "Presta atenção",
+     "origin": "sugestao"
+    },
+    {
+     "id": "na-minha-mao",
+     "text": "Na minha mão",
+     "spoken": "Na minha mão",
+     "origin": "sugestao"
+    },
+    {
+     "id": "na-minha-contagem",
+     "text": "Na minha contagem",
+     "spoken": "Na minha contagem",
+     "origin": "sugestao"
+    },
+    {
+     "id": "aguarda-a-contagem",
+     "text": "Aguarda a contagem",
+     "spoken": "Aguarda a contagem",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ao-meu-comando",
+     "text": "Ao meu comando",
+     "spoken": "Ao meu comando",
+     "origin": "sugestao"
+    },
+    {
+     "id": "mantem",
+     "text": "Mantém",
+     "spoken": "Mantém",
+     "origin": "sugestao"
+    },
+    {
+     "id": "firme-banda",
+     "text": "Firme, banda",
+     "spoken": "Firme, banda",
+     "origin": "sugestao"
+    },
+    {
+     "id": "segura-firme",
+     "text": "Segura firme",
+     "spoken": "Segura firme",
+     "origin": "sugestao"
+    },
+    {
+     "id": "bora-banda",
+     "text": "Bora, banda",
+     "spoken": "Bora, banda",
+     "origin": "sugestao"
+    },
+    {
+     "id": "vamos-com-tudo",
+     "text": "Vamos com tudo",
+     "spoken": "Vamos com tudo",
+     "origin": "sugestao"
+    },
+    {
+     "id": "ta-lindo-banda",
+     "text": "Tá lindo, banda",
+     "spoken": "Tá lindo, banda",
+     "origin": "sugestao"
+    }
+   ]
+  }
+ ]
+}

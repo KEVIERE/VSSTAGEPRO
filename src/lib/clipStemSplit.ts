@@ -12,7 +12,9 @@
 import { audioEngine } from '@/lib/audioEngine';
 import { clipAudioToBuffer, getClipAudio, getClipSource, putClipAudio, registerClipSource, toClipAudioAsync } from '@/lib/audioLibrary';
 import { decodeBlob, deviceSampleRate, generateMarkers } from '@/lib/audioDecoder';
-import { encodeWavPcm24 } from '@/lib/wavEncoder';
+// Nesta tela o nome curto é a versão em pedaços, que cede a vez à tela entre eles: os mesmos bytes
+// da versão de uma vez só (wavEncoder.ts), sem segurar a timeline no WAV de uma música inteira.
+import { encodeWavPcm24Async as encodeWavPcm24 } from '@/lib/wavEncoder';
 import { cancelStemSeparation, classifyStem, trackForStem } from '@/lib/stemSeparator';
 import { useStore } from '@/store';
 import type { AudioClip } from '@/types';
@@ -148,7 +150,10 @@ async function drumParts(input: AudioBuffer, onProgress: (p: StemSplitProgress) 
   // A ordem importa: é a ordem que o script grava os WAVs, e cada peça vai para a sua faixa.
   onProgress({ percent: 20, message: 'Separando a bateria em bumbo, caixa, pratos e tons...' });
   const drums = await toStereo44k(input);
-  const result = await bridge(encodeWavPcm24(drums) as ArrayBuffer);
+  const drumsWav = await encodeWavPcm24(drums);
+  // cancelou enquanto o WAV era montado: nem começa a IA
+  if (cancelled) throw new Error(CANCELLED);
+  const result = await bridge(drumsWav);
   if (cancelled) throw new Error(CANCELLED);
   const ids = [['bumbo', 'Bumbo'], ['caixa', 'Caixa'], ['pratos', 'Pratos'], ['tons', 'Tons']] as const;
   const decoded = await Promise.all(ids.map(([id]) => decodeWav(result[id])));
@@ -170,7 +175,10 @@ async function mixParts(clip: AudioClip, input: AudioBuffer, onProgress: (p: Ste
   });
   let raw;
   try {
-    const wav = encodeWavPcm24(await toStereo44k(input)) as ArrayBuffer;
+    const wav = await encodeWavPcm24(await toStereo44k(input));
+    // Cancelou enquanto o WAV era montado: nem começa a IA. O pedido de cancelar já chegou ao
+    // principal antes da separação, e a separação nova zera esse pedido ao começar.
+    if (cancelled) throw new Error(CANCELLED);
     raw = await bridge(`${clip.name || 'audio'}.wav`, wav).catch((err) => {
       if (cancelled || /separation_cancelled/.test(String((err as Error)?.message ?? err))) throw new Error(CANCELLED);
       throw err;
@@ -249,7 +257,7 @@ export async function splitClipStems(clipId: string, onProgress: (p: StemSplitPr
       // Antes o WAV e o áudio ficavam a 44,1 kHz enquanto o clipe dizia 48 kHz, e o worklet
       // tocava 8,8% rápido (deriva de 4.875 ms por minuto).
       const peca = await toDeviceRate(part.buffer);
-      const wavBlob = new Blob([encodeWavPcm24(peca)], { type: 'audio/wav' });
+      const wavBlob = new Blob([await encodeWavPcm24(peca)], { type: 'audio/wav' });
       const peaks = audioEngine.generateWaveformPeaks(peca, Math.min(24000, Math.max(8000, Math.round(peca.duration * 100))));
       const newClip: AudioClip = {
         // mesma posição, cortes, fades e volume do original: a soma das partes toca igual a ele

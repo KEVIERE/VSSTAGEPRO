@@ -10,16 +10,21 @@
 // - Os sons ficam no computador (padStorage) e vão junto no projeto (pacote .vss ou pasta).
 
 import { audioEngine } from '@/lib/audioEngine';
+import { audioMemoryBudget } from '@/lib/audioLibrary';
 import { afterPaint } from '@/lib/afterPaint';
 import { decodeBlob } from '@/lib/audioDecoder';
 import { padLatencyHint } from '@/lib/engineLatency';
 import { faderToGain } from '@/lib/faderScale';
+import { bpmAt } from '@/lib/grid';
+import { paramsAt } from '@/lib/medley';
+import { tempoFromBpm } from '@/lib/timeStretch';
 import { publishMeters } from '@/lib/meterBus';
+import { interfaceMissing, resolveMasterOutput } from '@/lib/outputRoute';
 import { meterBallistics, peakOf } from '@/lib/maestroInput';
 import { deletePad, loadPadAudio, loadPadInfos, loadPadRecords, savePad, savePadInfo } from '@/lib/padStorage';
 import { registerProjectExtras } from '@/lib/projectHooks';
 import {
-  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_CLIP_RANGE, PAD_COUNT, chokedBy, padClipCurve, subscribePads, delayAmount, delaySeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
+  FADE_SECONDS, HOLD_RELEASE_SECONDS, MAX_PAD_SECONDS, PAD_CLIP_RANGE, PAD_COUNT, chokedBy, padClipCurve, subscribePads, delayAmount, DELAY_BLOCK_FRAMES, delayLoopSeconds, djFilter, findSoundBounds, playheadAt, reverbWet,
   padRollSeconds, rollSliceStart, rollingSlots, trimRegion, holdStopTime, getPadsState, makeReverbImpulse, newPadInfo, normalizePadInfo,
   padAssetId, padAssetPath, padFileProblem, padSlot, pitchRate, savedPadsOf, setPadsState, setPadsStateSoon, slotBank, slotPad,
   usablePadOutput, withItem, withPlaying, type PadFx, type PadInfo, type PadOutput, type SavedPads,
@@ -120,10 +125,28 @@ function busGain(): number {
   return faderToGain(master) * (viaMaster ? faderToGain(useStore.getState().masterVolume) : 1);
 }
 
+/** BPM que está tocando agora: o do trecho onde o cursor está, com o ajuste de BPM da música ou da parte. */
 function songBpm(): number {
   const s = useStore.getState();
   const id = s.transport.currentSongId ?? s.selectedSongId;
-  return s.songs.find((x) => x.id === id)?.bpm ?? 120;
+  const song = s.songs.find((x) => x.id === id);
+  if (!song) return 120;
+  const at = s.transport.currentTime;
+  return (bpmAt(song, at) || song.bpm || 120) * tempoFromBpm(paramsAt(song, at).bpmAdjust);
+}
+
+/** Último BPM que o delay e o roll receberam: só muda quando o trecho muda. */
+let padBpm = 0;
+/** Último instante em que o cursor foi olhado (a conta do trecho não roda em todo quadro). */
+let padBpmCheck = -1;
+const PAD_BPM_CHECK_S = 0.1;
+
+function followSongTempo(o: PadOut): void {
+  const bpm = songBpm();
+  if (Math.abs(bpm - padBpm) < 1e-3) return;
+  padBpm = bpm;
+  o.delay.delayTime.setTargetAtTime(delayLoopSeconds(bpm, o.ctx.sampleRate), o.ctx.currentTime, 0.05);
+  for (const [slot, v] of voices) if (v.rolling) applyRoll(slot, v);
 }
 
 /** A saída usa menos canais do que a placa tem aberto agora: reduzir ficou para depois (route). */
@@ -132,11 +155,17 @@ let shrinkPending = false;
 /** Liga a soma dos pads na saída escolhida (Master = 1-2). */
 function route(o: PadOut) {
   const count = Math.max(2, useStore.getState().outputChannelCount);
-  const want = usablePadOutput(getPadsState().output, count);
+  const picked = usablePadOutput(getPadsState().output, count);
+  const st = useStore.getState();
+  // pad no Master sai onde o Master estiver (não mais sempre na 1-2)
+  const want = picked.channel > 0 ? picked : resolveMasterOutput({
+    channel: st.masterOutputChannel, stereo: st.masterOutputStereo, magic: st.magicRoutingActive,
+    outputCount: count, interfaceMissing: interfaceMissing(st.audioInterface, st.audioInterfaceConnected),
+  });
   const dest = o.ctx.destination;
-  // só os canais que o som usa: 2 no Master, e na saída direta até o último canal escolhido. Abrir
-  // todos os canais da placa (16, 32...) fazia o Chromium misturar e mandar canais vazios a cada bloco
-  const used = want.channel <= 0 ? 2 : want.channel + (want.stereo ? 1 : 0);
+  // só os canais que o som usa, até o último escolhido. Abrir todos os canais da placa
+  // (16, 32...) fazia o Chromium misturar e mandar canais vazios a cada bloco
+  const used = want.channel + (want.stereo ? 1 : 0);
   const channels = Math.min(Math.max(2, dest.maxChannelCount || 2), Math.max(2, used));
   // mudar channelCount com o contexto rodando refaz o fluxo da placa (estalo no meio da música):
   // crescer é preciso para o som sair; diminuir espera música parada e nenhum pad tocando
@@ -159,8 +188,8 @@ function route(o: PadOut) {
   if (o.split) { try { o.split.disconnect(); } catch { /* ignore */ } o.split = null; }
   const n = Math.max(2, dest.channelCount);
   const merger = o.ctx.createChannelMerger(n);
-  const first = want.channel <= 0 ? 0 : want.channel - 1;
-  if (want.channel <= 0 || want.stereo) {
+  const first = want.channel - 1;
+  if (want.stereo) {
     const split = o.ctx.createChannelSplitter(2);
     o.post.connect(split);
     split.connect(merger, 0, Math.min(first, n - 2));
@@ -218,7 +247,10 @@ export function openPadOutput(): PadOut {
     // delay: uma semínima no BPM da música, repetindo e escurecendo
     const delaySend = ctx.createGain();
     const delay = ctx.createDelay(2);
-    delay.delayTime.value = delaySeconds(songBpm());
+    delay.delayTime.value = delayLoopSeconds(songBpm(), ctx.sampleRate);
+    // o bloco que o laço soma em cada volta, aplicado uma vez só na entrada: toda repetição cai na batida
+    const delayBlock = ctx.createDelay(0.05);
+    delayBlock.delayTime.value = DELAY_BLOCK_FRAMES / ctx.sampleRate;
     const feedback = ctx.createGain();
     const dly = delayAmount(fx.delay);
     feedback.gain.value = dly.feedback;
@@ -227,7 +259,7 @@ export function openPadOutput(): PadOut {
     tone.frequency.value = 4200;
     const delayWet = ctx.createGain();
     delayWet.gain.value = dly.wet;
-    delaySend.connect(delay);
+    delaySend.connect(delayBlock).connect(delay);
     delay.connect(tone);
     tone.connect(feedback).connect(delay);
     tone.connect(delayWet).connect(bus);
@@ -603,10 +635,18 @@ export function padClock(): number {
 useStore.subscribe((s, prev) => {
   if (!out) return;
   if (s.masterVolume !== prev.masterVolume) out.bus.gain.setTargetAtTime(busGain(), out.ctx.currentTime, 0.01);
-  if (s.outputChannelCount !== prev.outputChannelCount) route(out);
+  if (s.outputChannelCount !== prev.outputChannelCount || s.masterOutputChannel !== prev.masterOutputChannel
+    || s.masterOutputStereo !== prev.masterOutputStereo || s.magicRoutingActive !== prev.magicRoutingActive
+    || s.audioInterface !== prev.audioInterface || s.audioInterfaceConnected !== prev.audioInterfaceConnected) route(out);
   if (s.songs !== prev.songs || s.transport.currentSongId !== prev.transport.currentSongId || s.selectedSongId !== prev.selectedSongId) {
-    out.delay.delayTime.setTargetAtTime(delaySeconds(songBpm()), out.ctx.currentTime, 0.05);
-    for (const [slot, v] of voices) if (v.rolling) applyRoll(slot, v);
+    followSongTempo(out);
+  } else if (s.transport.currentTime !== prev.transport.currentTime) {
+    // medley: o delay e o roll acompanham o trecho que está tocando
+    const now = out.ctx.currentTime;
+    if (now - padBpmCheck >= PAD_BPM_CHECK_S || now < padBpmCheck) {
+      padBpmCheck = now;
+      followSongTempo(out);
+    }
   }
 });
 
@@ -647,8 +687,14 @@ async function sourceOf(slot: number): Promise<Blob | null> {
  * Teto dos sons decodificados (Float32), com as cópias de reverso e corte. Trocar de banco não
  * joga mais os outros fora: voltar a um banco usado já toca sem decodificar de novo. Passou do
  * teto, saem os usados há mais tempo (nunca os do banco aberto nem os que estão tocando).
+ * O teto sai da mesma conta das músicas (audioMemoryBudget, pela RAM do computador) e nunca
+ * passa destes 200 MB; sem a RAM, fica nos 200 MB de antes.
  */
 const BUFFER_BUDGET_BYTES = 200 * 1024 * 1024;
+
+function bufferBudget(): number {
+  return Math.min(BUFFER_BUDGET_BYTES, audioMemoryBudget().pads);
+}
 
 function bytesOf(b: AudioBuffer): number {
   return b.length * b.numberOfChannels * 4;
@@ -672,10 +718,11 @@ function touchBuffer(slot: number): void {
 function keepBuffersInBudget(): void {
   let total = 0;
   for (const slot of buffers.keys()) total += slotBytes(slot);
-  if (total <= BUFFER_BUDGET_BYTES) return;
+  const budget = bufferBudget();
+  if (total <= budget) return;
   const bank = getPadsState().bank;
   for (const slot of [...buffers.keys()]) {
-    if (total <= BUFFER_BUDGET_BYTES) break;
+    if (total <= budget) break;
     if (slotBank(slot) === bank || voices.has(slot)) continue;
     total -= slotBytes(slot);
     buffers.delete(slot);

@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
+
+// O bcryptjs só carrega quando uma senha é conferida aqui mesmo (cerca de 5 ms a menos na abertura).
+let bcryptLib = null;
+const bcrypt = () => bcryptLib || (bcryptLib = require('bcryptjs'));
 
 // Contas dos músicos da Rede Local. Moram no projeto do show (o programa manda e recebe o
 // "livro" de contas); aqui ficam enquanto a rede local roda, com uma cópia de segurança no
@@ -41,13 +44,122 @@ function validUsername(value) {
   return USERNAME_RE.test(usernameKey(value));
 }
 
+const BCRYPT_ROUNDS = 10;
+const toPgcrypto = (hash) => hash.replace(/^\$2b\$/, '$2a$');
+
 function hashPassword(password) {
-  return bcrypt.hashSync(String(password), 10).replace(/^\$2b\$/, '$2a$');
+  return toPgcrypto(bcrypt().hashSync(String(password), BCRYPT_ROUNDS));
 }
 
 function checkPassword(password, hash) {
   if (!hash || typeof hash !== 'string') return false;
-  try { return bcrypt.compareSync(String(password), hash); } catch { return false; }
+  try { return bcrypt().compareSync(String(password), hash); } catch { return false; }
+}
+
+// ---------- senha fora do processo principal ----------
+//
+// Cada senha leva cerca de 50 a 70 ms de bcrypt. Calculada aqui, a janela do diretor parava esse
+// tempo a cada músico que se cadastrava ou entrava pela primeira vez (é o mesmo processo que
+// desenha a janela). Num worker o cálculo é o mesmo, com o mesmo bcryptjs: o código dele vai
+// junto, lido daqui (dentro do app.asar o worker não acharia o pacote sozinho). Sem worker, ou se
+// ele falhar, a conta é feita aqui como antes. O worker fecha sozinho depois de um tempo parado.
+const WORKER_IDLE_MS = 30_000;
+const WORKER_JOB_MS = 15_000;
+const workerSource = `
+const { parentPort, workerData } = require('node:worker_threads');
+const mod = { exports: {} };
+new Function('module', 'exports', 'require', workerData.src)(mod, mod.exports, require);
+const bcrypt = mod.exports.default || mod.exports;
+parentPort.on('message', ({ id, op, password, hash, rounds }) => {
+  try {
+    if (op === 'hash') { parentPort.postMessage({ id, value: bcrypt.hashSync(String(password), rounds) }); return; }
+    let ok = false;
+    try { ok = bcrypt.compareSync(String(password), hash); } catch { ok = false; }
+    parentPort.postMessage({ id, value: ok });
+  } catch (e) {
+    parentPort.postMessage({ id, error: String((e && e.message) || e) });
+  }
+});
+`;
+
+let passwordWorker = null; // { w, jobs: Map<id, { resolve, reject, timer }>, idle }
+let nextJob = 1;
+let workerBroken = false;
+
+function stopPasswordWorker(pw, err) {
+  if (passwordWorker === pw) passwordWorker = null;
+  clearTimeout(pw.idle);
+  for (const job of pw.jobs.values()) { clearTimeout(job.timer); job.reject(err || new Error('worker_closed')); }
+  pw.jobs.clear();
+  pw.w.terminate().catch(() => {});
+}
+
+function startPasswordWorker() {
+  const { Worker } = require('node:worker_threads');
+  const src = fs.readFileSync(require.resolve('bcryptjs'), 'utf8');
+  const w = new Worker(workerSource, { eval: true, workerData: { src } });
+  w.unref();
+  const pw = { w, jobs: new Map(), idle: null };
+  w.on('message', (msg) => {
+    const job = pw.jobs.get(msg?.id);
+    if (!job) return;
+    pw.jobs.delete(msg.id);
+    clearTimeout(job.timer);
+    if (msg.error) job.reject(new Error(msg.error));
+    else job.resolve(msg.value);
+    if (pw.jobs.size === 0) {
+      // parado não segura o processo aberto (testes, sair do programa)
+      pw.w.unref();
+      clearTimeout(pw.idle);
+      pw.idle = setTimeout(() => stopPasswordWorker(pw), WORKER_IDLE_MS);
+      pw.idle.unref?.();
+    }
+  });
+  w.on('error', (err) => { workerBroken = true; stopPasswordWorker(pw, err); });
+  w.on('exit', () => stopPasswordWorker(pw, new Error('worker_exit')));
+  return pw;
+}
+
+/** Roda a conta no worker. Rejeita se não houver worker ou se ele não responder. */
+function inWorker(job) {
+  return new Promise((resolve, reject) => {
+    if (workerBroken) { reject(new Error('worker_unavailable')); return; }
+    let pw;
+    try {
+      pw = passwordWorker || (passwordWorker = startPasswordWorker());
+    } catch (err) {
+      workerBroken = true;
+      reject(err);
+      return;
+    }
+    clearTimeout(pw.idle);
+    const id = nextJob++;
+    // worker que não responde sai: esta conta e as da fila são feitas aqui mesmo
+    const timer = setTimeout(() => stopPasswordWorker(pw, new Error('worker_timeout')), WORKER_JOB_MS);
+    timer.unref?.();
+    pw.jobs.set(id, { resolve, reject, timer });
+    pw.w.ref();
+    pw.w.postMessage({ id, ...job });
+  });
+}
+
+/** O mesmo hashPassword, sem parar o processo principal. */
+async function hashPasswordAsync(password) {
+  try {
+    const hash = await inWorker({ op: 'hash', password: String(password), rounds: BCRYPT_ROUNDS });
+    if (typeof hash === 'string' && hash.startsWith('$2')) return toPgcrypto(hash);
+  } catch { /* conta aqui mesmo */ }
+  return hashPassword(password);
+}
+
+/** O mesmo checkPassword, sem parar o processo principal. */
+async function checkPasswordAsync(password, hash) {
+  if (!hash || typeof hash !== 'string') return false;
+  try {
+    const ok = await inWorker({ op: 'check', password: String(password), hash });
+    if (typeof ok === 'boolean') return ok;
+  } catch { /* confere aqui mesmo */ }
+  return checkPassword(password, hash);
 }
 
 function sha256(text) {
@@ -214,14 +326,38 @@ class LocalAccounts {
    * o mesmo nome, leva ele junto.
    * @returns {{ account?: object, error?: string }}
    */
-  signup({ username, password, name, instrument }) {
+  signup(args) {
+    const check = this.signupCheck(args);
+    if (check.error) return check;
+    return this.signupCommit(check, args, hashPassword(args.password));
+  }
+
+  /**
+   * O mesmo signup, com o bcrypt fora do processo principal (rede local). O usuário é conferido
+   * de novo depois da conta da senha: outro celular pode ter pegado o mesmo nesse meio tempo.
+   */
+  async signupAsync(args) {
+    const check = this.signupCheck(args);
+    if (check.error) return check;
+    const passwordHash = await hashPasswordAsync(args.password);
+    const again = this.signupCheck(args);
+    if (again.error) return again;
+    return this.signupCommit(again, args, passwordHash);
+  }
+
+  signupCheck({ username, password, name }) {
     const user = usernameKey(username);
     if (!USERNAME_RE.test(user)) return { error: 'bad_username' };
     if (String(password ?? '').length < 6) return { error: 'weak_password' };
     const cleanName = String(name ?? '').trim().slice(0, 60);
     if (!cleanName) return { error: 'bad_request' };
-    const book = this.ensureBook();
+    this.ensureBook();
     if (this.findByUsername(user)) return { error: 'username_taken' };
+    return { user, cleanName };
+  }
+
+  signupCommit({ user, cleanName }, { instrument }, passwordHash) {
+    const book = this.ensureBook();
     const at = nowIso();
     const acc = {
       id: crypto.randomUUID(),
@@ -229,7 +365,7 @@ class LocalAccounts {
       name: cleanName,
       instrument: String(instrument ?? '').trim().slice(0, 40),
       avatar: null,
-      passwordHash: hashPassword(password),
+      passwordHash,
       status: 'pending',
       remember: [],
       createdAt: at,
@@ -267,6 +403,43 @@ class LocalAccounts {
     }
     if (acc.status !== 'approved') return { account: acc, error: 'pending' };
     return { account: acc };
+  }
+
+  /**
+   * O mesmo login, com o bcrypt fora do processo principal (rede local). A ordem é a de sempre:
+   * primeiro a senha é conferida (ou a nova é calculada) no worker, só depois a conta muda. Se a
+   * conta mudou enquanto o worker calculava (diretor zerou a senha, livro novo do projeto), confere
+   * de novo com a conta de agora.
+   */
+  async loginAsync(args) {
+    const { username, password, newPassword, pinOk } = args;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const acc = this.findByUsername(username);
+      if (!acc) return { error: 'wrong_login' };
+      if (acc.status === 'blocked') return { error: 'blocked' };
+      const before = acc.passwordHash;
+      let newHash = null;
+      if (!before) {
+        if (!pinOk) return { error: 'needs_password' };
+        if (String(newPassword ?? '').length < 6) return { error: 'weak_password' };
+        newHash = await hashPasswordAsync(newPassword);
+      } else if (!(await checkPasswordAsync(password, before))) {
+        if (this.findByUsername(username) === acc && acc.passwordHash === before) return { error: 'wrong_login' };
+        continue;
+      }
+      // a conta mudou durante a conta da senha: de novo, com a conta de agora
+      if (this.findByUsername(username) !== acc || acc.passwordHash !== before) continue;
+      if (acc.status === 'blocked') return { error: 'blocked' };
+      if (newHash) {
+        acc.passwordHash = newHash;
+        acc.updatedAt = nowIso();
+        this.changed(acc);
+      }
+      if (acc.status !== 'approved') return { account: acc, error: 'pending' };
+      return { account: acc };
+    }
+    // a conta não parou de mudar: confere do jeito de antes, de uma vez
+    return this.login(args);
   }
 
   /** Lembrar este aparelho: devolve o código (só o hash fica na conta). */
@@ -418,5 +591,6 @@ class LocalAccounts {
 
 module.exports = {
   LocalAccounts, usernameKey, validUsername, hashPassword, checkPassword, mergeBooks, mergeSheets,
+  hashPasswordAsync, checkPasswordAsync,
   validAvatar, MAX_AVATAR,
 };

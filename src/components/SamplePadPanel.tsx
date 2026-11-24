@@ -10,6 +10,7 @@ import { OfKnob } from '@/components/OficinaPieces';
 import { useSkin } from '@/lib/useSkin';
 import { VsKnobFace } from '@/components/AnalogPieces';
 import { faderToGain } from '@/lib/faderScale';
+import { interfaceMissing, resolveMasterOutput } from '@/lib/outputRoute';
 import {
   clearPad, fadeAllPads, flushPadSave, importPadFile, keepPadsReady, togglePadRoll, toggleTrimPad, loadPadSounds, warmPadOutput, padClock, releasePad, selectBank, selectPad, setPadsChoke,
   setPadsFx, setPadsHold, setPadsMaster, setPadsOutput, stopAllPads, triggerPad, updatePad,
@@ -616,6 +617,14 @@ const PadKnob = memo(function PadKnob({ slot, value, color, disabled, onChange, 
 /** Saída dos pads, no estilo da saída dos canais do mixer. */
 const OutputButton = memo(function OutputButton({ output }: { output: PadOutput }) {
   const count = useStore((s) => s.outputChannelCount);
+  // onde o Master está saindo de verdade: é para lá que vai o pad "Master"
+  const masterPlace = useStore((s) => {
+    const m = resolveMasterOutput({
+      channel: s.masterOutputChannel, stereo: s.masterOutputStereo, magic: s.magicRoutingActive, outputCount: s.outputChannelCount,
+      interfaceMissing: interfaceMissing(s.audioInterface, s.audioInterfaceConnected),
+    });
+    return m.stereo ? `${m.channel}/${m.channel + 1}` : String(m.channel);
+  });
   const [open, setOpen] = useState(false);
   const [stereo, setStereo] = useState(output.stereo);
   const btn = useRef<HTMLButtonElement>(null);
@@ -690,7 +699,7 @@ const OutputButton = memo(function OutputButton({ output }: { output: PadOutput 
                 className={`w-full text-left px-2 py-1 hover:bg-logic-accent hover:text-white ${on ? 'text-logic-accent' : ''}`}
                 onClick={() => { setPadsOutput(opt); setOpen(false); }}
               >
-                {padOutputLabel(opt)}{opt.channel === 0 ? ' (1/2)' : ''}
+                {padOutputLabel(opt)}{opt.channel === 0 ? ` (${masterPlace})` : ''}
               </button>
             );
           })}

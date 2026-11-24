@@ -67,6 +67,25 @@ function waitAtMost<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
   return Promise.race([p, new Promise<'timeout'>((r) => window.setTimeout(() => r('timeout'), wait))]);
 }
 
+// Conferência da conta em andamento. Abrir o programa pedia a mesma conferência duas vezes quase
+// juntas (getSession e INITIAL_SESSION), e voltar para a janela pedia outra: cada uma com a sua
+// fila de idas ao servidor. Agora, para a mesma conta, quem pede enquanto uma está no ar espera
+// a resposta dela, e a resposta é aplicada uma vez só (`applied`). Quem acabou de mudar algo no
+// servidor (pagou, desconectou o outro Mac, resgatou código, internet de volta) pede `fresh`: vai
+// uma conferência nova, e a que estava no ar não passa mais por cima dela. Outra conta também
+// abre uma nova e a resposta da conta anterior deixa de valer.
+type LicenseFlight<T> = { key: string; ask: Promise<T>; applied: boolean };
+function shareLicenseFlight<T>(holder: { current: LicenseFlight<T> | null }, key: string, start: () => Promise<T>, fresh = false): LicenseFlight<T> {
+  const cur = holder.current;
+  if (cur && cur.key === key && !fresh) return cur;
+  if (cur) cur.applied = true;
+  const flight: LicenseFlight<T> = { key, ask: start(), applied: false };
+  holder.current = flight;
+  const done = () => { if (holder.current === flight) holder.current = null; };
+  flight.ask.then(done, done);
+  return flight;
+}
+
 const formatCheckDate = (ms: number) => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 // Código digitado na tela de entrada: é resgatado assim que a conta entra
@@ -278,7 +297,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
       const v = await claimDevice(true);
       if (v.status !== 'ok') throw new Error('device_take_failed');
       setDeviceConflict(null);
-      await loadLicense().catch(() => {});
+      await loadLicense(NET_WAIT_MS, true).catch(() => {});
     } catch {
       setDeviceError('Não deu para desconectar o outro computador agora. Confira a internet e tente de novo.');
     } finally {
@@ -316,6 +335,12 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   };
 
   const askServer = async (): Promise<License> => {
+    // O selo de parceiro sai junto com a conferência, não depois dela: uma ida ao servidor a
+    // menos para o assinante. Só vale para conta ativa, como antes; erro é "sem selo".
+    const partnerAsk: Promise<boolean> = Promise.resolve(supabase.rpc('my_partner_status')).then(
+      ({ data: p }) => (p as { partner?: boolean } | null)?.partner === true,
+      () => false,
+    );
     const { data, error: err } = await supabase.rpc('license_status');
     if (err) throw err;
     const lic = { ...(data as License) };
@@ -326,29 +351,33 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     }
     if (lic.status === 'active') {
       // parceiro (endorse): o acesso já vem liberado pelo servidor; aqui só descobre o selo
-      try {
-        const { data: p } = await supabase.rpc('my_partner_status');
-        if ((p as { partner?: boolean } | null)?.partner) lic.partner = true;
-      } catch { /* sem o selo, o acesso continua igual */ }
+      if (await partnerAsk) lic.partner = true;
     }
     return lic;
   };
 
+  // Uma conferência por vez para a mesma conta (ver shareLicenseFlight).
+  const licenseFlightRef = useRef<LicenseFlight<License> | null>(null);
+
   // A resposta do servidor sempre manda: libera, bloqueia ou encerra, e fica guardada no Mac.
-  const loadLicense = async (waitMs = NET_WAIT_MS): Promise<License> => {
-    const ask = askServer();
+  const loadLicense = async (waitMs = NET_WAIT_MS, fresh = false): Promise<License> => {
+    const flight = shareLicenseFlight(licenseFlightRef, storedSession()?.user.id ?? '', askServer, fresh);
+    const { ask } = flight;
+    // quem esperou junto não aplica de novo a mesma resposta (nem o mesmo "outro Mac")
+    const settle = (lic: License) => { if (flight.applied) return; flight.applied = true; applyServer(lic); };
+    const deviceStop = (v: DeviceStop) => { if (flight.applied) return; flight.applied = true; applyDevice(v); };
     const answer = await waitAtMost(ask, waitMs).catch(async (err) => {
-      if (err instanceof DeviceLockError) applyDevice(err.verdict);
+      if (err instanceof DeviceLockError) deviceStop(err.verdict);
       else await applyLastCheck();
       throw err;
     });
     if (answer === 'timeout') {
       // se o servidor responder depois, vale a resposta dele
-      ask.then(applyServer).catch((err) => { if (err instanceof DeviceLockError) applyDevice(err.verdict); });
+      ask.then(settle).catch((err) => { if (err instanceof DeviceLockError) deviceStop(err.verdict); });
       await applyLastCheck();
       throw new Error('license_timeout');
     }
-    applyServer(answer);
+    settle(answer);
     return answer;
   };
 
@@ -431,14 +460,16 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   useEffect(() => {
     if (!session) return;
     const refresh = () => { loadLicense().catch(() => {}); };
-    window.addEventListener(LICENSE_REFRESH_EVENT, refresh);
+    // pagamento pedindo conferência ou internet de volta: uma nova, sem esperar a que estava no ar
+    const refreshNow = () => { loadLicense(NET_WAIT_MS, true).catch(() => {}); };
+    window.addEventListener(LICENSE_REFRESH_EVENT, refreshNow);
     window.addEventListener('focus', refresh);
     // a internet voltou: confere de novo em segundo plano
-    window.addEventListener('online', refresh);
+    window.addEventListener('online', refreshNow);
     return () => {
-      window.removeEventListener(LICENSE_REFRESH_EVENT, refresh);
+      window.removeEventListener(LICENSE_REFRESH_EVENT, refreshNow);
       window.removeEventListener('focus', refresh);
-      window.removeEventListener('online', refresh);
+      window.removeEventListener('online', refreshNow);
     };
   }, [session]);
 
@@ -462,7 +493,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     redeemPromo(code)
       .then((res) => setPromoNotice({ ok: true, text: `Código ${code} aplicado: ${promoText(res)}.` }))
       .catch((err) => setPromoNotice({ ok: false, text: `Código ${code}: ${friendlyError((err as Error).message)}` }))
-      .finally(() => { loadLicense().catch(() => {}); });
+      .finally(() => { loadLicense(NET_WAIT_MS, true).catch(() => {}); });
   }, [session]);
 
   useEffect(() => {
@@ -824,7 +855,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           <div className="px-6 pt-7 pb-6 text-center">
             <AccessTitle title="Conecte à internet" subtitle={session.user.email} />
             <AccessNotice tone="red"><p>{NEED_INTERNET_TEXT[needInternet]}</p></AccessNotice>
-            <button type="button" onClick={() => { loadLicense().catch(() => {}); }} className="access-key mt-5">
+            <button type="button" onClick={() => { loadLicense(NET_WAIT_MS, true).catch(() => {}); }} className="access-key mt-5">
               <RefreshCw size={16} /> Tentar de novo
             </button>
           </div>
@@ -876,12 +907,12 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           payLabel={paidOver ? 'Renovar' : undefined}
           footer={(
             <>
-              <PromoRedeem onRedeemed={() => { loadLicense().catch(() => {}); }} />
+              <PromoRedeem onRedeemed={() => { loadLicense(NET_WAIT_MS, true).catch(() => {}); }} />
               <AccessFoot>
                 <FootKey
                   onClick={async () => {
                     // assinatura paga, bônus ou parceiro adicionado pelo admin: libera na hora
-                    const lic = await loadLicense().catch(() => null);
+                    const lic = await loadLicense(NET_WAIT_MS, true).catch(() => null);
                     if (!lic) {
                       setPromoNotice({ ok: false, text: 'Sem internet agora. Conecte o Mac à internet para conferir a assinatura.' });
                     } else if (lic.status !== 'active') {
@@ -978,8 +1009,15 @@ export default function DirectorAccess({ children }: { children: (license: Licen
 
           <AccessFoot>
             {isActive ? (
-              <span className="console-key h-10 px-3 text-[0.95rem] flex items-center justify-center gap-2 text-logic-lcd-green pointer-events-none">
-                <span className="console-led is-on-green" /> <CheckCircle2 size={14} /> {license.partner ? 'Parceiro · Endorse' : 'Assinante'}
+              // Selo numa linha só: o cartão tem 420 px fixos, então cada tecla do rodapé tem uns
+              // 194 px; "Parceiro · Endorse" no tamanho das outras teclas passava disso e quebrava.
+              <span
+                title={license.partner ? 'Parceiro VS Stage Pro (Endorse): acesso completo liberado' : undefined}
+                className={`console-key h-10 min-w-0 whitespace-nowrap flex items-center justify-center text-logic-lcd-green pointer-events-none ${license.partner ? 'px-2.5 gap-1.5 text-[0.88rem]' : 'px-3 gap-2 text-[0.95rem]'}`}
+              >
+                <span className="console-led is-on-green shrink-0" />
+                {license.partner ? <BadgeCheck size={14} className="shrink-0" /> : <CheckCircle2 size={14} className="shrink-0" />}
+                {license.partner ? 'Parceiro · Endorse' : 'Assinante'}
               </span>
             ) : (
               <FootKey disabled={loading} onClick={() => { setSubscribeOpen(true); passGate(); }}>

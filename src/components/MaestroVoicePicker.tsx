@@ -1,29 +1,56 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Globe, Loader2, Play, Square } from 'lucide-react';
-import { VOICE_PRESETS } from '@/lib/narrations';
-import { IA_VOICE_NAMES, canGenerate, isPresetVoice, playPreview, stopPreview, voiceDemo, voiceLabel } from '@/lib/maestroVoice';
-import { ONLINE_PACKS, isOnlineVoice, onlineVoiceById } from '@/lib/onlineVoices';
-import { onlineStatus, type OnlineStatus } from '@/lib/maestroCloud';
-import { READY_INTENSITIES, READY_VOICES, readyVoice, readyVoiceId } from '@/lib/maestroCues';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
+import { Loader2, Mic, Play, Square, Trash2 } from 'lucide-react';
+import {
+  canGenerate, claimPreview, cloneBaseId, cloneMode, cloneVoiceId, forgetVoiceAudio, isCloneVoice, isOfferedVoice, isPreviewCurrent, playPreview, refreshVoicePacks, rememberCloneNames,
+  stopPreview, subscribePreview, voiceDemo, voiceLabel, type CloneMode,
+} from '@/lib/maestroVoice';
+import { DEFAULT_READY_VOICE, READY_INTENSITIES, offeredReadyVoices, readyVoice, readyVoiceId, subscribeVoicePacks, voiceHasMode, voicePacksVersion } from '@/lib/maestroCues';
 import { friendlyError } from '@/lib/friendlyError';
+import MaestroCloneDialog from '@/components/MaestroCloneDialog';
+import type { ClonedVoice } from '@/lib/localNetwork';
 import type { VoicePitch } from '@/types';
+import { useStore } from '@/store';
 
 interface MaestroVoicePickerProps {
   voice: string;
   onChoose: (voice: string) => void;
-  /** A voz de IA do Mac está pronta (mostra "· IA" nos botões padrão). */
-  iaReady: boolean;
   /** Tom escolhido: o exemplo (▶) toca nele, para ouvir também o grave e o agudo. */
   pitch?: VoicePitch;
   /** Largura do rótulo da esquerda, para alinhar com as outras linhas da janela. */
   labelClass?: string;
+  /**
+   * Fala selecionada na janela: quem abriu o seletor toca ESSA fala na voz nova (ou avisa que ela
+   * não existe lá), e o exemplo fica só no botão de tocar.
+   */
+  cueText?: string;
 }
 
-const OPEN_KEY = 'vs-maestro-ia-vozes-online-abertas';
+/**
+ * Atributo da janela de clonar (aberta por cima): a janela do "+" não fecha com clique ou Esc
+ * enquanto ela estiver na tela.
+ */
+export const SUBDIALOG_ATTR = 'data-maestro-subjanela';
 
-function savedOpen(): boolean {
-  try { return localStorage.getItem(OPEN_KEY) !== '0'; } catch { return true; }
+/** Há uma janela por cima (clonar voz) que cuida do próprio Esc e dos cliques? */
+export function subdialogOpen(target?: EventTarget | null): boolean {
+  if (target instanceof Element && target.closest(`[${SUBDIALOG_ATTR}]`)) return true;
+  return !!document.querySelector(`[${SUBDIALOG_ATTR}]`);
 }
+
+type CloneEntry = ClonedVoice & { modes?: CloneMode[] };
+
+const MODE_LABELS: ReadonlyArray<{ id: CloneMode; label: string; hint: string }> = [
+  { id: 'calma', label: 'Calma', hint: 'Voz baixa e tranquila, para momentos suaves' },
+  { id: 'normal', label: 'Normal', hint: 'Firme e clara, voz de palco' },
+  { id: 'forte', label: 'Forte', hint: 'Empolgada, chamando a banda por cima do som' },
+];
+
+function modesOf(v: CloneEntry | undefined): CloneMode[] {
+  return v?.modes?.length ? v.modes : ['normal'];
+}
+
+const PLAYING_MSG = 'Com a música tocando o exemplo não sai, para não cair no PA.';
 
 type DemoState = { id: string; state: 'loading' | 'playing' } | null;
 
@@ -35,18 +62,17 @@ interface VoiceChipProps {
   demo: 'loading' | 'playing' | null;
   onDemo: () => void;
   demoDisabled: string | null;
+  /** Tecla de apagar à direita (vozes clonadas). */
+  onRemove?: () => void;
   className?: string;
 }
 
-/** Uma voz: o ▶ toca o exemplo (sem escolher); o nome escolhe a voz. */
-function VoiceChip({ label, title, selected, onChoose, demo, onDemo, demoDisabled, className = '' }: VoiceChipProps) {
-  const tone = selected
-    ? 'border-sky-400 bg-sky-500/25 text-sky-100'
-    : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text';
+/** Uma voz: o ▶ toca o exemplo (sem escolher); o nome escolhe a voz (o Maestro IA também toca o exemplo). */
+function VoiceChip({ label, title, selected, onChoose, demo, onDemo, demoDisabled, onRemove, className = '' }: VoiceChipProps) {
   return (
-    <div className={`flex items-stretch rounded border transition-colors min-w-0 ${tone} ${className}`}>
+    <div className={`console-key flex items-stretch h-7 min-w-0 ${selected ? 'is-lit-green' : ''} ${className}`}>
       <button
-        className="shrink-0 px-1 flex items-center justify-center border-r border-white/10 hover:text-white hover:bg-white/5 disabled:opacity-40 disabled:pointer-events-none rounded-l"
+        className="shrink-0 w-6 flex items-center justify-center border-r border-black/30 disabled:opacity-40 disabled:pointer-events-none"
         onClick={onDemo}
         disabled={!!demoDisabled}
         title={demoDisabled ?? (demo === 'playing' ? 'Parar o exemplo' : 'Ouvir um exemplo desta voz (antes de gerar)')}
@@ -55,90 +81,167 @@ function VoiceChip({ label, title, selected, onChoose, demo, onDemo, demoDisable
         {demo === 'loading' ? <Loader2 size={10} className="animate-spin" /> : demo === 'playing' ? <Square size={9} /> : <Play size={10} />}
       </button>
       <button
-        className="flex-1 min-w-0 px-1 py-1.5 text-2xs font-semibold truncate"
+        className="flex-1 min-w-0 px-1.5 text-[11px] truncate text-left"
         onClick={onChoose}
         aria-pressed={selected}
         title={title}
       >
         {label}
       </button>
+      {onRemove && (
+        <button
+          className="shrink-0 w-6 flex items-center justify-center border-l border-black/30 opacity-60 hover:opacity-100"
+          onClick={onRemove}
+          title="Apagar esta voz clonada"
+          aria-label="Apagar esta voz clonada"
+        >
+          <Trash2 size={10} />
+        </button>
+      )}
     </div>
   );
 }
 
 /**
- * Escolha da voz do Maestro por IA: primeiro as vozes padrão, Felipe e Bianca (falas prontas, com a
- * intensidade); depois as vozes do próprio Mac (Feminina e Masculina), que falam qualquer texto; e,
- * logo abaixo, os pacotes de vozes online. Cada voz tem um ▶ para ouvir um exemplo antes de gerar.
+ * Escolha da voz, igual no "+" e na contagem: Maestro 1 (que não pode ser apagado), Maestro 2 e
+ * Maestro 3 (cada um só com áudio disponível), em Calma, Normal ou Forte, e as vozes que o diretor
+ * clonou (Minhas). Cada voz tem um ▶ para ouvir um exemplo. Escolher só escolhe: nada é gerado.
+ * Nas vozes prontas, sem fala selecionada, escolher já toca o exemplo.
  */
-export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, labelClass = 'w-12' }: MaestroVoicePickerProps) {
-  const [open, setOpen] = useState(() => savedOpen() || isOnlineVoice(voice));
-  const [online, setOnline] = useState<OnlineStatus | null>(null);
+export default function MaestroVoicePicker({ voice, onChoose, pitch, labelClass = 'w-12', cueText }: MaestroVoicePickerProps) {
   const [demo, setDemo] = useState<DemoState>(null);
   const [demoMsg, setDemoMsg] = useState<{ error: boolean; text: string } | null>(null);
-  const demoToken = useRef(0);
+  // número de dono da prévia enquanto o exemplo carrega ou toca (0 = nenhum)
+  const demoOwner = useRef(0);
+  const [clones, setClones] = useState<CloneEntry[]>([]);
+  const [cloning, setCloning] = useState(false);
+  const [removing, setRemoving] = useState<CloneEntry | null>(null);
+  const [removeBusy, setRemoveBusy] = useState(false);
+  const canClone = !!window.vsDesktop?.maestroCloneList;
 
-  useEffect(() => {
-    let alive = true;
-    void onlineStatus().then((st) => { if (alive) setOnline(st); });
-    return () => { alive = false; };
+  const loadClones = useCallback(async (): Promise<CloneEntry[]> => {
+    const list = window.vsDesktop?.maestroCloneList;
+    if (!list) return [];
+    try {
+      const got = (await list()) as CloneEntry[];
+      rememberCloneNames(got);
+      setClones(got);
+      return got;
+    } catch {
+      return [];
+    }
   }, []);
-  // fechou a janela: o exemplo para
-  useEffect(() => () => { demoToken.current++; stopPreview(); }, []);
-  // mudou o tom: o exemplo que estava tocando para (o próximo ▶ já sai no tom novo)
-  useEffect(() => { demoToken.current++; stopPreview(); setDemo(null); }, [pitch]);
 
-  const toggle = () => {
-    const next = !open;
-    setOpen(next);
-    try { localStorage.setItem(OPEN_KEY, next ? '1' : '0'); } catch { /* fica aberto */ }
-  };
+  useEffect(() => { void loadClones(); }, [loadClones]);
+  // pacote instalado com a janela aberta: a voz aparece sem reabrir
+  useSyncExternalStore(subscribeVoicePacks, voicePacksVersion);
+  useEffect(() => { void refreshVoicePacks(); }, []);
+  // fechou a janela: o exemplo para
+  useEffect(() => () => { stopPreview(); }, []);
+  // outro toque assumiu a prévia, ou ela foi parada: o exemplo pendente não entra mais
+  useEffect(() => subscribePreview(() => {
+    if (!demoOwner.current || isPreviewCurrent(demoOwner.current)) return;
+    demoOwner.current = 0;
+    setDemo(null);
+  }), []);
+  // mudou o tom: o exemplo que estava tocando para (o próximo ▶ já sai no tom novo)
+  useEffect(() => { stopPreview(); setDemo(null); }, [pitch]);
 
   const playDemo = async (id: string) => {
     // ▶ de novo na voz que está tocando (ou carregando): para
-    if (demo?.id === id) { demoToken.current++; stopPreview(); setDemo(null); return; }
-    const token = ++demoToken.current;
-    stopPreview();
+    if (demo?.id === id) { stopPreview(); setDemo(null); return; }
+    // com a música no ar nem abre os arquivos: o processamento não disputa com o áudio
+    if (useStore.getState().transport.isPlaying) {
+      setDemoMsg({ error: false, text: PLAYING_MSG });
+      return;
+    }
+    const owner = claimPreview();
+    demoOwner.current = owner;
     setDemo({ id, state: 'loading' });
     setDemoMsg(null);
     try {
       const out = await voiceDemo(id, pitch);
-      if (token !== demoToken.current) return;
+      if (!isPreviewCurrent(owner)) return;
+      if (useStore.getState().transport.isPlaying) {
+        demoOwner.current = 0;
+        setDemo(null);
+        setDemoMsg({ error: false, text: PLAYING_MSG });
+        return;
+      }
       setDemo({ id, state: 'playing' });
       if (out.note) setDemoMsg({ error: false, text: out.note });
-      playPreview(out.buffer, () => { if (token === demoToken.current) setDemo(null); });
+      playPreview(out.buffer, () => { if (demoOwner.current === owner) { demoOwner.current = 0; setDemo(null); } }, owner);
     } catch (err) {
-      if (token !== demoToken.current) return;
+      if (!isPreviewCurrent(owner)) return;
+      demoOwner.current = 0;
       setDemo(null);
-      setDemoMsg({ error: true, text: friendlyError(err, 'Não foi possível tocar o exemplo desta voz.') });
+      if (useStore.getState().transport.isPlaying) setDemoMsg({ error: false, text: PLAYING_MSG });
+      else setDemoMsg({ error: true, text: friendlyError(err, 'Não foi possível tocar o exemplo desta voz.') });
     }
   };
 
+  const confirmRemove = async () => {
+    const v = removing;
+    const remove = window.vsDesktop?.maestroCloneRemove;
+    if (!v || !remove) return;
+    setRemoveBusy(true);
+    try {
+      await remove(v.id);
+      forgetVoiceAudio(v.id);
+      await loadClones();
+      // a voz apagada era a escolhida: volta para o Maestro IA
+      if (isCloneVoice(voice) && cloneBaseId(voice) === cloneBaseId(v.id)) onChoose(DEFAULT_READY_VOICE);
+      setRemoving(null);
+    } catch (err) {
+      setDemoMsg({ error: true, text: friendlyError(err, 'Não foi possível apagar a voz.') });
+    } finally {
+      setRemoveBusy(false);
+    }
+  };
+
+  /**
+   * Escolheu uma voz: só escolhe (não gera nada na marcação). Com fala selecionada, quem toca é a
+   * janela da fala. Sem fala, a voz pronta toca o exemplo, só com a música parada: a prévia sai na
+   * mesma placa da música e não pode cair no PA. Nas vozes de IA o exemplo fica no ▶.
+   */
+  const choose = (id: string) => {
+    onChoose(id);
+    if (!cueText?.trim() && readyVoice(id) && demo?.id !== id && !useStore.getState().transport.isPlaying) void playDemo(id);
+  };
+
   const demoOf = (id: string) => (demo?.id === id ? demo.state : null);
-  const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes Feminina e Masculina só toca no app do Mac.');
-  // Cubas, Keven e Henrique foram apagadas: marcação antiga nelas fala com a Masculina (e aparece nela)
-  const selected = (id: string) => voice === id || voice === `qwen:${id}` || (id === 'masculina' && /^(qwen:)?(cubas|keven|henrique)$/.test(voice));
-  // voz que não é mais oferecida (voz do Mac pelo nome, voz online que saiu da lista...)
+  const demoBlocked = (id: string) => (canGenerate(id) ? null : 'O exemplo das vozes de IA só toca no app do Mac.');
+  const keyTone = (on: boolean) => `console-key h-6 text-[10px] ${on ? 'is-lit-green' : ''}`;
+
+  // vozes clonadas (nas duas janelas) e, na contagem, a voz pronta Maestro
   const ready = readyVoice(voice);
-  const intensity = ready?.intensity ?? 'normal';
-  const legacy = !!voice && !isPresetVoice(voice) && !ready && !/^qwen:(feminina|masculina|henrique|cubas|keven)$/.test(voice) && !onlineVoiceById(voice);
+  const readyChoices = offeredReadyVoices();
+  const offered = !!ready && readyChoices.some((v) => v.dir === ready.dir);
+  // os modos valem para a voz pronta escolhida; vindo de uma voz clonada, para o Maestro IA
+  const modeVoice = (offered && readyChoices.find((v) => v.dir === ready.dir)) || readyChoices[0];
+  const intensity = offered ? ready.intensity : 'normal';
+  const selectedClone = isCloneVoice(voice) ? clones.find((c) => cloneBaseId(c.id) === cloneBaseId(voice)) : undefined;
+  const cloneSelectedId = isCloneVoice(voice) ? cloneBaseId(voice) : null;
+  // clone que não está mais na lista (apagado em outro lugar) ainda conta como escolhido até a lista chegar
+  const cloneOk = isCloneVoice(voice) && isOfferedVoice(voice) && (!!selectedClone || clones.length === 0);
+  const legacy = !!voice && !offered && !cloneOk;
+  const modeNow = isCloneVoice(voice) ? cloneMode(voice) : 'normal';
+  const recorded = modesOf(selectedClone);
 
   return (
     <>
-      {/* Vozes padrão: Felipe e Bianca, as falas prontas gravadas em estúdio (escolha nos botões por assunto) */}
       <div className="flex items-center gap-2">
-        <span className={`text-logic-text-muted ${labelClass} shrink-0`} title="Vozes padrão: falas prontas gravadas em estúdio">Voz</span>
-        <div className="flex-1 grid grid-cols-2 gap-1">
-          {READY_VOICES.map((v) => {
-            // trocar entre Felipe e Bianca mantém a intensidade escolhida
-            const id = readyVoiceId(v, intensity);
+        <span className={`console-legend ${labelClass} shrink-0`} title="Vozes prontas: falas gravadas, tocam na hora">Voz</span>
+        <div className={`flex-1 grid gap-1 min-w-0 ${readyChoices.length > 1 ? 'grid-cols-3' : 'grid-cols-1'}`}>
+          {readyChoices.map((v) => {
+            const id = readyVoiceId(v, voiceHasMode(v, intensity) ? intensity : 'normal');
             return (
               <VoiceChip
                 key={v.id}
-                label={v.label}
-                title={`Voz ${v.label} (padrão): fala as falas prontas, sem internet. Texto fora da lista, ou fala ainda sem gravação, sai na voz ${v.fallback === 'masculina' ? 'Masculina' : 'Feminina'} do Mac.`}
-                selected={ready?.dir === v.dir}
-                onChoose={() => onChoose(id)}
+                label={<>{v.label}<span className="opacity-60"> {v.fallback === 'feminina' ? '♀' : '♂'}</span></>}
+                title={`${v.label}: falas gravadas, tocam sem internet.`}
+                selected={offered && ready?.dir === v.dir}
+                onChoose={() => choose(id)}
                 demo={demoOf(id)}
                 onDemo={() => { void playDemo(id); }}
                 demoDisabled={null}
@@ -147,23 +250,18 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
           })}
         </div>
       </div>
-
-      {/* Intensidade da voz pronta: calma, normal ou forte (cada uma gravada à parte) */}
-      {ready && (
+      {!cloneSelectedId && (
         <div className="flex items-center gap-2">
-          <span className={`text-logic-text-muted ${labelClass} shrink-0`} title="Intensidade da voz">Intens.</span>
+          <span className={`console-legend ${labelClass} shrink-0`} title="Intensidade da voz">Intens.</span>
           <div className="flex-1 grid grid-cols-3 gap-1" role="group" aria-label="Intensidade da voz">
             {READY_INTENSITIES.map((l) => (
               <button
                 key={l.id}
-                className={`px-2 py-1.5 rounded border text-2xs font-semibold transition-colors ${
-                  intensity === l.id
-                    ? 'border-sky-400 bg-sky-500/25 text-sky-100'
-                    : 'border-logic-border-light bg-logic-bg-deep text-logic-text-dim hover:text-logic-text'
-                }`}
-                onClick={() => { if (l.id !== intensity) onChoose(readyVoiceId(ready, l.id)); }}
-                aria-pressed={intensity === l.id}
-                title={l.hint}
+                className={keyTone(offered && intensity === l.id)}
+                onClick={() => choose(readyVoiceId(modeVoice, l.id))}
+                disabled={!voiceHasMode(modeVoice, l.id)}
+                aria-pressed={offered && intensity === l.id}
+                title={voiceHasMode(modeVoice, l.id) ? l.hint : `A voz ${modeVoice.label} ainda não tem este modo`}
               >
                 {l.label}
               </button>
@@ -172,86 +270,101 @@ export default function MaestroVoicePicker({ voice, onChoose, iaReady, pitch, la
         </div>
       )}
 
-      {/* Vozes do Mac (Feminina e Masculina): falam qualquer texto; é nelas que sai o texto fora das falas prontas */}
-      <div className="flex items-center gap-2">
-        <span className={`text-logic-text-muted ${labelClass} shrink-0`} title="Vozes do Mac: falam qualquer texto, geradas no próprio Mac">Livre</span>
-        <div className="flex-1 grid grid-cols-2 gap-1">
-          {VOICE_PRESETS.map((p) => (
-            <VoiceChip
-              key={p.id}
-              label={<>{p.label}{iaReady && <span className="font-normal opacity-75"> · {IA_VOICE_NAMES[p.id]}</span>}</>}
-              title={`Voz ${p.label.toLowerCase()} de IA, gerada no próprio Mac (sem internet)`}
-              selected={selected(p.id)}
-              onChoose={() => onChoose(p.id)}
-              demo={demoOf(p.id)}
-              onDemo={() => { void playDemo(p.id); }}
-              demoDisabled={demoBlocked(p.id)}
-            />
-          ))}
+      {canClone && (
+        <div className="flex items-start gap-2">
+          <span className={`console-legend ${labelClass} shrink-0 pt-2`} title="Vozes que você clonou com a sua gravação">Minhas</span>
+          <div className="flex-1 grid grid-cols-2 gap-1 min-w-0">
+            {clones.map((c) => (
+              <VoiceChip
+                key={c.id}
+                label={<>{c.name}<span className="opacity-60"> {c.gender === 'feminina' ? '♀' : '♂'}</span></>}
+                title={`${c.name}: voz clonada (${modesOf(c).length} ${modesOf(c).length === 1 ? 'modo gravado' : 'modos gravados'})`}
+                selected={cloneSelectedId === cloneBaseId(c.id)}
+                onChoose={() => onChoose(cloneVoiceId(c.id, modesOf(c).includes(modeNow) ? modeNow : 'normal'))}
+                demo={demoOf(c.id)}
+                onDemo={() => { void playDemo(c.id); }}
+                demoDisabled={demoBlocked(c.id)}
+                onRemove={() => setRemoving(c)}
+              />
+            ))}
+            <button
+              className="console-key is-lit-amber h-7 px-2 text-[11px] flex items-center justify-center gap-1.5"
+              onClick={() => setCloning(true)}
+              title="Grave a sua voz em três modos de fala e use como voz do Maestro"
+            >
+              <Mic size={11} /> Clonar minha voz
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {legacy && (
+      {removing && (
         <div className="flex items-center gap-2 -mt-1">
           <span className={`${labelClass} shrink-0`} />
+          <div className="flex-1 flex items-center gap-1.5 text-[10px] text-logic-text-dim min-w-0">
+            <span className="flex-1 min-w-0 truncate">Apagar a voz {removing.name}? Não dá para desfazer.</span>
+            <button className="console-key is-lit-red h-6 px-2 text-[10px]" onClick={() => { void confirmRemove(); }} disabled={removeBusy}>
+              {removeBusy ? 'Apagando...' : 'Apagar'}
+            </button>
+            <button className="console-key h-6 px-2 text-[10px]" onClick={() => setRemoving(null)} disabled={removeBusy}>Manter</button>
+          </div>
+        </div>
+      )}
+
+      {/* Modo de fala da voz clonada: cada um é uma gravação à parte; o que não foi gravado fica apagado */}
+      {cloneSelectedId && (
+        <div className="flex items-center gap-2">
+          <span className={`console-legend ${labelClass} shrink-0`} title="Modo de fala da voz clonada">Intens.</span>
+          <div className="flex-1 grid grid-cols-3 gap-1" role="group" aria-label="Modo de fala da voz clonada">
+            {MODE_LABELS.map((m) => {
+              const has = recorded.includes(m.id);
+              return (
+                <button
+                  key={m.id}
+                  className={keyTone(modeNow === m.id)}
+                  onClick={() => { if (m.id !== modeNow) onChoose(cloneVoiceId(cloneSelectedId, m.id)); }}
+                  disabled={!has && m.id !== modeNow}
+                  aria-pressed={modeNow === m.id}
+                  title={has ? m.hint : 'Este modo não foi gravado nesta voz'}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {legacy && (
+        <div className="flex gap-2 -mt-1">
+          <span className={`${labelClass} shrink-0`} />
           <span className="text-[10px] text-logic-text-muted">
-            Voz atual: {voiceLabel(voice)} (não é mais oferecida). Escolha uma das vozes acima ou abaixo.
+            {ready && !ready.embedded ? `A voz ${ready.label} não está neste computador` : `Voz antiga: ${voiceLabel(voice)}`}. O áudio continua na faixa. Para refazer, escolha o Maestro IA ou uma voz sua.
           </span>
         </div>
       )}
 
-      {ONLINE_PACKS.length > 0 && (
-      <div className="flex gap-2 -mt-0.5">
-        <span className={`${labelClass} shrink-0`} />
-        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-          <button
-            className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-logic-text-muted hover:text-logic-text self-start"
-            onClick={toggle}
-            aria-expanded={open}
-            title="Vozes das melhores IAs de fala da internet (precisa de internet e da sua conta)"
-          >
-            {open ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            <Globe size={10} /> Mais vozes online
-          </button>
-          {open && (
-            <>
-              {ONLINE_PACKS.map((pack) => (
-                <div key={pack.id} className="flex flex-col gap-1">
-                  <div className="text-[10px] text-logic-text-dim">
-                    <span className="font-semibold text-logic-text">{pack.label}</span>
-                    <span className="text-logic-text-muted"> · {pack.description}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {pack.voices.map((v) => (
-                      <VoiceChip
-                        key={v.id}
-                        label={<>{v.name}<span className="font-normal opacity-60"> {v.gender === 'feminina' ? '♀' : '♂'}</span></>}
-                        title={`${v.name}: voz ${v.gender}, ${v.hint} (${pack.label}). Precisa de internet.`}
-                        selected={voice === v.id}
-                        onChoose={() => onChoose(v.id)}
-                        demo={demoOf(v.id)}
-                        onDemo={() => { void playDemo(v.id); }}
-                        demoDisabled={null}
-                      />
-                    ))}
-                  </div>
-                </div>
-              ))}
-              {online && !online.ready && (
-                <div className="text-[10px] text-logic-lcd-amber leading-snug">{online.reason}</div>
-              )}
-            </>
-          )}
+      {demoMsg && (
+        <div className="flex gap-2 -mt-1">
+          <span className={`${labelClass} shrink-0`} />
+          <div className={`flex-1 text-[10px] leading-snug ${demoMsg.error ? 'text-logic-lcd-red' : 'text-logic-lcd-amber'}`}>{demoMsg.text}</div>
         </div>
-      </div>
       )}
 
-      <div className="flex gap-2 -mt-1">
-        <span className={`${labelClass} shrink-0`} />
-        <div className={`flex-1 text-[10px] leading-snug ${demoMsg?.error ? 'text-logic-lcd-red' : demoMsg ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}>
-          {demoMsg ? demoMsg.text : '▶ toca um exemplo da voz antes de gerar ("Atenção, banda! Um, dois, três, quatro.").'}
-        </div>
-      </div>
+      {cloning && createPortal(
+        <div {...{ [SUBDIALOG_ATTR]: '' }}>
+          <MaestroCloneDialog
+            onClose={() => setCloning(false)}
+            onSaved={(saved) => {
+              setCloning(false);
+              // mesmo nome regrava a voz: números, prévias e exemplo antigos saem da memória
+              forgetVoiceAudio(saved.id);
+              void loadClones().then(() => onChoose(cloneBaseId(saved.id)));
+            }}
+          />
+        </div>,
+        document.body,
+      )}
     </>
   );
 }

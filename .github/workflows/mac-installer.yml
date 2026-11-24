@@ -121,6 +121,8 @@ jobs:
   mac:
     needs: voz
     runs-on: macos-15
+    outputs:
+      version: ${{ steps.dmg.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -164,6 +166,7 @@ jobs:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
       - name: Gerar os .dmg
+        id: dmg
         working-directory: desktop
         env:
           BUILD_NUMBER: ${{ github.run_number }}
@@ -176,6 +179,7 @@ jobs:
           printf '{"build":%s}' "$BUILD_NUMBER" > build-info.json
           npm run web
           node scripts/bumpVersion.cjs
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
           npm run background
           node scripts/patchDmgBuilder.cjs
 
@@ -235,6 +239,10 @@ jobs:
               done
             else
               [ ! -e "$VOICE/vs-maestro-voz" ] || { echo "::error::x64: o programa de voz (só Apple Silicon) foi junto no Intel"; hdiutil detach "$MNT" -quiet; exit 1; }
+              # Intel: a voz de IA roda no processador (motor de IA + maestroVoiceCpu.py + vozes)
+              ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^qwen_tts-0\.1\.1\.dist-info$' || { echo "::error::x64: o motor de IA não tem a voz do Maestro (qwen-tts)"; hdiutil detach "$MNT" -quiet; exit 1; }
+              [ -s "$MNT/VS Stage.app/Contents/Resources/app.asar.unpacked/maestroVoiceCpu.py" ] || { echo "::error::x64: falta o maestroVoiceCpu.py"; hdiutil detach "$MNT" -quiet; exit 1; }
+              [ -s "$VOICE/voices/feminina.wav" ] && [ -s "$VOICE/voices/masculina.wav" ] || { echo "::error::x64: faltam as vozes do Maestro IA"; hdiutil detach "$MNT" -quiet; exit 1; }
             fi
             ! find "$MNT/VS Stage.app" -name '*.safetensors' | grep -q . || { echo "::error::$ARCH: o modelo de voz foi embutido (deveria ser baixado pelo app)"; hdiutil detach "$MNT" -quiet; exit 1; }
             hdiutil detach "$MNT" -quiet
@@ -410,3 +418,243 @@ jobs:
             fi
           fi
 
+
+  # Instalador para Mac Intel com macOS 10.15 (Catalina). O Electron 33 do instalador normal
+  # exige macOS 11; o 32 é o último que abre no 10.15. Sai com a mesma versão do instalador
+  # normal e é publicado num manifest à parte (mac/legacy/manifest.json), porque a página de
+  # download e os programas já instalados recusam um manifest com processador desconhecido.
+  # Não vai para o Supabase (limite de storage). O programa sabe que é legacy pelo
+  # build-info.json ("legacy": true) e só se atualiza por esse manifest.
+  mac-legacy:
+    needs: mac
+    runs-on: macos-15
+    env:
+      LEGACY_ELECTRON: 32.3.3
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Conexão com a nuvem
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+
+      - run: npm ci
+
+      - name: Gerar o .dmg para macOS 10.15
+        working-directory: desktop
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          VERSION: ${{ needs.mac.outputs.version }}
+        run: |
+          set -e
+          [ -n "$VERSION" ] || { echo "::error::A etapa mac não informou a versão"; exit 1; }
+          npm install --no-audit --no-fund
+          npm install --no-save --no-audit --no-fund "electron@$LEGACY_ELECTRON"
+          npm pkg set version="$VERSION"
+          printf '{"build":%s,"legacy":true}' "$BUILD_NUMBER" > build-info.json
+          npm run web
+          npm run background
+          node scripts/patchDmgBuilder.cjs
+          ./scripts/prepareAiEngine.sh x64
+          ./scripts/prepareMaestroVoice.sh x64
+          CSC_IDENTITY_AUTO_DISCOVERY=false VS_ADHOC=1 npx electron-builder --mac --x64 -c.mac.target=dmg \
+            -c.electronVersion="$LEGACY_ELECTRON" \
+            -c.mac.minimumSystemVersion=10.15 \
+            '-c.dmg.title=VS Stage ${version} macOS 10.15' \
+            '-c.dmg.artifactName=VS-Stage-${version}-x64-legacy.${ext}' \
+            --publish never
+
+      - name: Testar o .dmg antes de publicar
+        working-directory: desktop/dist
+        run: |
+          set -e
+          DMG=$(ls *-x64-legacy.dmg | head -n 1)
+          [ -f "$DMG" ] || { echo "::error::Instalador legacy não encontrado"; exit 1; }
+          MNT=$(mktemp -d)
+          hdiutil attach "$DMG" -nobrowse -readonly -mountpoint "$MNT"
+          APP="$MNT/VS Stage.app"
+          codesign --verify --deep --strict "$APP"
+          MIN=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist")
+          [ "$MIN" = "10.15" ] || { echo "::error::LSMinimumSystemVersion é $MIN, esperado 10.15"; hdiutil detach "$MNT" -quiet; exit 1; }
+          FW="$APP/Contents/Frameworks/Electron Framework.framework/Versions/A/Resources/Info.plist"
+          EV=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$FW")
+          [ "$EV" = "$LEGACY_ELECTRON" ] || { echo "::error::Electron embutido é $EV, esperado $LEGACY_ELECTRON"; hdiutil detach "$MNT" -quiet; exit 1; }
+          file "$APP/Contents/MacOS/VS Stage" | grep -q x86_64 || { echo "::error::O programa não é x86_64"; hdiutil detach "$MNT" -quiet; exit 1; }
+          grep -q '"legacy":true' "$APP/Contents/Resources/build-info.json" || { echo "::error::build-info.json sem legacy"; hdiutil detach "$MNT" -quiet; exit 1; }
+          ENGINE="$APP/Contents/Resources/ai-engine/python"
+          file "$ENGINE/bin/python3.11" | grep -q x86_64 || { echo "::error::o motor de IA não é x86_64"; hdiutil detach "$MNT" -quiet; exit 1; }
+          ls "$ENGINE/lib/python3.11/site-packages" | grep -q '^qwen_tts-0\.1\.1\.dist-info$' || { echo "::error::o motor de IA não tem a voz do Maestro (qwen-tts)"; hdiutil detach "$MNT" -quiet; exit 1; }
+          [ -s "$APP/Contents/Resources/app.asar.unpacked/maestroVoiceCpu.py" ] || { echo "::error::falta o maestroVoiceCpu.py"; hdiutil detach "$MNT" -quiet; exit 1; }
+          [ -s "$APP/Contents/Resources/maestro-voice-engine/voices/feminina.wav" ] || { echo "::error::faltam as vozes do Maestro IA"; hdiutil detach "$MNT" -quiet; exit 1; }
+          hdiutil detach "$MNT" -quiet
+          echo "legacy ok: macOS 10.15, Electron $EV, x86_64"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VS-Stage-Mac-10.15
+          path: desktop/dist/*-x64-legacy.dmg
+          retention-days: 30
+
+      - name: Publicar na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          VERSION: ${{ needs.mac.outputs.version }}
+        run: |
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::warning::Sem VPS_HOST, VPS_USER e VPS_SSH_KEY: o instalador legacy não foi publicado."
+            exit 0
+          fi
+          FOLDER="mac/legacy/${VERSION}-${BUILD_NUMBER}"
+          REMOTE_BASE="/var/www/download.vsstagepro.com.br"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_deploy_key
+          chmod 600 ~/.ssh/vps_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "mkdir -p '$REMOTE_BASE/$FOLDER/x64-legacy'"
+          upload() { scp -i ~/.ssh/vps_deploy_key "$1" "$VPS_USER@$VPS_HOST:$REMOTE_BASE/$2"; }
+          DMG=$(ls desktop/dist/*-x64-legacy.dmg | head -n 1)
+          SIZE=$(stat -f%z "$DMG")
+          SHA=$(shasum -a 256 "$DMG" | cut -d' ' -f1)
+          WORK=$(mktemp -d)
+          split -b 47185920 -a 2 "$DMG" "$WORK/part"
+          [ "$(cat "$WORK"/part* | shasum -a 256 | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::reconstrução das partes não confere"; exit 1; }
+          PARTS=""
+          for P in $(ls "$WORK" | sort); do
+            NAME="$FOLDER/x64-legacy/$P.bin"
+            upload "$WORK/$P" "$NAME"
+            PARTS="$PARTS\"$NAME\","
+          done
+          rm -rf "$WORK"
+          PUBLISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{"version":"%s","build":%s,"published":"%s","required":false,"builds":[{"arch":"x64-legacy","label":"Intel com macOS 10.15","file":"%s","size":%s,"sha256":"%s","parts":[%s]}]}' \
+            "$VERSION" "$BUILD_NUMBER" "$PUBLISHED" "$(basename "$DMG")" "$SIZE" "$SHA" "${PARTS%,}" > manifest.json
+          # manifest por último: a página só oferece o instalador quando todas as partes subiram
+          upload manifest.json mac/legacy/manifest.json
+          # guarda só as 2 últimas versões legacy na VPS
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "cd '$REMOTE_BASE/mac/legacy' && ls -1dt */ | tail -n +3 | xargs rm -rf"
+
+  # Instalador do Windows (x64). Mesmo programa e mesma versão do Mac; por baixo, só troca o
+  # que não existe no Windows (voz do sistema, atualização, rede local). Publicado num manifest
+  # à parte (win/manifest.json): a página e os programas do Mac não leem esse arquivo.
+  # Sem certificado de assinatura: o Windows mostra o aviso do SmartScreen na primeira vez.
+  win:
+    needs: mac
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Conexão com a nuvem
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          printf 'VITE_SUPABASE_URL=%s\nVITE_SUPABASE_ANON_KEY=%s\n' "$VITE_SUPABASE_URL" "$VITE_SUPABASE_ANON_KEY" > .env
+
+      - run: npm ci
+
+      - name: Gerar o instalador .exe
+        working-directory: desktop
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          VERSION: ${{ needs.mac.outputs.version }}
+        run: |
+          set -e
+          [ -n "$VERSION" ] || { echo "::error::A etapa mac não informou a versão"; exit 1; }
+          npm install --no-audit --no-fund
+          npm pkg set version="$VERSION"
+          printf '{"build":%s}' "$BUILD_NUMBER" > build-info.json
+          # ícone dos arquivos de projeto (.vss/.vsc) no formato do Windows
+          node -e "const f='package.json';const p=require('./'+f);p.build.fileAssociations[0].icon='project-file.ico';require('fs').writeFileSync(f,JSON.stringify(p,null,2))"
+          npm run web
+          ./scripts/prepareAiEngine.sh win-x64
+          ./scripts/prepareMaestroVoice.sh x64
+          npx electron-builder --win --x64 --publish never
+
+      - name: Testar o instalador antes de publicar
+        working-directory: desktop/dist
+        run: |
+          set -e
+          EXE=$(ls VS-Stage-Setup-*-x64.exe | head -n 1)
+          [ -s "$EXE" ] || { echo "::error::Instalador do Windows não encontrado"; exit 1; }
+          R=win-unpacked/resources
+          [ -f "win-unpacked/VS Stage.exe" ] || { echo "::error::falta o VS Stage.exe"; exit 1; }
+          [ -f "$R/app.asar" ] || { echo "::error::falta o app.asar"; exit 1; }
+          [ -d "$R/web" ] || { echo "::error::falta o site embutido (web)"; exit 1; }
+          [ -f "$R/ai-engine/python/python.exe" ] || { echo "::error::falta o motor de IA (python.exe)"; exit 1; }
+          ls "$R/ai-engine/python/Lib/site-packages" | grep -q '^torch-2\.2\.2\.dist-info$' || { echo "::error::o motor de IA não tem o PyTorch 2.2.2"; exit 1; }
+          ls "$R/ai-engine/python/Lib/site-packages" | grep -q '^numpy-1\.26\.4\.dist-info$' || { echo "::error::o motor de IA não tem o NumPy 1.26.4"; exit 1; }
+          [ -s "$R/ai-engine/torch-cache/hub/checkpoints/5c90dfd2-34c22ccb.th" ] || { echo "::error::o modelo htdemucs_6s não está embutido"; exit 1; }
+          [ -f "$R/app.asar.unpacked/drumPieceSeparator.py" ] || { echo "::error::falta o separador da bateria"; exit 1; }
+          ls "$R/ai-engine/python/Lib/site-packages" | grep -q '^qwen_tts-0\.1\.1\.dist-info$' || { echo "::error::o motor de IA não tem a voz do Maestro (qwen-tts)"; exit 1; }
+          [ -f "$R/app.asar.unpacked/maestroVoiceCpu.py" ] || { echo "::error::falta o maestroVoiceCpu.py"; exit 1; }
+          [ -s "$R/maestro-voice-engine/voices/feminina.wav" ] || { echo "::error::faltam as vozes do Maestro IA"; exit 1; }
+          echo "windows ok: $EXE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VS-Stage-Windows
+          path: desktop/dist/VS-Stage-Setup-*-x64.exe
+          retention-days: 30
+
+      - name: Publicar na VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          VERSION: ${{ needs.mac.outputs.version }}
+        run: |
+          set -e
+          if [ -z "$VPS_HOST" ] || [ -z "$VPS_USER" ] || [ -z "$VPS_SSH_KEY" ]; then
+            echo "::warning::Sem VPS_HOST, VPS_USER e VPS_SSH_KEY: o instalador do Windows não foi publicado."
+            exit 0
+          fi
+          FOLDER="win/${VERSION}-${BUILD_NUMBER}"
+          REMOTE_BASE="/var/www/download.vsstagepro.com.br"
+          KEY="$HOME/.ssh/vps_deploy_key"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          SSH_OPTS=(-i "$KEY" -o UserKnownHostsFile="$HOME/.ssh/known_hosts")
+          ssh "${SSH_OPTS[@]}" "$VPS_USER@$VPS_HOST" "mkdir -p '$REMOTE_BASE/$FOLDER/x64'"
+          upload() { scp "${SSH_OPTS[@]}" "$1" "$VPS_USER@$VPS_HOST:$REMOTE_BASE/$2"; }
+          EXE=$(ls desktop/dist/VS-Stage-Setup-*-x64.exe | head -n 1)
+          SIZE=$(wc -c < "$EXE" | tr -d ' ')
+          SHA=$(sha256sum "$EXE" | cut -d' ' -f1)
+          WORK=$(mktemp -d)
+          split -b 47185920 -a 2 "$EXE" "$WORK/part"
+          [ "$(cat "$WORK"/part* | sha256sum | cut -d' ' -f1)" = "$SHA" ] || { echo "::error::reconstrução das partes não confere"; exit 1; }
+          PARTS=""
+          for P in $(ls "$WORK" | sort); do
+            NAME="$FOLDER/x64/$P.bin"
+            upload "$WORK/$P" "$NAME"
+            PARTS="$PARTS\"$NAME\","
+          done
+          rm -rf "$WORK"
+          PUBLISHED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          printf '{"version":"%s","build":%s,"published":"%s","required":false,"builds":[{"arch":"x64","label":"Windows 10 e 11 (64 bits)","file":"%s","size":%s,"sha256":"%s","parts":[%s]}]}' \
+            "$VERSION" "$BUILD_NUMBER" "$PUBLISHED" "$(basename "$EXE")" "$SIZE" "$SHA" "${PARTS%,}" > manifest.json
+          # manifest por último: a página só oferece o instalador quando todas as partes subiram
+          upload manifest.json win/manifest.json
+          # guarda só as 2 últimas versões do Windows na VPS
+          ssh "${SSH_OPTS[@]}" "$VPS_USER@$VPS_HOST" "cd '$REMOTE_BASE/win' && ls -1dt */ | tail -n +3 | xargs rm -rf"

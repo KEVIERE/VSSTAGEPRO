@@ -1,10 +1,12 @@
 import { detectBpm, detectMultiTempo, type MultiTempoResult } from '@/lib/beatDetector';
 import { gridClickBuffer, makeClickClip } from '@/lib/clickClip';
-import { calculateMusicalAlignment, detectContinuousTempoMap, detectRobustBpm } from '@/lib/musicalAlignment';
+import { hasTempoChanges, medleyEstimateNotice, readTempoMap } from '@/lib/medleyTempo';
+import { MIN_TEMPO_MAP_SEC, clickNeedsTempoMap, isFinalRitOnly, placeAiTempoMap } from '@/lib/tempoFollow';
+import { calculateMusicalAlignment, detectContinuousTempoMap, audioEntryTime, detectRobustBpm, stemHasDrums } from '@/lib/musicalAlignment';
 import { isolateLiveCrowdAmbience } from '@/lib/crowdIsolation';
-import { encodeWavPcm24 } from '@/lib/wavEncoder';
+import { encodeWavPcm24Async } from '@/lib/wavEncoder';
+import { waveformPeaksAsync } from '@/lib/waveformPeaks';
 import { classifyInstrumentAudio, type AiRouteResult } from '@/lib/aiRouter';
-import { audioEngine } from '@/lib/audioEngine';
 import {
   putClipAudio,
   registerClipSource,
@@ -13,6 +15,10 @@ import {
 import { useStore } from '@/store';
 import type { AudioClip, Song } from '@/types';
 import { generateMarkers, decodeBlob } from '@/lib/audioDecoder';
+import type { StemFilesReply } from '@/lib/localNetwork';
+
+/** Só tenta o mapa de novo na bateria se a primeira leitura terminou antes disto. */
+const MAP_RETRY_LIMIT_MS = 120_000;
 
 /**
  * Pergunta à IA de instrumentos o que tem no stem: 3 trechos de 5 s entre os mais fortes,
@@ -85,6 +91,42 @@ export interface StemSeparationOptions {
   splitDrums?: boolean;
 }
 
+/** O app sabe deixar as faixas separadas no disco e servir por vsstage://stems (Lote 6). */
+function stemFilesSupported(): boolean {
+  const d = typeof window !== 'undefined' ? window.vsDesktop : undefined;
+  return typeof d?.stemFileUrl === 'function' && typeof d?.stemFilesRelease === 'function';
+}
+
+function isStemFilesReply(x: unknown): x is StemFilesReply {
+  const f = (x as StemFilesReply | null)?.stemFiles;
+  return !!f && typeof f.token === 'string' && Array.isArray(f.names);
+}
+
+/**
+ * Lê as faixas que a separação deixou no disco e solta a pasta. Os bytes são os mesmos que antes
+ * vinham pelo IPC (o mesmo WAV do Demucs), então a decodificação e o alinhamento não mudam.
+ */
+async function readStemFiles(reply: StemFilesReply): Promise<Record<string, Blob>> {
+  const d = window.vsDesktop!;
+  const { token, names } = reply.stemFiles;
+  try {
+    const settled = await Promise.allSettled(names.map(async (name) => {
+      const res = await fetch(d.stemFileUrl!(token, name));
+      if (!res.ok) throw new Error(`faixa separada não encontrada (${name})`);
+      return [name, new Blob([await res.blob()], { type: 'audio/wav' })] as const;
+    }));
+    const out: Record<string, Blob> = {};
+    for (const r of settled) {
+      if (r.status === 'rejected') throw r.reason;
+      out[r.value[0]] = r.value[1];
+    }
+    return out;
+  } finally {
+    // só depois de ler tudo (no Windows arquivo aberto não sai)
+    void d.stemFilesRelease!(token).catch(() => false);
+  }
+}
+
 /**
  * Separa a bateria já isolada em peças. Devolve as peças decodificadas ou null (aí a bateria
  * fica inteira). Nunca lança: separar a bateria é um extra, não pode derrubar a criação do VS.
@@ -99,9 +141,12 @@ async function splitDrumPieces(
   try {
     onProgress({ step: 'drums', message: 'Separando a bateria em bumbo, caixa, pratos e tons...', percent: 96 });
     // o modelo pede 44,1 kHz estéreo; o WAV do stem já vem nesse formato do Demucs
-    const wav = encodeWavPcm24(drums);
-    const result = await bridge(wav as ArrayBuffer);
+    const wav = await encodeWavPcm24Async(drums);
     const ids = ['bumbo', 'caixa', 'pratos', 'tons'] as const;
+    const reply = stemFilesSupported() ? await bridge(wav as ArrayBuffer, { files: true }) : await bridge(wav as ArrayBuffer);
+    const result: Partial<Record<(typeof ids)[number], ArrayBuffer | Blob | null>> & { why?: string } = isStemFilesReply(reply)
+      ? await readStemFiles(reply)
+      : (reply as Partial<Record<(typeof ids)[number], ArrayBuffer | null>> & { why?: string });
     if (!ids.some((id) => result[id])) {
       console.warn('separação da bateria indisponível:', result.why ?? 'sem peças');
       return null;
@@ -110,7 +155,7 @@ async function splitDrumPieces(
       const raw = result[id];
       if (!raw) return null;
       try {
-        return [id, await decodeBlob(new Blob([raw], { type: 'audio/wav' }))] as const;
+        return [id, await decodeBlob(raw instanceof Blob ? raw : new Blob([raw], { type: 'audio/wav' }))] as const;
       } catch {
         return null;
       }
@@ -185,13 +230,28 @@ export async function separateSongToVS(
     });
 
     try {
-      const arrayBuf = await file.arrayBuffer();
-      const rawStems = await window.vsDesktop.separateStemsLocal(file.name, arrayBuf).catch((err) => {
+      const separate = window.vsDesktop.separateStemsLocal;
+      // Arquivo do disco vai pelo caminho (a tela não lê a música inteira e nada passa pelo IPC);
+      // as faixas voltam pelo disco (vsstage://stems). Sem isso, os bytes de sempre.
+      const filePath = (window.vsDesktop as { pathForFile?: (f: File) => string }).pathForFile?.(file) || '';
+      const useFiles = stemFilesSupported();
+      const reply = await (useFiles
+        ? separate(file.name, filePath ? { path: filePath } : await file.arrayBuffer(), { files: true })
+        : separate(file.name, await file.arrayBuffer())
+      ).catch((err) => {
         // Cancelado no meio da IA: não é erro de verdade, só encerra sem criar o VS.
         if (stopped() || /separation_cancelled/.test(String((err as Error)?.message ?? err))) throw new Error(SEPARATION_CANCELLED);
         throw err;
       });
+      if (stopped() && isStemFilesReply(reply)) void window.vsDesktop.stemFilesRelease?.(reply.stemFiles.token).catch(() => false);
       checkCancelled();
+      const rawStems: Record<string, ArrayBuffer | Blob | null | undefined> = isStemFilesReply(reply)
+        ? await readStemFiles(reply)
+        : (reply as unknown as Record<string, ArrayBuffer | null | undefined>);
+      if (!rawStems.vocals || !rawStems.bass || !rawStems.drums || !rawStems.other) {
+        throw new Error('As faixas separadas não foram encontradas na pasta de saída.');
+      }
+      const asWav = (raw: ArrayBuffer | Blob) => (raw instanceof Blob ? raw : new Blob([raw], { type: 'audio/wav' }));
       onProgress?.({
         step: 'other',
         message: 'Decodificando faixas de alta fidelidade para a timeline...',
@@ -199,12 +259,12 @@ export async function separateSongToVS(
       });
 
       const [v, b, d, o, g, p] = await Promise.all([
-        decodeBlob(new Blob([rawStems.vocals], { type: 'audio/wav' })),
-        decodeBlob(new Blob([rawStems.bass], { type: 'audio/wav' })),
-        decodeBlob(new Blob([rawStems.drums], { type: 'audio/wav' })),
-        decodeBlob(new Blob([rawStems.other], { type: 'audio/wav' })),
-        rawStems.guitar ? decodeBlob(new Blob([rawStems.guitar], { type: 'audio/wav' })) : Promise.resolve(null),
-        rawStems.piano ? decodeBlob(new Blob([rawStems.piano], { type: 'audio/wav' })) : Promise.resolve(null),
+        decodeBlob(asWav(rawStems.vocals)),
+        decodeBlob(asWav(rawStems.bass)),
+        decodeBlob(asWav(rawStems.drums)),
+        decodeBlob(asWav(rawStems.other)),
+        rawStems.guitar ? decodeBlob(asWav(rawStems.guitar)) : Promise.resolve(null),
+        rawStems.piano ? decodeBlob(asWav(rawStems.piano)) : Promise.resolve(null),
       ]);
       vocalsBuffer = v;
       bassBuffer = b;
@@ -226,26 +286,50 @@ export async function separateSongToVS(
   const crowdAmbienceBuffer = crowdResult.crowdAmbience;
 
   // 2.5 Refinamento do BPM e Alinhamento Musical Cirúrgico
-  const initialBpm = detectRobustBpm(audioBuffer, drumsBuffer, bpm);
   const beatsPerBar = options.beatsPerBar || 4;
 
-  // 2.5.1 Alinhamento Musical Cirúrgico (Trava o Tempo 1 na grade e elimina música cruzada)
-  const alignment = calculateMusicalAlignment(audioBuffer, drumsBuffer, initialBpm, beatsPerBar);
-  const finalBpm = alignment.bpm;
-  const leadIn = alignment.leadIn;
+  // 2.5.1 Mapa de andamento: um BPM para cada música da faixa, com a fase e o 1 medidos no áudio.
+  // Se a leitura falhar, tenta de novo só na bateria separada, que costuma ter o pulso mais claro.
+  onProgress?.({ step: 'analyzing', message: 'Conferindo o andamento de cada música da faixa...', percent: 91 });
+  const mapStart = Date.now();
+  let reading = await readTempoMap(audioBuffer, beatsPerBar, { keepSingle: true });
+  checkCancelled();
+  // Computador lento que já gastou minutos na primeira leitura não espera outra
+  if (!reading?.map && duration >= MIN_TEMPO_MAP_SEC && Date.now() - mapStart < MAP_RETRY_LIMIT_MS) {
+    reading = await readTempoMap(drumsBuffer, beatsPerBar, { keepSingle: true });
+    checkCancelled();
+  }
+  const measured = reading?.map?.tempoSegments?.length ? reading.map.tempoSegments : null;
+  // Sem bateria, os ataques vêm um pouco antes da batida: a entrada do áudio acerta a fase.
+  const firstSound = measured && (!hasTempoChanges(measured) || isFinalRitOnly(measured)) && !stemHasDrums(drumsBuffer, audioBuffer) ? audioEntryTime(audioBuffer) : null;
+  const placed = placeAiTempoMap(measured, firstSound, beatsPerBar, duration);
+
+  // 2.5.2 Alinhamento Musical Cirúrgico (Trava o Tempo 1 na grade e elimina música cruzada).
+  // Com mapa, fase e 1 vêm dele; a entrada faz o primeiro 1 cair em compasso inteiro do primeiro
+  // andamento. A heurística de bumbo e caixa só serve quando não há mapa.
+  const alignment = placed
+    ? null
+    : calculateMusicalAlignment(audioBuffer, drumsBuffer, reading?.map ? reading.map.bpm : detectRobustBpm(audioBuffer, drumsBuffer, bpm), beatsPerBar);
+  const leadIn = placed ? placed.leadIn : alignment!.leadIn;
   const totalSongDuration = leadIn + duration;
+  // Andamento único: a entrada já pôs o 1 numa cabeça de compasso, e a grade simples a partir do
+  // 0:00 passa pelas mesmas batidas. Trechos só existem quando o andamento muda de verdade.
+  const tempoSegments = placed?.tempoSegments;
+  const finalBpm = placed && reading?.map ? reading.map.bpm : alignment!.bpm;
+
+  const clickUnsafe = !!options.includeClick && clickNeedsTempoMap(duration, !!reading?.map);
 
   // 2.6 Click na grade da música, pelo mesmo caminho do Recriar metrônomo (gridClickBuffer +
   // makeClickClip): mesmo som, nível, taxa do aparelho e encaixe na grade.
   let clickBuffer: AudioBuffer | null = null;
-  if (options.includeClick) {
+  if (options.includeClick && !clickUnsafe) {
     onProgress?.({
       step: 'click',
       message: 'Sincronizando metrônomo (Click) na grade com 1 compasso de entrada...',
       percent: 92,
     });
 
-    clickBuffer = await gridClickBuffer({ bpm: finalBpm, beatsPerBar }, totalSongDuration);
+    clickBuffer = await gridClickBuffer({ bpm: finalBpm, beatsPerBar, tempoSegments }, totalSongDuration);
   }
 
   // 2.7 Bateria em peças (bumbo, caixa, pratos, tons), como o Moises faz. É um extra: sem o
@@ -274,6 +358,7 @@ export async function separateSongToVS(
     bpmSource: 'audio',
     downbeat: 0,
     beatsPerBar,
+    ...(tempoSegments ? { tempoSegments } : {}),
     bpmAdjust: 0,
     tuner: 0,
     duration: totalSongDuration,
@@ -410,11 +495,12 @@ export async function separateSongToVS(
 
     const clipId = 'clip-' + songId + '-' + i;
     const clipAudio = await toClipAudioAsync(config.buffer);
-    // a IA entrega mais resolução que 16 bits: o arquivo do stem guarda em 24 bits
-    const wavAb = encodeWavPcm24(config.buffer);
+    // a IA entrega mais resolução que 16 bits: o arquivo do stem guarda em 24 bits. As contas de
+    // cada stem saem em pedaços: de uma vez só seguravam a tela por quase 1 s em medley longo.
+    const wavAb = await encodeWavPcm24Async(config.buffer);
     const wavBlob = new Blob([wavAb], { type: 'audio/wav' });
     const peakResolution = Math.min(24000, Math.max(8000, Math.round(config.buffer.duration * 100)));
-    const peaks = audioEngine.generateWaveformPeaks(config.buffer, peakResolution);
+    const peaks = await waveformPeaksAsync(config.buffer, peakResolution);
 
     const clip: AudioClip = {
       id: clipId,
@@ -444,6 +530,8 @@ export async function separateSongToVS(
 
   // O click entra montado igual ao do Recriar metrônomo (nome, WAV, faixa Click).
   if (clickBuffer) store.addClip(await makeClickClip(song, clickBuffer, 0));
+  if (tempoSegments && hasTempoChanges(tempoSegments)) store.setPlaybackError(medleyEstimateNotice(songName, tempoSegments));
+  if (clickUnsafe) store.setPlaybackError(`"${songName}": não foi possível medir o andamento desta faixa. O click não foi criado para não tocar fora da batida. Confira o BPM na régua e use Recriar metrônomo.`);
 
   store.selectSong(songId);
 

@@ -10,6 +10,12 @@ const os = require('os');
 const path = require('path');
 const { fitPace, trimSilence, wavSeconds } = require('./maestroAudio');
 const qwen = require('./maestroQwen');
+const winVoice = require('./maestroVoiceWin');
+const clones = require('./maestroClone');
+
+/** No Windows a voz do sistema vem do próprio Windows (maestroVoiceWin.js) no lugar do `say`. */
+const IS_WIN = process.platform === 'win32';
+const SYSTEM = IS_WIN ? 'Windows' : 'Mac';
 
 /** Duração máxima de uma narração (s): evita travar o app com um texto gigante por engano. */
 const MAX_SECONDS = 120;
@@ -28,7 +34,9 @@ const NATURAL_RATE = 175;
 const SAY = '/usr/bin/say';
 const AFCONVERT = '/usr/bin/afconvert';
 
-const INSTALL_HINT = 'Para instalar: Ajustes do Sistema → Acessibilidade → Conteúdo Falado → Voz do Sistema → Gerenciar Vozes → Português (Brasil).';
+const INSTALL_HINT = IS_WIN
+  ? 'Para instalar: Configurações → Hora e idioma → Fala → Adicionar vozes → Português (Brasil).'
+  : 'Para instalar: Ajustes do Sistema → Acessibilidade → Conteúdo Falado → Voz do Sistema → Gerenciar Vozes → Português (Brasil).';
 
 /**
  * A melhor voz grátis que existe no Mac é a versão **Premium** da Luciana (soa como as vozes de
@@ -39,6 +47,7 @@ const PREMIUM_HINT = 'Para ter a voz premium (a que soa como as de nuvem, gráti
 
 /** A pasta onde o macOS guarda as vozes, para abrir direto no Gerenciar Vozes. */
 function openVoiceSettings() {
+  if (IS_WIN) return winVoice.openWinVoiceSettings();
   // abre Ajustes do Sistema direto no painel de Acessibilidade → Conteúdo Falado
   return run('/usr/bin/open', ['x-apple.systempreferences:com.apple.preference.universalaccess?s=SpokenContent']).catch(() => '');
 }
@@ -105,20 +114,17 @@ function parseVoiceLine(line) {
 
 /** Vozes do `say` instaladas no Mac. */
 async function listMacVoices() {
+  if (IS_WIN) return winVoice.listWinVoices();
   const raw = await run(SAY, ['-v', '?']);
   return raw.split('\n').map(parseVoiceLine).filter(Boolean);
 }
 
-/** Todas as vozes para a tela: as de IA primeiro (se o motor veio no app), depois as do Mac. */
+/**
+ * Vozes para escolher: só as clonadas pelo diretor. Feminina, Masculina e as vozes do Mac saíram
+ * da escolha; continuam por dentro para marcações antigas e como reserva.
+ */
 async function listVoices() {
-  const st = qwen.status();
-  const ia = st.supported && st.engine
-    ? qwen.QWEN_VOICES.map((v) => ({ id: v.id, name: v.name, gender: v.gender, locale: 'pt_BR', engine: 'qwen' }))
-    : [];
-  const mac = (await listMacVoices().catch(() => []))
-    .filter(offerable)
-    .map((v) => ({ ...v, engine: 'mac' }));
-  return [...ia, ...mac];
+  return clones.list().map((v) => ({ id: v.id, name: v.name, gender: v.gender, locale: 'pt_BR', engine: 'qwen', clone: true, modes: v.modes }));
 }
 
 /** Ordem para escolher: português do Brasil, melhor qualidade, depois a preferência de nome. */
@@ -153,7 +159,7 @@ function pickVoice(voices, wanted) {
     name: fallback.name,
     gender: fallback.gender,
     locale: fallback.locale,
-    note: `A voz ${gender} em português não está instalada no Mac. Usei "${baseName(fallback.name)}". ${INSTALL_HINT}`,
+    note: `A voz ${gender} em português não está instalada no ${SYSTEM}. Usei "${baseName(fallback.name)}". ${INSTALL_HINT}`,
   };
 }
 
@@ -171,13 +177,17 @@ async function renderNarration(payload) {
   const span = Number(payload?.span) || 0;
   let wanted = payload?.voice;
   let iaNote = null;
+  let preparing = false;
 
   // Voz de IA brasileira. Se não puder falar (modelo baixando, Mac Intel, erro do motor), cai na
   // voz do Mac do mesmo gênero e avisa o motivo.
   const iaVoice = qwen.qwenVoiceFor(wanted);
   if (iaVoice) {
     try {
-      const r = await qwen.render({ text, voice: iaVoice, span, pace: payload?.pace, group: payload?.group });
+      const r = await qwen.render({
+        text, voice: iaVoice, span, pace: payload?.pace, group: payload?.group,
+        requestId: payload?.requestId, priority: payload?.priority,
+      });
       if (r.seconds > MAX_SECONDS) throw new Error('A fala passou de 2 minutos. Divida o texto em mais marcações.');
       return {
         ok: true,
@@ -196,14 +206,19 @@ async function renderNarration(payload) {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (/2 minutos/.test(msg)) throw err;
-      iaNote = `${msg.replace(/\.?$/, '.')} Usei a voz do Mac por enquanto.`;
+      // cancelada pela tela, ou prévia que só vale com a voz certa: não fala com a voz do sistema.
+      // Exceção: motor no processador ainda preparando. A reserva volta marcada `preparing`, a tela
+      // não toca esse áudio e segue esperando a voz certa.
+      if (err?.canceled || (payload?.fallback === false && !err?.preparing)) throw err;
+      preparing = !!err?.preparing;
+      iaNote = `${msg.replace(/\.?$/, '.')} Usei a voz do ${SYSTEM} por enquanto.`;
       wanted = iaVoice.gender;
     }
   }
 
   const voices = await listMacVoices();
   const picked = pickVoice(voices, wanted);
-  if (!picked) throw new Error(iaNote ?? `Nenhuma voz em português está instalada no Mac. ${INSTALL_HINT}`);
+  if (!picked) throw new Error(iaNote ?? `Nenhuma voz em português está instalada no ${SYSTEM}. ${INSTALL_HINT}`);
   const voice = picked.name;
 
   const tmp = await fsp.mkdtemp(path.join(os.tmpdir(), 'vs-maestro-'));
@@ -222,6 +237,8 @@ async function renderNarration(payload) {
       voiceGender: picked.gender,
       locale: picked.locale,
       engine: 'mac',
+      /** a voz de IA está sendo gerada em segundo plano: a tela troca quando ficar pronta */
+      preparing,
       note: [iaNote, picked.note].filter(Boolean).join(' ') || null,
       rate,
       seconds: result.seconds,
@@ -243,6 +260,12 @@ async function speakOnce(voice, text, wpm, tmp) {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const aiff = path.join(tmp, `fala-${stamp}.aiff`);
   const wav = path.join(tmp, `fala-${stamp}.wav`);
+  if (IS_WIN) {
+    await winVoice.speakToWav(voice, text, wpm, wav);
+    const buf = trimSilence(await fsp.readFile(wav));
+    await fsp.rm(wav, { force: true }).catch(() => {});
+    return { buf, seconds: wavSeconds(buf) };
+  }
   // O `say` lê o texto da entrada padrão: evita problemas de escape com aspas e
   // caracteres especiais no texto do usuário.
   await new Promise((resolve, reject) => {
@@ -261,8 +284,25 @@ async function speakOnce(voice, text, wpm, tmp) {
   return { buf, seconds: wavSeconds(buf) };
 }
 
+/** A fala de IA desta marcação já está pronta? (a tela troca a voz de reserva quando estiver) */
+async function speechReady(payload) {
+  const iaVoice = qwen.qwenVoiceFor(payload?.voice);
+  if (!iaVoice) return true;
+  return qwen.isReady({ text: String(payload?.text ?? ''), voice: iaVoice, group: payload?.group });
+}
+
+/** Situação da fala sem gerar nada ('pronta', 'gerando', 'na-fila', 'falhou' ou 'nao'). */
+async function speechState(payload) {
+  const iaVoice = qwen.qwenVoiceFor(payload?.voice);
+  if (!iaVoice) return 'nao';
+  return qwen.speechState({ text: String(payload?.text ?? ''), voice: iaVoice, group: payload?.group });
+}
+
 module.exports = {
   listVoices,
+  speechReady,
+  speechState,
+  cancelSpeak: (requestId) => qwen.cancelRender(requestId),
   renderNarration,
   pickVoice,
   parseVoiceLine,

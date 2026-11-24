@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { FolderOpen, FolderTree, MousePointer2, X, ChevronLeft, Sparkles } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { FolderOpen, FolderTree, MousePointer2, Tags, X, ChevronLeft, Sparkles } from 'lucide-react';
 import { groupAsSingleSong, groupByParentFolder, groupReaperProject, importSongGroups, pickedPaths } from '@/lib/importManager';
 import type { SongGroup } from '@/lib/importManager';
 import SongGroupsConfirm from '@/components/SongGroupsConfirm';
@@ -64,20 +65,21 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
     <>
       <input ref={singleRef} type="file" className="hidden" onChange={(e) => void onSingle(e)} {...folderInputProps} />
       <input ref={parentRef} type="file" className="hidden" onChange={(e) => void onParent(e)} {...folderInputProps} />
-      {open && (
+      {/* direto no body: dentro da playlist a janela herdava a opacidade dela e ficava apagada */}
+      {open && createPortal(
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-          <div className="w-[26rem] max-w-[calc(100vw-2rem)] bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded">
-            <div className="flex items-center justify-between px-4 h-10 border-b border-logic-border-dark">
-              <div className="flex items-center gap-2 text-sm font-medium text-logic-text">
+          <div className="console-face w-[26rem] max-w-[calc(100vw-2rem)] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-lg border border-black shadow-2xl font-stage text-white">
+            <div className="flex items-center justify-between px-3 h-11 border-b border-black">
+              <div className="console-legend flex items-center gap-2 uppercase text-logic-lcd-amber">
                 {step.kind !== 'choose' && (
-                  <button className="text-logic-text-muted hover:text-logic-text transition-colors" onClick={() => setStep({ kind: 'choose' })} title="Voltar">
-                    <ChevronLeft size={15} />
+                  <button className="console-key h-6 w-6 flex items-center justify-center" onClick={() => setStep({ kind: 'choose' })} title="Voltar" aria-label="Voltar">
+                    <ChevronLeft size={13} />
                   </button>
                 )}
                 Importar VS
               </div>
-              <button className="text-logic-text-muted hover:text-logic-text transition-colors" onClick={onClose} title="Fechar">
-                <X size={15} />
+              <button className="console-key h-6 w-6 flex items-center justify-center" onClick={onClose} title="Fechar" aria-label="Fechar">
+                <X size={13} />
               </button>
             </div>
 
@@ -94,6 +96,7 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
                     }}
                   />
                 )}
+                <NamingTip />
                 <Option
                   icon={<FolderOpen size={18} />}
                   title="Uma pasta VS"
@@ -116,15 +119,15 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
             )}
 
             {step.kind === 'drag' && (
-              <div className="p-4 text-xs text-logic-text-dim leading-relaxed flex flex-col gap-3">
+              <div className="p-4 text-xs text-white/85 leading-relaxed flex flex-col gap-3">
                 <ol className="list-decimal pl-4 flex flex-col gap-1.5">
                   <li>Abra a pasta do show no explorador de arquivos do computador.</li>
                   <li>Selecione as pastas das músicas segurando Ctrl (ou Cmd no Mac) e clicando em cada uma.</li>
                   <li>Arraste todas juntas para a lista do repertório e solte quando ela ficar destacada.</li>
                 </ol>
-                <p className="text-logic-text-muted">Cada pasta solta vira uma música. Arquivos de áudio soltos viram uma música só.</p>
+                <p className="text-white/65">Cada pasta solta vira uma música. Arquivos de áudio soltos viram uma música só.</p>
                 <div className="flex justify-end">
-                  <button className="px-3 py-1.5 text-xs rounded bg-logic-accent text-white hover:brightness-110 transition-all" onClick={onClose}>
+                  <button className="console-key px-3 h-7 text-xs text-logic-lcd-amber" onClick={onClose}>
                     Entendi
                   </button>
                 </div>
@@ -132,7 +135,7 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
             )}
 
             {step.kind === 'reading' && (
-              <div className="p-4 text-xs text-logic-text-dim">Lendo o projeto .RPP...</div>
+              <div className="p-4 text-xs text-white/85">Lendo o projeto .RPP...</div>
             )}
 
             {step.kind === 'confirm' && (
@@ -148,22 +151,37 @@ export default function ImportVSDialog({ open, onClose, onOpenAiSeparator }: { o
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
+  );
+}
+
+function NamingTip() {
+  return (
+    <div className="console-well px-3 py-2.5 flex flex-col gap-1" role="note">
+      <span className="console-legend flex items-center gap-1.5 uppercase text-logic-lcd-amber">
+        <Tags size={12} aria-hidden />
+        Roteamento por IA
+      </span>
+      <span className="text-2xs text-white/80 leading-relaxed">
+        Renomeie cada arquivo com o nome do instrumento para máxima precisão no roteamento.
+      </span>
+    </div>
   );
 }
 
 function Option({ icon, title, text, onClick }: { icon: React.ReactNode; title: string; text: string; onClick: () => void }) {
   return (
     <button
-      className="group flex items-start gap-3 p-3 text-left rounded border border-logic-border-dark bg-logic-bg-deep hover:border-logic-accent hover:bg-logic-bg-panel-light transition-colors"
+      className="group flex items-start gap-3 p-3 text-left rounded border border-black bg-black/35 hover:border-logic-lcd-amber hover:bg-black/50 transition-colors"
       onClick={onClick}
     >
-      <span className="mt-0.5 text-logic-text-muted group-hover:text-logic-accent transition-colors">{icon}</span>
-      <span className="flex flex-col gap-0.5">
-        <span className="text-xs font-medium text-logic-text">{title}</span>
-        <span className="text-2xs text-logic-text-dim leading-relaxed">{text}</span>
+      <span className="mt-0.5 text-white/70 group-hover:text-logic-lcd-amber transition-colors">{icon}</span>
+      <span className="flex flex-col gap-1">
+        <span className="text-xs font-semibold text-white">{title}</span>
+        <span className="text-2xs text-white/75 leading-relaxed">{text}</span>
       </span>
     </button>
   );

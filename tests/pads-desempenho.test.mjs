@@ -89,7 +89,9 @@ test('projeto aberto: não regrava no computador o som igual ao guardado; espera
 
 test('saída: já na placa certa, só os canais usados, e bloco velho é trocado com tudo parado', () => {
   assert.match(player, /new AudioContext\(\{ latencyHint: padLatencyHint\(\), sinkId: sink \} as AudioContextOptions\)/);
-  assert.match(player, /const used = want\.channel <= 0 \? 2 : want\.channel \+ \(want\.stereo \? 1 : 0\);/);
+  // no Master, `want` já é a saída real dele (par ou mono), então a conta é a mesma
+  assert.match(player, /const want = picked\.channel > 0 \? picked : resolveMasterOutput\(/);
+  assert.match(player, /const used = want\.channel \+ \(want\.stereo \? 1 : 0\);/);
   assert.match(player, /try \{ gain\.disconnect\(\); \} catch/);
   assert.match(player, /if \(voices\.size > 0 \|\| useStore\.getState\(\)\.transport\.isPlaying\) return false;/);
   assert.match(read('../src/lib/clickGenerator.ts'), /if \(previewCtx && previewHint !== hint\)/);

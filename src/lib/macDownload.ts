@@ -2,7 +2,9 @@
 const BASE = 'https://download.vsstagepro.com.br/';
 
 export interface MacBuild {
-  arch: 'arm64' | 'x64';
+  /** x64-legacy: Intel com macOS 10.15 (Catalina), em manifest separado (mac/legacy/manifest.json). */
+  /** win-x64: Windows, em manifest separado (win/manifest.json, onde o arch vem como "x64"). */
+  arch: 'arm64' | 'x64' | 'x64-legacy' | 'win-x64';
   label: string;
   file: string;
   size: number;
@@ -32,6 +34,34 @@ export async function fetchMacManifest(): Promise<MacManifest> {
     throw new Error('manifest_invalid');
   }
   return data as MacManifest;
+}
+
+/**
+ * Instalador para Mac Intel com macOS 10.15 (Catalina). Fica num manifest à parte porque
+ * a página e os programas antigos recusam um manifest com processador que não conhecem.
+ * Não lança: sem instalador publicado, devolve null e a página não mostra a opção.
+ */
+export function fetchMacLegacyBuild(): Promise<MacBuild | null> {
+  return fetchExtraBuild('mac/legacy/manifest.json', 'x64-legacy', 'x64-legacy');
+}
+
+/** Instalador do Windows (win/manifest.json). Mesma regra: sem publicação, null. */
+export function fetchWinBuild(): Promise<MacBuild | null> {
+  return fetchExtraBuild('win/manifest.json', 'x64', 'win-x64');
+}
+
+async function fetchExtraBuild(manifestPath: string, arch: string, as: MacBuild['arch']): Promise<MacBuild | null> {
+  try {
+    const res = await fetch(`${BASE}${manifestPath}?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const b = Array.isArray(data?.builds) ? data.builds.find((x: MacBuild) => x?.arch === arch) : null;
+    const ok = b && typeof b.file === 'string' && typeof b.size === 'number' && typeof b.sha256 === 'string'
+      && Array.isArray(b.parts) && b.parts.length > 0 && b.parts.every((p: unknown) => typeof p === 'string');
+    return ok ? ({ ...b, arch: as } as MacBuild) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Motivo legível de uma falha de download (mostrado na página). */

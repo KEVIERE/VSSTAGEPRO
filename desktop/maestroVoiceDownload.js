@@ -11,9 +11,13 @@ const fs = require('fs');
 const { createModelDownload } = require('./modelDownload');
 
 // nos testes: outra lista de arquivos e outro endereço (servidor local)
+// Apple Silicon: o modelo do MLX (6 bits). Mac Intel, Catalina e Windows: o mesmo modelo em
+// PyTorch, para o motor que roda no processador (maestroVoiceCpu.py).
 const MANIFEST = process.env.VS_MAESTRO_MODEL_MANIFEST
   ? JSON.parse(fs.readFileSync(process.env.VS_MAESTRO_MODEL_MANIFEST, 'utf8'))
-  : require('./maestro-voice-model.json');
+  : (process.env.VS_MAESTRO_FORCE_CPU !== '1' && process.platform === 'darwin' && require('./machineArch').isAppleSilicon()
+    ? require('./maestro-voice-model.json')
+    : require('./maestro-voice-model-cpu.json'));
 
 module.exports = createModelDownload({
   manifest: MANIFEST,

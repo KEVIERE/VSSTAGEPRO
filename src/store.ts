@@ -12,12 +12,12 @@ import type {
 import { projectExtras } from '@/lib/projectHooks';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
 import { dbToGain, gainToDb, truePeak } from '@/lib/loudness';
-import { TARGET_DB_DEFAULT, TARGET_DB_MAX, TARGET_DB_MIN } from '@/lib/songLevel';
+import { clampLufs, TARGET_DB_DEFAULT, TARGET_LUFS_DEFAULT } from '@/lib/songLevel';
 import { normalizeLyricStyle, normalizePages } from '@/lib/prompterTypes';
 import { convertLegacyMarkers, minRegionLength, neighbourBounds, RESIZE_MIN_LENGTH, sortedRegions, withoutLoops } from '@/lib/regions';
 import type { RegionLayout } from '@/lib/regions';
 import type { SaveTarget } from '@/lib/projectSaver';
-import { moveTempoChange, tempoChangeIndex, type SnapStep } from '@/lib/grid';
+import { keepSegmentPhase, mergeSameLineSegments, moveTempoChange, openLastSegment, tempoChangeIndex, type SnapStep } from '@/lib/grid';
 import { shiftSong } from '@/lib/clickEdit';
 import { MAESTRO_IA_TRACK_ID, pruneNarrationLinks, sortedNarrations } from '@/lib/narrations';
 
@@ -32,11 +32,37 @@ import { entriesForSongs, newShowId, normalizeShows, removeSongFromShows, switch
 import { applyHeaders, autoBlockName, blockHeaders, orderBlocks, resolveBlocks } from '@/lib/blocks';
 import { customTrackIds, duplicateTrackName, instrumentTrackIn, mergeCustomChildren, newTrackPlace, uniqueTrackName, canDeleteTrack } from '@/lib/customTracks';
 import { reorderChildren } from '@/lib/trackOrder';
-import { isPairStart, isTimecodeTrackId, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
+import { DEFAULT_MASTER_OUTPUT, interfaceMissing, masterReservedOutputs, normalizeMasterOutput } from '@/lib/outputRoute';
+import { isPairStart, isTimecodeTrackId, masterHitsTimecode, makeTimecodeTrack, NO_OUTPUT, TIMECODE_TRACK_ID, trackOutputs, usedOutputs, withTimecodeFirst } from '@/lib/timecode';
 
 function migrateSongRegions(song: Song): Song {
   if (song.regions) return song.markers ? { ...song, markers: undefined } : song;
   return { ...song, regions: convertLegacyMarkers(song.markers ?? [], song.duration, song.bpm), markers: undefined };
+}
+
+export type ClipFadePatch = { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve };
+
+/** O clipe com o fade pedido (um clipe ou vários de uma vez passam pela mesma conta). */
+function withClipFade(c: AudioClip, patch: ClipFadePatch): AudioClip {
+  const next = { ...c };
+  if (patch.fadeIn !== undefined) next.fadeIn = Math.max(0, patch.fadeIn);
+  if (patch.fadeOut !== undefined) next.fadeOut = Math.max(0, patch.fadeOut);
+  if (patch.fadeCurveIn !== undefined) next.fadeCurveIn = patch.fadeCurveIn;
+  if (patch.fadeCurveOut !== undefined) next.fadeCurveOut = patch.fadeCurveOut;
+  return next;
+}
+
+/** Ganho do clipe dentro do limite (0 a 4x, +12 dB). */
+function clipGainIn(gain: number): number {
+  return Math.max(0, Math.min(4, gain));
+}
+
+/** Mesma seleção, na mesma ordem: a ação devolve o estado como está e ninguém é avisado. */
+function sameSelection(a: string[], b: string[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
 }
 
 const DEFAULT_TRACKS: Track[] = [
@@ -167,6 +193,7 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   lrMasterActive: false,
   levelMatch: false,
   levelMatchDb: TARGET_DB_DEFAULT,
+  levelMatchLufs: TARGET_LUFS_DEFAULT,
   songLoudness: {},
   songKeys: {},
   dawMode: true,
@@ -177,6 +204,9 @@ const INITIAL_STATE: ProjectState & ProjectStateExt = {
   exportProgress: null,
   masterVolume: 0.8,
   masterAntiClip: false,
+  masterOutputChannel: DEFAULT_MASTER_OUTPUT.channel,
+  masterOutputStereo: DEFAULT_MASTER_OUTPUT.stereo,
+  masterOutputOff: false,
   masterMeterLevel: 0,
   masterClipPeak: 0,
   playbackError: null,
@@ -322,9 +352,13 @@ interface StoreActions {
   setImportProgress: (progress: ImportProgress | null) => void;
   setClipBpm: (clipId: string, bpm: number) => void;
   setClipGain: (clipId: string, gain: number) => void;
+  /** O mesmo ganho em vários clipes numa ação só (arraste do botão com vários selecionados). */
+  setClipsGain: (clipIds: string[], gain: number) => void;
   toggleClipMute: (clipId: string) => void;
   toggleClipSolo: (clipId: string) => void;
-  setClipFade: (clipId: string, patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }) => void;
+  setClipFade: (clipId: string, patch: ClipFadePatch) => void;
+  /** O mesmo fade em vários clipes numa ação só (arraste da alça com vários selecionados). */
+  setClipsFade: (clipIds: string[], patch: ClipFadePatch) => void;
   normalizeClip: (clipId: string, targetDb: number) => void;
   /** Normaliza a faixa inteira: todos os clipes dela, em todas as músicas. */
   normalizeTrack: (trackId: string, targetDb: number) => void;
@@ -339,7 +373,8 @@ interface StoreActions {
   /** Remove a mudança de andamento manual mais próxima deste ponto, voltando o trecho ao segmento anterior. */
   removeTempoAt: (songId: string, atTime: number) => void;
   /** Leva a mudança de andamento mais perto de `fromTime` para `toTime` (arrastar a plaquinha amarela). */
-  moveTempoAt: (songId: string, fromTime: number, toTime: number) => void;
+  /** Move a troca mantendo as batidas do trecho. `exact`: o trecho recomeça no ponto (Alt e "Ajustar"). */
+  moveTempoAt: (songId: string, fromTime: number, toTime: number, exact?: boolean) => void;
   addSongRegion: (songId: string, region: SongRegion) => boolean;
   updateSongRegion: (songId: string, regionId: string, updates: Partial<Omit<SongRegion, 'id'>>) => void;
   removeSongRegion: (songId: string, regionId: string) => void;
@@ -387,11 +422,15 @@ interface StoreActions {
   clearMasterClipIndicator: () => void;
   setPlaybackError: (message: string | null) => void;
   toggleMasterAntiClip: () => void;
+  /** Saída do Master na interface: mono N ou par N/N+1 (nunca a saída do timecode). */
+  setMasterOutput: (channel: number, stereo: boolean) => void;
+  /** Desliga o Master: só os canais com saída própria continuam tocando. */
+  setMasterOutputOff: () => void;
   setMasterVolume: (volume: number) => void;
   clearClipIndicator: (trackId: string) => void;
   setLevelMatch: (on: boolean) => void;
   /** Alvo do "volume igual" em LUFS, escolhido pelo usuário. */
-  setLevelMatchDb: (db: number) => void;
+  setLevelMatchLufs: (lufs: number) => void;
   setSongLoudness: (songId: string, value: import('@/types').SongLoudness) => void;
   setSongDetectedKey: (songId: string, value: { key: string; sig: string }) => void;
   setPreparingParams: (v: { done: number; total: number } | null) => void;
@@ -580,10 +619,14 @@ export function partializeHistory(state: Store) {
     // também desfazem: fader master, anti-clip do master, LR mágico (com os pans de antes dele) e volume igual
     masterVolume: state.masterVolume,
     masterAntiClip: state.masterAntiClip,
+    masterOutputChannel: state.masterOutputChannel,
+    masterOutputStereo: state.masterOutputStereo,
+    masterOutputOff: state.masterOutputOff,
     magicRoutingActive: state.magicRoutingActive,
     prevOutputChannels: state.prevOutputChannels,
     levelMatch: state.levelMatch,
     levelMatchDb: state.levelMatchDb,
+    levelMatchLufs: state.levelMatchLufs,
   };
 }
 
@@ -726,7 +769,7 @@ export const useStore = create<Store>()(
         // trocar de música parada/pausada leva o cursor para o início da nova música
         return {
           selectedSongId: id,
-          transport: { ...s.transport, isPaused: false, currentTime: 0, songProgress: 0 },
+          transport: { ...s.transport, isPaused: false, currentTime: 0, songProgress: 0, cursorSongId: id },
         };
       }),
       selectClip: (id, additive) => set((s) => {
@@ -736,25 +779,33 @@ export const useStore = create<Store>()(
         const groupMembers = clip?.groupId
           ? s.clips.filter((c) => c.songId === clip.songId && c.groupId === clip.groupId).map((c) => c.id)
           : [id];
-        if (!additive) return { selectedClipIds: groupMembers };
-        const isSelected = groupMembers.some((m) => s.selectedClipIds.includes(m));
-        return {
-          selectedClipIds: isSelected
+        const isSelected = additive && groupMembers.some((m) => s.selectedClipIds.includes(m));
+        const next = !additive
+          ? groupMembers
+          : isSelected
             ? s.selectedClipIds.filter((c) => !groupMembers.includes(c))
-            : [...new Set([...s.selectedClipIds, ...groupMembers])],
-        };
+            : [...new Set([...s.selectedClipIds, ...groupMembers])];
+        // a mesma seleção de agora (clique de novo no clipe já selecionado): nada muda e a timeline
+        // não redesenha
+        return sameSelection(next, s.selectedClipIds) ? s : { selectedClipIds: next };
       }),
       selectClips: (ids) => set((s) => {
-        if (ids.length === 0) return { selectedClipIds: [] };
         // Expande seleção para todos os membros de grupos aos quais os clipes pertençam
-        const targetClips = s.clips.filter((c) => ids.includes(c.id));
-        const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
-        if (groupIds.size === 0) return { selectedClipIds: ids };
-        const allIds = new Set(ids);
-        for (const c of s.clips) {
-          if (c.groupId && groupIds.has(c.groupId)) allIds.add(c.id);
+        let next = ids;
+        if (ids.length > 0) {
+          const targetClips = s.clips.filter((c) => ids.includes(c.id));
+          const groupIds = new Set(targetClips.map((c) => c.groupId).filter(Boolean));
+          if (groupIds.size > 0) {
+            const allIds = new Set(ids);
+            for (const c of s.clips) {
+              if (c.groupId && groupIds.has(c.groupId)) allIds.add(c.id);
+            }
+            next = Array.from(allIds);
+          }
         }
-        return { selectedClipIds: Array.from(allIds) };
+        // O retângulo de seleção chama a cada movimento do mouse: com a mesma seleção de agora,
+        // devolve o estado como está (ninguém é avisado, nada redesenha, nada entra no Desfazer).
+        return sameSelection(next, s.selectedClipIds) ? s : { selectedClipIds: next };
       }),
       groupClips: (clipIds) => set((s) => {
         if (clipIds.length < 2) return s;
@@ -950,7 +1001,11 @@ export const useStore = create<Store>()(
         if (isTimecodeTrackId(trackId)) {
           // o sinal de timecode é mono, nunca vai para o Master nem divide saída com a música
           if (pair) return s;
-          if (channel !== NO_OUTPUT && (channel <= 0 || usedOutputs(s.tracks, trackId).has(channel))) return s;
+          const masterOuts = masterReservedOutputs({
+            channel: s.masterOutputChannel, stereo: s.masterOutputStereo, magic: s.magicRoutingActive, outputCount: s.outputChannelCount,
+            interfaceMissing: interfaceMissing(s.audioInterface, s.audioInterfaceConnected),
+          });
+          if (channel !== NO_OUTPUT && (channel <= 0 || usedOutputs(s.tracks, trackId, masterOuts).has(channel))) return s;
         } else if (pair && !isPairStart(channel)) {
           // pares estéreo só 1/2, 3/4, 5/6… (NO_OUTPUT = faixa desligada, não sai em lugar nenhum)
           return s;
@@ -1085,16 +1140,17 @@ export const useStore = create<Store>()(
         return { transport: { ...s.transport, isPlaying: true, isPaused: false, isStopped: false, currentSongId: songId } };
       }),
       pause: (time) => set((s) => ({
-        transport: { ...s.transport, isPlaying: false, isPaused: true, isStopped: false, currentTime: time },
+        transport: { ...s.transport, isPlaying: false, isPaused: true, isStopped: false, currentTime: time, cursorSongId: s.transport.currentSongId },
       })),
       stop: (returnTo = 0) => set((s) => ({
         transport: {
           ...s.transport, isPlaying: false, isPaused: false, isStopped: true,
-          currentTime: returnTo, songProgress: 0, nextSongCountdown: 0,
+          currentTime: returnTo, songProgress: 0, nextSongCountdown: 0, cursorSongId: s.transport.currentSongId,
         },
       })),
       setBpm: (bpm) => set((s) => ({ transport: { ...s.transport, bpm } })),
-      setCurrentTime: (time) => set((s) => ({ transport: { ...s.transport, currentTime: time } })),
+      // parado, o cursor é sempre o da música selecionada; tocando, o motor é quem manda nele
+      setCurrentTime: (time) => set((s) => ({ transport: { ...s.transport, currentTime: time, ...(s.transport.isPlaying ? {} : { cursorSongId: s.selectedSongId }) } })),
       setSongProgress: (progress) => set((s) => ({ transport: { ...s.transport, songProgress: progress } })),
       setNextSongCountdown: (seconds) => set((s) => ({ transport: { ...s.transport, nextSongCountdown: seconds } })),
       setPlaybackTick: (time, progress, countdown) => set((s) => ({
@@ -1152,6 +1208,8 @@ export const useStore = create<Store>()(
         const opened = groupGuides(placedOpen.tracks, placedOpen.clips);
         const tracks = opened.tracks;
         const loadedSongs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
+        // projeto antigo não tem a saída do Master: continua na 1/2
+        const loadedMaster = normalizeMasterOutput(data.masterOutputChannel, data.masterOutputStereo);
         // projetos antigos podiam ter uma música no meio de um bloco apontando para o bloco de cima
         const { playlist: loadedPlaylist, playlistOrder: loadedOrder, songs, blocks } = withBlocks(
           { songs: loadedSongs, blocks: data.blocks ?? [] },
@@ -1169,6 +1227,9 @@ export const useStore = create<Store>()(
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
           lyricStyle: normalizeLyricStyle(data.lyricStyle),
           musicianBook: normalizeMusicianBook(data.musicianBook),
+          masterOutputChannel: loadedMaster.channel,
+          masterOutputStereo: loadedMaster.stereo,
+          masterOutputOff: data.masterOutputOff === true,
           shows: normalizeShows(data.shows),
           activeShowId: null,
           defaultPlaylist: null,
@@ -1545,8 +1606,14 @@ export const useStore = create<Store>()(
       // Ajustes do modo DAW: sempre valem na reprodução e na exportação, independente
       // do DAW estar ligado — ele só decide se os controles aparecem na tela.
       setClipGain: (clipId, gain) => set((s) => ({
-        clips: s.clips.map((c) => c.id === clipId ? { ...c, gain: Math.max(0, Math.min(4, gain)) } : c),
+        clips: s.clips.map((c) => c.id === clipId ? { ...c, gain: clipGainIn(gain) } : c),
       })),
+      // Vários clipes de uma vez: o mesmo estado final de um setClipGain por clipe, numa mudança só
+      // (o som, o Desfazer e quem assina os clipes veem uma mudança por movimento, não uma por clipe).
+      setClipsGain: (clipIds, gain) => set((s) => {
+        const ids = new Set(clipIds);
+        return { clips: s.clips.map((c) => ids.has(c.id) ? { ...c, gain: clipGainIn(gain) } : c) };
+      }),
       toggleClipMute: (clipId) => set((s) => ({
         clips: s.clips.map((c) => c.id === clipId ? { ...c, mute: !c.mute } : c),
       })),
@@ -1554,16 +1621,12 @@ export const useStore = create<Store>()(
         clips: s.clips.map((c) => c.id === clipId ? { ...c, solo: !c.solo } : c),
       })),
       setClipFade: (clipId, patch) => set((s) => ({
-        clips: s.clips.map((c) => {
-          if (c.id !== clipId) return c;
-          const next = { ...c };
-          if (patch.fadeIn !== undefined) next.fadeIn = Math.max(0, patch.fadeIn);
-          if (patch.fadeOut !== undefined) next.fadeOut = Math.max(0, patch.fadeOut);
-          if (patch.fadeCurveIn !== undefined) next.fadeCurveIn = patch.fadeCurveIn;
-          if (patch.fadeCurveOut !== undefined) next.fadeCurveOut = patch.fadeCurveOut;
-          return next;
-        }),
+        clips: s.clips.map((c) => (c.id === clipId ? withClipFade(c, patch) : c)),
       })),
+      setClipsFade: (clipIds, patch) => set((s) => {
+        const ids = new Set(clipIds);
+        return { clips: s.clips.map((c) => (ids.has(c.id) ? withClipFade(c, patch) : c)) };
+      }),
       // Mede o pico real do áudio já decodificado (sem redecodificar) e ajusta o ganho
       // do clipe para esse pico bater exatamente no dB pedido — igual ao Anti-Clip das
       // faixas, mas por clipe: nunca reescreve o áudio, só o multiplicador.
@@ -1697,8 +1760,9 @@ export const useStore = create<Store>()(
         const song = s.songs.find((sg) => sg.id === songId);
         if (!song) return s;
         const safeBpm = Math.max(30, Math.min(320, bpm));
+        // corte interno (mesmo BPM e mesma fase, sem placa) não é troca: o BPM novo vale até o fim da sequência
         const base: SongTempoSegment[] = song.tempoSegments && song.tempoSegments.length > 0
-          ? song.tempoSegments
+          ? openLastSegment(mergeSameLineSegments(song.tempoSegments, song.beatsPerBar ?? 4), song.duration)
           : [{ startTime: 0, endTime: song.duration, bpm: song.bpm }];
 
         const next: SongTempoSegment[] = [];
@@ -1717,7 +1781,7 @@ export const useStore = create<Store>()(
 
         return {
           songs: s.songs.map((sg) => sg.id === songId
-            ? { ...sg, tempoSegments: merged, bpm: merged[0]?.bpm ?? sg.bpm, bpmDetected: true, bpmMissing: false, bpmSource: 'manual' as const }
+            ? { ...sg, tempoSegments: merged, bpm: merged[0]?.bpm ?? sg.bpm, bpmDetected: true, bpmMissing: false, bpmSource: 'manual' as const, tempoMapSource: 'manual' as const }
             : sg),
         };
       }),
@@ -1738,20 +1802,22 @@ export const useStore = create<Store>()(
         const merged = [...sorted];
         merged[closestIdx - 1] = { ...merged[closestIdx - 1], endTime: merged[closestIdx].endTime };
         merged.splice(closestIdx, 1);
-        const finalSegments = merged.length > 1 ? merged : undefined;
+        // sobrou um trecho só: a fase dele continua valendo (a grade simples recomeçaria no 0:00)
+        const finalSegments = merged.length > 1 ? merged : keepSegmentPhase(merged[0], song.beatsPerBar ?? 4, song.duration);
         return {
           songs: s.songs.map((sg) => sg.id === songId
-            ? { ...sg, tempoSegments: finalSegments, bpm: finalSegments?.[0]?.bpm ?? merged[0]?.bpm ?? sg.bpm }
+            ? { ...sg, tempoSegments: finalSegments, bpm: finalSegments?.[0]?.bpm ?? merged[0]?.bpm ?? sg.bpm, tempoMapSource: 'manual' as const }
             : sg),
         };
       }),
 
-      moveTempoAt: (songId, fromTime, toTime) => set((s) => {
+      moveTempoAt: (songId, fromTime, toTime, exact = false) => set((s) => {
         const song = s.songs.find((sg) => sg.id === songId);
-        const index = tempoChangeIndex(song?.tempoSegments, fromTime);
-        if (!song?.tempoSegments || index < 1) return s;
-        const tempoSegments = moveTempoChange(song.tempoSegments, index, toTime);
-        return { songs: s.songs.map((sg) => (sg.id === songId ? { ...sg, tempoSegments } : sg)) };
+        const open = song?.tempoSegments ? openLastSegment(song.tempoSegments, song.duration) : undefined;
+        const index = tempoChangeIndex(open, fromTime);
+        if (!song || !open || index < 1) return s;
+        const tempoSegments = moveTempoChange(open, index, toTime, { keepPhase: !exact, beatsPerBar: song.beatsPerBar ?? 4 });
+        return { songs: s.songs.map((sg) => (sg.id === songId ? { ...sg, tempoSegments, tempoMapSource: 'manual' as const } : sg)) };
       }),
 
       addSongRegion: (songId, region) => {
@@ -2029,9 +2095,9 @@ export const useStore = create<Store>()(
 
       setMasterVolume: (volume) => set({ masterVolume: Math.max(0, Math.min(1.5, volume)) }),
       setLevelMatch: (on) => set({ levelMatch: on }),
-      setLevelMatchDb: (db) => {
-        if (!Number.isFinite(db)) return;
-        set({ levelMatchDb: Math.max(TARGET_DB_MIN, Math.min(TARGET_DB_MAX, db)) });
+      setLevelMatchLufs: (lufs) => {
+        if (!Number.isFinite(lufs)) return;
+        set({ levelMatchLufs: clampLufs(lufs) });
       },
       setSongLoudness: (songId, value) => set((s) => ({ songLoudness: { ...(s.songLoudness ?? {}), [songId]: value } })),
       setSongDetectedKey: (songId, value) => set((s) => ({ songKeys: { ...(s.songKeys ?? {}), [songId]: value } })),
@@ -2039,6 +2105,15 @@ export const useStore = create<Store>()(
 
       // Anti-clip do master: o mesmo dos canais (limitador de pico em -0,1 dBFS, no audioEngine e
       // na exportação). Ao ligar, apaga o indicador de clip: dali em diante o master não passa do teto.
+      setMasterOutput: (channel, stereo) => set((s) => {
+        if (!Number.isInteger(channel) || channel < 1 || (stereo && !isPairStart(channel))) return s;
+        if (channel === s.masterOutputChannel && stereo === s.masterOutputStereo && !s.masterOutputOff) return s;
+        const tcOut = s.tracks.find((t) => t.id === TIMECODE_TRACK_ID)?.outputChannel ?? NO_OUTPUT;
+        if (masterHitsTimecode(channel, tcOut)) return s;
+        // escolher uma saída religa o Master
+        return { masterOutputChannel: channel, masterOutputStereo: stereo, masterOutputOff: false };
+      }),
+      setMasterOutputOff: () => set((s) => (s.masterOutputOff ? s : { masterOutputOff: true })),
       toggleMasterAntiClip: () => set((s) => s.masterAntiClip
         ? { masterAntiClip: false }
         : { masterAntiClip: true, masterClipPeak: 0 }),

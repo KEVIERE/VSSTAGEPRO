@@ -7,8 +7,8 @@ import {
   FAST_WPM, NARRATION_MIN_LENGTH, freeRunAt, hasLiveClip, narrationBounds, placeNarration, sortedNarrations, syncedToCursor, wpmForSpan,
 } from '@/lib/narrations';
 import {
-  canGenerate, cursorTime, generateNarration, generatingSnapshot, hasVoiceEngine, isGenerating, moveNarration, narrationBuffer,
-  narrationOverflows, narrationState, playPreview, removeCountGroup, scheduleGeneration, subscribeGenerating, voiceLabel,
+  canGenerate, cursorTime, isOfferedVoice, generateNarration, generatingSnapshot, hasVoiceEngine, isGenerating, moveNarration, narrationBuffer,
+  narrationOverflows, narrationState, isCloneVoice, playPreview, removeCountGroup, scheduleGeneration, speechRecorded, subscribeGenerating, voiceLabel,
 } from '@/lib/maestroVoice';
 import { snapTime, songGrid } from '@/lib/grid';
 import { formatRegionTime } from '@/lib/regions';
@@ -19,6 +19,7 @@ import { MASTER_PROFILES } from '@/lib/mastering';
 import { ClipWaveform } from '@/components/ClipWaveform';
 import { zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
 import { ClipMenuItems } from '@/components/ContextMenu';
+import { moveDragView, useTimelineVisible, useViewValue, type TimelineVisible } from '@/lib/timelineView';
 
 /** Altura da régua do Maestro por IA (a coluna de nomes das faixas usa a mesma). */
 export const NARRATION_LANE_HEIGHT = 30;
@@ -35,16 +36,17 @@ interface NarrationLaneProps {
   /** Altura da régua em px. Quem desenha passa a altura das faixas vezes o zoom, para a régua
    *  continuar alinhada com a coluna dos nomes. */
   height?: number;
-  /** Janela (px) da linha do tempo que está na tela, para só desenhar o que aparece. */
-  visible: { start: number; end: number };
+  /**
+   * Janela (px) da linha do tempo que está na tela, para só desenhar o que aparece. Sem ela, a
+   * régua assina a janela da timeline sozinha (o painel não redesenha a cada rolagem).
+   */
+  visible?: { start: number; end: number };
   /** Abre o editor da fala. */
   onEdit: (narration: MaestroNarration) => void;
   /** Arrastar (ou clique duplo) numa área vazia cria uma marcação ali. */
   onCreate: (start: number, end: number) => void;
   /** Botão direito numa marcação da contagem → editar a contagem inteira. */
   onEditCount?: (group: string) => void;
-  /** Arraste da seleção de clipes em andamento: as falas cujo áudio está nela andam junto. */
-  move?: { ids: Set<string>; delta: number } | null;
   /** Clique numa fala com voz: entra na seleção dos clipes da timeline (Cmd soma, Shift vai até ela). */
   onSelectClip?: (clipId: string, mods: { additive: boolean; shift: boolean }) => void;
   /**
@@ -54,9 +56,10 @@ interface NarrationLaneProps {
   onGroupDrag?: (e: React.PointerEvent<HTMLDivElement>, clipId: string) => void;
   /**
    * Áudios comuns da faixa Maestro IA (pedaço de fala dividida, falas emendadas, áudio colado),
-   * desenhados pela timeline como qualquer outro clipe, dentro desta régua.
+   * desenhados pela timeline como qualquer outro clipe, dentro desta régua. Pode vir como função
+   * da janela visível: a régua chama a cada rolagem, sem o painel redesenhar.
    */
-  clipLayer?: ReactNode;
+  clipLayer?: ReactNode | ((visible: TimelineVisible) => ReactNode);
 }
 
 /**
@@ -69,7 +72,13 @@ interface NarrationLaneProps {
  *   menor = mais rápido, maior = mais devagar. A voz é gerada de novo sozinha.
  * - Clique duplo abre o editor; botão direito tem "Sincar no beat do cursor". Alt desliga o ímã.
  */
-export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible, onEdit, onCreate, onEditCount, move, onSelectClip, onGroupDrag, clipLayer }: NarrationLaneProps) {
+export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, visible: visibleProp, onEdit, onCreate, onEditCount, onSelectClip, onGroupDrag, clipLayer: clipLayerProp }: NarrationLaneProps) {
+  const liveVisible = useTimelineVisible();
+  const visible = visibleProp ?? liveVisible;
+  const clipLayer = typeof clipLayerProp === 'function' ? clipLayerProp(visible) : clipLayerProp;
+  // Arraste da seleção de clipes em andamento: as falas cujo áudio está nela andam junto. A régua só
+  // redesenha a cada movimento quando alguma fala dela vai junto.
+  const move = useViewValue(moveDragView, (d) => (d && song.narrations?.some((n) => !!n.clipId && d.ids.has(n.clipId)) ? d : null));
   const updateNarration = useStore((s) => s.updateNarration);
   const snapStep = useStore((s) => s.snapStep);
   const clips = useStore((s) => s.clips);
@@ -313,8 +322,8 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
           over > 0 ? `A fala passa ${over.toFixed(1)}s do fim da marcação: encurte o texto ou aumente a marcação.` : '',
           n.status === 'error' && n.error ? `Erro: ${n.error}` : '',
           busy ? 'Gerando a voz...'
-            : state === 'missing' ? 'O áudio desta fala sumiu do projeto: clique duplo e gere de novo.'
-              : stale ? (n.text ? 'Falta gerar a voz: clique duplo e "Gerar e ouvir".' : '')
+            : state === 'missing' ? 'O áudio desta fala sumiu do projeto: clique duplo e use Adicionar fala (se ela ainda não existir, Criar fala antes).'
+              : stale ? (n.text ? 'Falta colocar a voz: clique duplo e use Adicionar fala (se ela ainda não existir, Criar fala antes).' : '')
                 : 'Voz pronta.',
           'Clique para selecionar (Delete apaga; Cmd e Shift somam à seleção). Arraste o meio para mudar de lugar; as bordas mudam a velocidade. Botão direito: as opções dos áudios (copiar, dividir, unir...) e sincar no beat do cursor.',
         ].filter(Boolean).join('\n');
@@ -420,10 +429,20 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
   // O menu ficou mais alto (tem as opções dos áudios): mede e sobe para caber na tela.
   const [top, setTop] = useState(y);
   const cursor = cursorTime(song.id);
-  const engine = canGenerate(narration.voice);
+  // voz que saiu das telas: mantém o áudio que tem e não pode ser gerada de novo
+  const engine = canGenerate(narration.voice) && isOfferedVoice(narration.voice);
   const state = narrationState(narration);
   // as mesmas ferramentas dos outros áudios só valem com a voz já gerada
   const audioReady = !!clip && state !== 'missing';
+  // voz clonada: só recoloca a fala gravada, sem chamar o modelo (null: ainda conferindo)
+  const clone = engine && isCloneVoice(narration.voice);
+  const [recorded, setRecorded] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!clone) return;
+    let alive = true;
+    void speechRecorded(narration).then((ok) => { if (alive) setRecorded(ok); });
+    return () => { alive = false; };
+  }, [clone, narration.text, narration.voice, narration.countGroup]); // eslint-disable-line react-hooks/exhaustive-deps
   const gainDb = clip ? 20 * Math.log10(Math.max(1e-4, clip.gain ?? 1)) : 0;
   const masterOptions: Array<{ id: NonNullable<MaestroNarration['master']>; label: string; hint: string }> = [
     { id: 'manter', label: 'Manter o volume', hint: 'voz · recomendado' },
@@ -500,13 +519,28 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
       >
         <span>Ouvir a fala</span>
       </button>
-      <button
-        className={item}
-        disabled={!engine || !narration.text.trim()}
-        onClick={() => { onClose(); void generateNarration(song.id, narration.id).catch(() => {}); }}
-      >
-        <span>Gerar a voz de novo</span>
-      </button>
+      {clone ? (
+        <button
+          className={item}
+          disabled={!narration.text.trim() || recorded === null}
+          title={recorded === false ? 'Esta fala ainda não está gravada nesta voz: abre a janela para criar' : 'Coloca de novo a fala gravada, sem gerar'}
+          onClick={() => {
+            onClose();
+            if (recorded) void generateNarration(song.id, narration.id, { fallback: false }).catch(() => {});
+            else onEdit();
+          }}
+        >
+          <span>{recorded === false ? 'Criar fala…' : 'Recolocar fala'}</span>
+        </button>
+      ) : (
+        <button
+          className={item}
+          disabled={!engine || !narration.text.trim()}
+          onClick={() => { onClose(); void generateNarration(song.id, narration.id).catch(() => {}); }}
+        >
+          <span>Gerar a voz de novo</span>
+        </button>
+      )}
       {audioReady && clip && (
         <>
           <div className="h-px bg-logic-border-dark my-1" />
@@ -541,12 +575,12 @@ function NarrationMenu({ song, narration, x, y, onEdit, onEditCount, onClose }: 
           {narration.master && (
             <button
               className={item}
-              disabled={!engine || !narration.text.trim()}
-              title="Gera a voz de novo, sem masterização"
+              disabled={!engine || !narration.text.trim() || (clone && !recorded)}
+              title={clone && !recorded ? 'Esta fala não está gravada nesta voz: crie a fala para poder tirar a masterização' : clone ? 'Volta para a fala gravada, sem masterização' : 'Gera a voz de novo, sem masterização'}
               onClick={() => {
                 onClose();
                 updateNarration(song.id, narration.id, { master: undefined });
-                void generateNarration(song.id, narration.id).catch(() => {});
+                void generateNarration(song.id, narration.id, clone ? { fallback: false } : undefined).catch(() => {});
               }}
             >
               <span>Tirar a masterização</span>

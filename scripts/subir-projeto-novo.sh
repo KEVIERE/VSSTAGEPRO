@@ -51,7 +51,7 @@ As funcoes leem estes secrets no projeto novo (Settings > Edge Functions > Secre
   ASAAS_API_KEY, ASAAS_ENV, ASAAS_WEBHOOK_TOKEN
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM, TWILIO_MESSAGING_SERVICE_SID
-  REPLICATE_API_TOKEN, GITHUB_PAT, GITHUB_REPO, SITE_URL
+  GITHUB_PAT, GITHUB_REPO, SITE_URL
 
 Nao tenho como ler os valores antigos: eles estao nos secrets do projeto bloqueado.
 Cole os mesmos valores aqui se quiser as cobrancas e os avisos funcionando.

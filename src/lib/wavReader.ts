@@ -14,7 +14,17 @@ let workers: Worker[] = [];
 // Leituras de trechos da música no ar têm workers só delas: nunca esperam atrás de um arquivo
 // inteiro sendo aberto (preparo em segundo plano, importação).
 const rangeWorkers: Worker[] = [];
-const RANGE_POOL_SIZE = 2;
+
+/**
+ * Quantos workers de trecho: 2 até 6 núcleos lógicos (igual a antes), 4 com 8 ou mais. Sobram
+ * sempre 4 núcleos para a tela, o som e o resto do sistema. Só a conversão (CPU) se divide entre
+ * eles: a leitura do disco já vai em paralelo dentro de cada worker.
+ */
+export function rangePoolSize(cores: number | undefined): number {
+  const n = Number.isFinite(cores) && (cores as number) > 0 ? Math.floor(cores as number) : 2;
+  return Math.min(4, Math.max(2, n - 4));
+}
+
 // Resumo detalhado da onda (finePeaks): worker próprio, para não esperar na fila das leituras da tela
 let peaksWorker: Worker | null = null;
 let rangeTurn = 0;
@@ -23,6 +33,17 @@ let nextId = 0;
 let idleTimer: number | null = null;
 const pending = new Map<number, { resolve: (r: Reply) => void; worker: Worker }>();
 const probes = new WeakMap<Blob, Map<number, Promise<Reply>>>();
+// Pedidos sem resposta em cada worker de trecho (para mandar o próximo ao mais livre)
+const rangeLoad = new Map<Worker, number>();
+// Chave estável de cada arquivo: o worker guarda o cabeçalho por ela (o Blob chega copiado)
+const blobKeys = new WeakMap<Blob, string>();
+let nextBlobKey = 0;
+
+function keyOf(blob: Blob): string {
+  let k = blobKeys.get(blob);
+  if (!k) blobKeys.set(blob, (k = `b${++nextBlobKey}`));
+  return k;
+}
 
 function scheduleIdle() {
   if (idleTimer !== null) window.clearTimeout(idleTimer);
@@ -43,6 +64,7 @@ function makeWorker(): Worker {
     const p = pending.get(ev.data.id);
     if (!p) return;
     pending.delete(ev.data.id);
+    settled(w);
     p.resolve(ev.data);
     scheduleIdle();
   };
@@ -50,6 +72,7 @@ function makeWorker(): Worker {
     for (const [id, p] of pending) {
       if (p.worker !== w) continue;
       pending.delete(id);
+      settled(w);
       p.resolve({ id, ok: false });
     }
     scheduleIdle();
@@ -57,9 +80,32 @@ function makeWorker(): Worker {
   return w;
 }
 
+function settled(w: Worker) {
+  const n = rangeLoad.get(w);
+  if (n !== undefined) rangeLoad.set(w, Math.max(0, n - 1));
+}
+
+// O próximo trecho vai para o worker de trecho com menos pedidos esperando (empate: o próximo da
+// vez). Assim cada faixa tem o seu trecho convertido logo, sem ficar atrás de outra num worker
+// cheio enquanto outro está livre.
 function rangeWorker(): Worker {
-  if (rangeWorkers.length === 0) for (let i = 0; i < RANGE_POOL_SIZE; i++) rangeWorkers.push(makeWorker());
-  return rangeWorkers[rangeTurn++ % rangeWorkers.length];
+  if (rangeWorkers.length === 0) {
+    const size = rangePoolSize(navigator.hardwareConcurrency);
+    for (let i = 0; i < size; i++) {
+      const w = makeWorker();
+      rangeWorkers.push(w);
+      rangeLoad.set(w, 0);
+    }
+  }
+  const n = rangeWorkers.length;
+  const startAt = rangeTurn++ % n;
+  let best = rangeWorkers[startAt];
+  for (let i = 1; i < n; i++) {
+    const w = rangeWorkers[(startAt + i) % n];
+    if ((rangeLoad.get(w) ?? 0) < (rangeLoad.get(best) ?? 0)) best = w;
+  }
+  rangeLoad.set(best, (rangeLoad.get(best) ?? 0) + 1);
+  return best;
 }
 
 function ensureWorkers() {
@@ -80,7 +126,7 @@ function ask(blob: Blob, targetRate: number, maxFrames: number, probeOnly: boole
   const id = ++nextId;
   return new Promise((resolve) => {
     pending.set(id, { resolve, worker });
-    worker.postMessage({ id, blob, targetRate, maxFrames, probeOnly, startFrame, peaksPer });
+    worker.postMessage({ id, blob, targetRate, maxFrames, probeOnly, startFrame, peaksPer, key: keyOf(blob) });
   });
 }
 

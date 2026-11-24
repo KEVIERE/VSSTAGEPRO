@@ -1,17 +1,41 @@
 const { app, ipcMain } = require('electron');
-const { execSync } = require('child_process');
+const { exec, execSync } = require('child_process');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
 const os = require('os');
 
+// Vai sem chave de propósito: a função não exige login. Com a chave fixa aqui, a troca de chaves do
+// Supabase em 05/11/2026 fez o servidor recusar todo envio (401), sem ninguém perceber.
 const SUPABASE_HEARTBEAT_URL = 'https://eknjqqiamuztomdygalv.supabase.co/functions/v1/app-heartbeat';
-const ANON_KEY = 'sb_publishable_9yDFOv1hd7w8MITGsE1ZgQ_mY5eJJI2';
 
 let cachedHwId = null;
 let sessionActive = false;
 const startTime = Date.now();
+
+// O comando que lê o número da placa e o que tirar da resposta. O caminho síncrono e o em segundo
+// plano usam os mesmos: o número precisa sair igual, porque a conferência guardada no Mac é
+// lacrada com ele (licenseCache.js).
+const HW_COMMAND = {
+  darwin: {
+    cmd: 'ioreg -rd1 -c IOPlatformExpertDevice',
+    opts: { timeout: 2000, encoding: 'utf8' },
+    re: /"IOPlatformUUID"\s*=\s*"([^"]+)"/i,
+  },
+  // MachineGuid: criado na instalação do Windows, não muda com o uso
+  win32: {
+    cmd: 'reg query "HKLM\\SOFTWARE\\Microsoft\\Cryptography" /v MachineGuid',
+    opts: { timeout: 2000, encoding: 'utf8', windowsHide: true },
+    re: /MachineGuid\s+REG_SZ\s+([0-9a-f-]+)/i,
+  },
+};
+
+/** Número da placa na resposta do comando, já embaralhado; null se não veio. */
+function hwIdFromOutput(spec, out) {
+  const m = String(out || '').match(spec.re);
+  return m && m[1] ? crypto.createHash('sha256').update(m[1].trim()).digest('hex') : null;
+}
 
 /**
  * Lê o UUID imutável da placa-mãe do Mac (IOPlatformUUID).
@@ -21,11 +45,11 @@ const startTime = Date.now();
 function getHardwareId() {
   if (cachedHwId) return cachedHwId;
   try {
-    if (process.platform === 'darwin') {
-      const out = execSync('ioreg -rd1 -c IOPlatformExpertDevice', { timeout: 2000, encoding: 'utf8' });
-      const m = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/i);
-      if (m && m[1]) {
-        cachedHwId = crypto.createHash('sha256').update(m[1].trim()).digest('hex');
+    const spec = HW_COMMAND[process.platform];
+    if (spec) {
+      const id = hwIdFromOutput(spec, execSync(spec.cmd, spec.opts));
+      if (id) {
+        cachedHwId = id;
         return cachedHwId;
       }
     }
@@ -37,6 +61,34 @@ function getHardwareId() {
   const seed = `${os.hostname()}:${os.arch()}:${os.cpus()[0]?.model}:${os.homedir()}`;
   cachedHwId = crypto.createHash('sha256').update(seed).digest('hex');
   return cachedHwId;
+}
+
+let hwIdPending = null;
+
+/**
+ * O mesmo número de getHardwareId, com o comando rodando em segundo plano: o ioreg levava cerca de
+ * 25 ms com o principal parado, na hora em que ele ainda serve os arquivos da tela. Só guarda o
+ * número quando o comando responde; sem resposta, cai no caminho de sempre (getHardwareId), com a
+ * mesma reserva, para o número nunca sair diferente do que sairia antes.
+ */
+function getHardwareIdAsync() {
+  if (cachedHwId) return Promise.resolve(cachedHwId);
+  if (!hwIdPending) {
+    const spec = HW_COMMAND[process.platform];
+    hwIdPending = new Promise((resolve) => {
+      if (!spec) { resolve(null); return; }
+      try {
+        exec(spec.cmd, spec.opts, (err, out) => resolve(err ? null : hwIdFromOutput(spec, out)));
+      } catch {
+        resolve(null);
+      }
+    }).then((id) => {
+      hwIdPending = null;
+      if (!cachedHwId && id) cachedHwId = id;
+      return cachedHwId || getHardwareId();
+    });
+  }
+  return hwIdPending;
 }
 
 /**
@@ -185,7 +237,7 @@ async function readIntegrityAsync() {
 }
 
 async function sendHeartbeat(isFirst = false) {
-  const hw = getHardwareId();
+  const hw = await getHardwareIdAsync();
   const integrity = await readIntegrityAsync();
   const runningMinutes = Math.floor((Date.now() - startTime) / 60000);
 
@@ -219,7 +271,6 @@ async function sendHeartbeat(isFirst = false) {
         path: u.pathname,
         method: 'POST',
         headers: {
-          apikey: ANON_KEY,
           'Content-Type': 'application/json',
           'Content-Length': Buffer.byteLength(payload),
         },
@@ -268,5 +319,6 @@ function initAntiTamper() {
 module.exports = {
   initAntiTamper,
   getHardwareId,
+  getHardwareIdAsync,
   inspectAppIntegrity,
 };

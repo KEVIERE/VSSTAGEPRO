@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useStore } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 import { directorPublish, buildSetlist, buildLive, effectiveBpm } from '@/lib/musicianApi';
 import { currentAndNextSlice, paramsAt } from '@/lib/medley';
+import { bpmAt } from '@/lib/grid';
 import { activeShowName } from '@/lib/shows';
 import { friendlyError } from '@/lib/friendlyError';
 
@@ -21,7 +22,6 @@ export interface LiveBroadcast {
   show: SavedShow | null;
   setShow: (s: SavedShow) => void;
   onAir: boolean;
-  lastSentAt: number | null;
   error: string | null;
   /** Nome do show ativo (ou Show Padrão), enviado automaticamente. */
   showName: string;
@@ -35,6 +35,16 @@ export interface LiveBroadcast {
 
 const TAB_ID = Math.random().toString(36).slice(2);
 const TAB_CHANNEL = 'vs_stage_broadcast';
+
+// Hora do último envio que deu certo. Fica fora do estado do React: guardar no estado redesenhava
+// o programa inteiro a cada envio (uma vez por segundo tocando). Só a janela do Show Online mostra
+// esse número, e ela já se redesenha uma vez por segundo enquanto está aberta.
+let lastSentAt: number | null = null;
+
+/** Hora (Date.now) do último envio aceito pelo servidor, ou null se nada foi enviado ainda. */
+export function getLastSentAt(): number | null {
+  return lastSentAt;
+}
 
 function loadShow(): SavedShow | null {
   try {
@@ -64,7 +74,7 @@ export function snapshot(onAir: boolean, withSetlist: boolean) {
     setlist: withSetlist && st.songs.length > 0 ? buildSetlist(st.songs, st.blocks, st.playlistOrder, st.songKeys) : null,
     live: buildLive(
       t.isPlaying, t.isPaused, currentTime, progress, countdown,
-      t.currentSongId, t.nextSongId, song ? effectiveBpm(song.bpm, song.bpmDetected, bpmAdjust) : null,
+      t.currentSongId, t.nextSongId, song ? effectiveBpm(bpmAt(song, currentTime), song.bpmDetected, bpmAdjust) : null,
       t.playFlow, onAir, slices.current?.name ?? null, slices.next?.name ?? null,
       slices.current?.id ?? null, slices.next?.id ?? null,
       params ? params.tuner : null,
@@ -75,7 +85,6 @@ export function snapshot(onAir: boolean, withSetlist: boolean) {
 export function useLiveBroadcast(): LiveBroadcast {
   const [show, setShowState] = useState<SavedShow | null>(loadShow);
   const [onAir, setOnAir] = useState(() => !!loadShow() && localStorage.getItem(ON_AIR_LS) === '1');
-  const [lastSentAt, setLastSentAt] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const showName = useStore(activeShowName);
 
@@ -125,7 +134,7 @@ export function useLiveBroadcast(): LiveBroadcast {
         const snap = snapshot(onAirRef.current, withSetlist);
         try {
           await directorPublish(target.showId, target.directorKey, snap.name, snap.setlist, snap.live);
-          setLastSentAt(Date.now());
+          lastSentAt = Date.now();
           setError(null);
         } catch (e) {
           if (withSetlist) setlistDirty.current = true;
@@ -216,5 +225,10 @@ export function useLiveBroadcast(): LiveBroadcast {
     if (show) await send(show);
   }, [show, send]);
 
-  return { show, setShow, onAir, lastSentAt, error, showName, yielded, takeOver: claim, resendSetlist, start, stop };
+  // Objeto novo só quando algo que a tela mostra muda: a barra de menu e o Modo Show (em memo)
+  // não redesenham a cada envio.
+  return useMemo(
+    () => ({ show, setShow, onAir, error, showName, yielded, takeOver: claim, resendSetlist, start, stop }),
+    [show, setShow, onAir, error, showName, yielded, claim, resendSetlist, start, stop],
+  );
 }

@@ -35,11 +35,18 @@ touch "$OUT/.gitkeep"
 echo "== Motor de voz do Maestro IA ($ARCH)"
 
 if [ "$ARCH" != "arm64" ]; then
+  # Mac Intel, Catalina e Windows: sem o programa em Swift (o MLX só roda no chip Apple). A voz de IA
+  # roda no processador, pelo motor de IA embutido (maestroVoiceCpu.py); aqui vão só as vozes.
   cat > "$OUT/LEIA-ME.txt" <<'EOF'
-A voz brasileira de IA do Maestro (Qwen3-TTS) precisa de Mac com chip Apple.
-Neste instalador (Intel) as falas do Maestro IA usam a voz do Mac.
+A voz brasileira de IA do Maestro (Qwen3-TTS) roda aqui no processador, pelo motor de IA embutido
+(maestroVoiceCpu.py). É mais lenta que no chip Apple: cada fala fica pronta em segundo plano.
 EOF
-  echo "   Intel: sem o programa de voz (a fala usa a voz do Mac)"
+  mkdir -p "$OUT/voices"
+  for v in feminina masculina; do
+    [ -s "$VOICES/$v.wav" ] && [ -s "$VOICES/$v.txt" ] || { echo "::error::Falta a voz $v em desktop/maestro-voices ($v.wav e $v.txt)"; exit 1; }
+    cp "$VOICES/$v.wav" "$VOICES/$v.txt" "$OUT/voices/"
+  done
+  echo "   $ARCH: vozes de IA no lugar (o motor roda no processador)"
   exit 0
 fi
 

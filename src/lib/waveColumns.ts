@@ -1,4 +1,5 @@
 import type { ClipAudio } from '@/lib/audioLibrary';
+import { indexColumns, readyWaveIndex, WAVE_INDEX_MIN_FRAMES_PER_PX } from './waveIndex.ts';
 
 /**
  * Altura da forma de onda (0 a 1) em cada pixel de um bloco do desenho, do pixel `offset` até
@@ -23,7 +24,11 @@ export function waveColumns(
 
   // resumo mais grosso que os pixels (zoom aproximado): lê as amostras
   if (audio && audio.length > 0 && audio.channels.length > 0 && duration > 0 && full >= n) {
-    return sampleColumns(audio.channels, 0, audio.length, (duration / full) * audio.sampleRate, offset, width);
+    const perPx = (duration / full) * audio.sampleRate;
+    // índice de máximos pronto (waveIndex.ts): mesma coluna, lendo só as pontas de cada pixel
+    const index = perPx >= WAVE_INDEX_MIN_FRAMES_PER_PX ? readyWaveIndex(audio) : null;
+    if (index) return indexColumns(audio.channels, index, audio.length, perPx, offset, width);
+    return sampleColumns(audio.channels, 0, audio.length, perPx, offset, width);
   }
   // sem o áudio na memória: o resumo detalhado guardado no disco (um pico a cada 64 quadros)
   if (fine && fine.data.length > 0 && duration > 0 && full >= n) {

@@ -21,6 +21,8 @@ import { btnGhost, btnPrimary, Panel } from '@/components/admin/ui';
 
 // Ambiente de staging (teste interno) — abre direto no editor, sem #programa
 const STAGING_URL = 'https://vsstagepro.com.br/staging/';
+// O disparo sempre publica a main. Só religar quando a main estiver em dia (ver admin-promote).
+const PROMOTE_ENABLED = false;
 
 export default function StagingTab() {
   const [reloadKey, setReloadKey] = useState(0);
@@ -177,9 +179,10 @@ export default function StagingTab() {
           ) : (
             <button
               type="button"
-              className="px-3.5 py-1.5 rounded-lg bg-logic-lcd-green text-black font-bold text-xs hover:brightness-110 transition flex items-center gap-1.5"
+              className={`px-3.5 py-1.5 rounded-lg bg-logic-lcd-green text-black font-bold text-xs transition flex items-center gap-1.5 ${PROMOTE_ENABLED ? 'hover:brightness-110' : 'opacity-40 cursor-not-allowed'}`}
               onClick={promote}
-              disabled={promoting}
+              disabled={!PROMOTE_ENABLED || promoting}
+              title={PROMOTE_ENABLED ? undefined : 'Travado: a main está atrasada e este botão voltaria o site para uma versão antiga'}
             >
               <Rocket size={13} />
               <span>Upgrade de Produção</span>
@@ -188,6 +191,11 @@ export default function StagingTab() {
         }
       >
         <div className="p-4 space-y-2 text-xs text-logic-text-dim leading-relaxed">
+          {!PROMOTE_ENABLED && (
+            <p className="text-logic-lcd-amber font-semibold flex items-center gap-1.5">
+              <AlertTriangle size={12} /> Botão travado: a main está atrasada e ele voltaria o site para uma versão antiga.
+            </p>
+          )}
           <p>
             Depois de validar suas alterações no ambiente de Staging, clique em <strong className="text-white">Upgrade de Produção</strong> para:
           </p>

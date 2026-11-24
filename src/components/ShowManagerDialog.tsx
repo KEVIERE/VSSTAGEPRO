@@ -7,7 +7,7 @@ import {
 } from '@/lib/musicianApi';
 import { Avatar } from '@/components/musician/MusicianAvatar';
 import type { DirectorMusician, ShowInvite } from '@/lib/musicianTypes';
-import type { LiveBroadcast } from '@/lib/useLiveBroadcast';
+import { getLastSentAt, type LiveBroadcast } from '@/lib/useLiveBroadcast';
 import { publicLink, usePublicAddress } from '@/lib/publicUrl';
 import PublicLinkNotice from '@/components/PublicLinkNotice';
 import OnlineRemoteCard from '@/components/remote/OnlineRemoteCard';
@@ -46,7 +46,7 @@ function sentAgo(ts: number | null, now: number): string {
 export default function ShowManagerDialog({ open, onClose, broadcast }: {
   open: boolean; onClose: () => void; broadcast: LiveBroadcast;
 }) {
-  const { show, setShow, onAir, lastSentAt, error: sendError, start, stop, showName } = broadcast;
+  const { show, setShow, onAir, error: sendError, start, stop, showName } = broadcast;
   const [musicians, setMusicians] = useState<DirectorMusician[]>([]);
   const [invite, setInvite] = useState<ShowInvite | null>(null);
   const [newName, setNewName] = useState('');
@@ -294,7 +294,8 @@ export default function ShowManagerDialog({ open, onClose, broadcast }: {
                     </p>
                     {onAir && (
                       <p className="text-2xs text-logic-text-muted mt-1">
-                        Último sinal: {sentAgo(lastSentAt, now)}
+                        {/* lido a cada segundo (o relógio "now" redesenha a janela aberta), fora do estado do React */}
+                        Último sinal: {sentAgo(getLastSentAt(), now)}
                       </p>
                     )}
                     {onAir && sendError && (

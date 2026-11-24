@@ -144,7 +144,7 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   assert.match(mixer, /<EsDbBoxes volume=\{track\.volume\} meterId=\{track\.id\}/, 'caixinhas de dB');
   assert.match(mixer, /<EsName name=\{track\.name\} color=\{color\}/, 'nome embaixo na cor da faixa');
   for (const k of ['M', 'S', 'AC']) assert.match(mixer, new RegExp(`label="${k}"`));
-  assert.match(mixer, /<EsName name="Master"/);
+  assert.match(mixer, /<EsName name=\{route \?\? 'Master'\}/);
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<EsName name="Timecode"/);
   assert.match(read('src', 'components', 'MiniFader.tsx'), /className="es-hslider-fill"/, 'volume da faixa com o verde');
   const tl = read('src', 'components', 'TimelinePanel.tsx');
@@ -178,7 +178,7 @@ test('Oficina: canal tingido, botões quadrados, medidor com marcas e nome com n
   assert.match(mixer, /if \(oficina\) \{\s*\/\/ Oficina: só a fenda escura e a capa clara de frisos/);
   assert.match(mixer, /const color = ofTrackColor\(track\.color, index\);/);
   assert.match(mixer, /<OfName name=\{track\.name\} number=\{index \+ 1\} color=\{color\}/);
-  assert.match(mixer, /<OfName name="MASTER" number="M"/);
+  assert.match(mixer, /<OfName name=\{route \?\? 'MASTER'\} number="M"/);
   assert.match(read('src', 'components', 'TimecodeMixerChannel.tsx'), /<OfName name="Timecode" number="TC"/);
   const pieces = read('src', 'components', 'OficinaPieces.tsx');
   assert.match(pieces, /const hot = !off && db > -6;/, 'medidor avermelha acima de -6 dB');

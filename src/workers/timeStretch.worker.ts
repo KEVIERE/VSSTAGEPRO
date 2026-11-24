@@ -2,6 +2,7 @@
 // Mantém tempo e tom independentes e roda fora da thread da UI.
 // Recebe e devolve 16 bits quando pedido, para não dobrar a memória durante o processamento.
 import { SoundTouch, SimpleFilter } from '../lib/soundtouch.vendor.js';
+import { attackEnvelope, measureStretchOffsetMs, nominalStretchLeadMs, shiftSamples, stretchLeadMs } from '../lib/stretchLatency.ts';
 
 type Samples = Int16Array | Float32Array;
 
@@ -13,6 +14,17 @@ type Req = {
   tempo: number;  // >1 toca mais rápido, sem alterar o tom
   pitch: number;  // >1 sobe o tom, sem alterar a velocidade
   output: 'int16' | 'float';
+};
+
+/** BPM alterado: quanto a faixa já processada sai adiantada, nas cópias reduzidas dela e do original. */
+type LeadReq = {
+  id: string;
+  kind: 'lead';
+  input: Int16Array;
+  output: Int16Array;
+  rate: number;
+  tempo: number;
+  pitch: number;
 };
 
 type Res =
@@ -51,6 +63,11 @@ function processClip(req: Req): { left: Samples; right: Samples } {
   if (Math.abs(req.tempo - 1) < 1e-4 && Math.abs(req.pitch - 1) < 1e-4) {
     return { left: req.left, right: req.right };
   }
+
+  // Só tom alterado: a faixa melódica precisa cair junto da bateria, que toca sem SoundTouch. Os
+  // ataques do original ficam guardados para conferir, no fim, onde a saída caiu.
+  const pitchOnly = Math.abs(req.tempo - 1) < 1e-4;
+  const inputAttacks = pitchOnly ? attackEnvelope(req.left, req.right, req.sampleRate) : null;
 
   const st = new SoundTouch();
   // quickSeek com algoritmo hierárquico multiescala do SoundTouch: 4x a 5x mais rápido
@@ -101,10 +118,25 @@ function processClip(req: Req): { left: Samples; right: Samples } {
     (outR as Int16Array).set(chunksR[i] as Int16Array, p);
     p += chunksL[i].length;
   }
-  return { left: outL, right: outR };
+  if (!inputAttacks) return { left: outL, right: outR };
+  // O SoundTouch adianta o áudio: a faixa volta para a grade com o deslocamento medido nela mesma.
+  // É uma cópia deslocada: não mexe no som e não cria estalo.
+  const measured = measureStretchOffsetMs(inputAttacks, attackEnvelope(outL, outR, req.sampleRate), req.tempo);
+  const shiftMs = measured === null ? nominalStretchLeadMs(req.tempo, req.pitch) : -measured;
+  const shift = Math.round((shiftMs * req.sampleRate) / 1000);
+  return { left: shiftSamples(outL, shift), right: shiftSamples(outR, shift) };
 }
 
-self.onmessage = (ev: MessageEvent<Req>) => {
+self.onmessage = (ev: MessageEvent<Req | LeadReq>) => {
+  if ('kind' in ev.data) {
+    const { id, input, output, rate, tempo, pitch } = ev.data;
+    try {
+      (self as unknown as Worker).postMessage({ id, ok: true, leadMs: stretchLeadMs(input, output, rate, tempo, pitch) });
+    } catch (e) {
+      (self as unknown as Worker).postMessage({ id, ok: false, error: (e as Error).message });
+    }
+    return;
+  }
   const req = ev.data;
   try {
     const { left, right } = processClip(req);

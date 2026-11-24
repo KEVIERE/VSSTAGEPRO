@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, protocol, net, shell, session, Menu, dialog, powerSaveBlocker } = require('electron');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 const { pathToFileURL } = require('url');
 const { resolveStatic } = require('./staticFiles');
 const { LocalServer } = require('./localServer');
@@ -8,17 +10,73 @@ const { networkCheck, defaultGateway } = require('./networkCheck');
 const exportFiles = require('./exportFiles');
 const projectFiles = require('./projectFiles');
 const selfUpdate = require('./selfUpdate');
-const { separateStemsLocal, cancelStemSeparation, hasLocalDemucs } = require('./stemSeparatorLocal');
-const drumPieces = require('./drumPieces');
-const maestroVoice = require('./maestroVoice');
-const maestroQwen = require('./maestroQwen');
-const maestroVoiceDownload = require('./maestroVoiceDownload');
-const lyricsReader = require('./lyricsReader');
-const { initAntiTamper } = require('./antiTamper');
+const { initAntiTamper, getHardwareIdAsync } = require('./antiTamper');
 const licenseCache = require('./licenseCache');
 const { deviceInfo } = require('./deviceInfo');
 
+// Módulos de IA, voz e letra: carregam na primeira vez que a tela pede, não antes da abertura
+// aparecer (antes eram lidos e compilados todos antes da splash). Cada um recebe a preparação
+// dele (ouvinte de progresso, música tocando) uma vez só, na primeira carga.
+const STEMS = './stemSeparatorLocal';
+const DRUMS = './drumPieces';
+const VOICE = './maestroVoice';
+const CLONE = './maestroClone';
+const QWEN = './maestroQwen';
+const DOWNLOAD = './maestroVoiceDownload';
+const PACKS = './maestroPacks';
+const LYRICS = './lyricsReader';
+// a tela avisa quando a música toca; quem carregar depois já nasce sabendo
+let showPlaying = false;
+const lazyPrepared = new Set();
+function lazyModule(request, prepare) {
+  return () => {
+    const mod = require(request);
+    if (!lazyPrepared.has(request)) {
+      lazyPrepared.add(request);
+      prepare?.(mod);
+    }
+    return mod;
+  };
+}
+/** O módulo, se ele já foi carregado (por aqui ou por outro módulo). Nunca carrega. */
+function ifLoaded(request) {
+  const cached = require.cache[require.resolve(request)];
+  return cached && cached.loaded ? cached.exports : null;
+}
+const voiceDownload = lazyModule(DOWNLOAD, (m) => { if (showPlaying) m.setPaused(true); });
+const qwen = lazyModule(QWEN, (m) => {
+  // o maestroQwen abre o download da voz junto: ele também precisa saber da música tocando
+  voiceDownload();
+  m.setCountPackListener((p) => {
+    if (win && !win.isDestroyed()) win.webContents.send('maestroCountPack:progress', { voice: p.voice, state: p.state, done: p.done, total: p.total });
+  });
+  if (showPlaying) m.setPlaying(true);
+});
+const maestroVoiceModule = lazyModule(VOICE);
+// o maestroVoice abre o maestroQwen: este passa antes pela preparação dele
+const voice = () => { qwen(); return maestroVoiceModule(); };
+const clone = lazyModule(CLONE);
+const packs = lazyModule(PACKS, (m) => {
+  m.setProgressListener((p) => {
+    if (win && !win.isDestroyed()) win.webContents.send('maestroPack:progress', p);
+  });
+  if (showPlaying) m.setPaused(true);
+});
+const lyricsReader = lazyModule(LYRICS, (m) => { if (showPlaying) m.setPlaying(true); });
+const stems = lazyModule(STEMS);
+const drums = lazyModule(DRUMS);
+
+/** Número da placa pronto antes de abrir a conferência guardada (a chave dela sai dele). */
+function hardwareIdReady() {
+  return Promise.race([
+    getHardwareIdAsync().catch(() => null),
+    new Promise((resolve) => { setTimeout(resolve, 2500).unref?.(); }),
+  ]);
+}
+
 const SCHEME = 'vsstage';
+// mesmo nome no preload.js
+const TOTAL_MEMORY_ARG = '--vs-total-memory=';
 const hasSingleInstance = app.requestSingleInstanceLock();
 const webRoot = app.isPackaged ? path.join(process.resourcesPath, 'web') : path.join(__dirname, '..', 'dist');
 
@@ -305,6 +363,9 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // RAM total do computador, para a tela medir quanto áudio guarda na memória (o
+      // navigator.deviceMemory para em 8 GB). O preload lê daqui, sem ida e volta pelo IPC.
+      additionalArguments: [`${TOTAL_MEMORY_ARG}${os.totalmem()}`],
       // num show a janela pode ficar atrás de outra (telão, letra): os relógios de passagem de
       // música e de loop não podem ser freados pelo modo de economia de janela em segundo plano
       backgroundThrottling: false,
@@ -371,8 +432,10 @@ ipcMain.on('local:meters', (event, meters) => {
 });
 handle('networkCheck', async () => (await networkCheck(server, { appPath: process.execPath })).checks);
 // Última conferência da conta, para abrir sem internet (ver licenseCache.js).
-handle('licenseCacheLoad', () => licenseCache.load());
-handle('licenseCacheSave', (userId, license) => licenseCache.save(userId, license));
+// A chave do arquivo sai do número da placa: ele é lido antes em segundo plano (hardwareIdReady),
+// e a conferência não roda o ioreg/reg query travando o principal.
+handle('licenseCacheLoad', async () => { await hardwareIdReady(); return licenseCache.load(); });
+handle('licenseCacheSave', async (userId, license) => { await hardwareIdReady(); return licenseCache.save(userId, license); });
 handle('licenseCacheClear', () => licenseCache.clear());
 // Quem é este Mac, para a regra de um Mac por vez em cada conta (ver deviceInfo.js).
 handle('deviceInfo', () => deviceInfo());
@@ -411,34 +474,218 @@ handle('projectAppendCopy', (id, srcPath, begin, size) => projectFiles.appendCop
 handle('projectAppendClose', (id, manifest) => projectFiles.appendClose(id, manifest));
 handle('projectAppendAbort', (id) => projectFiles.appendAbort(id));
 handle('projectGiveFile', (filePath, selector) => projectFiles.giveFile(win.webContents, filePath, selector));
-handle('hasLocalDemucs', () => hasLocalDemucs());
-handle('maestroVoices', () => maestroVoice.listVoices());
-handle('maestroSpeak', (payload) => maestroVoice.renderNarration(payload));
-handle('maestroVoiceStatus', () => maestroVoice.voiceStatus());
+handle('hasLocalDemucs', () => stems().hasLocalDemucs());
+handle('maestroVoices', () => voice().listVoices());
+handle('maestroSpeak', (payload) => voice().renderNarration(payload));
+handle('maestroVoiceStatus', () => voice().voiceStatus());
+// a fala de IA ficou pronta? (no processador ela é gerada em segundo plano)
+handle('maestroSpeechReady', (payload) => voice().speechReady(payload));
+// situação da fala sem gerar nada, e desistir de esperar (a geração em andamento vai para o cache)
+handle('maestroSpeechState', (payload) => voice().speechState(payload));
+handle('maestroSpeakCancel', (requestId) => voice().cancelSpeak(requestId));
+// Clonar voz do Maestro: o diretor grava a própria voz, em até 3 modos de fala (maestroClone.js)
+handle('maestroCloneList', () => clone().list().map(clone().publicInfo));
+// separações de música rodando: o motor de separação tem um cancelamento só para tudo, então a
+// limpeza da tomada fica de fora enquanto uma música está sendo separada
+let musicSeparations = 0;
+handle('maestroClonePrepare', (payload) => clone().prepare({ ...payload, separationBusy: musicSeparations > 0 }, (percent, message) => {
+  if (win && !win.isDestroyed()) win.webContents.send('maestroClone:progress', { percent, message });
+}));
+handle('maestroCloneSave', async (payload) => {
+  const v = await clone().save(payload);
+  // já prepara as contagens da voz nova, em segundo plano
+  try { qwen().startCountPacks(v.id); } catch { /* a voz fica salva; a contagem começa ao abrir */ }
+  return clone().publicInfo(v);
+});
+handle('maestroCloneRemove', async (id) => {
+  await qwen().cancelCountPacks(id);
+  return clone().remove(id);
+});
+// Pacote de contagem da voz clonada: números gravados um a um, prontos para entrar na hora
+handle('maestroCountPackEnsure', (voiceId) => qwen().ensureCountPack(voiceId));
+handle('maestroCountPackStatus', (voiceId) => qwen().countPackStatus(voiceId));
+handle('maestroCountWord', (payload) => qwen().countWord(payload));
+// aquece a voz de IA (abre o programa e prepara a referência) para a primeira fala sair rápida
+handle('maestroWarm', (voiceId) => qwen().warm(voiceId).catch(() => false));
+// Minhas frases: gravação permanente da frase numa voz (fora do limite do cache de falas)
+handle('maestroPinPhrase', (payload) => qwen().pinPhrase(payload));
+handle('maestroUnpinPhrase', (payload) => qwen().unpinPhrase(payload));
+handle('maestroPinnedStates', (payload) => qwen().pinnedStates(payload));
+// Pacotes de falas prontas (Maestro 2 e Maestro 3): baixados uma vez, lidos do disco só quando tocam
+handle('maestroPackStatus', () => packs().status());
+handle('maestroPackFile', (payload) => packs().file(payload));
 // música tocando: o download da voz pausa (não disputa a rede e o disco durante o show)
 // Com música tocando o Mac não dorme nem apaga a tela (no meio do show isso derrubava o som).
+// Módulo ainda não carregado não tem nada rodando: ele recebe o estado quando carregar.
 let showSleepBlock = null;
 handle('maestroVoicePlaying', (playing) => {
-  maestroVoiceDownload.setPaused(!!playing);
-  lyricsReader.setPlaying(!!playing);
+  showPlaying = !!playing;
+  ifLoaded(DOWNLOAD)?.setPaused(!!playing);
+  ifLoaded(PACKS)?.setPaused(!!playing);
+  const maestroQwen = ifLoaded(QWEN);
+  if (maestroQwen) maestroQwen.setPlaying(!!playing); // gravação de frases salvas espera a música parar
+  ifLoaded(LYRICS)?.setPlaying(!!playing);
   if (playing && showSleepBlock === null) showSleepBlock = powerSaveBlocker.start('prevent-display-sleep');
   else if (!playing && showSleepBlock !== null) { powerSaveBlocker.stop(showSleepBlock); showSleepBlock = null; }
 });
 // Leitor de letra (repertório do produtor): roda no Mac, sem internet e sem custo.
-handle('lyricsReaderStatus', () => lyricsReader.status());
-handle('lyricsReaderPrepare', () => lyricsReader.prepare());
-handle('lyricsTranscribe', (wav, opts) => lyricsReader.transcribe(wav, { separate: !!opts?.separate }));
-handle('lyricsTranscribeCancel', () => lyricsReader.cancel());
-handle('separateStemsLocal', (filename, audioData) => separateStemsLocal(win, filename, audioData));
-handle('cancelStemSeparation', () => cancelStemSeparation());
+handle('lyricsReaderStatus', () => lyricsReader().status());
+handle('lyricsReaderPrepare', () => lyricsReader().prepare());
+handle('lyricsTranscribe', (wav, opts) => lyricsReader().transcribe(wav, { separate: !!opts?.separate }));
+handle('lyricsTranscribeCancel', () => lyricsReader().cancel());
+
+// ---------- Separação: entrada pelo caminho do arquivo e faixas prontas servidas do disco ----------
+
+/**
+ * Programa de voz de IA parado ocupa a memória que a separação vai usar (Mac de 8 GB): fecha antes
+ * de começar. Só se o Maestro já foi carregado (não carrega só para isso) e se ele souber fazer
+ * isso (`releaseIfIdle` do maestroQwen). A clonagem chama o separador direto e não passa por aqui.
+ */
+function freeVoiceForSeparation() {
+  try { ifLoaded(QWEN)?.releaseIfIdle?.(); } catch { /* a separação segue com a voz aberta */ }
+}
+
+/** Bytes que chegam pelo IPC num Buffer, sem copiar (Buffer.from de um Uint8Array copiava). */
+function asBuffer(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  return Buffer.from(data);
+}
+
+/** ArrayBuffer do Buffer lido, sem copiar quando o Buffer ocupa o ArrayBuffer inteiro. */
+function exactArrayBuffer(buf) {
+  return buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength
+    ? buf.buffer
+    : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+}
+
+/** `{ path }` vindo da tela: caminho absoluto de um arquivo que existe. */
+async function inputPath(data) {
+  const p = data && typeof data === 'object' && !ArrayBuffer.isView(data) && typeof data.path === 'string' ? data.path : null;
+  if (!p) return null;
+  if (!path.isAbsolute(p)) throw new Error('caminho do áudio inválido');
+  const st = await fs.promises.stat(p).catch(() => null);
+  if (!st || !st.isFile()) throw new Error('o arquivo de áudio não foi encontrado');
+  return p;
+}
+
+/**
+ * Entrada para quem separa. A tela pode mandar os bytes (como sempre) ou `{ path }` (sem ler a
+ * música inteira na tela nem passar os bytes pelo IPC). Quem separa e sabe ler do disco
+ * (`acceptsInputPath`) recebe o caminho; os outros recebem os bytes, lidos aqui sem travar.
+ * `asBytes`: 'raw' entrega os bytes como chegaram (o separador de stems faz o Buffer.from dele,
+ * que não copia um ArrayBuffer); 'buffer' entrega um Buffer (a bateria).
+ */
+async function separationInput(mod, data, asBytes) {
+  const p = await inputPath(data);
+  if (!p) return asBytes === 'buffer' ? asBuffer(data) : data;
+  if (mod.acceptsInputPath === true) return { path: p };
+  const buf = await fs.promises.readFile(p);
+  return asBytes === 'buffer' ? buf : exactArrayBuffer(buf);
+}
+
+// Faixas prontas servidas por vsstage://stems/<código>/<nome>.wav. Quem separa pode deixar as
+// faixas no disco (`{ files: { vocals: caminho, ... }, dir }`) em vez de mandar os bytes pelo IPC,
+// que copia tudo e passa pela memória do principal. A tela lê cada faixa pelo esquema e avisa
+// (stemFilesRelease) quando terminou: só então a pasta sai. Pasta esquecida sai sozinha.
+const STEM_SHARE_TTL_MS = 30 * 60_000;
+const STEM_URL_RE = /^\/([0-9a-f]{32})\/([A-Za-z0-9_-]{1,40})\.wav$/;
+const stemShares = new Map(); // código → { files: Map<nome, caminho>, dir, timer }
+
+function shareStemFiles(files, dir) {
+  const token = crypto.randomBytes(16).toString('hex');
+  const map = new Map();
+  for (const [name, file] of Object.entries(files || {})) {
+    if (typeof file === 'string' && path.isAbsolute(file) && /^[A-Za-z0-9_-]{1,40}$/.test(name)) map.set(name, file);
+  }
+  const timer = setTimeout(() => { void releaseStemShare(token); }, STEM_SHARE_TTL_MS);
+  timer.unref?.();
+  stemShares.set(token, { files: map, dir: typeof dir === 'string' && path.isAbsolute(dir) ? dir : null, timer });
+  return { token, names: [...map.keys()] };
+}
+
+/** A tela terminou de ler: a pasta temporária sai (no Windows, tenta de novo se algo ainda estiver aberto). */
+async function releaseStemShare(token) {
+  const share = stemShares.get(token);
+  if (!share) return false;
+  stemShares.delete(token);
+  clearTimeout(share.timer);
+  if (share.dir) await fs.promises.rm(share.dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+  return true;
+}
+
+/** Arquivo de vsstage://stems/<código>/<nome>.wav, ou null. O caminho nunca vem da página. */
+function stemFileFor(pathname) {
+  const m = STEM_URL_RE.exec(pathname);
+  if (!m) return null;
+  return stemShares.get(m[1])?.files.get(m[2]) ?? null;
+}
+
+/**
+ * Resposta da separação para a tela. Bytes (o de sempre) passam direto. Faixas no disco viram o
+ * código do esquema se a tela pediu `files`; senão são lidas aqui (sem travar) e a pasta sai, e a
+ * tela recebe os bytes como antes. `asArrayBuffer`: os stems vão como ArrayBuffer, as peças da
+ * bateria como Buffer, igual a hoje.
+ */
+async function separationReply(result, wantFiles, asArrayBuffer) {
+  if (!result || typeof result !== 'object' || !result.files || typeof result.files !== 'object') return result;
+  const { files, dir, ...rest } = result;
+  if (wantFiles) return { ...rest, stemFiles: shareStemFiles(files, dir) };
+  const out = { ...rest };
+  try {
+    for (const [name, file] of Object.entries(files)) {
+      if (typeof file !== 'string' || !file) { out[name] = null; continue; }
+      const buf = await fs.promises.readFile(file);
+      out[name] = asArrayBuffer ? exactArrayBuffer(buf) : buf;
+    }
+  } finally {
+    if (typeof dir === 'string' && dir) await fs.promises.rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
+  }
+  return out;
+}
+
+// Cancelar enquanto o principal ainda lê a música do disco (entrada pelo caminho): quem separa
+// ainda não começou e o cancelamento dele se perderia.
+let separationCancels = 0;
+const cancelledError = () => new Error('separation_cancelled');
+
+handle('separateStemsLocal', async (filename, audioData, opts) => {
+  musicSeparations++;
+  try {
+    const cancelsAtStart = separationCancels;
+    freeVoiceForSeparation();
+    const mod = stems();
+    const wantFiles = !!opts?.files;
+    const input = await separationInput(mod, audioData, 'raw');
+    if (separationCancels !== cancelsAtStart) throw cancelledError();
+    const result = wantFiles
+      ? await mod.separateStemsLocal(win, filename, input, undefined, { files: true })
+      : await mod.separateStemsLocal(win, filename, input);
+    return await separationReply(result, wantFiles, true);
+  } finally { musicSeparations--; }
+});
+handle('cancelStemSeparation', () => {
+  separationCancels++;
+  // sem o separador carregado não há nada rodando
+  const mod = ifLoaded(STEMS);
+  return mod ? mod.cancelStemSeparation() : true;
+});
 // Separação da BATERIA em peças (bumbo, caixa, pratos, tons): roda depois do Demucs.
-handle('separateDrumPieces', (drumsWav) => drumPieces.separateDrumPieces(
-  Buffer.from(drumsWav),
-  (message) => { if (!win.isDestroyed()) win.webContents.send('separation:progress', { percent: 97, message }); },
-));
-handle('drumPiecesStatus', () => drumPieces.status());
+handle('separateDrumPieces', async (drumsWav, opts) => {
+  freeVoiceForSeparation();
+  const mod = drums();
+  const wantFiles = !!opts?.files;
+  const onProgress = (message) => { if (win && !win.isDestroyed()) win.webContents.send('separation:progress', { percent: 97, message }); };
+  const input = await separationInput(mod, drumsWav, 'buffer');
+  const result = wantFiles
+    ? await mod.separateDrumPieces(input, onProgress, { files: true })
+    : await mod.separateDrumPieces(input, onProgress);
+  return separationReply(result, wantFiles, false);
+});
+handle('stemFilesRelease', (token) => releaseStemShare(String(token)));
+handle('drumPiecesStatus', () => drums().status());
 // abre o painel do macOS onde se baixam as vozes premium (Luciana Premium) — grátis e local
-handle('openVoiceSettings', () => maestroVoice.openVoiceSettings().then(() => true).catch(() => false));
+handle('openVoiceSettings', () => voice().openVoiceSettings().then(() => true).catch(() => false));
 
 // Atualização silenciosa: confere, baixa, instala por cima do app atual e reabre —
 // o cliente só vê uma barra de progresso dentro do próprio programa.
@@ -460,7 +707,9 @@ handle('installUpdate', async (info) => {
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   const template = [
-    ...(isMac ? [{
+    // No Windows o menu do programa fica igual ao do Mac (Sobre, Verificar Atualizações, Encerrar);
+    // só saem os itens que não existem lá (Ocultar...).
+    {
       label: 'VS Stage Pro',
       submenu: [
         { role: 'about', label: 'Sobre o VS Stage Pro' },
@@ -471,16 +720,18 @@ function buildMenu() {
           click: () => { if (win && !win.isDestroyed()) win.webContents.send('update:manualCheck'); },
         },
         { type: 'separator' },
-        { role: 'hide', label: 'Ocultar VS Stage Pro' },
-        { role: 'hideOthers', label: 'Ocultar Outros' },
-        { role: 'unhide', label: 'Mostrar Todos' },
-        { type: 'separator' },
+        ...(isMac ? [
+          { role: 'hide', label: 'Ocultar VS Stage Pro' },
+          { role: 'hideOthers', label: 'Ocultar Outros' },
+          { role: 'unhide', label: 'Mostrar Todos' },
+          { type: 'separator' },
+        ] : []),
         { role: 'quit', label: 'Encerrar VS Stage Pro' },
       ],
-    }] : []),
+    },
     {
       label: 'Arquivo',
-      submenu: [isMac ? { role: 'close', label: 'Fechar Janela' } : { role: 'quit', label: 'Sair' }],
+      submenu: [{ role: 'close', label: 'Fechar Janela' }],
     },
     {
       label: 'Editar',
@@ -527,8 +778,6 @@ function buildMenu() {
 
 if (hasSingleInstance) app.whenReady().then(() => {
   buildMenu();
-  // Restos de atualizações que morreram no meio deixavam o .dmg (≈400 MB) em /tmp para sempre.
-  selfUpdate.cleanLeftovers();
   server = new LocalServer({
     webRoot,
     storePath: path.join(app.getPath('userData'), 'rede-local.json'),
@@ -553,6 +802,12 @@ if (hasSingleInstance) app.whenReady().then(() => {
       if (!filePath || !openedProjects.has(filePath)) return new Response('not_found', { status: 404 });
       return net.fetch(pathToFileURL(filePath).toString(), { headers: request.headers });
     }
+    if (url.hostname === 'stems') {
+      // faixa separada pronta, pelo código que a separação devolveu (ver shareStemFiles)
+      const file = stemFileFor(url.pathname);
+      if (!file) return new Response('not_found', { status: 404 });
+      return net.fetch(pathToFileURL(file).toString(), { headers: request.headers });
+    }
     const { file } = resolveStatic(webRoot, url.pathname);
     return net.fetch(pathToFileURL(file).toString());
   });
@@ -573,9 +828,17 @@ if (hasSingleInstance) app.whenReady().then(() => {
   deliverPendingProject();
   app.on('activate', () => { if (!win) createWindow(); });
 
+  // Depois das janelas, sem travar a abertura: o número da placa (para a conferência guardada e
+  // o "um Mac por vez") sai em segundo plano, e os restos de atualizações que morreram no meio
+  // (deixavam o .dmg de ≈400 MB em /tmp para sempre) são apagados sem segurar o principal.
+  getHardwareIdAsync().catch(() => {});
+  selfUpdate.cleanLeftovers().catch(() => {});
+
   // Voz brasileira do Maestro IA: baixa o modelo uma vez, em silêncio, 1 min depois de abrir
   // (só em Mac com chip Apple; em Intel a fala usa a voz do Mac).
-  if (maestroQwen.supported()) setTimeout(() => maestroVoiceDownload.start(), 60_000).unref?.();
+  setTimeout(() => { if (qwen().supported()) voiceDownload().start(); }, 60_000).unref?.();
+  // Falas prontas: sem manifesto publicado em maestro-packs.json, nada acessa a rede.
+  setTimeout(() => packs().start(), 90_000).unref?.();
 });
 
 app.on('open-file', (event, filePath) => {
@@ -607,7 +870,19 @@ app.on('before-quit', (event) => {
     return;
   }
   server?.stop();
-  maestroVoiceDownload.stop();
-  lyricsReader.stop();
-  maestroQwen.stopHelper();
+  // Só o que foi carregado tem algo rodando: sair não carrega módulo nenhum.
+  ifLoaded(DOWNLOAD)?.stop();
+  ifLoaded(PACKS)?.stop();
+  ifLoaded(LYRICS)?.stop();
+  ifLoaded(QWEN)?.stopHelper();
+  // A separação de faixas roda em processo próprio: sem isto seguia por minutos depois de fechar,
+  // ocupando gigabytes de memória.
+  ifLoaded(STEMS)?.cancelStemSeparation();
+  ifLoaded(DRUMS)?.stop();
+  // faixas separadas que a tela não chegou a ler (aqui de uma vez: o programa vai fechar)
+  for (const [token, share] of [...stemShares]) {
+    stemShares.delete(token);
+    clearTimeout(share.timer);
+    if (share.dir) { try { fs.rmSync(share.dir, { recursive: true, force: true }); } catch { /* fica no /tmp */ } }
+  }
 });

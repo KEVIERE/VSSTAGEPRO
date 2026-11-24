@@ -7,9 +7,12 @@ import { reclassifyClipWithAi } from '@/lib/aiRouter';
 import { canSplitClipStems, isDrumClip, isSplittingStems, startClipStemSplit } from '@/lib/clipStemSplit';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
+import { exportClipAudio } from '@/lib/clipExport';
 import NarrationDialog from '@/components/NarrationDialog';
 import ClickMenuItems from '@/components/ClickMenuItems';
 import { audioEngine } from '@/lib/audioEngine';
+import { MAESTRO_IA_TRACK_ID } from '@/lib/narrations';
+import { pickConsolidateClipIds, runConsolidateMaestroIa } from '@/lib/maestroConsolidate';
 
 interface ContextMenuState {
   visible: boolean;
@@ -285,6 +288,18 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
         <span className="text-[10px] opacity-75 font-mono">⌘D</span>
       </button>
 
+      <button
+        className="w-full flex items-center justify-between px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        title="Salva só o áudio deste clipe num WAV, com os cortes do início e do fim"
+        onClick={() => {
+          onClose();
+          if (clipId) void exportClipAudio(clipId);
+        }}
+      >
+        <span>Exportar este áudio…</span>
+        <span className="text-[10px] opacity-75">WAV</span>
+      </button>
+
       <div className="h-px bg-logic-border-dark my-1" />
 
       <button
@@ -407,6 +422,28 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
               >
                 <span>✂︎ Separar stems</span>
                 <span className="text-[10px] opacity-75 font-normal">{!available ? 'Só no Mac' : drum ? 'Peças da bateria' : 'IA'}</span>
+              </button>
+            );
+          })()}
+          {clip.trackId === MAESTRO_IA_TRACK_ID && (() => {
+            // Consolidar só este trecho: a fala clicada (ou as falas selecionadas) vira áudio na
+            // faixa Maestro, no mesmo lugar, e sai da Maestro IA. Cmd+Z desfaz.
+            const st = useStore.getState();
+            const ids = pickConsolidateClipIds(st.clips, clip.id, st.selectedClipIds);
+            const playing = clip.songId === playingSongId;
+            return (
+              <button
+                className="w-full flex items-center justify-between gap-3 px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75 disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-inherit"
+                disabled={timelineLocked || playing || ids.length === 0}
+                title="Junta este trecho num áudio na faixa Maestro, no mesmo tempo, com o mesmo volume e fades. A fala sai da Maestro IA. Cmd+Z desfaz."
+                onClick={() => {
+                  onClose();
+                  void runConsolidateMaestroIa(clip.songId, ids);
+                }}
+              >
+                <span>{ids.length > 1 ? 'Consolidar as falas selecionadas' : 'Consolidar esta fala na faixa Maestro'}</span>
+                {playing && <span className="text-[10px] opacity-75">Pare para consolidar</span>}
+                {!playing && ids.length > 1 && <span className="text-[10px] opacity-75 tabular-nums">{ids.length} falas</span>}
               </button>
             );
           })()}

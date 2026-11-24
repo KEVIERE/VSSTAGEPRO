@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "bcryptjs": "3.0.3",
+    "multicast-dns": "7.2.5",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
@@ -39,13 +40,17 @@
       "build/fonts/Outfit-SemiBold.ttf",
       "package.json",
       "maestro-voice-model.json",
+      "maestro-packs.json",
       "lyrics-model.json",
       "drumPieceSeparator.py",
-      "lyricsTranscriber.py"
+      "lyricsTranscriber.py",
+      "maestro-voice-model-cpu.json",
+      "maestroVoiceCpu.py"
     ],
     "asarUnpack": [
       "drumPieceSeparator.py",
-      "lyricsTranscriber.py"
+      "lyricsTranscriber.py",
+      "maestroVoiceCpu.py"
     ],
     "extraResources": [
       {
@@ -101,7 +106,7 @@
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "O VS Stage precisa dessa permissão só para mostrar os nomes das suas interfaces de áudio na lista de saídas. Nada é gravado.",
+        "NSMicrophoneUsageDescription": "O VS Stage usa o microfone para gravar a sua voz quando você clona a voz do Maestro, e para mostrar os nomes das suas interfaces de áudio na lista de saídas.",
         "NSLocalNetworkUsageDescription": "O VS Stage usa a rede local para enviar o show aos celulares dos músicos, ao produtor e à tela do palco.",
         "NSBonjourServices": [
           "_http._tcp"
@@ -130,6 +135,25 @@
           "path": "/Applications"
         }
       ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "VS-Stage-Setup-${version}-x64.${ext}",
+      "shortcutName": "VS Stage",
+      "uninstallDisplayName": "VS Stage",
+      "deleteAppDataOnUninstall": false
     }
   }
 }

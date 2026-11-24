@@ -1,0 +1,2 @@
+beat-this-small0-v2.onnx: exportacao do modelo small0 do Beat This! (CPJKU/beat_this), licenca MIT.
+Repositorio oficial: https://github.com/CPJKU/beat_this

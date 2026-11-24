@@ -19,7 +19,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
+import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacLegacyBuild, fetchMacManifest, fetchWinBuild, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
 import { emailLinkType } from '@/lib/supabaseClient';
@@ -28,7 +28,7 @@ const TRUST_BADGES = [
   { icon: ShieldCheck, text: 'Download verificado com hash SHA-256' },
   { icon: Timer, text: '48h de teste grátis sem cartão de crédito' },
   { icon: Wifi, text: 'Motor 100% offline no palco via rede local' },
-  { icon: Laptop, text: 'Compatível com macOS 11 (Big Sur) até macOS 15 (Sequoia)' },
+  { icon: Laptop, text: 'Compatível com macOS 10.15 (Catalina) até macOS 15 (Sequoia)' },
 ];
 
 type Status =
@@ -47,6 +47,16 @@ const CHIP_HINT: Record<MacBuild['arch'], { title: string; subtitle: string; hin
     title: 'Processador Intel',
     subtitle: 'Compatível x86_64 • Macs 2013-2020',
     hint: 'Para computadores Apple equipados com processador Intel Core i5, i7, i9 ou Xeon.',
+  },
+  'x64-legacy': {
+    title: 'Intel com macOS 10.15',
+    subtitle: 'Catalina • Macs Intel mais antigos',
+    hint: 'Para Mac Intel que não atualiza para o macOS 11. A voz de IA do Maestro usa a voz do Mac.',
+  },
+  'win-x64': {
+    title: 'Windows 10 e 11',
+    subtitle: '64 bits • PC com Windows',
+    hint: 'Para PC com Windows 10 ou 11 de 64 bits. Na primeira vez o Windows pode avisar "O Windows protegeu o computador": clique em "Mais informações" e depois em "Executar assim mesmo".',
   },
 };
 
@@ -72,13 +82,26 @@ const STEPS = [
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(0)} MB`;
 
+/**
+ * Prévia só em modo local (npm run dev, endereço com ?previa): abre sem login e mostra os
+ * instaladores em teste mesmo antes de publicados. O build do site remove este trecho.
+ */
+const PREVIEW = import.meta.env.DEV && new URLSearchParams(window.location.search).has('previa');
+const previewBuild = (arch: MacBuild['arch'], file: string, size: number): MacBuild => ({ arch, label: '', file, size, sha256: '', parts: ['previa'] });
+
 export default function MacDownloadPage() {
+  if (PREVIEW) {
+    const fake = { user: { email: 'previa@local' } } as unknown as Session;
+    return <MacDownloadPageContent session={fake} onSignOut={() => {}} />;
+  }
   return <DownloadAccess>{(session, signOut) => <MacDownloadPageContent session={session} onSignOut={signOut} />}</DownloadAccess>;
 }
 
 function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [manifest, setManifest] = useState<MacManifest | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [legacy, setLegacy] = useState<MacBuild | null>(null);
+  const [winBuild, setWinBuild] = useState<MacBuild | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [suggested, setSuggested] = useState(guessMacArch);
   const [copied, setCopied] = useState(false);
@@ -89,6 +112,8 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
     fetchMacManifest()
       .then(setManifest)
       .catch(() => setLoadError(true));
+    fetchMacLegacyBuild().then((b) => setLegacy(b ?? (PREVIEW ? previewBuild('x64-legacy', 'VS-Stage-previa-x64-legacy.dmg', 690_000_000) : null)));
+    fetchWinBuild().then((b) => setWinBuild(b ?? (PREVIEW ? previewBuild('win-x64', 'VS-Stage-Setup-previa-x64.exe', 640_000_000) : null)));
     return () => abortRef.current?.abort();
   }, []);
 
@@ -366,6 +391,44 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
               })}
             </div>
           )}
+
+          {/* Instaladores em teste: Mac Intel com macOS 10.15 (Catalina) e Windows */}
+          {manifest && [
+            legacy && { build: legacy, name: `${CHIP_HINT['x64-legacy'].title} (Catalina)`, button: 'Baixar para macOS 10.15', done: 'Download concluído. Abra a pasta Downloads e dê dois cliques no .dmg.' },
+            winBuild && { build: winBuild, name: CHIP_HINT['win-x64'].title, button: 'Baixar para Windows (.exe)', done: 'Download concluído. Abra a pasta Downloads e dê dois cliques no instalador .exe.' },
+          ].filter((x): x is { build: MacBuild; name: string; button: string; done: string } => !!x).map(({ build, name, button, done }) => {
+            const mine = status.kind !== 'idle' && status.arch === build.arch;
+            const pct = mine && status.kind === 'downloading' ? Math.min(100, (status.received / build.size) * 100) : 0;
+            return (
+              <div key={build.arch} className="mt-6 rounded-2xl border border-white/10 bg-[#161618] p-5 flex flex-col sm:flex-row sm:items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                    {name}
+                    <span className="px-2 py-0.5 rounded-full bg-[#ff9f0a]/15 border border-[#ff9f0a]/40 text-[#ff9f0a] text-[10px] font-bold uppercase tracking-wide">
+                      Em teste
+                    </span>
+                  </h4>
+                  <p className="text-xs text-[#ff9f0a]/90 mt-1">Versão em teste: pode ter falhas. Se algo não funcionar, fale com o suporte.</p>
+                  <p className="text-xs text-[#86868b] mt-1 leading-relaxed">{CHIP_HINT[build.arch].hint} {mb(build.size)}.</p>
+                  {mine && status.kind === 'error' && (
+                    <p className="text-xs text-rose-400 mt-1.5">Falha ao baixar: {status.reason}. Tente novamente.</p>
+                  )}
+                  {mine && status.kind === 'done' && (
+                    <p className="text-xs text-emerald-400 mt-1.5">{done}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => start(build)}
+                  disabled={busy}
+                  className="shrink-0 h-11 px-5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15 font-semibold text-xs flex items-center justify-center gap-2 transition disabled:opacity-50"
+                >
+                  {mine && status.kind === 'downloading'
+                    ? <><Loader2 size={16} className="animate-spin" /> {pct.toFixed(0)}%</>
+                    : <><Download size={16} /> {button}</>}
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         {/* Guia de Instalação Passo a Passo */}

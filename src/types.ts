@@ -175,6 +175,12 @@ export interface SongTempoSegment {
   endTime: number;
   bpm: number;
   downbeat?: number;
+  /** Tempos antes do primeiro 1 do trecho (anacruse). Sem valor: o trecho começa no 1. */
+  barOffset?: number;
+  /** Compasso deste trecho, quando difere do da música (ex.: uma valsa dentro do medley). */
+  beatsPerBar?: number;
+  /** Compasso do ritardando final, medido no áudio: não é troca de música. */
+  rit?: boolean;
 }
 
 export interface Song {
@@ -201,6 +207,14 @@ export interface Song {
   medley?: MedleyPart[];
   /** Segmentos de andamento dinâmico (múltiplos BPMs / aceleração) */
   tempoSegments?: SongTempoSegment[];
+  /** De onde veio o mapa de andamento. Projeto antigo não tem este registro. */
+  tempoMapSource?: 'click' | 'audio' | 'manual' | 'reaper';
+  /** Assinatura do mapa quando foi medido: se ele mudou depois, foi editado à mão. */
+  tempoMapSig?: string;
+  /** Mapa que a pessoa recusou trocar (desfez a correção): nenhum computador troca de novo. */
+  tempoMapKept?: string;
+  /** Versão e identidade da última conferência do tempo 1 do compasso. Não entra no Desfazer. */
+  tempoBarCheck?: string;
   /** Tom corrigido à mão (cifra curta, ex.: "G", "Em"); sem valor vale o detectado pela IA. */
   musicKey?: string;
   /** Marcações de texto do Maestro por IA (réguas de fala na faixa Maestro). */
@@ -264,6 +278,8 @@ export interface TransportState {
   bpm: number;
   playFlow: PlayFlow;
   currentSongId: string | null;
+  /** Música dona do `currentTime` com o transporte parado (o cursor pode estar em outra que não a última tocada). */
+  cursorSongId?: string | null;
   nextSongId: string | null;
   songProgress: number;
   nextSongCountdown: number;
@@ -383,11 +399,19 @@ export interface ProjectState {
   musicianBook: MusicianBook | null;
   /** Anti-clip do master: limitador de pico em -0,1 dBFS na saída do master (igual ao dos canais). */
   masterAntiClip?: boolean;
-  /** Volume igual entre os VS: cada música recebe o ganho para o mesmo loudness, sem clipar. */
+  /** Saída física do Master (primeira do par, ou a saída mono). Projeto antigo: 1. */
+  masterOutputChannel: number;
+  /** Master em par estéreo N/N+1 (false = mono, L e R somados). */
+  masterOutputStereo: boolean;
+  /** Master desligado: só os canais com saída própria tocam. Guarda a saída para quando religar. */
+  masterOutputOff?: boolean;
+  /** Volume igual entre os VS: a banda de cada música recebe o ganho para o mesmo LUFS, sem clipar. */
   levelMatch?: boolean;
-  /** Alvo em LUFS do "volume igual" escolhido pelo usuário (as músicas sobem ou descem até ele). */
+  /** Pico usado pelas versões antigas do IGUALAR (mantido para o projeto abrir nelas). */
   levelMatchDb?: number;
-  /** Medida de cada música (LUFS integrado e true peak da gravação, faders em 0 dB). */
+  /** Alvo em LUFS do "volume igual" (a banda das músicas sobe ou desce até ele). */
+  levelMatchLufs?: number;
+  /** Medida da banda de cada música (LUFS integrado e true peak, faders em 0 dB). */
   songLoudness?: Record<string, SongLoudness>;
   /** Tom detectado pela IA em cada música (cifra curta) e o que foi analisado. */
   songKeys?: Record<string, { key: string; sig: string }>;

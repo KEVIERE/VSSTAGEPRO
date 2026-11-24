@@ -211,7 +211,7 @@ function LoudnessReadout() {
     return () => { off(); window.clearInterval(id); };
   }, []);
   return (
-    <div className="vu-clock" title="Loudness do master em LUFS (M: últimos 400 ms; S: últimos 3 s), medido na saída 1-2 como as plataformas medem.">
+    <div className="vu-clock" title="Loudness do master em LUFS (M: últimos 400 ms; S: últimos 3 s), medido na saída do Master como as plataformas medem.">
       <div className="vu-lufs">
         <span className="vu-clock-label">LUFS</span>
         <span className="vu-lufs-item">M <b className={`is-${lufsTone(lu.momentary)}`}>{lufsText(lu.momentary)}</b></span>

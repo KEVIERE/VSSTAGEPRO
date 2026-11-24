@@ -98,7 +98,7 @@ test('VS por IA e Recriar metrônomo: mesmo som e mesmo nível, amostra por amos
   }
 });
 
-test('VS por IA: o começo do som de cada batida cai na linha da grade e a 1ª entra inteira no 0', () => {
+test('VS por IA: o começo do som de cada batida cai na linha da grade, inclusive a 1ª no 0', () => {
   for (const sr of [44100, 48000]) {
     const s = sampleAt(sr);
     const limit = peak(s.sL) * 0.01; // mesma regra de clickOnsetIndex (-40 dB do pico)
@@ -115,10 +115,10 @@ test('VS por IA: o começo do som de cada batida cai na linha da grade e a 1ª e
         }
         assert.ok(Math.abs(start - line) <= 1, `${name}: batida em ${t.toFixed(3)} s começa ${start - line} amostras fora da linha`);
       }
-      // primeira batida: a amostra inteira desde o 0, sem cortar o ataque
+      // primeira batida: o ataque cai no 0; só o quase silêncio de antes dele fica de fora
       const onset = clickOnsetIndex(s.sL);
       assert.ok(onset > 0);
-      for (let i = 0; i < Math.round(0.4 * sr); i++) assert.equal(ia.L[i], s.sL[i], `${name}: 1ª batida, amostra ${i}`);
+      for (let i = 0; i < Math.round(0.4 * sr); i++) assert.equal(ia.L[i], s.sL[i + onset] ?? 0, `${name}: 1ª batida, amostra ${i}`);
     }
   }
 });
@@ -157,8 +157,8 @@ test('Recriar metrônomo continua dando o mesmo resultado de antes da mudança',
   };
   const sr = 48000;
   const s = sampleAt(sr);
-  // batidas fora da grade, uma colada no começo (0,5 ms) e uma perto do fim
-  const odd = [0, 0.0005, 0.7, 1.2345, 2.01, 3.9999];
+  // batidas fora da grade e uma perto do fim (a colada no começo tem teste próprio em clickRemount)
+  const odd = [0.7, 1.2345, 2.01, 3.9999];
   const [L, R] = placeClickSamples(odd, clickBufferLength(4, sr), sr, s.sL, s.sR);
   const old = oldClickAt(odd, 4, sr, s.sL, s.sR);
   assert.equal(L.length, old.L.length);
@@ -196,11 +196,11 @@ test('VS por IA antigo (click alinhado pelo pico, ~6 ms adiantado): o Recriar p�
   // as batidas adiantadas vão para a linha da grade
   re.times.slice(1).forEach((t, i) => assert.equal(t, grid[i + 1], `batida ${i + 1}`));
   // a 1ª já estava inteira no 0: o Recriar acha o começo do som dela (~1,5 ms) e põe o som novo
-  // no mesmo lugar. O resultado soa igual ao click do VS por IA de agora.
+  // no mesmo lugar. Daí em diante o resultado é igual ao click do VS por IA de agora.
   const ia = vsPorIa(song, SECONDS, sr, s);
   const firstEnd = Math.round(0.4 * sr);
   assert.equal(maxDiff(ia.L.subarray(firstEnd), re.L.subarray(firstEnd)), 0, 'depois da 1ª batida');
-  assert.ok(maxDiff(ia.L.subarray(0, firstEnd), re.L.subarray(0, firstEnd)) < 0.02, '1ª batida');
+  assert.ok(Math.abs(re.times[0] * sr - clickOnsetIndex(s.sL)) <= 3, '1ª batida');
 });
 
 test('VS por IA e Recriar metrônomo passam pelo mesmo código', () => {

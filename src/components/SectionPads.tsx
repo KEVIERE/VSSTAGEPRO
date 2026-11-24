@@ -1,16 +1,20 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Repeat, Keyboard, SkipForward } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song, SongRegion } from '@/types';
 import { nextRepeat, regionAt, repeatLabel, sortedRegions } from '@/lib/regions';
+import { audioEngine } from '@/lib/audioEngine';
+import { useLiveFill } from '@/lib/frameClock';
 
 export function SectionPads({ song }: { song: Song }) {
-  const regions = sortedRegions(song.regions);
-  const currentTime = useStore((s) => s.transport.currentTime);
+  const regions = useMemo(() => sortedRegions(song.regions), [song.regions]);
+  // Só o id da parte no ar e o da seguinte: antes os pads assinavam o cursor e redesenhavam todos
+  // 10 vezes por segundo. A linha que anda dentro do pad vai pelo relógio de quadro (PadProgress).
+  const activeId = useStore((s) => regionAt(regions, s.transport.currentTime)?.id ?? null);
+  const nextRegionId = useStore((s) => followingRegion(regions, s.transport.currentTime)?.id ?? null);
   const queuedId = useStore((s) => (s.queuedRegion?.songId === song.id ? s.queuedRegion.regionId : null));
   const sectionKeys = useStore((s) => s.sectionKeys);
   const toggleSectionKeys = useStore((s) => s.toggleSectionKeys);
-  const active = regionAt(regions, currentTime);
 
   useEffect(() => {
     if (!sectionKeys) return;
@@ -38,7 +42,7 @@ export function SectionPads({ song }: { song: Song }) {
   }, [sectionKeys, song.id]);
 
   if (regions.length === 0) return null;
-  const nextRegion = followingRegion(regions, currentTime);
+  const nextRegion = nextRegionId ? regions.find((r) => r.id === nextRegionId) ?? null : null;
   const skipping = !!nextRegion && queuedId === nextRegion.id;
 
   return (
@@ -47,14 +51,13 @@ export function SectionPads({ song }: { song: Song }) {
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      {regions.map((r, i) => (
+      {regions.map((r) => (
         <SectionPad
           key={r.id}
           song={song}
           region={r}
-          isActive={active?.id === r.id}
+          isActive={activeId === r.id}
           isQueued={queuedId === r.id}
-          progress={active?.id === r.id ? (currentTime - r.start) / Math.max(0.001, r.end - r.start) : 0}
         />
       ))}
       <button
@@ -128,10 +131,32 @@ interface SectionPadProps {
   region: SongRegion;
   isActive: boolean;
   isQueued: boolean;
-  progress: number;
 }
 
-function SectionPad({ song, region, isActive, isQueued, progress }: SectionPadProps) {
+/** Posição da música agora: o relógio do áudio tocando (como as barras), senão o cursor do store. */
+function padTimeNow(): number {
+  const st = useStore.getState();
+  const live = st.transport.isPlaying && audioEngine.isRunning() && !audioEngine.isUserSeeking();
+  return live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+}
+
+// Linha que anda dentro do pad da parte no ar, a cada quadro do relógio único. Uma camada do
+// tamanho do pad é empurrada por transform (sem refazer o layout) e a linha fica na borda direita
+// dela, no mesmo ponto em que o "left" de antes a punha. Sem transição: segue o relógio do áudio.
+function PadProgress({ region }: { region: SongRegion }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  useLiveFill(ref, () => ((padTimeNow() - region.start) / Math.max(0.001, region.end - region.start)) * 100);
+  return (
+    <span ref={ref} className="pointer-events-none absolute inset-0 will-change-transform" style={{ transform: 'translateX(-100%)' }}>
+      <span
+        className="absolute top-0 bottom-0 right-0 w-0.5 -mr-px"
+        style={{ backgroundColor: region.color, boxShadow: `0 0 6px ${region.color}` }}
+      />
+    </span>
+  );
+}
+
+function SectionPad({ song, region, isActive, isQueued }: SectionPadProps) {
   const updateSongRegion = useStore((s) => s.updateSongRegion);
   // pad de mesa: a parte tocando acende na cor dela; a engatilhada fica com borda âmbar
   return (
@@ -173,12 +198,7 @@ function SectionPad({ song, region, isActive, isQueued, progress }: SectionPadPr
           </button>
         )}
       </div>
-      {isActive && (
-        <span
-          className="pointer-events-none absolute top-0 bottom-0 w-0.5 -ml-px transition-[left] duration-200 ease-linear"
-          style={{ left: `${Math.min(100, Math.max(0, progress * 100))}%`, backgroundColor: region.color, boxShadow: `0 0 6px ${region.color}` }}
-        />
-      )}
+      {isActive && <PadProgress region={region} />}
     </div>
   );
 }

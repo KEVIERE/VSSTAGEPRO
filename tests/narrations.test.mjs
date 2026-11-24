@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import {
   wpmForSpan, sortedNarrations, narrationSignature, currentSignature, narrationBounds, freeRunAt,
   spanForNatural, spanForWpm, MIN_WPM, MAX_WPM, BASE_WPM,
-  beatStartAt, isOnBeat, placeNarration, syncedToCursor,
+  beatStartAt, isCountPackWord, isOnBeat, placeNarration, syncedToCursor,
 } from '../src/lib/narrations.ts';
 
 test('marcação menor deixa a fala mais rápida', () => {
@@ -176,4 +176,9 @@ test('a velocidade fixa da contagem entra na assinatura (mudou, gera de novo)', 
 test('o clipe da fala começa justo na linha da grade (sem adiantar nem atrasar)', () => {
   assert.deepEqual(clipPlacement(4), { startTime: 4, trimStart: 0 });
   assert.deepEqual(clipPlacement(-0.01), { startTime: 0, trimStart: 0 }, 'nunca antes do zero');
+});
+
+test('palavra do pacote de contagem: os 16 números, sem confundir texto próprio', () => {
+  for (const w of ['Um!', 'três', 'Dezesseis!', 'Catorze']) assert.equal(isCountPackWord(w), true, w);
+  for (const w of ['Vai!', 'Dezessete', 'Um dois', '']) assert.equal(isCountPackWord(w), false, w);
 });

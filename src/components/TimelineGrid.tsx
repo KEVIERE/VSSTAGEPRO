@@ -1,15 +1,33 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Magnet, RefreshCw, Loader2, CheckCheck, Scissors } from 'lucide-react';
 import { useStore } from '@/store';
 import type { Song } from '@/types';
-import { barBeatLabel, bpmAt, gridLines, moveTempoChange, SNAP_LABELS, snapTempoChange, tempoChangeIndex, type SnapStep, type SongGrid } from '@/lib/grid';
+import { barBeatLabel, bpmAt, gridLines, moveTempoChange, uniformSegments, SNAP_LABELS, snapTempoChange, tempoChangeIndex, type SnapStep, type SongGrid } from '@/lib/grid';
 import { remeasureSongBpm, setSongBpm } from '@/lib/importManager';
 import { trimAllSongEnds, trimSongEnd } from '@/lib/songEndTools';
 import type { VisibleRange } from '@/components/ClipWaveform';
 import { useSkin } from '@/lib/useSkin';
+import { currentSkin } from '@/lib/skins';
 import { timelineWidthFor } from '@/lib/zoomPreview';
 import { canvasSpan, canvasX, canvasXAt, formatRulerTick, rulerStepFor, rulerTicks, stepLinesPx, textBaseline, zoomPx, type CanvasSpan, type ZoomCanvasHub } from '@/lib/zoomGeometry';
+import { draggedGrid, tempoDragView, useTimelineVisible, useViewValue } from '@/lib/timelineView';
+
+/**
+ * A grade como aparece agora: com a placa de BPM sendo arrastada, a mudança de andamento já no
+ * lugar novo. Cada desenho da grade assina o arraste sozinho: mexer a placa redesenha a régua, as
+ * placas e as linhas, e não a timeline inteira (antes o arraste era um setState do painel).
+ */
+function useShownGrid<G extends SongGrid | null>(grid: G): G {
+  const drag = useViewValue(tempoDragView);
+  return useMemo(() => draggedGrid(grid, drag), [grid, drag]);
+}
+
+/** A janela visível de quem passou uma; sem ela, a da timeline (assinada aqui, não no painel). */
+function useShownVisible(visible: VisibleRange | undefined): VisibleRange {
+  const live = useTimelineVisible();
+  return visible ?? live;
+}
 
 const LINE_COLORS = {
   bar: 'rgba(255,255,255,0.22)',
@@ -52,13 +70,16 @@ function useCanvasRedraw(draw: () => void, deps: unknown[], hub?: ZoomCanvasHub)
  * centenas de divs que o React refazia a cada zoom. No zoom ao vivo o canvas cobre a tela e é
  * redesenhado a cada quadro no zoom do quadro: linhas com 1 px e na densidade do zoom novo.
  */
-export function GridLinesCanvas({ grid, zoomH, visible, timelineWidth, hub }: {
+export const GridLinesCanvas = memo(function GridLinesCanvas({ grid: baseGrid, zoomH, visible: visibleProp, timelineWidth, hub }: {
   grid: SongGrid;
   zoomH: number;
-  visible: VisibleRange;
+  /** Sem ela, a janela visível da timeline (o painel não redesenha a cada rolagem). */
+  visible?: VisibleRange;
   timelineWidth: number;
   hub: ZoomCanvasHub;
 }) {
+  const grid = useShownGrid(baseGrid);
+  const visible = useShownVisible(visibleProp);
   const ref = useRef<HTMLCanvasElement>(null);
   const latest = useRef({ grid, zoomH, visible, timelineWidth });
   latest.current = { grid, zoomH, visible, timelineWidth };
@@ -97,7 +118,7 @@ export function GridLinesCanvas({ grid, zoomH, visible, timelineWidth, hub }: {
       <canvas ref={ref} className="absolute top-0 block pointer-events-none will-change-transform" style={{ height: '100%' }} />
     </div>
   );
-}
+});
 
 /**
  * Grade sem andamento (música sem BPM): uma linha clara a cada passo da régua de tempo, por baixo
@@ -106,13 +127,15 @@ export function GridLinesCanvas({ grid, zoomH, visible, timelineWidth, hub }: {
  */
 export function StepLinesCanvas({ zoomH, visible, timelineWidth, hub }: {
   zoomH: number;
-  visible: VisibleRange;
+  /** Sem ela, a janela visível da timeline (o painel não redesenha a cada rolagem). */
+  visible?: VisibleRange;
   timelineWidth: number;
   hub: ZoomCanvasHub;
 }) {
+  const shownVisible = useShownVisible(visible);
   const ref = useRef<HTMLCanvasElement>(null);
-  const latest = useRef({ zoomH, visible, timelineWidth });
-  latest.current = { zoomH, visible, timelineWidth };
+  const latest = useRef({ zoomH, visible: shownVisible, timelineWidth });
+  latest.current = { zoomH, visible: shownVisible, timelineWidth };
   const draw = useCallback(() => {
     const cv = ref.current;
     if (!cv) return;
@@ -135,7 +158,7 @@ export function StepLinesCanvas({ zoomH, visible, timelineWidth, hub }: {
       ctx.fillRect(canvasX(span, x), 0, lw, 1);
     }
   }, [hub]);
-  useCanvasRedraw(draw, [zoomH, visible, timelineWidth], hub);
+  useCanvasRedraw(draw, [zoomH, shownVisible, timelineWidth], hub);
   return <canvas ref={ref} className="absolute top-0 block pointer-events-none" style={{ height: '100%' }} />;
 }
 
@@ -252,21 +275,28 @@ function fillLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: nu
 
 const RULER_H = 40;
 
+// Cores e fontes da régua por skin: voltar do Modo Show remonta a timeline, e reler seis estilos
+// forçava o navegador a recalcular a página inteira bem no quadro da troca.
+const rulerStylesBySkin = new Map<string, RulerStyles>();
+
 /**
  * Régua (40 px): traços e números de compasso e tempo e, embaixo, os números de tempo (m:ss), num
  * canvas do tamanho da janela visível. Cores, fonte e alturas vêm de elementos escondidos com as
  * mesmas classes das divs de antes (cada skin troca as variáveis e a fonte). As placas de BPM
  * continuam em DOM (BarRulerLayer), por cima.
  */
-export function RulerCanvas({ grid, hasGrid, zoomH, visible, contentEnd, hub }: {
+export const RulerCanvas = memo(function RulerCanvas({ grid: baseGrid, hasGrid, zoomH, visible: visibleProp, contentEnd, hub }: {
   grid: SongGrid | null;
   /** Com grade, os números de tempo ficam só na metade de baixo. */
   hasGrid: boolean;
   zoomH: number;
-  visible: VisibleRange;
+  /** Sem ela, a janela visível da timeline (o painel não redesenha a cada rolagem). */
+  visible?: VisibleRange;
   contentEnd: number;
   hub: ZoomCanvasHub;
 }) {
+  const grid = useShownGrid(baseGrid);
+  const visible = useShownVisible(visibleProp);
   const ref = useRef<HTMLCanvasElement>(null);
   const probesRef = useRef<HTMLDivElement>(null);
   const skin = useSkin();
@@ -277,6 +307,7 @@ export function RulerCanvas({ grid, hasGrid, zoomH, visible, contentEnd, hub }: 
     const cv = ref.current;
     if (!cv) return;
     const p = latest.current;
+    if (!stylesRef.current) stylesRef.current = rulerStylesBySkin.get(currentSkin()) ?? null;
     if (!stylesRef.current && probesRef.current) {
       const q = (name: string) => probesRef.current!.querySelector(`[data-probe="${name}"]`)!;
       stylesRef.current = {
@@ -287,6 +318,7 @@ export function RulerCanvas({ grid, hasGrid, zoomH, visible, contentEnd, hub }: 
         beatLabel: readTextStyle(q('beat-label')),
         tickLabel: readTextStyle(q('tick-label')),
       };
+      rulerStylesBySkin.set(currentSkin(), stylesRef.current);
     }
     const st = stylesRef.current;
     if (!st) return;
@@ -381,25 +413,32 @@ export function RulerCanvas({ grid, hasGrid, zoomH, visible, contentEnd, hub }: 
       </div>
     </>
   );
-}
+});
 
-export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempoDrag }: {
+/**
+ * Placas de BPM da régua. Enquanto uma placa é arrastada, a posição dela vai para tempoDragView
+ * (fora do React): a régua, as placas e as linhas da grade acompanham sozinhas, e o painel só fica
+ * sabendo ao soltar, quando a mudança é gravada.
+ */
+export const BarRulerLayer = memo(function BarRulerLayer({ song, grid: baseGrid, zoomH, visible: visibleProp, onEditTempo }: {
   song: Song;
   grid: SongGrid;
   zoomH: number;
-  visible: VisibleRange;
+  /** Sem ela, a janela visível da timeline (o painel não redesenha a cada rolagem). */
+  visible?: VisibleRange;
   /** Duplo clique numa placa de BPM (ou "Editar BPM" no menu): editar a mudança de andamento daquele ponto. */
   onEditTempo?: (point: { time: number; bpm: number; x: number; y: number }) => void;
-  /** Enquanto a placa é arrastada: de onde saiu e onde está (null ao soltar), para a grade acompanhar. */
-  onTempoDrag?: (drag: { from: number; to: number } | null) => void;
 }) {
+  const grid = useShownGrid(baseGrid);
+  const visible = useShownVisible(visibleProp);
   const moveTempoAt = useStore((s) => s.moveTempoAt);
   const snapStep = useStore((s) => s.snapStep);
   const [menu, setMenu] = useState<{ x: number; y: number; time: number; bpm: number } | null>(null);
   const lines = gridLines(grid, visible.start / zoomH, visible.end / zoomH, zoomH);
 
-  // Arrastar a placa leva a mudança de andamento junto, grudando no início dos compassos do trecho
-  // de antes (Alt solta). Só grava ao soltar, então o Desfazer volta tudo de uma vez.
+  // Arrastar a placa leva a mudança de andamento junto, grudando perto do início dos compassos do
+  // trecho de antes, sem tirar as batidas do trecho do lugar. Com Alt, a troca fica no ponto exato e
+  // a grade do trecho recomeça ali. Só grava ao soltar, então o Desfazer volta tudo de uma vez.
   const startTempoDrag = (e: React.PointerEvent, time: number) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -409,22 +448,26 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempo
     const startX = e.clientX;
     let moved = false;
     let to = time;
+    let exact = false;
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
       if (!moved && Math.abs(dx) < 3) return;
       moved = true;
+      exact = ev.altKey;
       const raw = time + dx / zoomH;
       const snapped = ev.altKey ? raw : snapTempoChange(segs, index, raw, grid.beatsPerBar, 'bar');
-      to = moveTempoChange(segs, index, snapped)[index].startTime;
-      onTempoDrag?.({ from: time, to });
+      to = moveTempoChange(segs, index, snapped, { keepPhase: !exact, beatsPerBar: grid.beatsPerBar })[index].startTime;
+      // grudada no mesmo compasso de antes: nada a redesenhar
+      const shown = tempoDragView.get();
+      if (!shown || shown.from !== time || shown.to !== to || !!shown.exact !== exact) tempoDragView.set({ from: time, to, exact });
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
       document.body.style.cursor = '';
-      onTempoDrag?.(null);
-      if (moved && Math.abs(to - time) > 1e-4) moveTempoAt(song.id, time, to);
+      tempoDragView.set(null);
+      if (moved && Math.abs(to - time) > 1e-4) moveTempoAt(song.id, time, to, exact);
     };
     // na janela: a placa é redesenhada no lugar novo enquanto arrasta
     window.addEventListener('pointermove', move);
@@ -456,8 +499,8 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempo
           style={{ left: zoomPx(b.time) }}
         >
           <div
-            className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-grab active:cursor-grabbing hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
-            title={`Mudança de andamento: ${b.bpm} BPM. Arraste para mover (Alt: sem imã). Botão direito: editar, ajustar no beat ou excluir.`}
+            className={`absolute top-0 left-6 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-bg-panel/90 border ${song.bpmSource === 'audio' ? 'border-dashed' : ''} border-amber-500/80 text-[9px] font-mono font-bold text-amber-300 shadow-md backdrop-blur-sm whitespace-nowrap select-none ${onEditTempo ? 'pointer-events-auto cursor-grab active:cursor-grabbing hover:border-amber-300 hover:text-amber-200' : 'pointer-events-none'}`}
+            title={`${song.bpmSource === 'audio' ? 'Troca estimada (faixa sem click), confira. ' : ''}Mudança de andamento: ${b.bpm} BPM. Arraste para mover sem tirar as batidas do lugar (Alt: ponto exato, a grade recomeça ali). Botão direito: editar, ajustar no beat ou excluir.`}
             // a placa não move o cursor nem abre o menu da régua
             onPointerDown={(e) => startTempoDrag(e, b.time)}
             onContextMenu={(e) => {
@@ -486,7 +529,7 @@ export function BarRulerLayer({ song, grid, zoomH, visible, onEditTempo, onTempo
       )}
     </>
   );
-}
+});
 
 /** Menu do botão direito na placa amarela de mudança de andamento. */
 function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
@@ -536,7 +579,7 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
       <button
         className={item}
         disabled={index < 1 || offMs === 0}
-        onClick={() => { onClose(); moveTempoAt(song.id, time, onBeat); }}
+        onClick={() => { onClose(); moveTempoAt(song.id, time, onBeat, true); }}
         title="Leva a mudança de andamento para o início do compasso mais perto, na grade de antes dela"
       >
         <span>Ajustar no compasso da grade</span>
@@ -614,7 +657,8 @@ const METERS: Array<{ value: 3 | 4 | 6; label: string }> = [
 // seletores embutidos no painel, como as janelinhas de valor de uma mesa
 const selectCls = 'console-well h-[20px] !rounded-[3px] border border-black text-2xs text-logic-text px-1 hover:border-logic-accent focus:outline-none focus:border-logic-accent transition-colors';
 
-export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onSelectAll: () => void }) {
+// memo: a barra só redesenha pelo que ela mesma lê (BPM do cursor, ímã), não a cada render do painel
+export const GridToolbar = memo(function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onSelectAll: () => void }) {
   const bpmHere = useStore((s) => (song ? bpmAt(song, s.transport.currentTime) : 0));
   const snapStep = useStore((s) => s.snapStep);
   const setSnapStep = useStore((s) => s.setSnapStep);
@@ -629,7 +673,22 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
   const commitBpm = () => {
     const value = Number((bpmDraft ?? '').replace(',', '.'));
     if (song && Number.isFinite(value) && value >= 30 && value <= 300) {
-      setSongBpm(song.id, Math.round(value * 100) / 100, 'manual');
+      const bpm = Math.round(value * 100) / 100;
+      const segs = song.tempoSegments;
+      const same = (shown: number) => Math.round(shown * 100) / 100 === bpm;
+      if (segs && segs.length > 1 && new Set(segs.map((x) => x.bpm)).size > 1) {
+        // medley: o BPM digitado vale para o trecho onde o cursor está
+        const at = useStore.getState().transport.currentTime;
+        const here = [...segs].sort((a, b) => a.startTime - b.startTime).reduce((cur, x) => (at >= x.startTime ? x : cur));
+        if (!same(here.bpm)) useStore.getState().setTempoAt(song.id, here.startTime, bpm);
+      } else if (same(song.bpm)) {
+        // mesmo BPM: nada muda, nem a fase da grade nem a origem da medição
+      } else if (segs && segs.length > 1) {
+        setSongBpm(song.id, bpm, 'manual');
+        useStore.getState().updateSong(song.id, { tempoSegments: uniformSegments(segs, bpm, song.beatsPerBar ?? 4) });
+      } else {
+        setSongBpm(song.id, bpm, 'manual');
+      }
     }
     setBpmDraft(null);
   };
@@ -739,7 +798,7 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
           className={`console-display hidden md:flex items-center gap-1 px-1.5 h-[20px] font-stage font-semibold text-[12px] transition-colors hover:border-logic-accent disabled:pointer-events-none
             ${song?.bpmMissing && !song.bpmDetected ? '!border-logic-lcd-amber/60 text-logic-lcd-amber' : 'text-logic-lcd-amber console-glow'}`}
           onClick={(e) => {
-            if (song) setBpmDraft(song.bpmDetected && song.bpm ? String(Math.round(song.bpm * 100) / 100) : '');
+            if (song) setBpmDraft(song.bpmDetected && bpmHere ? String(Math.round(bpmHere * 100) / 100) : '');
             e.currentTarget.blur();
           }}
           disabled={!song}
@@ -787,4 +846,4 @@ export function GridToolbar({ song, onSelectAll }: { song: Song | undefined; onS
       {note && <span className="text-logic-lcd-amber animate-[fadeIn_120ms_ease-out]">{note}</span>}
     </div>
   );
-}
+});

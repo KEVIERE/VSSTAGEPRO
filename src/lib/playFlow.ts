@@ -22,3 +22,12 @@ export function computeNextSongId(
   }
   return nextId;
 }
+
+/**
+ * Onde o Play começa na música `songId`: no cursor, se ele é dessa música. Um cursor deixado por
+ * outra música (parou aquela com esta selecionada) não vale. Devolve null nesse caso.
+ */
+export function cursorFor(transport: { currentTime: number; currentSongId: string | null; cursorSongId?: string | null }, songId: string): number | null {
+  const owner = transport.cursorSongId ?? transport.currentSongId;
+  return !owner || owner === songId ? transport.currentTime : null;
+}

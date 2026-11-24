@@ -60,9 +60,6 @@ verify_jwt = false
 [functions.infinitepay-webhook]
 verify_jwt = false
 
-[functions.signup-phone]
-verify_jwt = false
-
 [functions.telegram-alert]
 verify_jwt = false
 

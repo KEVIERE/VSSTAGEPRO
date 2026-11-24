@@ -3,10 +3,9 @@
 // escura com a capa cromada em dois blocos, botões escuros de letra colorida (M vermelho, S
 // amarelo), o botão verde no estilo FX, o medidor que avermelha quando o som passa de -6 dB, e
 // embaixo o nome na cor do canal e o número numa faixa colorida. Só aparecem com a Oficina.
-import { useRef, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, type ReactNode } from 'react';
 import { AudioLines, Drum, Guitar, KeyboardMusic, Megaphone, MicVocal, Music, Piano, Timer, type LucideIcon } from 'lucide-react';
-import { useMeterLevel } from '@/lib/meterBus';
-import { vivid } from '@/components/EstudioPieces';
+import { bindMeter, holdDeadline, holdStep, levelDb, meterBarWriter, meterTextPaint, vivid, type MeterHold } from '@/components/EstudioPieces';
 
 // Como no visual padrão desses editores, as faixas com a cor de fábrica ficam cinza; a cor só
 // aparece quando o usuário escolhe uma (pelo menu da faixa, na timeline ou no mixer).
@@ -114,26 +113,52 @@ const FLOOR = -60;
 export const ofMeterPct = (db: number) => (!(db > FLOOR) ? 0 : db >= 0 ? 1 : (db - FLOOR) / -FLOOR);
 export const OF_METER_MARKS = [-6, -18, -30, -42, -54];
 
+/** Desenho do medidor da Oficina: o recorte, o traço do pico e a coluna avermelhada acima de -6 dB. */
+function ofMeterPaint(
+  root: { className: string },
+  fill: ArrayLike<{ style: { clipPath: string } }>,
+  peak: ArrayLike<{ style: { bottom: string; display: string } }>,
+  off: boolean,
+  hold: MeterHold,
+) {
+  const write = meterBarWriter(fill, peak);
+  let rootClass = root.className;
+  return (level: number, now: number): number => {
+    const db = levelDb(level);
+    const p = off ? 0 : ofMeterPct(db);
+    holdStep(hold, p, now);
+    const hot = !off && db > -6;
+    const nextRoot = `of-meter ${hot ? 'is-hot' : ''}`;
+    if (nextRoot !== rootClass) { rootClass = nextRoot; root.className = nextRoot; }
+    write(p, hold.v);
+    return holdDeadline(hold, p);
+  };
+}
+
 /**
  * Medidor escuro com as marcas de dB por dentro. Quando o som passa de -6 dB a coluna fica
  * avermelhada e as marcas acendem em laranja, como nesses editores; o pico segura 1,5 s.
+ * O nível, o pico e o vermelho são escritos pelo efeito, fora do React (veja bindMeter).
  */
 export function OfMeter({ id, height, off, clipping, onClick }: {
   id: string; height: number; off?: boolean; clipping?: boolean; onClick?: (e: React.MouseEvent) => void;
 }) {
-  const level = useMeterLevel(id);
-  const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
-  const p = off ? 0 : ofMeterPct(db);
-  const hold = useRef({ p: 0, at: 0 });
-  const now = performance.now();
-  if (p >= hold.current.p || now - hold.current.at > 1500) hold.current = { p, at: now };
-  const hot = !off && db > -6;
+  const ref = useRef<HTMLDivElement>(null);
+  const hold = useRef<MeterHold>({ v: 0, at: 0 });
+  const isOff = !!off;
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fill = el.querySelectorAll<HTMLElement>('.of-meter-fill');
+    const peak = el.querySelectorAll<HTMLElement>('.of-meter-peak');
+    return bindMeter(id, ofMeterPaint(el, fill, peak, isOff, hold.current));
+  }, [id, isOff]);
   return (
-    <div className={`of-meter ${hot ? 'is-hot' : ''}`} style={{ height }} onClick={onClick} title={clipping ? 'Clique para apagar o indicador de clip' : undefined}>
+    <div ref={ref} className="of-meter " style={{ height }} onClick={onClick} title={clipping ? 'Clique para apagar o indicador de clip' : undefined}>
       <i className={`of-meter-clip ${clipping ? 'is-on' : ''}`} />
       <div className="of-meter-bar">
-        <div className="of-meter-fill" style={{ clipPath: `inset(${(1 - p) * 100}% 0 0 0)` }} />
-        {hold.current.p > 0.02 && <div className="of-meter-peak" style={{ bottom: `${hold.current.p * 100}%` }} />}
+        <div className="of-meter-fill" />
+        <div className="of-meter-peak" />
         {OF_METER_MARKS.map((m) => (
           <span key={m} className="of-meter-mark" style={{ bottom: `${ofMeterPct(m) * 100}%` }}>{m}</span>
         ))}
@@ -142,19 +167,22 @@ export function OfMeter({ id, height, off, clipping, onClick }: {
   );
 }
 
-/** Pico do sinal agora, em texto pequeno. */
+/** Texto e classe do pico em texto pequeno. */
+function ofPeakView(peak: number): { text: string; className: string } {
+  return { text: peak > -60 ? peak.toFixed(1) : '-inf', className: `of-peak ${peak >= 0 ? 'is-red' : ''}` };
+}
+
+/** Pico do sinal agora, em texto pequeno. O texto e a cor são do efeito, fora do React. */
 export function OfPeak({ meterId, title }: { meterId: string; title?: string }) {
-  const level = useMeterLevel(meterId);
-  const hold = useRef({ db: -Infinity, at: 0 });
-  const db = level > 1e-5 ? 20 * Math.log10(level) : -Infinity;
-  const now = performance.now();
-  if (db >= hold.current.db || now - hold.current.at > 1500) hold.current = { db, at: now };
-  const peak = hold.current.db;
-  return (
-    <span className={`of-peak ${peak >= 0 ? 'is-red' : ''}`} title={title}>
-      {peak > -60 ? peak.toFixed(1) : '-inf'}
-    </span>
-  );
+  const ref = useRef<HTMLSpanElement>(null);
+  const hold = useRef<MeterHold>({ v: -Infinity, at: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    return bindMeter(meterId, meterTextPaint(el, hold.current, ofPeakView));
+  }, [meterId]);
+  // o React não guarda um nó de texto aqui: o efeito escreve antes de pintar
+  return <span ref={ref} className="of-peak " title={title} />;
 }
 
 // ---------- teclas e nome ----------

@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { useStore } from '@/store';
+import { interfaceMissing, masterReservedOutputs } from '@/lib/outputRoute';
 import { isCurrentOutput, isTimecodeTrackId, outputOptions, TIMECODE_TRACK_ID } from '@/lib/timecode';
 import type { Track } from '@/types';
 import ClickMenuItems from '@/components/ClickMenuItems';
@@ -175,7 +176,11 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const currentParent = track.parentId ? tracks.find((t) => t.id === track.parentId) : null;
 
   // Opções de saída de áudio
-  const outputs = outputOptions(track, tracks, count, stereoView);
+  const st = useStore.getState();
+  const outputs = outputOptions(track, tracks, count, stereoView, masterReservedOutputs({
+    channel: st.masterOutputChannel, stereo: st.masterOutputStereo, magic: st.magicRoutingActive, outputCount: count,
+    interfaceMissing: interfaceMissing(st.audioInterface, st.audioInterfaceConnected),
+  }));
 
   // Ajusta posição do menu na tela para não vazar da borda (medido: a altura muda com os itens)
   const menuWidth = 230;

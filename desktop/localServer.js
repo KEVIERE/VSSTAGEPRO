@@ -4,10 +4,13 @@ const os = require('os');
 const crypto = require('crypto');
 const { spawn, execFile } = require('child_process');
 const path = require('path');
-const QRCode = require('qrcode');
+// O qrcode só carrega quando a Rede Local mostra o primeiro QR (cerca de 10 ms a menos na abertura).
+let qrcodeLib = null;
+const QRCode = () => qrcodeLib || (qrcodeLib = require('qrcode'));
 const { resolveStatic } = require('./staticFiles');
 const { LocalAccounts, MAX_AVATAR } = require('./musicianAccounts');
 const { LocalRepertoire } = require('./localRepertoire');
+const { PinThrottle } = require('./pinThrottle');
 
 // O que o produtor escolhe para toda a letra e vai gravado no projeto do show.
 const LYRIC_STYLE_KEYS = ['fontScale', 'lyricColor', 'lyricFont', 'lyricAlign', 'lyricLead'];
@@ -18,8 +21,6 @@ const ONLINE_WINDOW_MS = 10_000;
 const MAX_BODY = 4 * 1024 * 1024;
 // Foto de perfil do músico: a foto e a moldura do JSON.
 const AVATAR_BODY = MAX_AVATAR + 1024;
-const FAIL_LIMIT = 8;
-const FAIL_WINDOW_MS = 5 * 60_000;
 const SCREEN_CODE = 'TELA';
 const ROLES = new Set(['musician', 'producer', 'screen', 'remote']);
 // Caminho da área (músico, produtor, tela, controle remoto celular) no link.
@@ -101,6 +102,21 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
+/**
+ * O pedido veio por um endereço deste servidor? IP, localhost, vsstage.local ou o nome do Mac.
+ * Barra o "DNS rebinding": um site da internet que aponta o próprio domínio para este Mac chega
+ * aqui com o nome dele no Host, e nenhum aparelho do show usa um nome desses.
+ */
+function allowedHost(header) {
+  if (!header) return true;
+  const value = String(header).trim().toLowerCase();
+  if (/^\d{1,3}(\.\d{1,3}){3}(:\d{1,5})?$/.test(value)) return true;
+  if (/^\[[0-9a-f:.]+\](:\d{1,5})?$/.test(value)) return true;
+  const name = value.replace(/:\d{1,5}$/, '').replace(/\.$/, '');
+  const mac = os.hostname().toLowerCase().replace(/\.local$/, '');
+  return name === 'localhost' || name === HOST_NAME || name === mac || name === `${mac}.local`;
+}
+
 class LocalServer {
   constructor({ webRoot, storePath, version, onTransportCommand, onAccountsChange, onProjectSave }) {
     this.webRoot = webRoot;
@@ -119,7 +135,7 @@ class LocalServer {
     this.routeAt = 0;
     this.routeTask = null;
     this.sessions = new Map();
-    this.failures = new Map();
+    this.pinThrottle = new PinThrottle();
     // Sessões derrubadas pelo "Desconectar" do diretor (ver kick).
     this.kicked = new Set();
     this.published = null;
@@ -258,7 +274,7 @@ class LocalServer {
 
   start() {
     if (this.server) return Promise.resolve();
-    this.failures.clear();
+    this.pinThrottle.clear();
     return new Promise((resolve) => {
       const server = http.createServer((req, res) => this.handle(req, res).catch(() => this.json(res, 500, { error: 'server_error' })));
       let port = DEFAULT_PORT;
@@ -322,6 +338,7 @@ class LocalServer {
 
   // Registra vsstage.local com o próprio Bonjour do macOS, apontando para o IP atual.
   refreshMdns() {
+    if (this.running && process.platform === 'win32') { this.refreshMdnsWin(); return; }
     if (!this.running || process.platform !== 'darwin') return;
     const ip = this.addresses()[0] || null;
     if (ip === this.mdnsAddress && this.mdns) return;
@@ -331,6 +348,30 @@ class LocalServer {
     try {
       this.mdns = spawn('/usr/bin/dns-sd', ['-P', 'VS Stage', '_http._tcp', 'local', String(this.port), HOST_NAME, ip], { stdio: 'ignore' });
       this.mdns.on('exit', () => { this.mdns = null; });
+    } catch {
+      this.mdns = null;
+    }
+  }
+
+  /**
+   * Windows não tem o dns-sd do Mac: o próprio programa responde as perguntas de rede por
+   * vsstage.local (multicast DNS), apontando para o IP atual. Mesmo efeito para os celulares.
+   */
+  refreshMdnsWin() {
+    const ip = lanAddresses()[0] || null;
+    this.mdnsAddress = ip;
+    if (!ip) { this.stopMdns(); return; }
+    if (this.mdns) return; // o responder lê this.mdnsAddress a cada pergunta
+    try {
+      const responder = require('multicast-dns')();
+      responder.on('query', (q) => {
+        const addr = this.mdnsAddress;
+        if (!addr) return;
+        const asks = (q.questions || []).some((x) => x.name?.toLowerCase() === HOST_NAME && (x.type === 'A' || x.type === 'ANY'));
+        if (asks) responder.respond({ answers: [{ name: HOST_NAME, type: 'A', ttl: 120, data: addr }] });
+      });
+      responder.on('error', () => { /* rede caiu: tenta de novo no próximo refresh */ });
+      this.mdns = { kill: () => { try { responder.destroy(); } catch { /* já fechado */ } }, killed: false };
     } catch {
       this.mdns = null;
     }
@@ -379,7 +420,7 @@ class LocalServer {
 
   async qr(text) {
     if (!this.qrCache.has(text)) {
-      this.qrCache.set(text, await QRCode.toDataURL(text, { margin: 1, width: 256, errorCorrectionLevel: 'M' }));
+      this.qrCache.set(text, await QRCode().toDataURL(text, { margin: 1, width: 256, errorCorrectionLevel: 'M' }));
     }
     return this.qrCache.get(text);
   }
@@ -439,7 +480,7 @@ class LocalServer {
     this.pins = { ...this.pins, [role]: newPin(...PIN_ROLES.map((r) => this.pins[r])) };
     for (const [token, s] of this.sessions) if (s.role === role) this.sessions.delete(token);
     // PIN novo tira todo mundo daquele papel: quem não souber o PIN novo não entra mais.
-    this.failures.clear();
+    this.pinThrottle.clear();
     this.persist();
   }
 
@@ -523,30 +564,9 @@ class LocalServer {
     return addr === '127.0.0.1' || addr === '::1' || addr === '';
   }
 
-  /**
-   * Bloqueio por tentativas erradas.
-   *
-   * Histórico: a primeira versão congelava o horário do primeiro erro e o endereço ficava preso
-   * para sempre. A segunda tentou janela deslizante, mas o cliente consulta o estado a cada
-   * 250 ms; cada consulta recusada contava como erro nova e renovava a janela, então o PIN certo
-   * continuava bloqueado mesmo depois de minutos sem ninguém digitar nada (medido em 06/11/2026:
-   * 6 minutos parado e ainda 429).
-   *
-   * Regra atual: só conta tentativa de LOGIN. Tentativa recusada durante o bloqueio não conta,
-   * porque não é senha errada — é espera. A janela expira sem depender da sorte do intervalo.
-   */
-  tooManyFailures(addr) {
-    const f = this.failures.get(addr);
-    if (!f) return false;
-    if (Date.now() - f.last >= FAIL_WINDOW_MS) { this.failures.delete(addr); return false; }
-    return f.count >= FAIL_LIMIT;
-  }
-
+  /** Erro de PIN ou senha: conta para o freio de tentativas (ver pinThrottle.js). */
   noteFailure(addr) {
-    const f = this.failures.get(addr);
-    const now = Date.now();
-    if (!f || now - f.last >= FAIL_WINDOW_MS) this.failures.set(addr, { count: 1, last: now });
-    else { f.count += 1; f.last = now; }
+    this.pinThrottle.note(addr);
   }
 
   session(req) {
@@ -559,6 +579,7 @@ class LocalServer {
   }
 
   async handle(req, res) {
+    if (!allowedHost(req.headers.host)) return this.json(res, 403, { error: 'bad_host' });
     const url = new URL(req.url, 'http://local');
     if (url.pathname.startsWith('/api/local/')) return this.api(req, res, url.pathname.slice('/api/local/'.length));
     if (req.method !== 'GET' && req.method !== 'HEAD') return this.json(res, 405, { error: 'method' });
@@ -624,32 +645,18 @@ class LocalServer {
 
     if (route === 'login' && req.method === 'POST') {
       const addr = this.address(req);
-      // O bloqueio só vale para aparelho na rede (celular, tablet, TV). Quem está operando no
-      // próprio Mac do diretor nunca fica trancado: é ele que está no palco com a TV à vista.
-      // Antes o limite valia para o IP do link (`192.168.x.x:8080/produtor`), e o produtor
-      // recebia "muitas tentativas erradas" com o PIN certo, sem ter como sair.
-      // O limite NÃO barra o login, em nenhum aparelho.
-      //
-      // Numa mesa de som não existe "espere 5 minutos": se o PIN certo for digitado, tem que
-      // entrar. Medido em 06/11/2026: o produtor ficou 6 minutos sem digitar nada e o link
-      // `192.168.x.x:8080/produtor` ainda respondia `too_many_attempts`, porque a página consulta
-      // o estado a cada 250 ms e cada consulta recusada renovava a janela.
-      //
-      // O contador continua existindo só para registro (console), sem trancar ninguém.
-      const throttled = this.tooManyFailures(addr);
-      if (throttled) console.warn(`[rede local] ${addr} acumulou ${this.failures.get(addr)?.count} erros de PIN; login segue liberado.`);
+      // O PIN certo sempre entra. Quem acumula erros só espera até 2 segundos por tentativa, uma de
+      // cada vez (pinThrottle.js). Em 06/11/2026 um bloqueio de minutos trancou o produtor com o
+      // PIN certo, por isso aqui não existe recusa por excesso de erros.
       const body = await this.readBody(req).catch(() => null);
       const role = body?.role;
       if (!ROLES.has(role)) return this.json(res, 400, { error: 'bad_request' });
-      if (role === 'musician') return this.musicianLogin(res, body, addr);
-      const pin = String(body.pin ?? '');
-      const valid = role === 'screen' ? pin.toUpperCase() === SCREEN_CODE : safeEqual(pin, this.pins[role]);
-      if (!valid) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
-      this.failures.delete(addr);
-      const token = crypto.randomBytes(24).toString('base64url');
-      const name = String(body.name ?? '').trim().slice(0, 60) || (role === 'screen' ? 'Tela do palco' : 'Sem nome');
-      this.sessions.set(token, { id: crypto.randomUUID(), role, name, address: addr, lastSeen: Date.now(), since: Date.now() });
-      return this.json(res, 200, { token });
+      // Aparelho lembrado: o código tem 24 bytes aleatórios, não há o que adivinhar nem o que frear.
+      if (role === 'musician' && body.mode === 'resume') return this.musicianLogin(res, body, addr);
+      const done = await this.pinThrottle.run(addr, () => this.checkLogin(res, body, role, addr));
+      // Mais de 3 tentativas ao mesmo tempo do mesmo aparelho: o celular tenta de novo sozinho.
+      if (done === PinThrottle.BUSY) return this.json(res, 503, { error: 'not_ready' });
+      return done;
     }
 
     // Sessão que não existe mais. Derrubada pelo diretor: `disconnected` (o celular volta para a
@@ -781,20 +788,32 @@ class LocalServer {
     return this.json(res, 404, { error: 'not_found' });
   }
 
+  checkLogin(res, body, role, addr) {
+    if (role === 'musician') return this.musicianLogin(res, body, addr);
+    const pin = String(body.pin ?? '');
+    const valid = role === 'screen' ? pin.toUpperCase() === SCREEN_CODE : safeEqual(pin, this.pins[role]);
+    if (!valid) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
+    const token = crypto.randomBytes(24).toString('base64url');
+    const name = String(body.name ?? '').trim().slice(0, 60) || (role === 'screen' ? 'Tela do palco' : 'Sem nome');
+    this.sessions.set(token, { id: crypto.randomUUID(), role, name, address: addr, lastSeen: Date.now(), since: Date.now() });
+    return this.json(res, 200, { token });
+  }
+
   /**
    * Entrada do músico: `mode`
    * - `signup`: PIN dos músicos + nome, instrumento, usuário e senha. A conta nasce pendente.
    * - `login`: usuário e senha. Senha zerada pelo diretor: PIN + `newPassword`.
    * - `resume`: o aparelho lembrado (`remember`), sem digitar nada.
    * Pendente responde `{ pending: true, remember }`: o celular espera o diretor aprovar.
+   * A senha (bcrypt) é conferida num worker: a janela do diretor não para a cada músico que entra.
    */
-  musicianLogin(res, body, addr) {
+  async musicianLogin(res, body, addr) {
     const mode = String(body.mode ?? 'login');
     const pinOk = safeEqual(String(body.pin ?? ''), this.pins.musician);
     let result;
     if (mode === 'signup') {
       if (!pinOk) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
-      result = this.accounts.signup({ username: body.username, password: body.password, name: body.name, instrument: body.instrument });
+      result = await this.accounts.signupAsync({ username: body.username, password: body.password, name: body.name, instrument: body.instrument });
       if (result.account && !result.error) result = { account: result.account, error: 'pending' };
     } else if (mode === 'resume') {
       // Programa reaberto: o servidor liga antes de o projeto mandar o livro de contas. Sem o
@@ -806,14 +825,13 @@ class LocalServer {
       result = this.accounts.resume(body.remember);
     } else {
       if (body.newPassword && !pinOk) { this.noteFailure(addr); return this.json(res, 401, { error: 'invalid_code' }); }
-      result = this.accounts.login({ username: body.username, password: body.password, newPassword: body.newPassword, pinOk });
+      result = await this.accounts.loginAsync({ username: body.username, password: body.password, newPassword: body.newPassword, pinOk });
     }
     if (!result.account) {
-      if (result.error === 'wrong_login') this.noteFailure(addr);
+      if (result.error === 'wrong_login' && mode !== 'resume') this.noteFailure(addr);
       const status = { wrong_login: 401, disconnected: 401, blocked: 403, username_taken: 409, needs_password: 409 }[result.error] || 400;
       return this.json(res, status, { error: result.error || 'bad_request' });
     }
-    this.failures.delete(addr);
     const acc = result.account;
     const remember = mode === 'resume' ? String(body.remember) : this.accounts.remember(acc);
     if (result.error === 'pending') return this.json(res, 202, { pending: true, remember, name: acc.name });
@@ -881,4 +899,4 @@ class LocalServer {
   }
 }
 
-module.exports = { LocalServer, lanAddresses, lanInterfaces, rankInterfaces, defaultRoute, HOST_NAME };
+module.exports = { LocalServer, allowedHost, lanAddresses, lanInterfaces, rankInterfaces, defaultRoute, HOST_NAME };

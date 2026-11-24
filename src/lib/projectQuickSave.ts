@@ -145,12 +145,18 @@ export async function saveCurrentProject(opts: { now?: boolean } = {}): Promise<
   saveController = new AbortController();
   const signal = saveController.signal;
   st.setSaveStatus({ kind: 'saving', message: 'Salvando...' });
+  // Backup leve (só estrutura, sem áudio) do que está sendo salvo: guarda os últimos 10 salvamentos
+  // deste projeto com horário, para poder voltar a uma versão anterior quando precisar. Antes cada
+  // ⌘S sem mudança gravava mais uma cópia igual, e dez deles seguidos apagavam todos os backups
+  // úteis (só 10 ficam). Com mudança no projeto, começa antes de gravar, como sempre (se o programa
+  // cair no meio do salvar, ele já foi guardado). Sem mudança no projeto, espera saber se o arquivo
+  // muda (zoom, pads): "nada mudou" não guarda; falhou ou cancelou guarda, como antes.
+  let backupAfter = !hasUnsavedChanges(st);
+  if (!backupAfter) void saveProjectBackup(st);
   try {
-    // Backup leve (só estrutura, sem áudio) antes de sobrescrever: guarda os últimos 10 salvamentos
-    // deste projeto com horário, para poder voltar a uma versão anterior quando precisar.
-    void saveProjectBackup(st);
     const res = await quickSave(st, target, (message) => useStore.getState().setExportProgress({ active: true, message }), signal);
     const { missingCount, unchanged } = res;
+    if (unchanged) backupAfter = false;
     useStore.getState().setExportProgress(null);
     // salvo do jeito que estava ao começar: o que mudou durante o salvamento continua pendente
     useStore.getState().markProjectSaved(st);
@@ -195,5 +201,6 @@ export async function saveCurrentProject(opts: { now?: boolean } = {}): Promise<
     return false;
   } finally {
     saveController = null;
+    if (backupAfter) void saveProjectBackup(st);
   }
 }

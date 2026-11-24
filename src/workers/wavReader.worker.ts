@@ -2,7 +2,9 @@
 // Se a taxa do arquivo for outra, converte aqui mesmo. A conversão de cada amostra só depende
 // do arquivo, então ler só o começo dá exatamente o começo da leitura inteira.
 
-type Req = { id: number; blob: Blob; targetRate: number; maxFrames: number; probeOnly: boolean; startFrame?: number; peaksPer?: number };
+// key: identidade estável do arquivo na tela (o mesmo Blob dá sempre a mesma chave). O Blob chega
+// copiado em cada mensagem, então só a chave diz que é o mesmo arquivo de antes.
+type Req = { id: number; blob: Blob; targetRate: number; maxFrames: number; probeOnly: boolean; startFrame?: number; peaksPer?: number; key?: string };
 
 type Res =
   | { id: number; ok: true; sampleRate: number; sourceRate: number; totalFrames: number; channels: Int16Array[]; channelCount?: number; peaks?: Uint8Array }
@@ -52,6 +54,26 @@ async function parseHeader(blob: Blob): Promise<WavInfo | null> {
     o += 8 + size + (size & 1);
   }
   return null;
+}
+
+// Cabeçalho já lido, por arquivo: cada trecho da música no ar deixa de reler 64 KB do disco e de
+// refazer a leitura dos blocos do WAV. Um Blob nunca muda, então o cabeçalho de uma chave vale
+// para sempre; o limite só segura a memória do worker numa sessão longa.
+const HEADER_CACHE_MAX = 256;
+const headers = new Map<string, Promise<WavInfo | null>>();
+
+function headerFor(blob: Blob, key: string | undefined): Promise<WavInfo | null> {
+  // sem chave (ou com outro tamanho de arquivo): lê de novo, como antes
+  const k = key ? `${key}|${blob.size}` : '';
+  if (!k) return parseHeader(blob);
+  const hit = headers.get(k);
+  if (hit) return hit;
+  const p = parseHeader(blob);
+  headers.set(k, p);
+  if (headers.size > HEADER_CACHE_MAX) headers.delete(headers.keys().next().value as string);
+  // falha não fica guardada: a próxima mensagem tenta ler de novo
+  p.then((info) => { if (!info && headers.get(k) === p) headers.delete(k); }, () => { if (headers.get(k) === p) headers.delete(k); });
+  return p;
 }
 
 // Mesma conta de encodeFineChunk (src/lib/waveColumns.ts), repetida aqui: o worker fica sem
@@ -202,11 +224,18 @@ function resampleRange(src: Float32Array, s0: number, srcTotal: number, srcRate:
     const ph = Math.round((t - base) * PHASES);
     const row = ph * TAPS;
     const first = base - HALF_TAPS + 1;
+    const l0 = first - s0;
     let acc = 0;
-    for (let k = 0; k < TAPS; k++) {
-      const j = first + k;
-      const l = j - s0;
-      if (j >= 0 && j < srcTotal && l >= 0 && l < have) acc += src[l] * table[row + k];
+    // Miolo (quase todas as saídas): os TAPS coeficientes caem dentro do arquivo e do pedaço lido.
+    // Soma os mesmos termos na mesma ordem do laço com conferência, então o resultado é idêntico.
+    if (first >= 0 && first + TAPS <= srcTotal && l0 >= 0 && l0 + TAPS <= have) {
+      for (let k = 0; k < TAPS; k++) acc += src[l0 + k] * table[row + k];
+    } else {
+      for (let k = 0; k < TAPS; k++) {
+        const j = first + k;
+        const l = j - s0;
+        if (j >= 0 && j < srcTotal && l >= 0 && l < have) acc += src[l] * table[row + k];
+      }
     }
     out[o] = clamp16(acc);
   }
@@ -218,10 +247,10 @@ function outFramesOf(info: WavInfo, targetRate: number): number {
 }
 
 self.onmessage = async (ev: MessageEvent<Req>) => {
-  const { id, blob, targetRate, maxFrames, probeOnly, startFrame, peaksPer } = ev.data;
+  const { id, blob, targetRate, maxFrames, probeOnly, startFrame, peaksPer, key } = ev.data;
   const reply = (res: Res, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(res, transfer);
   try {
-    const info = await parseHeader(blob);
+    const info = await headerFor(blob, key);
     if (!info || info.frames <= 0 || info.rate < 8000 || info.rate > 384000) return reply({ id, ok: false });
     const total = outFramesOf(info, targetRate);
     if (total <= 0) return reply({ id, ok: false });

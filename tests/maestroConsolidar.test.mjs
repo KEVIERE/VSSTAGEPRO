@@ -45,7 +45,7 @@ test('consolidar: vai para a faixa Maestro, tira falas e marcações num passo s
   assert.match(read('lib/audioEngine.ts'), /track\.id === 'track-maestro' \|\| track\.id === 'track-click'/);
   // pausada pode consolidar; só tocando bloqueia
   assert.match(src, /if \(store\.transport\.isPlaying && store\.transport\.currentSongId === songId\) return 'tocando';/);
-  assert.match(src, /songs: s\.songs\.map\(\(sg\) => \(sg\.id === songId \? \{ \.\.\.sg, narrations: \[\] \} : sg\)\),/);
+  assert.match(src, /: \{ \.\.\.sg, narrations: \[\] \}\)\),/);
   assert.match(src, /audioEngine\.invalidatePrepared\(songId\);/);
   // falas mudas não entram; com solo, só as em solo
   assert.match(src, /const sounding = iaClips\.filter\(\(c\) => \(anySolo \? c\.solo : !c\.mute\)\)/);
@@ -53,4 +53,5 @@ test('consolidar: vai para a faixa Maestro, tira falas e marcações num passo s
   assert.match(src, /if \(!sameClips\) return 'mudou';/);
   const timeline = read('components/TimelinePanel.tsx');
   assert.match(timeline, /aria-label="Consolidar as falas do Maestro IA num áudio só"/);
+  assert.match(timeline, /await runConsolidateMaestroIa\(songId\);/);
 });

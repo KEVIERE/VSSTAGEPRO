@@ -1,19 +1,25 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Search, X } from 'lucide-react';
 import {
-  READY_CUE_GROUPS, findReadyCue, hasRecording, highlightParts, searchReadyCues, type ReadyCue,
+  READY_CUE_GROUPS, cueInPicker, findReadyCue, highlightParts, searchReadyCues, subscribeVoicePacks, voicePacksVersion, type ReadyCue,
 } from '@/lib/maestroCues';
 
 interface ReadyCuePickerProps {
   /** Texto atual da fala: a fala pronta igual a ele fica acesa. */
   text: string;
-  /** Gerando a voz: escolher outra fala espera terminar. */
-  busy: boolean;
   onPick: (cue: ReadyCue) => void;
+  /** O ponteiro chegou na fala: o áudio dela passa na frente da pré-carga. */
+  onPrime?: (text: string) => void;
   /** Enter numa busca sem resultado: o que foi digitado vira o texto da fala (sai na voz do Mac). */
   onFreeText?: (text: string) => void;
+  /** Avisa quais falas estão na tela, para deixar o áudio delas pronto antes do clique. */
+  onVisible?: (texts: string[]) => void;
   /** Põe o cursor na busca ao abrir (marcação nova, ainda sem texto). */
   autoFocus?: boolean;
+  /** Voz escolhida: a lista mostra só as falas que ela tem gravadas. */
+  voice?: string;
+  /** Escolher a fala já toca (voz pronta)? Nas vozes clonadas ela só vai para o texto. */
+  playsOnPick?: boolean;
 }
 
 /** Quantos resultados da busca aparecem de uma vez (o resto aparece refinando a busca). */
@@ -22,18 +28,24 @@ const MAX_RESULTS = 80;
 /** Atributo que pede à janela para o Esc limpar a busca em vez de fechar. */
 export const ESC_CLEARS_ATTR = 'data-esc-clears';
 
-const NO_RECORDING = 'Sem gravação ainda: até ser gravada, sai na voz do Mac';
-
 /**
- * Falas prontas do Maestro por IA: a busca por palavras (em qualquer ordem, sem acento) acha a fala
+ * Falas do Maestro (biblioteca de frases de palco): a busca por palavras (em qualquer ordem, sem acento) acha a fala
  * em todos os assuntos; sem busca, um botão por assunto mostra as falas dele. Teclado: ↑ ↓ andam
- * nos resultados, Enter escolhe (o primeiro, se nada foi marcado), Esc limpa a busca.
+ * nos resultados, Enter escolhe (o primeiro, se nada foi marcado), Esc limpa a busca. Escolher
+ * nunca espera geração: no Maestro IA a fala toca na hora; nas vozes clonadas ela vai para o texto.
  */
-export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFocus = false }: ReadyCuePickerProps) {
+export default function ReadyCuePicker({ text, onPick, onPrime, onFreeText, onVisible, autoFocus = false, voice, playsOnPick = false }: ReadyCuePickerProps) {
   const current = findReadyCue(text);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   // o assunto aberto (Tom, Andamento...); abre no assunto da fala atual
+  const packs = useSyncExternalStore(subscribeVoicePacks, voicePacksVersion);
+  // só os assuntos e as falas que esta voz tem gravados
+  const groups = useMemo(
+    () => READY_CUE_GROUPS.map((g) => ({ ...g, cues: g.cues.filter((c) => cueInPicker(voice, c)) })).filter((g) => g.cues.length > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [voice, packs],
+  );
   const [group, setGroup] = useState<string | null>(
     () => READY_CUE_GROUPS.find((g) => g.cues.some((c) => c.id === current?.id))?.id ?? null,
   );
@@ -41,10 +53,11 @@ export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFoc
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
 
-  const hits = useMemo(() => searchReadyCues(query), [query]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const hits = useMemo(() => searchReadyCues(query, Infinity, (c) => cueInPicker(voice, c)), [query, voice, packs]);
   const shown = hits.slice(0, MAX_RESULTS);
   const searching = query.trim().length > 0;
-  const openGroup = READY_CUE_GROUPS.find((g) => g.id === group);
+  const openGroup = groups.find((g) => g.id === group);
 
   useEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
   // busca nova: o primeiro resultado fica marcado
@@ -54,10 +67,32 @@ export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFoc
     listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
-  const pick = (cue: ReadyCue) => {
-    if (busy) return;
-    onPick(cue);
+  // as falas à vista de verdade (dentro da área rolável): só elas pré-carregam
+  const lastVisible = useRef<string | null>(null);
+  const reportVisible = useCallback(() => {
+    const box = listRef.current;
+    let texts: string[] = [];
+    if (box) {
+      const area = box.getBoundingClientRect();
+      texts = [...box.querySelectorAll<HTMLElement>('[data-cue-text]')]
+        .filter((el) => { const r = el.getBoundingClientRect(); return r.bottom > area.top && r.top < area.bottom; })
+        .map((el) => el.dataset.cueText as string);
+    }
+    const key = texts.join('\n');
+    if (key === lastVisible.current) return;
+    lastVisible.current = key;
+    onVisible?.(texts);
+  }, [onVisible]);
+  const scrollFrame = useRef(0);
+  const onListScroll = () => {
+    if (scrollFrame.current) return;
+    scrollFrame.current = requestAnimationFrame(() => { scrollFrame.current = 0; reportVisible(); });
   };
+  useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
+  const listKey = (searching ? shown.map((h) => h.cue.id) : openGroup?.cues.map((c) => c.id) ?? []).join('\n');
+  useEffect(() => { reportVisible(); }, [listKey, reportVisible]);
+
+  const pick = (cue: ReadyCue) => onPick(cue);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Escape') {
@@ -90,7 +125,7 @@ export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFoc
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           {...{ [ESC_CLEARS_ATTR]: '' }}
-          placeholder="Buscar fala pronta (ex.: sobe tom, refrão 2, só voz)"
+          placeholder="Buscar fala (ex.: sobe tom, refrão 2, só voz)"
           className="flex-1 min-w-0 bg-transparent text-[11px] text-logic-text placeholder:text-logic-text-muted focus:outline-none"
           role="combobox"
           aria-label="Buscar nas falas prontas"
@@ -124,32 +159,33 @@ export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFoc
             id={listId}
             role="listbox"
             aria-label="Falas prontas encontradas"
-            className="console-well max-h-56 overflow-y-auto p-1 flex flex-col animate-[fadeIn_120ms_ease-out]"
+            onScroll={onListScroll}
+            className="console-well max-h-40 overflow-y-auto p-1 flex flex-col animate-[fadeIn_120ms_ease-out]"
           >
             {shown.map((h, i) => {
-              const recorded = hasRecording(h.cue);
               const on = current?.id === h.cue.id;
               return (
                 <button
                   key={h.cue.id}
                   id={`${listId}-${i}`}
                   data-index={i}
+                  data-cue-text={h.cue.text}
                   role="option"
                   aria-selected={i === active}
                   className={`flex items-baseline gap-2 px-1.5 py-1 rounded text-left text-[11px] transition-colors disabled:opacity-50 ${
                     i === active ? 'bg-white/[0.07] shadow-[inset_2px_0_0_rgb(var(--lg-lcd-green))]' : 'hover:bg-white/5'
                   } ${on ? 'text-logic-lcd-green' : 'text-logic-text-dim'}`}
                   onMouseEnter={() => setActive(i)}
+                  onPointerEnter={() => onPrime?.(h.cue.text)}
+                  onPointerDown={() => onPrime?.(h.cue.text)}
                   onClick={() => pick(h.cue)}
-                  disabled={busy}
-                  title={recorded ? 'Usar esta fala pronta (Enter)' : NO_RECORDING}
+                  title={playsOnPick ? 'Tocar esta fala (Enter)' : 'Pôr esta fala no texto (Enter)'}
                 >
                   <span className="flex-1 min-w-0 truncate">
                     {highlightParts(h.cue.text, h.ranges).map((p, k) => (p.match
                       ? <mark key={k} className="bg-transparent text-logic-lcd-green font-semibold">{p.text}</mark>
                       : <span key={k}>{p.text}</span>))}
                   </span>
-                  {!recorded && <span className="text-[9px] text-logic-lcd-amber/70 shrink-0">sem gravação ainda</span>}
                   <span className="text-[9px] uppercase tracking-wider text-logic-text-muted shrink-0">{h.group.label}</span>
                 </button>
               );
@@ -162,17 +198,17 @@ export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFoc
           </div>
         ) : (
           <div className="console-well px-2 py-1.5 text-[10px] text-logic-text-muted leading-snug">
-            Nenhuma fala pronta com essas palavras.
-            {onFreeText ? ' Enter usa o que você escreveu como texto da fala (sai na voz do Mac).' : ''}
+            Nenhuma fala com essas palavras.
+            {onFreeText ? ' Enter usa o que você escreveu como texto da fala.' : ''}
           </div>
         )
       ) : (
         <>
           <div className="flex flex-wrap gap-1" role="group" aria-label="Falas prontas por assunto">
-            {READY_CUE_GROUPS.map((g) => (
+            {groups.map((g) => (
               <button
                 key={g.id}
-                className={`console-key h-6 px-1.5 text-[10px] ${group === g.id ? 'is-lit-green' : ''}`}
+                className={`console-key h-5 px-1.5 text-[10px] ${group === g.id ? 'is-lit-green' : ''}`}
                 onClick={() => setGroup(group === g.id ? null : g.id)}
                 aria-expanded={group === g.id}
               >
@@ -181,31 +217,25 @@ export default function ReadyCuePicker({ text, busy, onPick, onFreeText, autoFoc
             ))}
           </div>
           {openGroup && (
-            <div className="console-well flex flex-wrap gap-1 p-1.5 max-h-48 overflow-y-auto animate-[fadeIn_120ms_ease-out]">
+            <div ref={listRef} onScroll={onListScroll} className="console-well flex flex-wrap gap-1 p-1.5 max-h-32 overflow-y-auto animate-[fadeIn_120ms_ease-out]">
               {openGroup.cues.map((c) => {
                 const on = current?.id === c.id;
-                const recorded = hasRecording(c);
                 return (
                   <button
                     key={c.id}
+                    data-cue-text={c.text}
                     className={`px-1.5 py-1 rounded text-[11px] transition-colors ${
                       on ? 'bg-logic-lcd-green/20 text-logic-lcd-green' : 'text-logic-text-dim hover:text-logic-text hover:bg-white/5'
                     }`}
+                    onPointerEnter={() => onPrime?.(c.text)}
+                    onPointerDown={() => onPrime?.(c.text)}
                     onClick={() => pick(c)}
-                    disabled={busy}
-                    title={recorded ? 'Usar esta fala pronta (voz Felipe ou Bianca, já no tempo)' : NO_RECORDING}
+                    title={playsOnPick ? 'Tocar esta fala' : 'Pôr esta fala no texto'}
                   >
                     {c.text}
-                    {!recorded && <span className="ml-1 inline-block w-1 h-1 rounded-full bg-logic-lcd-amber/60 align-middle" aria-label="sem gravação ainda" />}
                   </button>
                 );
               })}
-              {openGroup.cues.some((c) => !hasRecording(c)) && (
-                <div className="basis-full px-1.5 pt-0.5 text-[10px] text-logic-text-muted">
-                  <span className="inline-block w-1 h-1 rounded-full bg-logic-lcd-amber/60 align-middle mr-1" />
-                  sem gravação ainda: sai na voz do Mac até ser gravada
-                </div>
-              )}
             </div>
           )}
         </>

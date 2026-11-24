@@ -1,5 +1,5 @@
 import AiStemSeparatorDialog from '@/components/AiStemSeparatorDialog';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { Radio } from 'lucide-react';
 import { useStore } from '@/store';
 import { isPixReturnSearch } from '@/lib/pixReturn';
@@ -10,6 +10,7 @@ import { audioEngine, headPitchFor } from '@/lib/audioEngine';
 import { anyGenerating } from '@/lib/maestroVoice';
 import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
+import { createClipUrlReleaser, isBlobUrl } from '@/lib/clipBlobUrls';
 import { computeNextSongId } from '@/lib/playFlow';
 import { togglePlayPause, stopPlayback, startPlayback, watchPlaylistForNextSong, seekToPosition } from '@/lib/transportControl';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
@@ -30,12 +31,7 @@ import ContextMenu from '@/components/ContextMenu';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import ShowManagerDialog from '@/components/ShowManagerDialog';
 import { startMusicianBookSync } from '@/lib/musicianBookSync';
-import MusicianArea from '@/components/MusicianArea';
-import StageScreenPage from '@/components/prompter/StageScreenPage';
-import ProducerArea from '@/components/prompter/ProducerArea';
 import PrompterDialog from '@/components/prompter/PrompterDialog';
-import LocalMusicianArea from '@/components/LocalMusicianArea';
-import LocalLanding from '@/components/LocalLanding';
 import SplashScreen from '@/components/SplashScreen';
 import ReopenLastBar from '@/components/ReopenLastBar';
 import UpdateBanner from '@/components/UpdateBanner';
@@ -51,8 +47,16 @@ const PricingPage = lazy(() => import('@/components/sales/PricingPage'));
 const SubscriptionReturn = lazy(() => import('@/components/SubscriptionReturn'));
 const AdminPage = lazy(() => import('@/components/admin/AdminPage'));
 const AffiliatePage = lazy(() => import('@/components/affiliate/AffiliatePage'));
+// Telas de quem entra por um link próprio (músico, telão, produtor, controle no celular). Só
+// páginas de entrada: janelas usadas durante o show continuam no pacote principal, para nunca
+// dependerem de buscar arquivo com a música tocando.
+const MusicianArea = lazy(() => import('@/components/MusicianArea'));
+const LocalMusicianArea = lazy(() => import('@/components/LocalMusicianArea'));
+const LocalLanding = lazy(() => import('@/components/LocalLanding'));
+const StageScreenPage = lazy(() => import('@/components/prompter/StageScreenPage'));
+const ProducerArea = lazy(() => import('@/components/prompter/ProducerArea'));
+const MobileShowRemote = lazy(() => import('@/components/MobileShowRemote'));
 import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
-import MobileShowRemote from '@/components/MobileShowRemote';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog';
 import ImportDuplicateDialog from '@/components/ImportDuplicateDialog';
@@ -75,8 +79,11 @@ import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
 import { startSongKeyWatcher } from '@/lib/songKeyWatcher';
+import { startTempoMapWatcher } from '@/lib/tempoMapWatcher';
 
 // Enquanto chega o código de uma página do site: só o fundo, sem piscar branco.
+const releaseClipUrls = createClipUrlReleaser();
+
 function SitePageFallback() {
   return <div className="min-h-screen bg-black" />;
 }
@@ -152,6 +159,29 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
 
 /** Depois de editar clipes com a música parada, espera a edição sossegar antes de preparar de novo. */
 const REPREPARE_AFTER_EDIT_MS = 1200;
+
+/**
+ * A limpeza da memória precisa percorrer o histórico do desfazer de novo? Com os mesmos clipes e
+ * o mesmo histórico da última vez, a volta não solta nada: trocar a selecionada ou a próxima (logo
+ * depois do Play, no meio da largada) não paga mais essa volta. O desfazer troca pastStates ou
+ * futureStates por uma lista nova a cada passo (gravar, desfazer, refazer, limpar), então comparar
+ * as duas listas pega qualquer mudança no histórico. Se alguma música estava abrindo, a limpeza
+ * pulou o áudio dela: a próxima volta confere de novo, como antes.
+ */
+function createPruneGate() {
+  let clips: unknown = null;
+  let past: unknown = null;
+  let future: unknown = null;
+  let again = true;
+  return (now: { clips: unknown; past: unknown; future: unknown; loading: boolean }): boolean => {
+    if (!again && now.clips === clips && now.past === past && now.future === future) return false;
+    clips = now.clips;
+    past = now.past;
+    future = now.future;
+    again = now.loading;
+    return true;
+  };
+}
 
 function App() {
   const [route, setRoute] = useState(routeFromUrl);
@@ -245,7 +275,7 @@ function App() {
   if (route === 'screen') {
     return (
       <ErrorBoundary>
-        <StageScreenPage />
+        <Suspense fallback={<SitePageFallback />}><StageScreenPage /></Suspense>
       </ErrorBoundary>
     );
   }
@@ -259,21 +289,21 @@ function App() {
   if (route === 'remote') {
     return (
       <ErrorBoundary>
-        <MobileShowRemote />
+        <Suspense fallback={<SitePageFallback />}><MobileShowRemote /></Suspense>
       </ErrorBoundary>
     );
   }
   if (route === 'producer') {
     return (
       <ErrorBoundary>
-        <ProducerArea />
+        <Suspense fallback={<SitePageFallback />}><ProducerArea /></Suspense>
       </ErrorBoundary>
     );
   }
   if (route === 'musician') {
     return (
       <ErrorBoundary>
-        {isLocalClient() ? <LocalMusicianArea /> : <MusicianArea />}
+        <Suspense fallback={<SitePageFallback />}>{isLocalClient() ? <LocalMusicianArea /> : <MusicianArea />}</Suspense>
       </ErrorBoundary>
     );
   }
@@ -312,7 +342,7 @@ function App() {
       </ErrorBoundary>
     );
   }
-  if (isLocalClient()) return <LocalLanding />;
+  if (isLocalClient()) return <Suspense fallback={<SitePageFallback />}><LocalLanding /></Suspense>;
   return (
     <>
       <DirectorAccess>
@@ -351,6 +381,13 @@ export function DirectorApp({ license }: { license: License }) {
   const playlistMaximized = useStore((s) => s.playlistMaximized);
   const playlistVisible = useStore((s) => s.playlistVisible || s.showBpmTower || s.showTunerTower);
   const audioDeviceDialogOpen = useStore((s) => s.audioDeviceDialogOpen);
+  // Funções e o selo do teste estáveis: a barra de menu, o transporte, a playlist e o Modo Show
+  // estão em memo e não redesenham só porque o App redesenhou (consulta da rede, janela aberta).
+  const openShowManager = useCallback(() => setShowManagerOpen(true), []);
+  const openPrompter = useCallback(() => setPrompterOpen(true), []);
+  const openLocal = useCallback(() => setLocalOpen(true), []);
+  const openAiSeparator = useCallback(() => setAiSeparatorOpen(true), []);
+  const trialBadge = useMemo(() => <TrialBadge license={license} />, [license]);
 
   // Quando o produtor salva as letras, o programa guarda o projeto sozinho.
   // Mas gravar no arquivo pode precisar da permissão do Mac, que só vale com um clique da
@@ -563,6 +600,8 @@ export function DirectorApp({ license }: { license: License }) {
   useEffect(() => startSongLevelWatcher(), []);
   // IA de tom: descobre o tom das músicas do show em segundo plano
   useEffect(() => startSongKeyWatcher(), []);
+  // mapa de andamento salvo errado: confere contra a faixa de click, com o programa parado
+  useEffect(() => startTempoMapWatcher(), []);
 
   useEffect(() => {
     window.addEventListener('pointerdown', beginGesture, true);
@@ -671,16 +710,17 @@ export function DirectorApp({ license }: { license: License }) {
     const unsub = useStore.subscribe((state) => {
       if (state.clips === prevClips) return;
       const nextSoloHash = soloHashOf(state.clips);
+      // Se clipes foram removidos (Delete, Undo ou fala regerada em solo), para os nós de áudio
+      // imediatamente, mesmo quando o solo mudou junto: senão a voz antiga soa junto com a nova.
+      const nextIds = new Set(state.clips.map((c) => c.id));
+      const removed = prevClips.filter((c) => !nextIds.has(c.id)).map((c) => c.id);
+      if (removed.length > 0) {
+        audioEngine.stopClipsLive(removed);
+      }
       if (nextSoloHash !== prevSoloHash) {
         for (const c of state.clips) audioEngine.updateClipParams(c.id);
       } else {
         const prevById = new Map(prevClips.map((c) => [c.id, c]));
-        const nextIds = new Set(state.clips.map((c) => c.id));
-        // Se clipes foram removidos (Delete ou Undo), para os nós de áudio imediatamente
-        const removed = prevClips.filter((c) => !nextIds.has(c.id)).map((c) => c.id);
-        if (removed.length > 0) {
-          audioEngine.stopClipsLive(removed);
-        }
 
         for (const c of state.clips) {
           const p = prevById.get(c.id);
@@ -720,6 +760,7 @@ export function DirectorApp({ license }: { license: License }) {
   // mudanças estruturais — BPM/afinador são aplicados ao vivo no preparo em cache.
   useEffect(() => {
     let timer: number | null = null;
+    const needsPrune = createPruneGate();
     const schedule = (delay = 150) => {
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -733,9 +774,17 @@ export function DirectorApp({ license }: { license: License }) {
           ?? (anchor ? computeNextSongId(anchor, st.playlist, st.playlistOrder, st.transport.playFlow) : null);
         const keep = [playingId, selId, nextId];
         const { pastStates, futureStates } = useStore.temporal.getState();
-        const historyIds = new Set<string>();
-        for (const h of [...pastStates, ...futureStates]) h.clips?.forEach((c) => historyIds.add(c.id));
-        pruneAudioLibrary(new Set(st.clips.map((c) => c.id)), historyIds);
+        if (needsPrune({ clips: st.clips, past: pastStates, future: futureStates, loading: st.loadingSongIds.length > 0 })) {
+          const historyIds = new Set<string>();
+          const urlsInUse = new Set<string>();
+          const noteUrl = (path: unknown) => { if (isBlobUrl(path)) urlsInUse.add(path); };
+          for (const h of [...pastStates, ...futureStates]) {
+            h.clips?.forEach((c) => { historyIds.add(c.id); noteUrl(c.filePath); });
+          }
+          st.clips.forEach((c) => noteUrl(c.filePath));
+          pruneAudioLibrary(new Set(st.clips.map((c) => c.id)), historyIds);
+          releaseClipUrls(urlsInUse);
+        }
         retainSongs(keep);
         audioEngine.releaseUnretained(keep);
         const first = selId ?? playingId;
@@ -806,9 +855,9 @@ export function DirectorApp({ license }: { license: License }) {
         {!playlistMaximized && (
           <>
             <MenuBar
-              trialBadge={<TrialBadge license={license} />}
-              onOpenShowManager={() => setShowManagerOpen(true)} onOpenPrompter={() => setPrompterOpen(true)}
-              onOpenLocal={() => setLocalOpen(true)} onOpenAiSeparator={() => setAiSeparatorOpen(true)} broadcast={broadcast} local={local}
+              trialBadge={trialBadge}
+              onOpenShowManager={openShowManager} onOpenPrompter={openPrompter}
+              onOpenLocal={openLocal} onOpenAiSeparator={openAiSeparator} broadcast={broadcast} local={local}
               pendingRequests={pendingRequests}
             />
             <TransportBar />
@@ -852,7 +901,7 @@ export function DirectorApp({ license }: { license: License }) {
               playlist, sem desmontar e montar tudo de novo no mesmo quadro (era a travada ao abrir). */}
           <div className={playlistMaximized ? 'flex flex-col flex-1 min-w-0 min-h-0' : 'contents'}>
             <div className={playlistMaximized ? 'flex-1 min-h-0 overflow-hidden' : 'contents'}>
-              {(playlistMaximized || playlistVisible) && <PlaylistPanel maximized={playlistMaximized} onOpenAiSeparator={() => setAiSeparatorOpen(true)} />}
+              {(playlistMaximized || playlistVisible) && <PlaylistPanel maximized={playlistMaximized} onOpenAiSeparator={openAiSeparator} />}
             </div>
             {/* Pads (tecla P) no lugar do mixer (tecla M) */}
             {playlistMaximized && <PadsOrMixer />}

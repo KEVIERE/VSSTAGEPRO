@@ -233,15 +233,59 @@ export function detectRobustBpm(
   return Math.round(bestFineBpm * 100) / 100;
 }
 
+/** RMS dos primeiros `seconds` segundos, em todos os canais. */
+function rmsOver(buffer: AudioBuffer, seconds: number): number {
+  const n = Math.min(buffer.length, Math.floor(buffer.sampleRate * seconds));
+  if (n <= 0) return 0;
+  let sum = 0;
+  for (let c = 0; c < buffer.numberOfChannels; c++) {
+    const ch = buffer.getChannelData(c);
+    for (let i = 0; i < n; i += 4) sum += ch[i] * ch[i];
+  }
+  return Math.sqrt(sum / ((n / 4) * buffer.numberOfChannels));
+}
+
+/** Abaixo disto (-20 dB da mistura) o stem de bateria é só vazamento: a música não tem bateria. */
+const DRUMS_MIN_LEVEL = 0.1;
+
+/** O stem tem bateria de verdade? Mudo ou só com vazamento, a fase e a entrada saem da mistura. */
+export function stemHasDrums(drums: AudioBuffer, mix: AudioBuffer, seconds = 45): boolean {
+  const reference = rmsOver(mix, seconds);
+  return reference > 0 && rmsOver(drums, seconds) >= reference * DRUMS_MIN_LEVEL;
+}
+
+/** Silêncio digital mínimo antes do áudio para ele contar como entrada da música. */
+const MIN_LEAD_SILENCE_SEC = 0.05;
+/** Abaixo disto é zero digital (ou o resto de um decodificador), não som. */
+const DIGITAL_SILENCE = 1e-4;
+
+/**
+ * Onde o áudio começa depois de silêncio digital, ou null se a faixa já começa com som. Em faixa
+ * exportada de um programa de gravação, esse ponto é o começo do trecho na grade, mesmo quando a
+ * primeira nota ainda vem baixa.
+ */
+export function audioEntryTime(buffer: AudioBuffer): number | null {
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  for (let i = 0; i < buffer.length; i++) {
+    if (channels.some((ch) => Math.abs(ch[i]) > DIGITAL_SILENCE)) {
+      return i >= Math.round(MIN_LEAD_SILENCE_SEC * buffer.sampleRate) ? i / buffer.sampleRate : null;
+    }
+  }
+  return null;
+}
+
 /**
  * Calcula o alinhamento musical milimétrico entre a contagem de compasso e o áudio da música.
  */
 export function calculateMusicalAlignment(
   audioBuffer: AudioBuffer,
-  drumsBuffer: AudioBuffer | null,
+  stemDrums: AudioBuffer | null,
   bpm: number,
   beatsPerBar = 4
 ): MusicalAlignmentResult {
+  // Sem bateria audível, a varredura de fase não teria onde se apoiar e a grade ficaria presa ao
+  // início do arquivo: em música que não começa na batida, tudo saía fora.
+  const drumsBuffer = stemDrums && stemHasDrums(stemDrums, audioBuffer) ? stemDrums : null;
   const sr = audioBuffer.sampleRate;
   // Refina e garante que o BPM é estritamente válido
   const verifiedBpm = bpm > 0 ? bpm : detectRobustBpm(audioBuffer, drumsBuffer);

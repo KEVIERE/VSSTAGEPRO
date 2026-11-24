@@ -5,12 +5,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { READY_CUE_GROUPS, READY_INTENSITIES, READY_VOICES, RECORDED_CUE_IDS, findReadyCue, hasRecording, readyCueUrl, readyVoice, readyVoiceId, recordedIntensity, cueKey } from '../src/lib/maestroCues.ts';
+import { READY_CUE_GROUPS, READY_INTENSITIES, READY_VOICES, RECORDED_CUE_IDS, cueInPicker, findReadyCue, hasRecording, readyCueUrl, readyVoice, readyVoiceId, recordedIntensity, cueKey } from '../src/lib/maestroCues.ts';
 
 const all = READY_CUE_GROUPS.flatMap((g) => g.cues);
 
+test('contagem sai da lista de falas, mas o botão Contagem e projetos antigos continuam achando', () => {
+  for (const id of ['um', 'tres', 'quinze', 'um-dois-tres', 'tres-dois-um']) {
+    const cue = all.find((c) => c.id === id);
+    assert.ok(cue, id);
+    assert.equal(cueInPicker('pronta:felipe', cue), false, id);
+    assert.equal(findReadyCue(cue.text)?.id, id);
+  }
+  const levada = all.find((c) => c.id === 'levada-quatro-por-quatro');
+  assert.notEqual(levada, undefined);
+  assert.equal(all.find((c) => c.id === 'atencao') && cueInPicker('pronta:felipe', all.find((c) => c.id === 'atencao')), true);
+});
+
 test('toda fala gravada tem o arquivo nas duas vozes (a intensidade que faltar sai na Normal)', () => {
-  for (const v of READY_VOICES) {
+  for (const v of READY_VOICES.filter((x) => x.embedded)) {
     for (const l of READY_INTENSITIES) {
       const voice = readyVoice(readyVoiceId(v, l.id));
       for (const c of all.filter(hasRecording)) {
@@ -25,7 +37,7 @@ test('toda fala gravada tem o arquivo nas duas vozes (a intensidade que faltar s
 test('a lista de gravadas é igual à pasta de cada voz e intensidade (nem falta nem sobra)', () => {
   const ids = new Set(all.map((c) => c.id));
   for (const id of RECORDED_CUE_IDS) assert.ok(ids.has(id), `${id} gravada mas fora da lista de falas`);
-  for (const v of READY_VOICES) {
+  for (const v of READY_VOICES.filter((x) => x.embedded)) {
     for (const l of READY_INTENSITIES) {
       const dir = path.join('public', 'maestro-falas', v.dir, l.id === 'normal' ? '' : l.id);
       const files = fs.readdirSync(dir).filter((f) => f.endsWith('.mp3')).map((f) => f.slice(0, -4)).sort();

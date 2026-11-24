@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useSyncExternalStore } from 'react';
+import { memo, useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { useStore } from '@/store';
 import { useHoverDismiss } from '@/lib/useHoverDismiss';
 import ImportVSDialog from '@/components/ImportVSDialog';
@@ -39,7 +39,7 @@ interface MenuDef {
   items: MenuItem[];
 }
 
-export default function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, local, pendingRequests, trialBadge, onOpenAiSeparator }: {
+function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, local, pendingRequests, trialBadge, onOpenAiSeparator }: {
   onOpenAiSeparator?: () => void;
   onOpenShowManager: () => void; onOpenPrompter: () => void; onOpenLocal: () => void;
   broadcast: LiveBroadcast; local: LocalBroadcast; pendingRequests: number;
@@ -512,3 +512,6 @@ function RecentMenu({ items, onPick, onClear }: {
     </div>
   );
 }
+
+// memo: com as funções do App estáveis, a barra só redesenha quando o que ela mostra muda.
+export default memo(MenuBar);

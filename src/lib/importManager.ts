@@ -1,11 +1,20 @@
-import { decodeFile, generateMarkers } from '@/lib/audioDecoder';
+import { convertForImport, decodeBlob, deviceSampleRate, generateMarkers, importBudgetFallback, importFileBytes, importPeakCount, ImportWorkerError, int16PeaksAsync, songsKeptDuringImport } from '@/lib/audioDecoder';
 import { cleanClipName, routeByName, isUnreadableName } from '@/lib/nameRouter';
 import { audioEngine } from '@/lib/audioEngine';
 import { useStore } from '@/store';
-import { clipAudioToBuffer, clipPlayLength, ensureSongLoaded, getClipAudio, getClipSource, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
+import * as audioLibraryModule from '@/lib/audioLibrary';
+import { channelToFloat, clipAudioToBuffer, clipPlayLength, ensureSongLoaded, getClipAudio, getClipSource, onAudioLibraryCleared, openClipAudio, putClipAudio, registerClipSource, retainSongs, toClipAudioAsync } from '@/lib/audioLibrary';
 import type { ClipAudio } from '@/lib/audioLibrary';
+import { canReadWavDirect, readWav, wavConvertsRate } from '@/lib/wavReader';
+import { waveformPeaksAsync } from '@/lib/waveformPeaks';
+import { computeNextSongId } from '@/lib/playFlow';
 import type { AudioClip, PlaylistEntry, RoutingTarget, Song, SongTempoSegment } from '@/types';
 import { detectBpm, detectClickTempo, type TempoResult } from '@/lib/beatDetector';
+import { clickCoverageNotice, clickWeakNotice, hasTempoChanges, medleyEstimateNotice, readDownbeats, readTempoMap } from '@/lib/medleyTempo';
+import { canReplaceTempoMap, isFinalRitOnly, mapOffShare, oldMapLooksEdited, shouldReplaceTempoMap, tempoMapSignature } from '@/lib/tempoFollow';
+import { BAR_CHECK_VERSION, mixIntoRuler, planBarPhase } from '@/lib/barPhase';
+import { gridClickBuffer, makeClickClip } from '@/lib/clickClip';
+import { clickClipsOf } from '@/lib/clickEdit';
 import { parseWavMetadata } from '@/lib/reaperMetadata';
 import { parseRpp, resolveMediaPath, splitShow, type ShowItem, type ShowSplit } from '@/lib/reaperProject';
 import { REGION_COLORS, presetColor } from '@/lib/regions';
@@ -372,7 +381,7 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
       }
     }
     if (!cancelRequested) {
-      const notices = groups.map((g) => g.notice).filter((n): n is string => !!n);
+      const notices = [...groups.map((g) => g.notice).filter((n): n is string => !!n), ...medleyNotices.splice(0)];
       reportSummary(results, brokenSongs, notices);
       releaseImportedAudio();
       await measurePendingBpm(results);
@@ -412,11 +421,460 @@ function reportSummary(results: SongImportResult[], brokenSongs: string[], notic
 // O BPM é medido pulso a pulso no começo do click (num medley, a primeira música).
 // Não adiciona outros tempos automaticamente na régua: caso o andamento mude lá na frente
 // (ex.: medley), o próprio usuário clica com o botão direito na régua no ponto exato e insere o novo BPM.
-async function applyBpm(songId: string): Promise<boolean> {
+async function applyBpm(songId: string, opts: { createClick?: boolean; asked?: boolean } = {}): Promise<boolean> {
+  const before = useStore.getState().songs.find((s) => s.id === songId);
+  // mapa à mão de projeto antigo: a origem fica registrada antes de qualquer medição
+  if (before && (before.tempoSegments?.length ?? 0) > 1 && before.bpmSource === 'manual' && !before.tempoMapSource) {
+    useStore.getState().updateSong(songId, { tempoMapSource: 'manual' });
+  }
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  const asked = opts.asked ?? false;
+  // mapa travado (à mão, REAPER ou antigo sem registro): nem o BPM nem a origem mudam
+  if (song && lockedTempoMap(song, asked)) return true;
+  // projeto trocado no meio da conta: o resultado é do projeto anterior e não vale para o novo
+  const opened = projectEpoch;
+  const alive = () => opened === projectEpoch;
+  const ok = await applySingleBpm(songId, alive);
+  if (alive()) await applyMedleyMap(songId, opts.createClick ?? false, alive, asked);
+  return ok || !!useStore.getState().songs.find((s) => s.id === songId)?.tempoSegments?.length;
+}
+
+let projectEpoch = 0;
+onAudioLibraryCleared(() => { projectEpoch++; });
+
+// Medley: acha os andamentos de cada música da faixa e põe na grade. Trechos que já existem (feitos
+// à mão ou vindos do REAPER) nunca são trocados, e música de um andamento só fica com o BPM exato do click.
+async function applyMedleyMap(songId: string, createClick: boolean, alive: () => boolean, asked = false): Promise<void> {
+  const state = useStore.getState();
+  const song = state.songs.find((s) => s.id === songId);
+  if (!song || lockedTempoMap(song, asked)) return;
+  const { clickClips, audioFallback } = medleySources(songId);
+  // Com click, os ataques dele bastam (rápido e exato). Sem click, o modelo ouve a bateria ou a mistura.
+  const isClick = clickClips.length > 0;
+  let buffer: AudioBuffer | null = null;
+  let offset = 0;
+  if (clickClips.length > 1) {
+    // o click em mais de um clipe é lido junto, na régua: o mapa vale para a música inteira
+    buffer = await clickRulerBuffer(clickClips, () => !alive());
+    if (!alive()) return;
+  } else {
+    const id = clickClips[0] ?? audioFallback;
+    const audio = id ? getClipAudio(id) : null;
+    const clip = id ? state.clips.find((c) => c.id === id) : null;
+    if (audio && clip) {
+      buffer = clipAudioToBuffer(audio);
+      // a análise conta do começo do arquivo: na régua ele pode começar depois do 0:00 ou com corte
+      offset = clip.startTime - (clip.trimStart ?? 0);
+    }
+  }
+  if (!buffer) return;
+  const reading = await readTempoMap(buffer, song.beatsPerBar ?? 4, {
+    isClick,
+    keepSingle: !isClick,
+    offset,
+    duration: song.duration,
+  });
+  if (!alive()) return;
+  if (reading?.lowCoverage) {
+    medleyNotices.push(clickCoverageNotice(song.name, reading.coverage ?? 0));
+    return;
+  }
+  const map = reading?.map;
+  if (!map) return;
+  const current = useStore.getState().songs.find((s) => s.id === songId);
+  if (!current || lockedTempoMap(current, asked)) return;
+  if (reading?.weakRanges?.length) medleyNotices.push(clickWeakNotice(current.name, reading.weakRanges));
+  const source = isClick ? 'click' : 'audio';
+  const segments = map.tempoSegments;
+  // projeto do REAPER de um andamento só, que o click confirma: a grade é a do REAPER e a conferência
+  // automática não mexe nela (nem no tempo 1)
+  const hint = reaperTempoHints.get(songId);
+  const fromReaper = isClick && !!hint && hint.tempo.length === 1 && Math.abs(hint.tempo[0].bpm - map.bpm) / map.bpm < 0.01
+    && (!segments?.length || !hasTempoChanges(segments));
+  const mapSource = fromReaper ? 'reaper' : source;
+  if (!segments?.length) {
+    // andamento único na grade simples: fica o BPM exato do click (o do detector arredonda e
+    // dobra ou divide), e um mapa automático antigo sai. BPM de projeto que já bate com o click fica.
+    const exact = isClick && current.bpmSource !== 'manual' && Math.abs(current.bpm - map.bpm) > 0.0005;
+    if (exact || current.tempoSegments?.length) setSongBpm(songId, map.bpm, current.bpmSource ?? source);
+    useStore.getState().updateSong(songId, {
+      ...(current.tempoSegments?.length ? { tempoSegments: undefined } : {}),
+      tempoMapSource: mapSource,
+      tempoMapSig: tempoMapSignature(undefined),
+    });
+    return;
+  }
+  setSongBpm(songId, map.bpm, source, 0, segments, mapSource);
+  if (createClick && !isClick && hasTempoChanges(segments) && !isFinalRitOnly(segments)) {
+    await addMedleyClick(songId);
+    medleyNotices.push(medleyEstimateNotice(current.name, segments));
+  }
+}
+
+// Mapa que a medição automática não pode refazer: feito à mão, do REAPER, ou antigo sem registro.
+// `asked` (a pessoa pediu Medir de novo): o REAPER de um andamento só, que veio do click, é medido de novo.
+function lockedTempoMap(song: Song, asked = false): boolean {
+  if ((song.tempoSegments?.length ?? 0) <= 1) return false;
+  if (asked && song.tempoMapSource === 'reaper' && song.bpmSource !== 'manual') return !canReplaceTempoMap({ ...song, tempoMapSource: 'click' });
+  return !song.tempoMapSource || !canReplaceTempoMap(song);
+}
+
+function tempoKeyFor(songId: string, bpm: number, segments: SongTempoSegment[] | undefined): string | null {
+  const state = useStore.getState();
+  const clips = medleySources(songId, true).clickClips.flatMap((id) => state.clips.find((c) => c.id === id) ?? []);
+  if (!clips.length) return null;
+  const spans = clips.map((clip) => [clip.fileName, clip.duration.toFixed(3), clip.startTime.toFixed(3), (clip.trimStart ?? 0).toFixed(3), (clip.trimEnd ?? 0).toFixed(3)].join('/'));
+  return [spans.join('+'), bpm, tempoMapSignature(segments)].join('/');
+}
+
+/** Identifica a conferência de uma música: muda se o mapa ou algum clipe de click mudar. Sem click: null. */
+export function tempoCheckKey(songId: string): string | null {
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  return song ? tempoKeyFor(songId, song.bpm, song.tempoSegments) : null;
+}
+
+/** Marca da conferência do tempo 1: vale para esta versão da regra, este compasso, este mapa e este click. */
+function barMarkFor(songId: string, song: Pick<Song, 'bpm' | 'beatsPerBar' | 'tempoSegments'>): string | null {
+  const key = tempoKeyFor(songId, song.bpm, song.tempoSegments);
+  return key ? `${BAR_CHECK_VERSION}:${song.beatsPerBar ?? 4}:${key}` : null;
+}
+
+export function barCheckMark(songId: string): string | null {
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  return song ? barMarkFor(songId, song) : null;
+}
+
+function strongestChannel(audio: ClipAudio): Int16Array {
+  let channel = audio.channels[0];
+  let top = -1;
+  for (const ch of audio.channels) {
+    let m = 0;
+    for (let i = 0; i < ch.length; i += 64) { const v = Math.abs(ch[i]); if (v > m) m = v; }
+    if (m > top) { top = m; channel = ch; }
+  }
+  return channel;
+}
+
+// Cópia em pedaços, com folga para a tela e para o Play. Um canal basta: o mais forte, porque um
+// click com canais em oposição de fase se cancelaria na mistura.
+async function strongestChannelBuffer(audio: ClipAudio, stop: () => boolean): Promise<AudioBuffer | null> {
+  const channel = strongestChannel(audio);
+  const buffer = new AudioBuffer({ length: audio.length, numberOfChannels: 1, sampleRate: audio.sampleRate });
+  const SLICE = 1 << 18;
+  for (let i = 0; i < channel.length; i += SLICE) {
+    if (stop()) return null;
+    buffer.copyToChannel(channelToFloat(channel.subarray(i, i + SLICE)) as Float32Array<ArrayBuffer>, 0, i);
+    await new Promise((r) => setTimeout(r, 0));
+  }
+  return buffer;
+}
+
+/** Taxa em que os clipes de click são juntados: a mesma da análise. */
+const CLICK_RULER_RATE = 22050;
+
+/**
+ * Todos os clipes de click numa régua só, do 0:00 ao fim do último, respeitando início e corte de cada
+ * um. Clipe sem áudio disponível devolve null: sem cobrir todos, o mapa da música não pode ser refeito.
+ */
+async function clickRulerBuffer(clipIds: string[], stop: () => boolean): Promise<AudioBuffer | null> {
+  const state = useStore.getState();
+  const parts: Array<{ clip: AudioClip; audio: ClipAudio }> = [];
+  for (const id of clipIds) {
+    const clip = state.clips.find((c) => c.id === id);
+    if (!clip) return null;
+    let audio = getClipAudio(id);
+    if (!audio) {
+      const source = getClipSource(id);
+      if (!source) return null;
+      audio = await openClipAudio(clip.songId, id, source);
+      if (stop()) return null;
+    }
+    parts.push({ clip, audio });
+  }
+  const end = Math.max(...parts.map(({ clip }) => clip.startTime + clipPlayLength(clip)));
+  const buffer = new AudioBuffer({ length: Math.ceil(end * CLICK_RULER_RATE), numberOfChannels: 1, sampleRate: CLICK_RULER_RATE });
+  const out = buffer.getChannelData(0);
+  for (const { clip, audio } of parts) {
+    const channel = strongestChannel(audio);
+    const first = Math.round((clip.trimStart ?? 0) * audio.sampleRate);
+    const frames = Math.min(channel.length - first, Math.round(clipPlayLength(clip) * audio.sampleRate));
+    const at = clip.startTime * CLICK_RULER_RATE;
+    const ratio = CLICK_RULER_RATE / audio.sampleRate;
+    const SLICE = 1 << 18;
+    for (let i = 0; i < frames; i += SLICE) {
+      if (stop()) return null;
+      const piece = channelToFloat(channel.subarray(first + i, first + Math.min(frames, i + SLICE)));
+      for (let q = 0; q < piece.length; q++) {
+        const to = Math.round(at + (i + q) * ratio);
+        // clipes sobrepostos: fica o ataque mais forte
+        if (to >= 0 && to < out.length && Math.abs(piece[q]) > Math.abs(out[to])) out[to] = piece[q];
+      }
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  return buffer;
+}
+
+/** O click da música pronto para ler: um clipe só, ou todos juntos na régua. */
+async function savedClickBuffer(songId: string, clips: AudioClip[], clickIds: string[], stop: () => boolean): Promise<{ buffer: AudioBuffer; offset: number } | 'interrupted' | 'failed'> {
+  if (clips.length > 1) {
+    // medley com o click em mais de um clipe: lê todos juntos, ou não troca
+    const buffer = await clickRulerBuffer(clickIds, stop);
+    if (stop()) return 'interrupted';
+    if (!buffer) return 'failed';
+    return { buffer, offset: 0 };
+  }
+  const [clip] = clips;
+  let audio = getClipAudio(clip.id);
+  if (!audio) {
+    // logo ao abrir o projeto o arquivo do clipe pode ainda não estar registrado
+    const source = getClipSource(clip.id);
+    if (!source) return 'failed';
+    audio = await openClipAudio(songId, clip.id, source);
+  }
+  if (stop()) return 'interrupted';
+  const buffer = await strongestChannelBuffer(audio, stop);
+  if (!buffer) return 'interrupted';
+  return { buffer, offset: clip.startTime - (clip.trimStart ?? 0) };
+}
+
+/**
+ * Confere o mapa salvo contra a faixa de click e troca só se o click contradiz a grade e a leitura
+ * nova fecha. `canGoOn` fica falso se o Play voltar ou o projeto mudar: nada é trocado nesse caso.
+ */
+export async function checkSavedTempoMap(songId: string, canGoOn: () => boolean): Promise<'kept' | 'replaced' | 'no-click' | 'interrupted' | 'failed'> {
+  const state = useStore.getState();
+  const song = state.songs.find((s) => s.id === songId);
+  const clickIds = medleySources(songId, true).clickClips;
+  const clips = clickIds.flatMap((id) => state.clips.find((c) => c.id === id) ?? []);
+  if (!song || !clips.length) return 'no-click';
+  if (!canReplaceTempoMap(song)) return 'kept';
+  const startKey = tempoCheckKey(songId);
+  const signature = tempoMapSignature(song.tempoSegments);
+  const stop = () => !canGoOn();
+  const opened = await savedClickBuffer(songId, clips, clickIds, stop);
+  if (typeof opened === 'string') return opened;
+  const { buffer, offset } = opened;
+  const reading = await readTempoMap(buffer, song.beatsPerBar ?? 4, {
+    isClick: true,
+    offset,
+    duration: song.duration,
+  });
+  if (stop()) return 'interrupted';
+  if (!reading) return buffer.duration < 30 ? 'kept' : 'failed';
+  if (!reading.hits?.length) return 'kept';
+  const inClip = (t: number) => clips.some((c) => t >= c.startTime - 0.005 && t <= c.startTime + clipPlayLength(c));
+  const hits = reading.hits.filter(inClip);
+  const next = { map: reading.map, coverage: reading.coverage };
+  const wanted = shouldReplaceTempoMap(song, hits, next);
+  // projeto antigo não registrava o ajuste à mão de uma placa: mapa diferente do que o algoritmo antigo
+  // geraria fica como está, e a pessoa fica sabendo
+  if (oldMapLooksEdited(song, reading.hits)) {
+    if (wanted) useStore.getState().setPlaybackError(`"${song.name}": a grade não bate com a faixa de click, mas parece ajustada à mão, então ficou como estava. Para refazer, apague as placas de andamento e use Medir BPM.`);
+    return 'kept';
+  }
+  if (!wanted) return 'kept';
+  const map = reading.map!;
+
+  // só com o programa parado, e se ninguém mexeu no mapa nem no click enquanto a conta rodava
+  await audioEngine.waitUntilIdle();
+  if (stop()) return 'interrupted';
+  const latest = useStore.getState().songs.find((s) => s.id === songId);
+  if (!latest || tempoMapSignature(latest.tempoSegments) !== signature || latest.bpm !== song.bpm) return 'interrupted';
+  if (tempoCheckKey(songId) !== startKey || !canReplaceTempoMap(latest)) return 'interrupted';
+  const withBpm = (list: PlaylistEntry[]) => list.map((p) => (p.songId === songId ? { ...p, bpm: map.bpm } : p));
+  // uma mudança só no histórico: um Desfazer volta o mapa anterior inteiro
+  useStore.setState((s) => ({
+    songs: s.songs.map((sg) => (sg.id === songId ? {
+      ...sg,
+      bpm: map.bpm,
+      bpmDetected: true,
+      bpmMissing: false,
+      bpmSource: 'click' as const,
+      tempoSegments: map.tempoSegments,
+      tempoMapSource: 'click' as const,
+      tempoMapSig: tempoMapSignature(map.tempoSegments),
+    } : sg)),
+    playlist: withBpm(s.playlist),
+    defaultPlaylist: s.defaultPlaylist ? withBpm(s.defaultPlaylist) : null,
+    shows: s.shows.map((sh) => ({ ...sh, playlist: withBpm(sh.playlist) })),
+  }));
+  useStore.getState().setPlaybackError(`Grade de "${latest.name}" corrigida pela faixa de click. Para voltar, use Desfazer.`);
+  return 'replaced';
+}
+
+/** Clipes que formam a mistura da banda: sem click, guia, maestro e clipe mudo. */
+function bandClips(songId: string): AudioClip[] {
+  const { clips, tracks } = useStore.getState();
+  const targetOf = (c: AudioClip) => tracks.find((tr) => tr.id === c.trackId)?.parentId ?? c.trackId;
+  const outside = new Set<string>(['track-click', 'track-guia', 'track-maestro']);
+  return clips.filter((c) => {
+    if (c.songId !== songId || c.mute) return false;
+    const target = targetOf(c);
+    if (outside.has(target)) return false;
+    return INSTRUMENT_TRACKS.has(target) || !(hasClickWord(c.fileName) || hasClickWord(c.name));
+  });
+}
+
+const BAND_RATE = 22050;
+const BAND_SLICE = 1 << 17;
+
+/**
+ * Mistura da banda na régua, mono a 22050 Hz. Abre e soma um clipe por vez: só a mistura fica na memória,
+ * e o clipe que precisou ser aberto é solto logo depois. Null se não há banda. 'no-audio' se algum clipe
+ * da banda está sem o arquivo ou não abre: a mistura sairia incompleta e a conferência fica para depois.
+ */
+async function bandRulerMono(songId: string, duration: number, stop: () => boolean): Promise<Float32Array | 'interrupted' | 'no-audio' | null> {
+  const clips = bandClips(songId);
+  if (!clips.length) return null;
+  if (clips.some((c) => !getClipAudio(c.id) && !getClipSource(c.id))) return 'no-audio';
+  const end = Math.min(duration, Math.max(...clips.map((c) => c.startTime + clipPlayLength(c))));
+  if (!(end > 0)) return null;
+  const out = new Float32Array(Math.ceil(end * BAND_RATE));
+  let used = 0;
+  for (const clip of clips) {
+    if (stop()) return 'interrupted';
+    let audio = getClipAudio(clip.id);
+    if (!audio) {
+      const source = getClipSource(clip.id);
+      if (!source) return 'no-audio';
+      try {
+        audio = await openClipAudio(songId, clip.id, source);
+      } catch (err) {
+        // arquivo que não abre também é áudio faltando: sem ele a mistura não serve para conferir
+        console.warn('[tempo 1] clipe não abriu', clip.fileName, err);
+        return 'no-audio';
+      }
+      if (stop()) return 'interrupted';
+    }
+    const placed = { startTime: clip.startTime, trimStart: clip.trimStart, playLength: clipPlayLength(clip), gain: clip.gain };
+    const from = Math.max(0, Math.round(clip.startTime * BAND_RATE));
+    const to = Math.min(out.length, from + Math.ceil(placed.playLength * BAND_RATE));
+    for (let at = from; at < to; at += BAND_SLICE) {
+      mixIntoRuler(out, BAND_RATE, placed, audio, at, Math.min(to, at + BAND_SLICE));
+      await new Promise((r) => setTimeout(r, 0));
+      if (stop()) return 'interrupted';
+    }
+    used++;
+  }
+  if (!used) return null;
+  let peak = 0;
+  for (let i = 0; i < out.length; i++) { const v = Math.abs(out[i]); if (v > peak) peak = v; }
+  if (peak <= 1e-6) return null;
+  const scale = 0.95 / peak;
+  for (let i = 0; i < out.length; i++) out[i] *= scale;
+  return out;
+}
+
+/**
+ * Confere qual batida é o tempo 1, sem mexer em nenhuma batida. Com acento no click vale a fase dele
+ * (conta de milissegundos). Sem acento, o modelo ouve a mistura da banda, com o programa parado.
+ * A correção entra no Desfazer como uma mudança só, junto com a marca da conferência. 'no-audio': falta
+ * arquivo da banda, nada foi conferido.
+ */
+export async function checkSavedBarPhase(songId: string, canGoOn: () => boolean): Promise<'kept' | 'replaced' | 'no-click' | 'interrupted' | 'failed' | 'no-audio'> {
+  const state = useStore.getState();
+  const song = state.songs.find((s) => s.id === songId);
+  const clickIds = medleySources(songId, true).clickClips;
+  const clips = clickIds.flatMap((id) => state.clips.find((c) => c.id === id) ?? []);
+  if (!song || !clips.length) return 'no-click';
+  if (!canReplaceTempoMap(song)) return 'kept';
+  const startKey = tempoCheckKey(songId);
+  const signature = tempoMapSignature(song.tempoSegments);
+  const stop = () => !canGoOn();
+  const opened = await savedClickBuffer(songId, clips, clickIds, stop);
+  if (typeof opened === 'string') return opened;
+  const reading = await readTempoMap(opened.buffer, song.beatsPerBar ?? 4, { isClick: true, offset: opened.offset, duration: song.duration });
+  if (stop()) return 'interrupted';
+  if (!reading) return opened.buffer.duration < 30 ? 'kept' : 'failed';
+  if (!reading.hits?.length || !reading.placed?.length) return 'kept';
+  // mapa antigo ajustado à mão, ou grade que não passa pelo click: o 1 não é o problema dela
+  if (oldMapLooksEdited(song, reading.hits)) return 'kept';
+  const inClip = (t: number) => clips.some((c) => t >= c.startTime - 0.005 && t <= c.startTime + clipPlayLength(c));
+  if (mapOffShare(song, reading.hits.filter(inClip), song.duration) > 0.02) return 'kept';
+
+  let model: { downbeat: Float32Array; fps: number } | null = null;
+  if (!reading.accented) {
+    const mono = await bandRulerMono(songId, song.duration, stop);
+    if (mono === 'interrupted' || stop()) return 'interrupted';
+    if (mono === 'no-audio') return 'no-audio';
+    if (!mono) return 'kept';
+    const read = await readDownbeats(mono, canGoOn);
+    if (read === 'interrupted' || stop()) return 'interrupted';
+    if (!read) return 'failed';
+    model = read;
+  }
+  // os ataques do click dizem onde ele para: a emenda de um medley no mesmo BPM só vale com o click parado
+  const next = planBarPhase(song, { accented: reading.accented, placed: reading.placed, hits: reading.hits }, model);
+  if (!next) return 'kept';
+
+  await audioEngine.waitUntilIdle();
+  if (stop()) return 'interrupted';
+  const latest = useStore.getState().songs.find((s) => s.id === songId);
+  if (!latest || tempoMapSignature(latest.tempoSegments) !== signature || latest.bpm !== song.bpm) return 'interrupted';
+  // o compasso mudou enquanto a conta rodava: o 1 calculado era para o compasso antigo
+  if ((latest.beatsPerBar ?? 4) !== (song.beatsPerBar ?? 4)) return 'interrupted';
+  if (tempoCheckKey(songId) !== startKey || !canReplaceTempoMap(latest)) return 'interrupted';
+  const mark = barMarkFor(songId, { ...latest, tempoSegments: next });
+  useStore.setState((s) => ({
+    songs: s.songs.map((sg) => (sg.id === songId ? {
+      ...sg,
+      tempoSegments: next,
+      tempoMapSource: 'click' as const,
+      tempoMapSig: tempoMapSignature(next),
+      ...(mark ? { tempoBarCheck: mark } : {}),
+    } : sg)),
+  }));
+  useStore.getState().setPlaybackError(`Tempo 1 de "${latest.name}" ajustado. As batidas não mudaram. Para voltar, use Desfazer.`);
+  return 'replaced';
+}
+
+// Sem faixa de click o mapa é uma estimativa: o usuário fica sabendo e confere as emendas.
+const medleyNotices: string[] = [];
+
+// Medley sem faixa de click: o programa cria o click seguindo o andamento de cada música.
+async function addMedleyClick(songId: string): Promise<void> {
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  if (!song || clickClipsOf(useStore.getState().clips, songId).length) return;
+  try {
+    const buffer = await gridClickBuffer(song, song.duration);
+    useStore.getState().addClip(await makeClickClip(song, buffer, 0));
+  } catch (err) {
+    console.warn('[medley] não consegui criar o click', err);
+  }
+}
+
+// Palavra de click no nome do arquivo, inteira: "Metrô Linha 743" é música, não metrônomo.
+const CLICK_WORD = /(^|[^\p{L}\p{N}])(click|clicks|clik|cliks|clique|cliques|klick|klik|clk|metronomo|metronome)(?=$|[^\p{L}\p{N}])/iu;
+const hasClickWord = (text: string | undefined) => !!text && CLICK_WORD.test(text.normalize('NFD').replace(/\p{M}/gu, ''));
+// Clipe de instrumento nunca é click, mesmo com a palavra no nome.
+const INSTRUMENT_TRACKS = new Set<string>(['track-bateria', 'track-percussoes', 'track-contrabaixo', 'track-guitarras', 'track-violoes', 'track-sanfonas', 'track-teclados', 'track-solos', 'track-guia', 'track-maestro']);
+
+/**
+ * Clipes de click da música (todos, do primeiro para o último) e, sem eles, o áudio mais longo da
+ * bateria ou da banda. `routedOnly` é a conferência automática: lá só vale o que está na faixa de click.
+ */
+function medleySources(songId: string, routedOnly = false): { clickClips: string[]; audioFallback: string | null } {
+  const { clips, tracks } = useStore.getState();
+  const songClips = clips.filter((c) => c.songId === songId);
+  const targetOf = (c: AudioClip) => tracks.find((tr) => tr.id === c.trackId)?.parentId ?? c.trackId;
+  const longest = (list: AudioClip[]) => [...list].sort((a, b) => b.duration - a.duration)[0]?.id ?? null;
+  const isClick = (c: AudioClip) => {
+    const target = targetOf(c);
+    if (target === 'track-click') return true;
+    return !routedOnly && !INSTRUMENT_TRACKS.has(target) && (hasClickWord(c.fileName) || hasClickWord(c.name));
+  };
+  const click = songClips.filter(isClick).sort((a, b) => a.startTime - b.startTime);
+  const drums = songClips.filter((c) => targetOf(c) === 'track-bateria' || targetOf(c) === 'track-percussoes');
+  const band = songClips.filter((c) => !['track-guia', 'track-maestro', 'track-click'].includes(targetOf(c)));
+  return { clickClips: click.map((c) => c.id), audioFallback: longest(drums) ?? longest(band) ?? longest(songClips) };
+}
+
+async function applySingleBpm(songId: string, alive: () => boolean = () => true): Promise<boolean> {
   // Mapa de andamento feito à mão no REAPER (mais de um BPM na música): vale como está.
   const hint = reaperTempoHints.get(songId);
   if (hint && hint.tempo.length > 1) {
-    setSongBpm(songId, hint.tempo[0].bpm, 'manual', 0, reaperSegments(hint));
+    setSongBpm(songId, hint.tempo[0].bpm, 'manual', 0, reaperSegments(hint), 'reaper');
     return true;
   }
   const { clickFirst, audioFallback } = bpmCandidates(songId);
@@ -445,6 +903,7 @@ async function applyBpm(songId: string): Promise<boolean> {
     const src = getClipSource(id);
     if (!src) continue;
     const wavMeta = await parseWavMetadata(src);
+    if (!alive()) return false;
     if (!wavMeta?.bpm) continue;
     if (!result || Math.abs(wavMeta.bpm - result.bpm) / result.bpm < 0.005) {
       setSongBpm(songId, wavMeta.bpm, 'click', 0);
@@ -456,6 +915,7 @@ async function applyBpm(songId: string): Promise<boolean> {
   if (!result && audioFallback) {
     const audio = getClipAudio(audioFallback);
     if (audio) result = await detectBpm(clipAudioToBuffer(audio));
+    if (!alive()) return false;
   }
   if (!result && hint && Math.abs(hint.tempo[0].bpm - 120) > 1e-3) {
     setSongBpm(songId, hint.tempo[0].bpm, 'manual', 0);
@@ -475,7 +935,8 @@ export function setSongBpm(
   bpm: number,
   source: NonNullable<Song['bpmSource']>,
   downbeat?: number,
-  tempoSegments?: SongTempoSegment[]
+  tempoSegments?: SongTempoSegment[],
+  mapSource?: NonNullable<Song['tempoMapSource']>,
 ) {
   useStore.getState().updateSong(songId, {
     bpm,
@@ -484,6 +945,7 @@ export function setSongBpm(
     bpmSource: source,
     ...(downbeat !== undefined ? { downbeat } : {}),
     ...(tempoSegments && tempoSegments.length > 1 ? { tempoSegments } : {}),
+    ...(mapSource && tempoSegments && tempoSegments.length > 1 ? { tempoMapSource: mapSource, tempoMapSig: tempoMapSignature(tempoSegments) } : {}),
   });
   const withBpm = (list: PlaylistEntry[]) => list.map((p) => p.songId === songId ? { ...p, bpm } : p);
   useStore.setState((s) => ({
@@ -508,17 +970,126 @@ function bpmCandidates(songId: string): { clickFirst: string[]; audioFallback: s
 export async function remeasureSongBpm(songId: string): Promise<'ok' | 'no-source' | 'failed'> {
   if (!useStore.getState().clips.some((c) => c.songId === songId)) return 'no-source';
   await ensureSongLoaded(songId);
-  return (await applyBpm(songId)) ? 'ok' : 'failed';
+  const ok = await applyBpm(songId, { asked: true });
+  // aviso de trecho ruim ou de click que não fechou: fora da importação ele sairia daqui, sem resumo
+  const notices = medleyNotices.splice(0);
+  if (notices.length) useStore.getState().setPlaybackError(notices.join(' '));
+  return ok ? 'ok' : 'failed';
 }
 
 // Terminada a importação, os áudios decodificados saem da memória e as músicas passam a tocar
 // lendo do disco, como um projeto aberto. Antes a última música importada ficava inteira na
 // memória até salvar e reabrir: num show longo, num Mac de 8 GB, a timeline travava.
+// Ficam só a do ar e, se couberem no orçamento, a selecionada e a próxima (a mesma conta do App):
+// assim o Play e a passagem para a próxima não começam a frio depois de importar.
 function releaseImportedAudio() {
-  const { transport } = useStore.getState();
-  const playingId = transport.isStopped ? null : transport.currentSongId;
-  audioEngine.releaseUnretained([playingId]);
-  retainSongs([playingId], { strict: true });
+  const keep = keptWhileImporting(0);
+  audioEngine.releaseUnretained(keep);
+  retainSongs(keep, { strict: true });
+}
+
+/** Orçamento do áudio aberto: o da biblioteca, quando ela tem a função, senão a conta de reserva. */
+function importMemoryBudget(): number {
+  // a função de orçamento pode não existir nesta versão da biblioteca: procura sem depender dela
+  const fromLibrary = Reflect.get(audioLibraryModule, 'audioMemoryBudget') as (() => { songs?: number }) | undefined;
+  const songs = typeof fromLibrary === 'function' ? Number(fromLibrary()?.songs) : NaN;
+  if (Number.isFinite(songs) && songs > 0) return songs;
+  const desktop = (window as unknown as { vsDesktop?: { totalMemory?: number } }).vsDesktop;
+  return importBudgetFallback(Number(desktop?.totalMemory), (navigator as Navigator & { deviceMemory?: number }).deviceMemory);
+}
+
+/** Bytes de uma música aberta: a cópia da biblioteca (se está aberta) mais a do reprodutor. */
+function songOpenBytes(songId: string): number {
+  const rate = deviceSampleRate();
+  let bytes = 0;
+  for (const c of useStore.getState().clips) {
+    if (c.songId !== songId) continue;
+    const full = Math.ceil(Math.max(0, c.duration || 0) * rate) * Math.min(2, Math.max(1, c.channels || 2)) * 2;
+    const open = getClipAudio(c.id);
+    bytes += full + (open ? open.channels.reduce((n, ch) => n + ch.byteLength, 0) : 0);
+  }
+  return bytes;
+}
+
+/** A do ar, e a selecionada e a próxima quando cabem junto com `importBytes` (a música que entra). */
+function keptWhileImporting(importBytes: number): string[] {
+  const st = useStore.getState();
+  const playingId = st.transport.isStopped ? null : st.transport.currentSongId;
+  const selId = st.selectedSongId ?? st.playlist[0]?.songId ?? null;
+  const anchor = playingId ?? selId;
+  const nextId = st.transport.nextSongId
+    ?? (anchor ? computeNextSongId(anchor, st.playlist, st.playlistOrder, st.transport.playFlow) : null);
+  return songsKeptDuringImport({
+    playingId,
+    candidates: [selId, nextId].map((id) => ({ id, bytes: id && id !== playingId ? songOpenBytes(id) : 0 })),
+    usedBytes: (playingId ? songOpenBytes(playingId) : 0) + importBytes,
+    budget: importMemoryBudget(),
+  });
+}
+
+interface OpenedImport {
+  audio: ClipAudio;
+  duration: number;
+  sampleRate: number;
+  channels: number;
+  waveformPeaks: number[];
+}
+
+/**
+ * Abre um arquivo da importação. WAV na taxa da saída: pelo mesmo leitor em segundo plano da
+ * reabertura do projeto (as amostras do arquivo, sem passar pelo Float32 do navegador). WAV em
+ * outra taxa, MP3, M4A e os outros: pela decodificação do navegador, como antes, porque a troca de
+ * taxa dele é bem mais rápida que a do leitor (medido no Chromium: 6 WAV de 3 min a 44,1 kHz numa
+ * saída de 48 kHz, 0,83 s contra 2,1 s) e dá o mesmo tamanho e o mesmo alinhamento. Em todos, a
+ * conversão para 16 bits e os picos da onda saem da tela.
+ */
+async function openImportFile(file: File): Promise<OpenedImport> {
+  try {
+    return await openImportFileOnce(file, true);
+  } catch (err) {
+    // o worker falhou depois de receber o áudio: abre de novo, com a conta na tela, como antes
+    if (err instanceof ImportWorkerError) return openImportFileOnce(file, false);
+    throw err;
+  }
+}
+
+async function openImportFileOnce(file: File, useWorker: boolean): Promise<OpenedImport> {
+  const rate = deviceSampleRate();
+  // a mesma sonda do leitor (guardada por arquivo): não lê o cabeçalho duas vezes
+  const sameRateWav = (await canReadWavDirect(file, rate)) && !(await wavConvertsRate(file, rate));
+  const wav = sameRateWav ? await readWav(file, rate) : null;
+  if (wav) {
+    const duration = wav.length / wav.sampleRate;
+    const numPeaks = importPeakCount(duration);
+    const channels = wav.channels.length;
+    const job = useWorker ? convertForImport('int16', wav.channels, numPeaks) : null;
+    const done = job ? await job : { channels: wav.channels, peaks: await int16PeaksAsync(wav.channels, numPeaks) };
+    return {
+      audio: { channels: done.channels, sampleRate: wav.sampleRate, length: done.channels[0].length },
+      duration,
+      sampleRate: wav.sampleRate,
+      channels,
+      waveformPeaks: done.peaks,
+    };
+  }
+  const buffer = await decodeBlob(file);
+  // lidos antes de enviar: os canais vão transferidos ao worker e o AudioBuffer fica vazio
+  const { duration, sampleRate, length, numberOfChannels } = buffer;
+  const numPeaks = importPeakCount(duration);
+  const floats: Float32Array[] = [];
+  for (let c = 0; c < Math.min(2, numberOfChannels); c++) floats.push(buffer.getChannelData(c));
+  const job = useWorker ? convertForImport('float', floats, numPeaks) : null;
+  if (job) {
+    const done = await job;
+    return { audio: { channels: done.channels, sampleRate, length }, duration, sampleRate, channels: numberOfChannels, waveformPeaks: done.peaks };
+  }
+  return {
+    audio: await toClipAudioAsync(buffer),
+    duration,
+    sampleRate,
+    channels: numberOfChannels,
+    waveformPeaks: await waveformPeaksAsync(buffer, numPeaks),
+  };
 }
 
 // BPM que não deu para medir durante a importação (algo estava tocando): mede quando o play parar.
@@ -530,11 +1101,14 @@ async function measurePendingBpm(results: SongImportResult[]) {
     if (!useStore.getState().songs.some((s) => s.id === r.songId)) continue;
     try {
       await ensureSongLoaded(r.songId);
-      await applyBpm(r.songId);
+      await applyBpm(r.songId, { createClick: true });
     } catch (err) {
       console.warn('[import] BPM não medido', r.name, err);
     }
   }
+  // o resumo da importação já saiu: o aviso de mapa medido depois aparece aqui
+  const late = medleyNotices.splice(0);
+  if (late.length) useStore.getState().setPlaybackError(late.join(' '));
   releaseImportedAudio();
 }
 
@@ -559,10 +1133,12 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
   };
   if (reaper) reaperTempoHints.set(songId, { tempo: reaper.tempo, length: reaper.length });
 
-  // Libera para a importação a memória de tudo que não está tocando agora.
-  const playingId = store.transport.isStopped ? null : store.transport.currentSongId;
-  retainSongs([playingId], { strict: true });
-  audioEngine.releaseUnretained([playingId]);
+  // Libera para a importação a memória de tudo que não está tocando agora. A selecionada e a
+  // próxima só são soltas se não couberem no orçamento junto com esta música aberta (biblioteca
+  // e reprodutor): com memória sobrando, o Play delas continua pronto durante a importação.
+  const keep = keptWhileImporting(2 * audioFiles.reduce((n, f) => n + importFileBytes(f), 0));
+  retainSongs(keep, { strict: true });
+  audioEngine.releaseUnretained(keep);
 
   store.addSong(song);
   store.addToPlaylist(songId, folderName, 0, 120);
@@ -580,13 +1156,10 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     if (cancelRequested) return false;
     const file = audioFiles[i];
     try {
-      const { audioBuffer, duration, sampleRate, channels } = await decodeFile(file);
+      // já no formato leve (16 bits), com os picos da onda (100 por segundo) feitos fora da tela
+      const opened = await openImportFile(file);
       if (cancelRequested) return false;
-      // Resolução de estúdio HD (100 picos por segundo), padrão Apple Logic Pro 11 / Pro Tools HD
-      const peakResolution = Math.min(24000, Math.max(8000, Math.round(duration * 100)));
-      const waveformPeaks = audioEngine.generateWaveformPeaks(audioBuffer, peakResolution);
-      // guarda já no formato leve; o formato nativo do navegador ocupa o dobro
-      decodedEntries[i] = { index: i, file, clipId: clipIds[i], audio: await toClipAudioAsync(audioBuffer), duration, sampleRate, channels, waveformPeaks };
+      decodedEntries[i] = { index: i, file, clipId: clipIds[i], ...opened };
       errors.delete(i);
       return true;
     } catch (err) {
@@ -790,7 +1363,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
       current: total - errors.size,
       total,
     });
-    await applyBpm(songId);
+    await applyBpm(songId, { createClick: true });
     bpmDone = true;
   }
 

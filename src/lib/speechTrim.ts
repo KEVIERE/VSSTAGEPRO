@@ -33,6 +33,10 @@ const MAX_BACK_S = 0.3;
 const MAX_SOFT_LEAD_S = 0.03;
 /** Pausa que separa um pedaço solto da palavra de verdade (só em palavra solta, como na contagem). */
 const FRAGMENT_GAP_S = 0.02;
+/** Fala comum: pausa máxima entre um começo fraco e o resto ("es" ... "pera"). */
+const MAX_LEAD_GAP_S = 0.25;
+/** Quanto de voz o começo fraco precisa ter para não ser confundido com estalo ou respiração. */
+const MIN_LEAD_VOICED_S = 0.025;
 /** No fim: o que ainda conta como som (3% do máximo) e o respiro que fica depois dele. */
 const TAIL_LEVEL = 0.03;
 const TAIL_KEEP_S = 0.06;
@@ -122,6 +126,31 @@ export function speechBounds(samples: Float32Array, rate: number, opts: SpeechTr
     if (attached(j)) { first = j; quiet = 0; continue; }
     quiet++;
     if (quiet * hopS > MAX_INNER_GAP_S) break;
+  }
+
+  // Frase ou palavra comum: o começo pode ser mais fraco e vir antes de uma pausa curta, como o "es"
+  // de "Espera" antes do "p" ou o "Da" de "Da ponte". Se antes da pausa houver voz de verdade, ele
+  // fica. Respiração é só chiado e não conta como voz. O número da contagem não passa por aqui.
+  if (!opts.singleWord) {
+    const maxGap = Math.round(MAX_LEAD_GAP_S / hopS);
+    const minVoiced = Math.round(MIN_LEAD_VOICED_S / hopS);
+    for (;;) {
+      let j = first - 1;
+      while (j >= 0 && first - j <= maxGap && r(j) < VOICED) j--;
+      if (j < 0 || first - j > maxGap) break;
+      let begin = j;
+      let voiced = 0;
+      let gap = 0;
+      for (let k = j; k >= 0; k--) {
+        if (attached(k)) {
+          begin = k;
+          gap = 0;
+          if (r(k) >= VOICED && !hiss(k)) voiced++;
+        } else if (++gap * hopS > MAX_INNER_GAP_S) break;
+      }
+      if (voiced < minVoiced) break;
+      first = begin;
+    }
   }
 
   // Dentro da janela, a primeira amostra que já é som (1% do pico da fala).

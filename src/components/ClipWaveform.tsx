@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } 
 import type { AudioClip } from '@/types';
 import { getClipAudio, type ClipAudio } from '@/lib/audioLibrary';
 import { FINE_FRAMES_PER_PEAK, waveColumnsCached, type FinePeaks } from '@/lib/waveColumns';
-import { finePeaksPending, finePeaksVersion, peekFinePeaks, requestFinePeaks, subscribeFinePeaks } from '@/lib/finePeaks';
+import { finePeaksPending, finePeaksSnapshot, peekFinePeaks, requestFinePeaks, subscribeFinePeaks } from '@/lib/finePeaks';
+import { buildWaveIndexStep, wantWaveIndex, waveIndexPending, WAVE_INDEX_MIN_FRAMES_PER_PX } from '@/lib/waveIndex';
 import { preciseColumns, preciseReadable, requestPreciseColumns, wantsPrecise } from '@/lib/wavePrecise';
 import { useStore } from '@/store';
 import { useTimelineVisible } from '@/lib/timelineView';
@@ -31,14 +32,54 @@ const drawQueue = new Set<() => void>();
 let drawFrame = 0;
 function flushDrawQueue() {
   drawFrame = 0;
-  const deadline = performance.now() + (liveWaveActive() ? 2 : 4);
+  const live = liveWaveActive();
+  const deadline = performance.now() + (live ? 2 : 4);
   while (drawQueue.size > 0 && performance.now() < deadline) {
     const draw = drawQueue.values().next().value;
     if (!draw) break;
     drawQueue.delete(draw);
     draw();
   }
-  if (drawQueue.size > 0) drawFrame = requestAnimationFrame(flushDrawQueue);
+  if (drawQueue.size > 0) {
+    drawFrame = requestAnimationFrame(flushDrawQueue);
+    return;
+  }
+  // Fila vazia: o tempo que sobra do quadro monta o índice de máximos das ondas com zoom
+  // aproximado (waveIndex.ts). No zoom ao vivo o quadro é do gesto: tenta no próximo.
+  if (!waveIndexPending()) return;
+  if (live) {
+    drawFrame = requestAnimationFrame(flushDrawQueue);
+    return;
+  }
+  if (waveIndexBlocked()) {
+    waitWaveIndexTurn();
+    return;
+  }
+  if (buildWaveIndexStep(deadline)) drawFrame = requestAnimationFrame(flushDrawQueue);
+}
+
+// O índice só é montado com a música parada e nenhuma música abrindo: o Play e a música da tela
+// vêm primeiro (a mesma regra da montagem do resumo detalhado, finePeaks.ts).
+const waveIndexBlocked = (s = useStore.getState()) => s.transport.isPlaying || s.loadingSongIds.length > 0;
+let waveIndexWait: (() => void) | null = null;
+function waitWaveIndexTurn() {
+  if (waveIndexWait) return;
+  waveIndexWait = useStore.subscribe((s) => {
+    if (waveIndexBlocked(s)) return;
+    const off = waveIndexWait;
+    waveIndexWait = null;
+    off?.();
+    kickWaveIndex();
+  });
+}
+
+function kickWaveIndex() {
+  if (drawFrame || !waveIndexPending()) return;
+  if (waveIndexBlocked()) {
+    waitWaveIndexTurn();
+    return;
+  }
+  drawFrame = requestAnimationFrame(flushDrawQueue);
 }
 
 function scheduleDraw(draw: () => void) {
@@ -46,7 +87,8 @@ function scheduleDraw(draw: () => void) {
   if (!drawFrame) drawFrame = requestAnimationFrame(flushDrawQueue);
   return () => {
     drawQueue.delete(draw);
-    if (drawQueue.size === 0 && drawFrame) {
+    // o quadro marcado também monta o índice: só sai se não houver índice pedido
+    if (drawQueue.size === 0 && drawFrame && !waveIndexPending()) {
       cancelAnimationFrame(drawFrame);
       drawFrame = 0;
     }
@@ -476,7 +518,9 @@ export function ClipWaveform({ clip, left, width, height, visible, color: propCo
   // Resumo do projeto mais grosso que os pixels e sem o áudio na memória: usa o resumo detalhado
   // guardado no disco do app (já abre no lugar certo). Se ainda não existe, é montado em segundo
   // plano para as próximas vezes, e enquanto isso os blocos leem as amostras do disco.
-  useSyncExternalStore(subscribeFinePeaks, finePeaksVersion);
+  // só o resumo desta faixa (ou o nome dele) re-renderiza esta onda; o de outra faixa não
+  const fineSnapshot = useCallback(() => finePeaksSnapshot(clip), [clip]);
+  useSyncExternalStore(subscribeFinePeaks, fineSnapshot);
   const peakCount = clip.waveformPeaks?.length ?? 0;
   // também enquanto a música abre na memória: o resumo detalhado já está no lugar certo, e o
   // desenho não muda quando o áudio chega (só a montagem espera a abertura terminar)
@@ -493,6 +537,18 @@ export function ClipWaveform({ clip, left, width, height, visible, color: propCo
     else if (audioFine) requestFinePeaks(clip, false);
   }, [wantFine, audioFine, songLoading, clip]);
   const liveFine = fine || (audioFine ? peekFinePeaks(clip) || null : null);
+
+  // Zoom aproximado com o áudio na memória (os blocos leem as amostras): pede o índice de máximos,
+  // montado aos pedaços com a música parada. Pronto, mudar o zoom ou rolar lê só as pontas de cada
+  // pixel, com a mesma coluna de antes. Sai da fila quando a onda sai da tela ou o zoom afasta.
+  const indexAudio = audio && audio.length > 0 && audio.channels.length > 0 && clip.duration > 0 && target.w >= peakCount
+    && (clip.duration / Math.max(1, target.w)) * audio.sampleRate >= WAVE_INDEX_MIN_FRAMES_PER_PX ? audio : null;
+  useEffect(() => {
+    if (!indexAudio) return;
+    const release = wantWaveIndex(indexAudio);
+    kickWaveIndex();
+    return release;
+  }, [indexAudio]);
 
   const tilesOf = (base: Base): number[] => {
     const sc = width / base.w;

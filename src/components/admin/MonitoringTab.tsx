@@ -375,7 +375,6 @@ export default function MonitoringTab() {
                 supabase: { label: 'Supabase Database', desc: 'PostgreSQL, Auth e Storage' },
                 resend: { label: 'Resend SMTP', desc: 'Envio de e-mails transacionais' },
                 infinitepay: { label: 'InfinitePay', desc: 'Pagamentos por PIX e cartão' },
-                replicate: { label: 'Replicate AI', desc: 'Motor de separação de Stems' },
                 github: { label: 'GitHub Actions', desc: 'Pipelines de deploy contínuo' },
               };
               const info = nameMap[s.service] || { label: s.service.toUpperCase(), desc: 'Serviço externo' };

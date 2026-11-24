@@ -151,28 +151,7 @@ async function checkInfinitePay(): Promise<CheckResult> {
   }
 }
 
-// 4. Replicate AI stem separation check
-async function checkReplicate(): Promise<CheckResult> {
-  const t0 = Date.now();
-  const token = Deno.env.get("REPLICATE_API_TOKEN");
-  if (!token) {
-    return { service: "replicate", status: "degraded", latencyMs: 0, detail: "REPLICATE_API_TOKEN ausente" };
-  }
-  try {
-    const res = await fetch("https://api.replicate.com/v1/account", {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const latency = Date.now() - t0;
-    if (res.ok) {
-      return { service: "replicate", status: "up", latencyMs: latency, detail: "Serviço de IA de Stems ativo" };
-    }
-    return { service: "replicate", status: "degraded", latencyMs: latency, detail: `Replicate HTTP ${res.status}` };
-  } catch (e) {
-    return { service: "replicate", status: "down", latencyMs: Date.now() - t0, detail: (e as Error).message };
-  }
-}
-
-// 5. GitHub Actions check
+// 4. GitHub Actions check
 async function checkGitHub(): Promise<CheckResult> {
   const t0 = Date.now();
   const repo = Deno.env.get("GITHUB_REPO") || "KEVIERE/VSSTAGEPRO";
@@ -202,7 +181,6 @@ Deno.serve(async (req) => {
     checkSupabase(),
     checkResend(),
     checkInfinitePay(),
-    checkReplicate(),
     checkGitHub(),
   ]);
 

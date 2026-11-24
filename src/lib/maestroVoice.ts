@@ -1,10 +1,12 @@
 // Maestro por IA: o usuário marca um trecho na faixa Maestro, escreve o que quer que seja falado
 // e o app gera a voz.
-// - Vozes padrão (Felipe e Bianca): as falas prontas, gravadas em estúdio (src/lib/maestroCues.ts).
-//   Texto fora da lista, ou fala da lista ainda sem gravação, sai na voz do Mac do mesmo gênero.
-// - Vozes do Mac (Feminina e Masculina): a voz brasileira de IA (Qwen3-TTS), gerada no próprio Mac,
-//   sem custo por uso. O modelo é baixado uma vez, em silêncio; até lá, em Mac Intel ou se ela
-//   falhar, o app usa a voz do sistema como reserva.
+// - Voz Maestro IA (id pronta:felipe): as falas prontas gravadas em estúdio (src/lib/maestroCues.ts),
+//   oferecida no "+" e na contagem. Fala ainda sem gravação sai na voz do Mac do mesmo gênero. A
+//   antiga Bianca (pronta:moca) saiu das telas, mas marcações antigas continuam tocando.
+// - Vozes clonadas ("clone:<pasta>", com os modos "clone:<pasta>:calma" e "clone:<pasta>:forte"):
+//   geradas pelo mesmo motor de IA, com a gravação do próprio diretor como referência.
+// - Feminina e Masculina saíram das telas: marcações antigas mantêm o áudio e o rótulo. O motor de
+//   IA (Qwen3-TTS) roda no próprio Mac, sem custo por uso; a voz do sistema é só reserva interna.
 // - Vozes online (src/lib/onlineVoices.ts): pacotes de vozes GRATUITAS da internet, geradas pelo app
 //   do Mac. Precisam de internet. Nada pago: as vozes pagas saíram em 02/11/2026.
 //
@@ -24,16 +26,16 @@ import { masterAudioClip } from '@/lib/clipMastering';
 import { encodeWavInt16 } from '@/lib/wavEncoder';
 import { deviceSampleRate, generateMarkers } from '@/lib/audioDecoder';
 import { friendlyError } from '@/lib/friendlyError';
-import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, currentSignature, fitTempo, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
+import { FALLBACK_MARK, beatTimesFrom, clipPlacement, countWords, crossesTempoChange, currentSignature, fitTempo, isCountPackWord, narrationSignature, pitchCents, sortedNarrations, wpmForSpan } from '@/lib/narrations';
 import type { AudioClip, MaestroNarration, Song, VoicePitch } from '@/types';
 import type { MaestroVoiceStatus } from '@/lib/localNetwork';
-import { DEFAULT_READY_VOICE, READY_INTENSITIES, findReadyCue, hasRecording, readyCueUrl, recordedIntensity, readyVoice, voiceFromOldChoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
+import { DEFAULT_READY_VOICE, READY_INTENSITIES, findReadyCue, offeredReadyVoices, readyCueSource, setVoicePacks, voiceHasCue, voicePackRevision, voiceSampleTexts, wordsMissingInVoice, readyVoice, voiceFromOldChoice, type ReadyCue, type ReadyVoiceChoice } from '@/lib/maestroCues';
 
-/** Voz das marcações novas quando nada foi escolhido ainda: o Felipe. */
+/** Voz pronta padrão (a da contagem): o Maestro, id pronta:felipe. */
 export const DEFAULT_VOICE = DEFAULT_READY_VOICE;
 
-/** Rótulo das vozes de IA padrão de cada gênero (a tela mostra junto do botão). */
-export const IA_VOICE_NAMES: Record<'feminina' | 'masculina', string> = { feminina: 'IA', masculina: 'IA' };
+/** Voz das marcações novas do "+" quando nada foi escolhido ainda: o Maestro IA. */
+export const DEFAULT_PLUS_VOICE = DEFAULT_READY_VOICE;
 
 /** Nome curto de uma voz ("Eddy (Português (Brasil))" → "Eddy"). */
 export function shortVoiceName(name: string): string {
@@ -46,9 +48,97 @@ export function isPresetVoice(voice: string | undefined): boolean {
   return voice === 'feminina' || voice === 'masculina' || voice === 'henrique';
 }
 
+/** Voz clonada pelo diretor ("clone:<pasta>", "clone:<pasta>:calma" ou "clone:<pasta>:forte")? */
+export function isCloneVoice(voice: string | undefined): boolean {
+  return typeof voice === 'string' && /^clone:[^:]+(:(normal|calma|forte))?$/.test(voice);
+}
+
+/** Modo de fala de uma voz clonada (cada um gravado à parte). */
+export type CloneMode = 'normal' | 'calma' | 'forte';
+
+/** Id da voz clonada sem o modo ("clone:ana:forte" vira "clone:ana"). */
+export function cloneBaseId(voice: string): string {
+  const [, slug] = voice.split(':');
+  return `clone:${slug ?? ''}`;
+}
+
+/** Modo pedido no id da voz clonada (sem modo é o normal). */
+export function cloneMode(voice: string): CloneMode {
+  const level = voice.split(':')[2];
+  return level === 'calma' || level === 'forte' ? level : 'normal';
+}
+
+/** Id da voz clonada num modo ("clone:ana" + forte = "clone:ana:forte"; normal fica sem sufixo). */
+export function cloneVoiceId(base: string, mode: CloneMode): string {
+  const id = cloneBaseId(base);
+  return mode === 'normal' ? id : `${id}:${mode}`;
+}
+
+/** Voz que fala pelo motor de IA (as padrão e as clonadas): sem ele, sai com a voz do sistema. */
+export function isIaVoice(voice: string | undefined): boolean {
+  return isPresetVoice(voice) || isCloneVoice(voice);
+}
+
+/** Nome das vozes clonadas, para o rótulo das marcações (a tela atualiza ao abrir o seletor). */
+const cloneNames = new Map<string, string>();
+/** Vozes clonadas que existem hoje (null até a lista chegar): a última voz não volta para uma apagada. */
+let existingClones: Set<string> | null = null;
+export function rememberCloneNames(list: Array<{ id: string; name: string }>): void {
+  for (const v of list) cloneNames.set(cloneBaseId(v.id), v.name);
+  existingClones = new Set(list.map((v) => cloneBaseId(v.id)));
+}
+
+/** A voz aparece nas telas de escolha? (Maestro IA nas três intensidades e as vozes clonadas) */
+export function isOfferedVoice(voice: string | undefined): boolean {
+  // voz clonada apagada deixa de ser oferecida assim que a lista chega: a marcação mantém o áudio
+  if (isCloneVoice(voice)) return !existingClones || existingClones.has(cloneBaseId(voice as string));
+  const ready = readyVoice(voice);
+  return !!ready && offeredReadyVoices().some((v) => v.dir === ready.dir);
+}
+
+/** Pode ser a voz inicial: oferecida e, se for clonada, ainda existe. */
+function usableVoice(voice: string | null | undefined): voice is string {
+  return !!voice && isOfferedVoice(voice);
+}
+if (typeof window !== 'undefined' && window.vsDesktop?.maestroCloneList) {
+  void window.vsDesktop.maestroCloneList().then(rememberCloneNames).catch(() => {});
+}
+
+/** Pede ao programa do computador os pacotes de voz instalados (só listas, nenhum áudio). */
+export async function refreshVoicePacks(changedVoice?: string): Promise<void> {
+  if (changedVoice) packsChanged.add(changedVoice);
+  const status = window.vsDesktop?.maestroPackStatus;
+  if (!status) return;
+  const mine = ++packsRead;
+  try {
+    const list = await status();
+    // chegou uma leitura mais nova enquanto esta voltava: ela é que vale
+    if (mine !== packsRead) return;
+    setVoicePacks(list, [...packsChanged]);
+    packsChanged.clear();
+  } catch { /* sem status: ficam as vozes embutidas */ }
+}
+const packsChanged = new Set<string>();
+let packsRead = 0;
+if (typeof window !== 'undefined') {
+  void refreshVoicePacks();
+  // o avanço do download não relê nada: só quando a voz fica pronta (ou deixa de estar)
+  const packStates = new Map<string, string>();
+  window.vsDesktop?.onMaestroPackProgress?.((p) => {
+    const before = packStates.get(p.voice);
+    packStates.set(p.voice, p.state);
+    if (p.state === 'pronto' || before === 'pronto') void refreshVoicePacks(p.voice);
+  });
+}
+
 /** Rótulo da voz escolhida numa marcação. */
 export function voiceLabel(voice: string | undefined): string {
   if (!voice) return '—';
+  if (isCloneVoice(voice)) {
+    const name = cloneNames.get(cloneBaseId(voice)) ?? 'Voz clonada';
+    const mode = cloneMode(voice);
+    return mode === 'normal' ? name : `${name} ${mode}`;
+  }
   if (voice === 'feminina') return 'Feminina';
   if (voice === 'masculina') return 'Masculina';
   const ready = readyVoice(voice);
@@ -73,7 +163,7 @@ export function voiceLabel(voice: string | undefined): string {
 export function iaStatusText(st: MaestroVoiceStatus | null): string | null {
   if (!st || st.ready) return null;
   if (!st.supported) {
-    return 'Neste Mac (Intel) as vozes Feminina e Masculina usam a voz do Mac, que soa robótica.';
+    return 'Neste Mac (Intel) as vozes clonadas não são geradas: a fala usa a voz do Mac, que soa robótica.';
   }
   if (!st.engine) return 'A voz brasileira de IA não veio completa nesta instalação: a fala usa a voz do Mac.';
   const pct = Math.round((st.model.progress ?? 0) * 100);
@@ -84,6 +174,11 @@ export function iaStatusText(st: MaestroVoiceStatus | null): string | null {
     case 'missing': return 'Voz brasileira de IA: o download começa sozinho logo depois de abrir o app. Até lá, a fala usa a voz do Mac.';
     default: return `Voz brasileira de IA: baixando (${pct}%), uma vez só. Até lá, a fala usa a voz do Mac.`;
   }
+}
+
+/** O mesmo aviso para fala clonada, que nunca troca pela voz do Mac: fica só o motivo. */
+export function iaBlockedText(st: MaestroVoiceStatus | null): string | null {
+  return iaStatusText(st)?.replace(/(?:[:;.]\s*)?(?:até lá, )?a fala usa a voz do Mac(?:, que soa robótica)?\./i, '.') ?? null;
 }
 
 // O download da voz pausa enquanto alguma música toca (não disputa a rede e o disco no show).
@@ -134,28 +229,55 @@ export function cursorTime(songId: string): number | null {
 }
 
 /**
- * A última voz escolhida vira o padrão das próximas marcações. A chave mudou quando Felipe e Bianca
- * viraram as vozes padrão: a escolha guardada antes passa para elas (Masculina vira Felipe, Feminina
- * vira Bianca); o que for escolhido depois, inclusive Feminina e Masculina, vale como está.
+ * A última voz escolhida vira o padrão das próximas marcações. A chave mudou quando as vozes
+ * prontas viraram as padrão: a escolha guardada antes passa por voiceFromOldChoice. A contagem
+ * guarda a voz dela à parte (lastCountVoice).
  */
 const LAST_VOICE_KEY = 'vs-maestro-ia-voz-2';
 const OLD_VOICE_KEY = 'vs-maestro-ia-voz';
-export function lastVoice(): string {
+function storedVoice(): string {
   let v: string | null = null;
   let old: string | null = null;
   try {
     v = localStorage.getItem(LAST_VOICE_KEY);
     if (!v) old = localStorage.getItem(OLD_VOICE_KEY);
   } catch { /* sem armazenamento: fica a padrão */ }
-  if (v) {
-    // só as vozes oferecidas hoje; uma que saiu do seletor volta para a padrão
-    if (v === 'feminina' || v === 'masculina' || readyVoice(v) || onlineVoiceById(v)) return v;
-    return DEFAULT_VOICE;
-  }
+  if (v) return v;
   return voiceFromOldChoice(old, (x) => !!onlineVoiceById(x));
+}
+
+/** A voz é oferecida no "+"? (Maestro IA e as clonadas) */
+export function isPlusVoice(voice: string | undefined): boolean {
+  return isOfferedVoice(voice);
+}
+
+/** Voz inicial do "+": a última escolhida, se ainda é oferecida; senão, o Maestro IA. */
+export function lastVoice(): string {
+  const v = storedVoice();
+  return usableVoice(v) ? v : DEFAULT_PLUS_VOICE;
 }
 export function rememberVoice(voice: string): void {
   try { localStorage.setItem(LAST_VOICE_KEY, voice); } catch { /* sem armazenamento: fica a padrão */ }
+}
+
+/** Voz da contagem: a última escolhida (Maestro IA numa intensidade ou voz clonada que ainda existe). */
+const LAST_COUNT_VOICE_KEY = 'vs-maestro-ia-voz-contagem';
+export function lastCountVoice(): string {
+  let v: string | null = null;
+  try { v = localStorage.getItem(LAST_COUNT_VOICE_KEY); } catch { /* fica a padrão */ }
+  return usableVoice(v) ? v : DEFAULT_READY_VOICE;
+}
+export function rememberCountVoice(voice: string): void {
+  try { localStorage.setItem(LAST_COUNT_VOICE_KEY, voice); } catch { /* fica a padrão */ }
+}
+
+/**
+ * Deixa o motor de voz de IA quente para esta voz (abre o programa e lê a referência), para a
+ * próxima fala sair na hora. Vale por 5 minutos a partir do último aviso. Nunca dá erro.
+ */
+export function warmVoice(voice: string | undefined): void {
+  if (!voice || !isCloneVoice(voice)) return;
+  try { void window.vsDesktop?.maestroWarm?.(voice)?.catch?.(() => {}); } catch { /* sem motor: nada a fazer */ }
 }
 
 /** O último tom escolhido (grave, padrão, agudo) vira o padrão das próximas marcações. */
@@ -181,6 +303,21 @@ function tightenSpeech(buffer: AudioBuffer, singleWord: boolean): AudioBuffer {
   const ctx = new OfflineAudioContext(buffer.numberOfChannels, 1, buffer.sampleRate);
   const out = ctx.createBuffer(buffer.numberOfChannels, Math.max(1, trimmed[0].length), buffer.sampleRate);
   trimmed.forEach((ch, c) => out.getChannelData(c).set(ch));
+  return out;
+}
+
+/**
+ * Tira só o silêncio real que o esticador deixa na frente (abaixo de -60 dB). Não usa o corte da
+ * fala, que olha a força da voz e cortaria uma consoante fraca já aparada pelo motor.
+ */
+function dropLeadingSilence(buffer: AudioBuffer): AudioBuffer {
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  let start = 0;
+  while (start < buffer.length && channels.every((ch) => Math.abs(ch[start]) < 0.001)) start++;
+  if (start === 0 || start >= buffer.length) return buffer;
+  const ctx = new OfflineAudioContext(buffer.numberOfChannels, 1, buffer.sampleRate);
+  const out = ctx.createBuffer(buffer.numberOfChannels, buffer.length - start, buffer.sampleRate);
+  channels.forEach((ch, c) => out.getChannelData(c).set(ch.subarray(start)));
   return out;
 }
 
@@ -222,23 +359,153 @@ export interface SpeechResult {
   overflow: boolean;
   /** Qual motor falou: a voz de IA do Mac, uma voz online, a voz do Mac (reserva) ou uma fala pronta. */
   engine: 'qwen' | 'online' | 'mac' | 'pronta';
+  /** A voz de IA está sendo gerada em segundo plano (processador): esta é a de reserva. */
+  preparing?: boolean;
   /** Contagem: segundos do começo do áudio até o ataque do número (o clipe recua esse tanto). */
   lead?: number;
 }
 
-/** Falas prontas já abertas nesta sessão (por taxa da placa, voz, intensidade e fala). */
+/**
+ * Falas prontas já abertas nesta sessão (por taxa da placa, voz, intensidade e fala). O limite em
+ * bytes protege o Mac de 8 GB: as menos usadas saem da memória e voltam do arquivo em milissegundos.
+ */
+const READY_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const readyCache = new Map<string, AudioBuffer>();
+let readyCacheBytes = 0;
+const bufferBytes = (b: AudioBuffer) => b.length * b.numberOfChannels * 4;
 
-/** O arquivo gravado da fala pronta, aberto na taxa da saída de áudio. */
-async function readyCueBuffer(voice: ReadyVoiceChoice, cue: ReadyCue): Promise<AudioBuffer> {
-  const key = `${audioEngine.currentSampleRate() ?? deviceSampleRate()}|${voice.dir}|${recordedIntensity(cue, voice.intensity)}|${cue.id}`;
+function readyCacheGet(key: string): AudioBuffer | undefined {
   const hit = readyCache.get(key);
-  if (hit) return hit;
-  const res = await fetch(readyCueUrl(voice, cue, import.meta.env.BASE_URL));
-  if (!res.ok) throw new Error('Não encontrei o áudio desta fala pronta. Reinstale o VS Stage.');
-  const buffer = await decodeWavBytes(new Uint8Array(await res.arrayBuffer()));
+  if (hit) { readyCache.delete(key); readyCache.set(key, hit); }
+  return hit;
+}
+
+function readyCachePut(key: string, buffer: AudioBuffer): void {
+  const old = readyCache.get(key);
+  if (old) { readyCacheBytes -= bufferBytes(old); readyCache.delete(key); }
   readyCache.set(key, buffer);
+  readyCacheBytes += bufferBytes(buffer);
+  for (const [k, b] of readyCache) {
+    if (readyCacheBytes <= READY_CACHE_MAX_BYTES || k === key) break;
+    readyCache.delete(k);
+    readyCacheBytes -= bufferBytes(b);
+  }
+}
+
+const readyRate = () => audioEngine.currentSampleRate() ?? deviceSampleRate();
+
+// a chave é o arquivo de verdade: pacote novo ou modo que chegou não reaproveita o áudio antigo
+const readyFileKey = (voice: ReadyVoiceChoice, cue: ReadyCue) => `${readyRate()}|${readyCueSource(voice, cue).key}`;
+
+/** Abre o arquivo gravado da fala pronta, na taxa da saída de áudio (sem guardar). */
+async function openReadyCue(voice: ReadyVoiceChoice, cue: ReadyCue): Promise<AudioBuffer> {
+  const source = readyCueSource(voice, cue, import.meta.env.BASE_URL);
+  if (source.pack) {
+    const data = await window.vsDesktop?.maestroPackFile?.({ voice: source.voice, mode: source.mode, id: source.id });
+    if (!data) {
+      void refreshVoicePacks();
+      throw new Error('Não encontrei o áudio desta fala nesta voz. O pacote será conferido de novo.');
+    }
+    return decodeWavBytes(new Uint8Array(data));
+  }
+  const res = await fetch(source.url);
+  if (!res.ok) throw new Error('Não encontrei o áudio desta fala pronta. Reinstale o VS Stage.');
+  return decodeWavBytes(new Uint8Array(await res.arrayBuffer()));
+}
+
+/** O arquivo do modo pedido; se ele não abrir, o Normal da MESMA voz. Nunca outra voz. */
+async function openReadyCueOrNormal(voice: ReadyVoiceChoice, cue: ReadyCue): Promise<AudioBuffer> {
+  try {
+    return await openReadyCue(voice, cue);
+  } catch (err) {
+    const normal: ReadyVoiceChoice = { ...voice, intensity: 'normal' };
+    if (!voiceHasCue(normal, cue, 'normal') || readyCueSource(normal, cue).key === readyCueSource(voice, cue).key) throw err;
+    return openReadyCue(normal, cue);
+  }
+}
+
+/** O arquivo gravado da fala pronta, guardado na memória. */
+async function readyCueBuffer(voice: ReadyVoiceChoice, cue: ReadyCue): Promise<AudioBuffer> {
+  const key = readyFileKey(voice, cue);
+  const hit = readyCacheGet(key);
+  if (hit) return hit;
+  const buffer = await openReadyCueOrNormal(voice, cue);
+  readyCachePut(key, buffer);
   return buffer;
+}
+
+/** Só o canal 0: a escuta é mono, e o esticador devolve estéreo (dobraria a memória). */
+function monoCopy(buffer: AudioBuffer): AudioBuffer {
+  if (buffer.numberOfChannels === 1) return buffer;
+  const out = new OfflineAudioContext(1, 1, buffer.sampleRate).createBuffer(1, buffer.length, buffer.sampleRate);
+  out.getChannelData(0).set(buffer.getChannelData(0));
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Toque direto das falas do Maestro IA: clicou, tocou. Não passa pela fila de geração, pelo motor
+// de IA nem pela gravação do clipe; a timeline só recebe a fala no OK.
+
+const listenInflight = new Map<string, Promise<AudioBuffer | null>>();
+
+function listenKey(voice: ReadyVoiceChoice, cue: ReadyCue, pitch?: VoicePitch): string {
+  return `ouvir|${readyRate()}|${readyCueSource(voice, cue).key}|${pitch ?? 'padrao'}`;
+}
+
+/** A fala já aberta na memória, para tocar no mesmo clique (null se ainda precisa abrir o arquivo). */
+export function readyCueCached(voiceId: string, text: string, pitch?: VoicePitch): AudioBuffer | null {
+  const voice = readyVoice(voiceId);
+  const cue = findReadyCue(text);
+  if (!voice || !cue || !voiceHasCue(voice, cue, voice.intensity)) return null;
+  return readyCacheGet(listenKey(voice, cue, pitch)) ?? null;
+}
+
+/** Abre a fala para ouvir, no tom escolhido. Null quando ela não tem gravação. */
+export function readyCueListen(voiceId: string, text: string, pitch?: VoicePitch): Promise<AudioBuffer | null> {
+  const voice = readyVoice(voiceId);
+  const cue = findReadyCue(text);
+  if (!voice || !cue || !voiceHasCue(voice, cue, voice.intensity)) return Promise.resolve(null);
+  const key = listenKey(voice, cue, pitch);
+  const hit = readyCacheGet(key);
+  if (hit) return Promise.resolve(hit);
+  const running = listenInflight.get(key);
+  if (running) return running;
+  const task = (async () => {
+    // para ouvir guarda só o resultado final: a cópia bruta ocuparia o lugar de outra fala
+    let buffer = tightenSpeech(readyCacheGet(readyFileKey(voice, cue)) ?? await openReadyCueOrNormal(voice, cue), false);
+    const cents = pitchCents(pitch);
+    if (cents !== 0) {
+      const ctx = new OfflineAudioContext(1, 1, buffer.sampleRate);
+      buffer = tightenSpeech(await processClipAudioAsync(ctx, toClipAudio(buffer), 1, cents), false);
+    }
+    buffer = monoCopy(buffer);
+    readyCachePut(key, buffer);
+    return buffer;
+  })().finally(() => { listenInflight.delete(key); });
+  listenInflight.set(key, task);
+  return task;
+}
+
+/** Quantas falas entram na pré-carga: a atual e as que cabem na área visível da lista. */
+const PRELOAD_MAX = 40;
+
+/**
+ * Deixa as falas visíveis prontas na memória, uma de cada vez e só com a música parada. Devolve a
+ * função que cancela (trocou de assunto, de voz ou fechou a janela).
+ */
+export function preloadReadyCues(voiceId: string, texts: readonly string[], pitch?: VoicePitch): () => void {
+  let alive = true;
+  let timer = 0;
+  const list = texts.slice(0, PRELOAD_MAX);
+  const step = (i: number) => {
+    if (!alive || i >= list.length) return;
+    if (useStore.getState().transport.isPlaying) return;
+    void readyCueListen(voiceId, list[i], pitch).catch(() => null).then(() => {
+      if (alive) timer = window.setTimeout(() => step(i + 1), 0);
+    });
+  };
+  timer = window.setTimeout(() => step(0), 60);
+  return () => { alive = false; window.clearTimeout(timer); };
 }
 
 /**
@@ -272,14 +539,171 @@ async function onlineNatural(text: string, voice: string): Promise<{ buffer: Aud
   return { buffer, voiceName: out.voiceName };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Pacote de contagem da voz clonada: os números ficam gravados de uma vez (desktop/maestroQwen.js)
+// e entram na grade na hora, sem chamar o modelo. Cada número aberto fica na memória já sem silêncio.
+
+export interface CountPackStatus {
+  state: 'pronta' | 'gerando' | 'na-fila' | 'parcial' | 'nao' | 'falhou';
+  done: number;
+  total: number;
+  error?: string | null;
+}
+
+const packKey = (voice: string, word: string) => `pacote|${readyRate()}|${voice}|${word}`;
+const packInflight = new Map<string, Promise<AudioBuffer | null>>();
+
+/** Este programa tem o pacote de contagem? (no site não há) */
+export function hasCountPack(): boolean {
+  return !!window.vsDesktop?.maestroCountWord;
+}
+
+/** Pede o pacote desta voz em segundo plano (retoma de onde parou). Nunca dá erro. */
+export async function ensureCountPack(voice: string): Promise<boolean> {
+  if (!isCloneVoice(voice)) return false;
+  try { return !!(await window.vsDesktop?.maestroCountPackEnsure?.(voice)); } catch { return false; }
+}
+
+export async function countPackStatus(voice: string): Promise<CountPackStatus | null> {
+  try { return (await window.vsDesktop?.maestroCountPackStatus?.(voice)) ?? null; } catch { return null; }
+}
+
+/** Avisa o andamento do pacote de qualquer voz. */
+export function subscribeCountPack(cb: (p: { voice: string; state: string; done: number; total: number }) => void): () => void {
+  return window.vsDesktop?.onMaestroCountPackProgress?.(cb) ?? (() => {});
+}
+
+/** Sobe quando uma voz é regravada ou apagada: quem mostra "pronta" confere de novo. */
+let packVersion = 0;
+const packVersionListeners = new Set<() => void>();
+export function countPackVersion(): number {
+  return packVersion;
+}
+export function subscribeCountPackVersion(fn: () => void): () => void {
+  packVersionListeners.add(fn);
+  return () => { packVersionListeners.delete(fn); };
+}
+
+/** O id é desta voz, em qualquer modo? Compara inteiro: "clone:ana" não pega "clone:ana2". */
+const sameCloneVoice = (id: string | undefined, base: string) => !!id && isCloneVoice(id) && cloneBaseId(id) === base;
+
+/** A voz foi regravada ou apagada: os números guardados na memória não valem mais. */
+export function forgetCountPack(voice: string): void {
+  const base = cloneBaseId(voice);
+  for (const [k, b] of [...readyCache]) {
+    if (!k.startsWith('pacote|') || !sameCloneVoice(k.split('|')[2], base)) continue;
+    readyCache.delete(k);
+    readyCacheBytes -= bufferBytes(b);
+  }
+  for (const k of [...packInflight.keys()]) if (sameCloneVoice(k.split('|')[2], base)) packInflight.delete(k);
+  packVersion++;
+  for (const fn of packVersionListeners) fn();
+}
+
+/** Regravou ou apagou a voz: nada do áudio antigo dela (números, prévias, exemplo) toca de novo. */
+export function forgetVoiceAudio(voice: string): void {
+  const base = cloneBaseId(voice);
+  forgetCountPack(voice);
+  // chave da prévia: versão|voz|tamanho|texto...
+  const ofPreview = (k: string) => sameCloneVoice(k.split('|')[1], base);
+  for (const k of [...previewDone.keys()]) if (ofPreview(k)) previewDone.delete(k);
+  for (const k of [...previewRunning.keys()]) if (ofPreview(k)) previewRunning.delete(k);
+  for (const [k, id] of [...previewRequests]) {
+    if (!ofPreview(k)) continue;
+    previewRequests.delete(k);
+    try { void window.vsDesktop?.maestroSpeakCancel?.(id)?.catch?.(() => {}); } catch { /* sem motor */ }
+  }
+  for (const k of [...engineHas]) if (sameCloneVoice(k.split('|')[0], base)) engineHas.delete(k);
+  for (const k of [...demoCache.keys()]) if (sameCloneVoice(k.split('|')[0], base)) demoCache.delete(k);
+  for (const k of [...demoInflight.keys()]) if (sameCloneVoice(k.split('|')[0], base)) demoInflight.delete(k);
+}
+
+/** A fala está gravada no disco nesta voz clonada? Só consulta, nunca gera. */
+async function isPinned(text: string, voice: string): Promise<boolean> {
+  try { return (await window.vsDesktop?.maestroPinnedStates?.({ texts: [text], voice }))?.[text] === 'gravada'; } catch { return false; }
+}
+
+/** A marcação de voz clonada pode ser recolocada sem chamar o modelo? */
+export async function speechRecorded(n: Pick<MaestroNarration, 'text' | 'voice' | 'countGroup'>): Promise<boolean> {
+  const text = n.text.trim();
+  if (!text || !isCloneVoice(n.voice)) return false;
+  if (n.countGroup && isCountPackWord(text) && await countPackHas(n.voice, [text])) return true;
+  return isPinned(text, n.voice);
+}
+
+/** O número gravado, sem silêncio na frente (null se ainda não foi preparado). */
+function countPackBuffer(voice: string, word: string): Promise<AudioBuffer | null> {
+  const key = packKey(voice, word);
+  const hit = readyCacheGet(key);
+  if (hit) return Promise.resolve(hit);
+  const running = packInflight.get(key);
+  if (running) return running;
+  const version = packVersion;
+  const task: Promise<AudioBuffer | null> = (async () => {
+    const got = await window.vsDesktop?.maestroCountWord?.({ voice, word }).catch(() => null);
+    if (!got) return null;
+    // o motor já cortou no ataque preservando consoante chiada ("S", "T"): cortar de novo aqui
+    // comia o começo de "Seis" e "Sete"
+    const buffer = await decodeWavBytes(base64ToBytes(got.wavBase64));
+    // a voz foi regravada enquanto abria: este áudio é da gravação antiga
+    if (version === packVersion) readyCachePut(key, buffer);
+    return buffer;
+  })().catch(() => null).finally(() => { if (packInflight.get(key) === task) packInflight.delete(key); });
+  packInflight.set(key, task);
+  return task;
+}
+
+/** Todos estes números já estão gravados nesta voz? Deixa eles abertos para a colocação ser na hora. */
+export async function countPackHas(voice: string, words: readonly string[]): Promise<boolean> {
+  if (!isCloneVoice(voice) || !hasCountPack() || words.length === 0) return false;
+  const got = await Promise.all([...new Set(words)].map((w) => countPackBuffer(voice, w)));
+  return got.every(Boolean);
+}
+
+/** O número sai do pacote, ou null para seguir o caminho comum (marcação antiga, pacote incompleto). */
+async function countPackSpeech(text: string, voice: string, span: number, pace?: number, group?: string[], pitch?: VoicePitch): Promise<SpeechResult | null> {
+  if (!isCloneVoice(voice) || !group?.length || !hasCountPack() || !isCountPackWord(text)) return null;
+  // palavra própria no grupo ("Vai!") vem da gravação dela e não segura os números
+  const words = [...new Set(group)].filter(isCountPackWord);
+  const index = words.indexOf(text);
+  if (index < 0) return null;
+  const buffers = await Promise.all(words.map((w) => countPackBuffer(voice, w)));
+  if (buffers.some((b) => !b)) return null;
+  // mesma velocidade em todos os números (a do que mais precisa), como na contagem falada de uma vez
+  const tempo = Math.max(...buffers.map((b) => fitTempo(b!.duration, span, pace).tempo));
+  const natural = buffers[index]!;
+  const cents = pitchCents(pitch);
+  let buffer = natural;
+  // só passa pelo esticador quando a velocidade ou o tom pedem: o número fica como foi gravado
+  if (Math.abs(tempo - 1) > 0.005 || cents !== 0) {
+    const ctx = new OfflineAudioContext(1, 1, natural.sampleRate);
+    buffer = dropLeadingSilence(await processClipAudioAsync(ctx, toClipAudio(natural), 1 / tempo, cents));
+  }
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  const lead = Math.round(attackOffset(monoMix(channels), buffer.sampleRate) * 1e4) / 1e4;
+  return {
+    buffer,
+    wpm: Math.round((1 / Math.max(0.3, buffer.duration)) * 60),
+    voiceName: voiceLabel(voice),
+    note: null,
+    overflow: span > 0 && buffer.duration > span * 1.02,
+    engine: 'qwen',
+    lead,
+  };
+}
+
 /**
  * Gera o áudio de uma fala (sem gravar nada no projeto).
  * `pace`: velocidade fixa (contagem); sem ele, o tamanho da marcação define a velocidade.
  * `group`: as palavras da contagem a que esta fala pertence.
  */
-export async function synthesize(text: string, voice: string, span: number, pace?: number, group?: string[], pitch?: VoicePitch): Promise<SpeechResult> {
+export async function synthesize(text: string, voice: string, span: number, pace?: number, group?: string[], pitch?: VoicePitch, request?: { requestId?: string; fallback: false }): Promise<SpeechResult> {
   const trimmed = text.trim();
   if (!trimmed) throw new Error('Escreva o texto que o maestro deve falar.');
+  const packed = await countPackSpeech(trimmed, voice, span, pace, group, pitch);
+  if (packed) return packed;
+  // palavra própria da contagem já gravada: abre a gravação dela, sem pedir a frase inteira ao modelo
+  const engineGroup = group?.length && isCloneVoice(voice) && !isCountPackWord(trimmed) && await isPinned(trimmed, voice) ? undefined : group;
   if (isOnlineVoice(voice) && !onlineVoiceById(voice)) throw new Error('Essa voz online não existe mais. Escolha outra.');
 
   let buffer: AudioBuffer | null = null;
@@ -287,15 +711,15 @@ export async function synthesize(text: string, voice: string, span: number, pace
   let result: Omit<SpeechResult, 'buffer'> | null = null;
   let fallbackNote: string | null = null;
 
-  // Falas prontas (Felipe e Bianca): a frase da lista sai do arquivo gravado, e passa pelo mesmo
+  // Falas prontas (Maestro e a antiga Bianca): a frase da lista sai do arquivo gravado, e passa pelo mesmo
   // acerto das outras vozes (começa na amostra da palavra, estica para a marcação ou a contagem).
-  // Texto fora da lista, fala da lista ainda sem gravação ou arquivo que não abriu saem na voz do
-  // Mac do mesmo gênero, com aviso (nunca dá erro por isso).
+  // Texto antigo fora da lista ou fala ainda sem gravação saem na voz do Mac do mesmo gênero, com
+  // aviso. Arquivo gravado que não abriu (nem no Normal da mesma voz) dá erro e mantém o áudio.
   const ready = readyVoice(voice);
   if (ready) {
     const cue = findReadyCue(trimmed);
     let missingFile = false;
-    if (cue && hasRecording(cue)) {
+    if (cue && voiceHasCue(ready, cue, ready.intensity)) {
       try {
         buffer = await readyCueBuffer(ready, cue);
       } catch {
@@ -314,12 +738,12 @@ export async function synthesize(text: string, voice: string, span: number, pace
         engine: 'pronta',
       };
     } else {
-      const mac = ready.fallback === 'masculina' ? 'Masculina' : 'Feminina';
+      if (missingFile) throw new Error(`Não encontrei o áudio desta fala na voz ${ready.label}. O áudio anterior da marcação foi mantido.`);
+      // voz que só existe em pacote nunca sai em outra voz
+      if (!ready.embedded) throw new Error(`Esta fala não está disponível na voz ${ready.label} neste computador.`);
       fallbackNote = !cue
-        ? `Essa fala não está nas falas prontas: saiu na voz ${mac} do Mac.`
-        : missingFile
-          ? `Não encontrei o áudio gravado desta fala: saiu na voz ${mac} do Mac.`
-          : `Essa fala pronta ainda não foi gravada na voz ${ready.label}: saiu na voz ${mac} do Mac.`;
+        ? 'Essa fala não está nas falas prontas: saiu na voz reserva do sistema.'
+        : `Essa fala pronta ainda não foi gravada na voz ${ready.label}: saiu na voz reserva do sistema.`;
       voice = ready.fallback;
     }
   }
@@ -361,19 +785,23 @@ export async function synthesize(text: string, voice: string, span: number, pace
     if (!speak) {
       throw new Error(ready
         ? 'Essa fala não tem áudio gravado nas falas prontas, e a voz do Mac que fala no lugar só existe no app do Mac.'
-        : 'As vozes Feminina e Masculina só são geradas no app do Mac.');
+        : 'As vozes de IA só são geradas no app do computador.');
     }
     let out;
     try {
-      out = await speak({ text: trimmed, voice, wpm: wpmForSpan(trimmed, span), span, pace, group });
+      out = await speak({ text: trimmed, voice, wpm: wpmForSpan(trimmed, span), span, pace, group: engineGroup, ...request });
     } catch (err) {
+      // o IPC só transporta a mensagem: os dois casos que a prévia trata são reconhecidos por ela
+      const raw = err instanceof Error ? err.message : String(err ?? '');
+      if (raw.includes('fala_cancelada')) throw Object.assign(new Error('fala_cancelada'), { canceled: true });
+      if (/preparando esta fala/i.test(raw)) throw Object.assign(new Error(cleanError(err)), { preparing: true });
       throw new Error(cleanError(err));
     }
     buffer = await decodeWavBytes(base64ToBytes(out.wavBase64));
     // A voz de IA vem na velocidade natural (`tempo` diz quanto esticar); a voz do Mac já vem no ritmo.
     tempo = Number(out.tempo) || 1;
     result = {
-      wpm: out.rate, voiceName: out.voice, overflow: !!out.overflow, engine: out.engine ?? 'mac',
+      wpm: out.rate, voiceName: out.voice, overflow: !!out.overflow, engine: out.engine ?? 'mac', preparing: !!out.preparing,
       note: [fallbackNote, out.note].filter(Boolean).join(' ') || null,
     };
   }
@@ -409,8 +837,15 @@ export async function synthesize(text: string, voice: string, span: number, pace
 
 /** O que o exemplo fala: uma chamada e uma contagem, como no show. */
 export const DEMO_TEXT = 'Atenção, banda! Um, dois, três, quatro.';
+/**
+ * Exemplo das vozes clonadas: só a contagem. Cada fala nova da voz clonada leva dezenas de
+ * segundos neste Mac; o texto curto sai bem mais rápido e mostra a voz do mesmo jeito.
+ */
+export const CLONE_DEMO_TEXT = 'Um, dois, três, quatro.';
 
 const demoCache = new Map<string, AudioBuffer>();
+/** Exemplo sendo gerado: clicar de novo (ou fechar e abrir a janela) espera o mesmo, sem gerar outro. */
+const demoInflight = new Map<string, Promise<VoiceDemo>>();
 
 export interface VoiceDemo {
   buffer: AudioBuffer;
@@ -418,15 +853,42 @@ export interface VoiceDemo {
   note: string | null;
 }
 
-/** O exemplo da voz, no tom escolhido. */
-export async function voiceDemo(voice: string, pitch?: VoicePitch): Promise<VoiceDemo> {
-  const key = `${voice}|${pitch ?? 'padrao'}`;
-  const hit = demoCache.get(key);
-  if (hit) return { buffer: hit, note: null };
-  if (readyVoice(voice)) {
-    // fala pronta: "Atenção" e a contagem, cada palavra do seu arquivo
+/** O exemplo já está pronto (toca na hora, sem passar pelo motor de voz)? */
+export function voiceDemoReady(voice: string, pitch?: VoicePitch): boolean {
+  return !!readyVoice(voice) || demoCache.has(`${voice}|${pitch ?? 'padrao'}`);
+}
+
+/**
+ * O exemplo da voz, no tom escolhido. Voz pronta (Maestro e intensidades): as falas gravadas,
+ * na hora, sem motor. Feminina, Masculina e clonadas: geradas pelo motor (pode levar dezenas de
+ * segundos); sem prazo curto, e o exemplo pronto fica guardado na sessão.
+ */
+export function voiceDemo(voice: string, pitch?: VoicePitch): Promise<VoiceDemo> {
+  const ready = readyVoice(voice);
+  // voz pronta: no cache limitado das falas, e a chave muda quando o pacote da voz muda
+  const key = ready
+    ? `exemplo|${readyRate()}|${voice}|${pitch ?? 'padrao'}|${voicePackRevision(ready.dir)}`
+    : `${voice}|${pitch ?? 'padrao'}`;
+  const hit = ready ? readyCacheGet(key) : demoCache.get(key);
+  if (hit) return Promise.resolve({ buffer: hit, note: null });
+  const running = demoInflight.get(key);
+  if (running) return running;
+  const task = makeVoiceDemo(voice, key, pitch).finally(() => { demoInflight.delete(key); });
+  demoInflight.set(key, task);
+  return task;
+}
+
+async function makeVoiceDemo(voice: string, key: string, pitch?: VoicePitch): Promise<VoiceDemo> {
+  const version = packVersion;
+  const ready = readyVoice(voice);
+  if (ready) {
+    // fala pronta: "Atenção" e a contagem (o que a voz tiver), uma de cada vez e só com a música parada
     const parts: AudioBuffer[] = [];
-    for (const w of ['Atenção', 'Um', 'Dois', 'Três', 'Quatro']) parts.push((await synthesize(w, voice, 0, undefined, undefined, pitch)).buffer);
+    for (const w of voiceSampleTexts(ready)) {
+      if (useStore.getState().transport.isPlaying) throw new Error('Com a música tocando o exemplo não sai, para não cair no PA.');
+      parts.push((await synthesize(w, voice, 0, undefined, undefined, pitch)).buffer);
+    }
+    if (!parts.length) throw new Error(`A voz ${ready.label} ainda não tem falas neste computador.`);
     const rate = parts[0].sampleRate;
     const gap = (i: number) => Math.round(rate * (i === 0 ? 0.45 : 0.22));
     const total = parts.reduce((n, b, i) => n + b.length + (i < parts.length - 1 ? gap(i) : 0), 0);
@@ -434,15 +896,16 @@ export async function voiceDemo(voice: string, pitch?: VoicePitch): Promise<Voic
     const out = ctx.createBuffer(1, total, rate);
     let at = 0;
     parts.forEach((b, i) => { out.getChannelData(0).set(b.getChannelData(0), at); at += b.length + gap(i); });
-    demoCache.set(key, out);
+    readyCachePut(key, out);
     return { buffer: out, note: null };
   }
-  const out = await synthesize(DEMO_TEXT, voice, 0, undefined, undefined, pitch);
+  const out = await synthesize(isCloneVoice(voice) ? CLONE_DEMO_TEXT : DEMO_TEXT, voice, 0, undefined, undefined, pitch);
   // saiu com a voz do Mac no lugar da de IA: não guarda (na próxima, a de IA já pode estar pronta)
-  if (out.engine === 'mac' && isPresetVoice(voice)) {
-    return { buffer: out.buffer, note: 'A voz de IA ainda está sendo baixada: este exemplo saiu com a voz do Mac.' };
+  if (out.engine === 'mac' && isIaVoice(voice)) {
+    return { buffer: out.buffer, note: out.preparing ? out.note : 'A voz de IA ainda está sendo baixada: este exemplo saiu com a voz do Mac.' };
   }
-  demoCache.set(key, out.buffer);
+  // regravada enquanto gerava: toca este, mas não guarda o exemplo da voz antiga
+  if (version === packVersion) demoCache.set(key, out.buffer);
   return { buffer: out.buffer, note: null };
 }
 
@@ -452,58 +915,255 @@ export async function voiceDemo(voice: string, pitch?: VoicePitch): Promise<Voic
 let previewCtx: AudioContext | null = null;
 /** Bloco pedido quando a prévia abriu. */
 let previewHint: AudioContextLatencyCategory | null = null;
+/** Placa em que a prévia abriu ('' = saída padrão do Mac). */
+let previewSink: string | null = null;
 let previewSource: AudioBufferSourceNode | null = null;
 /** Último áudio gerado de cada marcação (para ouvir sem decodificar de novo). */
 const lastBuffers = new Map<string, AudioBuffer>();
+const LAST_BUFFERS_MAX = 24;
 
-export function stopPreview(): void {
+function keepLastBuffer(clipId: string, buffer: AudioBuffer): void {
+  lastBuffers.delete(clipId);
+  lastBuffers.set(clipId, buffer);
+  if (lastBuffers.size > LAST_BUFFERS_MAX) lastBuffers.delete(lastBuffers.keys().next().value as string);
+}
+
+/** Dono da prévia: só quem pediu por último pode tocar. Vale para a janela e para o seletor de voz. */
+let previewOwner = 0;
+const previewWatchers = new Set<() => void>();
+
+function haltPreview(): void {
   if (previewSource) {
-    try { previewSource.stop(); } catch { /* já parou */ }
+    const src = previewSource;
     previewSource = null;
+    try { src.stop(); } catch { /* já parou */ }
   }
 }
 
-/** Toca o áudio e avisa quando acabar. */
-export function playPreview(buffer: AudioBuffer, onEnd?: () => void): void {
+/** Para o que toca e invalida quem ainda estava carregando para tocar. */
+export function stopPreview(): void {
+  haltPreview();
+  previewOwner++;
+  previewWatchers.forEach((cb) => cb());
+}
+
+/** Vira o dono da prévia (para o que estava tocando) e devolve o número para conferir depois. */
+export function claimPreview(): number {
   stopPreview();
+  return previewOwner;
+}
+
+export function isPreviewCurrent(owner: number): boolean {
+  return owner === previewOwner;
+}
+
+/** Avisa quando a prévia troca de dono ou é parada. */
+export function subscribePreview(cb: () => void): () => void {
+  previewWatchers.add(cb);
+  return () => { previewWatchers.delete(cb); };
+}
+
+/**
+ * Contexto da prévia, já na placa em que a música toca. Antes ele abria sempre na saída padrão
+ * do Mac: com a placa de som escolhida no programa, o ▶ das vozes "não tocava" (saía no alto-
+ * falante do Mac, ou em lugar nenhum).
+ */
+function newPreviewContext(hint: AudioContextLatencyCategory, sink: string): AudioContext {
+  if (sink) {
+    try {
+      const ctx = new AudioContext({ latencyHint: hint, sinkId: sink } as AudioContextOptions);
+      if ((ctx as unknown as { sinkId?: unknown }).sinkId === sink) return ctx;
+      const sinkable = ctx as unknown as { setSinkId?: (id: string) => Promise<void> };
+      void sinkable.setSinkId?.(sink).catch(() => { /* placa recusada: fica na saída padrão */ });
+      return ctx;
+    } catch { /* construtor não aceita a placa: abre na padrão */ }
+  }
+  return new AudioContext({ latencyHint: hint });
+}
+
+/**
+ * Abre a saída da prévia antes do primeiro clique, para a primeira fala não esperar a placa de som.
+ * Só com a música parada: abrir um contexto na placa durante o show engasga o áudio.
+ */
+export function warmPreview(): void {
+  if (useStore.getState().transport.isPlaying) return;
   try {
-    // bloco do motor, nunca menor. O motor trocou de modo depois que a prévia abriu: fecha e abre
-    // de novo (stopPreview acabou de parar o que tocava nela), mas só com a música parada: com
-    // música, abrir outro contexto mexe na placa (engasgo) e a prévia toca no contexto antigo
-    const playing = useStore.getState().transport.isPlaying;
-    const hint = playing && previewCtx && previewHint ? previewHint : engineLatencyHint();
+    const hint = engineLatencyHint();
+    const sink = audioEngine.getOutputSinkId();
+    if (previewCtx && previewCtx.state !== 'closed' && previewHint === hint && previewSink === sink) return;
+    if (previewCtx) void previewCtx.close().catch(() => { /* já fechou */ });
+    previewCtx = newPreviewContext(hint, sink);
+    previewHint = hint;
+    previewSink = sink;
+  } catch { /* sem saída agora: o primeiro toque tenta de novo */ }
+}
+
+/**
+ * Toca o áudio e avisa quando acabar. `owner`: quem reivindicou a prévia antes de carregar; se outro
+ * toque começou nesse meio tempo, este não sai. Com a música no ar a prévia nunca sai: a saída
+ * padrão do Mac pode ser a própria placa do show, e aí a fala cairia no PA.
+ */
+export function playPreview(buffer: AudioBuffer, onEnd?: () => void, owner?: number): void {
+  if (owner !== undefined && owner !== previewOwner) { onEnd?.(); return; }
+  if (owner === undefined) claimPreview();
+  else haltPreview();
+  if (useStore.getState().transport.isPlaying) { onEnd?.(); return; }
+  try {
+    // bloco do motor, nunca menor. O motor trocou de modo (ou de placa) depois que a prévia abriu:
+    // fecha e abre de novo (o que tocava nela acabou de parar)
+    const hint = engineLatencyHint();
+    const sink = audioEngine.getOutputSinkId();
     if (previewCtx && previewHint !== hint) {
       void previewCtx.close().catch(() => { /* já fechou */ });
       previewCtx = null;
     }
-    if (!previewCtx) {
-      previewCtx = new AudioContext({ latencyHint: hint });
-      previewHint = hint;
+    // a placa da música mudou (ou o contexto fechou): a prévia vai junto para a placa nova
+    if (previewCtx && (previewCtx.state === 'closed' || previewSink !== sink)) {
+      void previewCtx.close().catch(() => { /* já fechou */ });
+      previewCtx = null;
     }
-    void previewCtx.resume();
-    const src = previewCtx.createBufferSource();
+    if (!previewCtx) {
+      previewCtx = newPreviewContext(hint, sink);
+      previewHint = hint;
+      previewSink = sink;
+    }
+    const ctx = previewCtx;
+    const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(previewCtx.destination);
-    src.onended = () => {
+    src.connect(ctx.destination);
+    let finished = false;
+    const end = () => {
+      if (finished) return;
+      finished = true;
       if (previewSource === src) previewSource = null;
       onEnd?.();
     };
-    src.start();
+    src.onended = end;
     previewSource = src;
+    // Contexto suspenso (aberto fora de um clique, ou o Mac suspendeu o áudio): só começa depois de
+    // voltar a rodar. Começando antes, o tempo de início já tinha passado e a fala saía cortada ou muda.
+    // o contexto não voltou a rodar em alguns segundos: encerra, para o ▶ não ficar preso tocando
+    const giveUp = ctx.state === 'running' ? 0
+      : window.setTimeout(() => { if (previewSource === src) { stopPreview(); end(); } }, 4000);
+    const begin = () => {
+      window.clearTimeout(giveUp);
+      if (previewSource !== src) return; // parado enquanto o contexto voltava
+      try { src.start(); } catch { end(); }
+    };
+    if (ctx.state === 'running') begin();
+    else void ctx.resume().then(begin, () => begin());
   } catch {
     onEnd?.();
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// Prévia do texto escrito: gera e toca SEM mexer na marcação nem na timeline. O Gerar reaproveita
+// o mesmo áudio; o motor também guarda a fala em disco, então mudar só o tamanho não gera de novo.
+
+export interface SpeechDraft {
+  text: string;
+  voice: string;
+  span: number;
+  pace?: number;
+  pitch?: VoicePitch;
+  group?: string[];
+}
+
+const PREVIEW_KEEP = 8;
+const previewDone = new Map<string, SpeechResult>();
+const previewRunning = new Map<string, Promise<SpeechResult>>();
+/** Pedido ao motor de cada prévia em andamento (rascunho → requestId), para poder cancelar. */
+const previewRequests = new Map<string, string>();
+let previewSeq = 0;
+/** Falas que o motor de IA já gerou nesta sessão: refazer só muda o tamanho, sem esperar. */
+const engineHas = new Set<string>();
+
+const engineKey = (text: string, voice: string, group?: string[]) => `${voice}|${text.trim()}|${(group ?? []).join(',')}`;
+
+function draftKey(d: SpeechDraft): string {
+  return `${narrationSignature(d.text, d.voice, d.span, d.pace, d.pitch)}|${(d.group ?? []).join(',')}`;
+}
+
+/** Este rascunho já foi ouvido na prévia (o Gerar usa o mesmo áudio, na hora)? */
+export function draftPreviewed(d: SpeechDraft): boolean {
+  return previewDone.has(draftKey(d));
+}
+
+export function isSpeechCanceled(err: unknown): boolean {
+  return !!(err as { canceled?: boolean } | null)?.canceled;
+}
+export function isSpeechPreparing(err: unknown): boolean {
+  return !!(err as { preparing?: boolean } | null)?.preparing;
+}
+
+/**
+ * Desiste das prévias em andamento (menos a de `keep`, que o Gerar vai aproveitar). O que estava
+ * na fila sai dela; a fala que o motor já começou termina e fica guardada.
+ */
+export function cancelPreviewSpeech(keep?: SpeechDraft): void {
+  const keepKey = keep ? draftKey(keep) : null;
+  for (const [key, id] of [...previewRequests]) {
+    if (key === keepKey) continue;
+    previewRequests.delete(key);
+    previewRunning.delete(key);
+    try { void window.vsDesktop?.maestroSpeakCancel?.(id)?.catch?.(() => {}); } catch { /* sem motor */ }
+  }
+}
+
+/**
+ * Gera a prévia do rascunho, sempre na voz pedida: se o motor não puder falar, dá erro em vez de
+ * tocar a voz do sistema. A fala que o motor já começou termina e fica guardada.
+ */
+export function previewSpeech(d: SpeechDraft): Promise<SpeechResult> {
+  const key = draftKey(d);
+  const hit = previewDone.get(key);
+  if (hit) return Promise.resolve(hit);
+  const current = previewRunning.get(key);
+  if (current) return current;
+  const requestId = `previa-${Date.now()}-${++previewSeq}`;
+  const version = packVersion;
+  previewRequests.set(key, requestId);
+  const task: Promise<SpeechResult> = synthesize(d.text, d.voice, d.span, d.pace, d.group, d.pitch, { requestId, fallback: false }).then((out) => {
+    // a voz foi regravada enquanto esta prévia saía: o áudio é da gravação antiga
+    if (version !== packVersion) return out;
+    if (out.engine === 'qwen') engineHas.add(engineKey(d.text, d.voice, d.group));
+    // voz de reserva do Mac não é a fala pedida: não vale para o Gerar
+    if (out.engine !== 'mac') {
+      previewDone.set(key, out);
+      if (previewDone.size > PREVIEW_KEEP) previewDone.delete(previewDone.keys().next().value as string);
+    }
+    return out;
+  }).finally(() => {
+    if (previewRunning.get(key) === task) previewRunning.delete(key);
+    if (previewRequests.get(key) === requestId) previewRequests.delete(key);
+  });
+  previewRunning.set(key, task);
+  return task;
+}
+
+/** A fala de IA do rascunho, que estava sendo preparada no processador, já pode tocar? */
+export async function draftReady(d: SpeechDraft): Promise<boolean> {
+  const ready = window.vsDesktop?.maestroSpeechReady;
+  if (!ready) return true;
+  try { return await ready({ text: d.text, voice: d.voice, group: d.group }); } catch { return true; }
+}
+
+/** As palavras da contagem a que a marcação pertence (a prévia fala igual ao Gerar). */
+export function draftGroup(songId: string, group: string | undefined, narrationId?: string, text?: string): string[] | undefined {
+  return group ? countGroupWords(songId, group, narrationId, text) : undefined;
+}
+
 /** O áudio que já está na faixa para esta marcação (da memória ou do arquivo salvo). */
 export async function narrationBuffer(n: MaestroNarration): Promise<AudioBuffer | null> {
-  const cached = lastBuffers.get(n.id);
-  if (cached && n.clipId) return cached;
-  const src = n.clipId ? getClipSource(n.clipId) : null;
+  if (!n.clipId) return null;
+  const cached = lastBuffers.get(n.clipId);
+  if (cached) return cached;
+  const src = getClipSource(n.clipId);
   if (!src) return null;
   try {
     const buffer = await decodeWavBytes(new Uint8Array(await src.arrayBuffer()));
-    lastBuffers.set(n.id, buffer);
+    keepLastBuffer(n.clipId, buffer);
     return buffer;
   } catch {
     return null;
@@ -536,6 +1196,8 @@ export function narrationOverflows(n: MaestroNarration): number {
 
 const running = new Map<string, Promise<SpeechResult | null>>();
 const again = new Set<string>();
+/** Marcações do Adicionar fala: só entra a fala pronta, nunca a voz do sistema. */
+const noFallback = new Set<string>();
 const timers = new Map<string, number>();
 const listeners = new Set<() => void>();
 let generatingVersion = 0;
@@ -567,9 +1229,13 @@ function findNarration(songId: string, narrationId: string): MaestroNarration | 
 }
 
 /** Gera a fala da marcação e coloca o áudio na faixa Maestro IA. */
-export function generateNarration(songId: string, narrationId: string): Promise<SpeechResult | null> {
+export function generateNarration(songId: string, narrationId: string, opts?: { fallback?: false }): Promise<SpeechResult | null> {
   const timer = timers.get(narrationId);
   if (timer) { window.clearTimeout(timer); timers.delete(narrationId); }
+  // voz que saiu do programa: a marcação fica com o áudio que tem, nada é gerado nela
+  const target = findNarration(songId, narrationId);
+  if (target && !isOfferedVoice(target.voice)) { notify(); return Promise.resolve(null); }
+  if (opts?.fallback === false) noFallback.add(narrationId);
   const current = running.get(narrationId);
   if (current) { again.add(narrationId); return current; }
   const job = (async () => {
@@ -581,6 +1247,9 @@ export function generateNarration(songId: string, narrationId: string): Promise<
       if (again.delete(narrationId)) {
         const n = findNarration(songId, narrationId);
         if (n && n.text.trim() && narrationState(n) !== 'fresh') void generateNarration(songId, narrationId).catch(() => {});
+        else noFallback.delete(narrationId);
+      } else {
+        noFallback.delete(narrationId);
       }
     }
   })();
@@ -590,12 +1259,31 @@ export function generateNarration(songId: string, narrationId: string): Promise<
 }
 
 /**
- * Gera daqui a pouco (depois de arrastar a borda ou fechar o editor): várias mudanças seguidas
- * viram uma geração só.
+ * Refaz sem espera só o que não custa geração nova: fala gravada do Maestro IA, ou voz clonada que
+ * o motor já gerou nesta sessão. Voz que saiu das telas, ou fala clonada nova, fica com o áudio que
+ * tem até o usuário pedir "Gerar".
+ */
+function regeneratesAlone(n: MaestroNarration & { songId: string }): boolean {
+  if (!isOfferedVoice(n.voice)) return false;
+  const ready = readyVoice(n.voice);
+  if (ready) {
+    const cue = findReadyCue(n.text);
+    return !!cue && voiceHasCue(ready, cue, ready.intensity);
+  }
+  const group = n.countGroup ? countGroupWords(n.songId, n.countGroup) : undefined;
+  // número do pacote já aberto: ajustar o tamanho não chama o modelo
+  if (group?.length && group.every((w) => readyCache.has(packKey(n.voice, w)))) return true;
+  return engineHas.has(engineKey(n.text, n.voice, group));
+}
+
+/**
+ * Ajusta daqui a pouco (depois de arrastar a borda ou no OK): várias mudanças seguidas viram uma
+ * vez só. Nunca dispara uma geração de IA que o usuário não pediu.
  */
 export function scheduleGeneration(songId: string, narrationId: string, delayMs = 400): void {
   const n = findNarration(songId, narrationId);
   if (!n || !canGenerate(n.voice) || !n.text.trim() || narrationState(n) === 'fresh') return;
+  if (!regeneratesAlone({ ...n, songId })) return;
   const old = timers.get(narrationId);
   if (old) window.clearTimeout(old);
   timers.set(narrationId, window.setTimeout(() => {
@@ -608,9 +1296,11 @@ export function scheduleGeneration(songId: string, narrationId: string, delayMs 
 }
 
 /** As palavras de uma contagem, na ordem em que tocam ("Um!", "Dois!"...). */
-function countGroupWords(songId: string, group: string): string[] {
+function countGroupWords(songId: string, group: string, narrationId?: string, text?: string): string[] {
   const song = useStore.getState().songs.find((s) => s.id === songId);
-  return sortedNarrations((song?.narrations ?? []).filter((x) => x.countGroup === group)).map((x) => x.text.trim()).filter(Boolean);
+  return sortedNarrations((song?.narrations ?? []).filter((x) => x.countGroup === group))
+    .map((x) => (x.id === narrationId && text !== undefined ? text : x.text).trim())
+    .filter(Boolean);
 }
 
 
@@ -629,7 +1319,16 @@ async function generateOnce(songId: string, narrationId: string): Promise<Speech
   // e a fala que fica pronta entra no tempo certo (o reprodutor desconta a largada atrasada).
   let result: SpeechResult;
   try {
-    result = await synthesize(text, voice, span, pace, group, pitch);
+    // a prévia deste mesmo texto, voz e tom já está pronta (ou gerando): usa ela
+    const draft: SpeechDraft = { text, voice, span, pace, pitch, group };
+    const key = draftKey(draft);
+    // prévia cancelada ou que falhou não derruba o Gerar: aí gera pelo caminho normal
+    const strict = noFallback.has(narrationId);
+    const reused = previewDone.get(key) ?? await previewRunning.get(key)?.catch(() => null);
+    result = reused ?? await synthesize(text, voice, span, pace, group, pitch, strict ? { fallback: false } : undefined);
+    // no processador a reserva volta marcada como preparando: no Adicionar fala ela não entra
+    if (strict && result.engine === 'mac') throw new Error('Esta fala ainda não está pronta nesta voz.');
+    if (result.engine === 'qwen') engineHas.add(engineKey(text, voice, group));
   } catch (err) {
     if (findNarration(songId, narrationId)) {
       useStore.getState().updateNarration(songId, narrationId, { status: 'error', error: friendlyError(err, 'Não foi possível gerar a voz.') });
@@ -639,9 +1338,13 @@ async function generateOnce(songId: string, narrationId: string): Promise<Speech
   // a marcação pode ter sido apagada enquanto a voz era gerada: aí não grava nada
   if (!findNarration(songId, narrationId)) return null;
   // feita com a voz do Mac no lugar da de IA: fica marcada para gerar de novo quando a de IA puder
-  const fallback = result.engine === 'mac' && isPresetVoice(voice);
+  const fallback = result.engine === 'mac' && isIaVoice(voice);
+  // no processador a fala de IA está sendo gerada: a tela troca quando ela ficar pronta
+  if (result.preparing) iaWaiting.set(narrationId, { songId, text, voice, group });
+  else iaWaiting.delete(narrationId);
   await applyNarration(songId, narrationId, result, narrationSignature(text, voice, span, pace, pitch) + (fallback ? FALLBACK_MARK : ''));
-  lastBuffers.set(narrationId, result.buffer);
+  const clipId = findNarration(songId, narrationId)?.clipId;
+  if (clipId) keepLastBuffer(clipId, result.buffer);
   return result;
 }
 
@@ -776,6 +1479,7 @@ export function createCountIn(song: Song, opts: CountInOptions): { ids: string[]
   const from = times[0];
   const to = times[opts.total];
   if (to > song.duration + 1e-6) return { error: 'A contagem passaria do fim da música. Comece mais cedo ou use menos tempos.' };
+  if (crossesTempoChange(song, times)) return { error: 'A contagem passaria da troca de andamento. Comece mais cedo, para terminar na troca, ou use menos tempos.' };
   const inRange = (song.narrations ?? []).filter((n) => n.end > from + 1e-6 && n.start < to - 1e-6);
   const blocking = inRange.filter((n) => !n.countGroup);
   if (blocking.length > 0) {
@@ -783,6 +1487,8 @@ export function createCountIn(song: Song, opts: CountInOptions): { ids: string[]
   }
   const group = `contagem-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
   const words = countWords(opts.total, song.beatsPerBar ?? 4, opts.restartEachBar);
+  const lacking = wordsMissingInVoice(opts.voice, words);
+  if (lacking.length) return { error: `Esta voz ainda não tem: ${lacking.join(', ')}. Use menos tempos ou recomece a cada compasso.` };
   const items: MaestroNarration[] = words.map((text, i) => ({
     id: `${group}-${i + 1}`,
     text,
@@ -836,48 +1542,37 @@ export function removeCountGroup(songId: string, group: string): void {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Falas desatualizadas da música aberta (feitas com outra voz: Kokoro, voz do Mac de reserva)
-// são geradas de novo sozinhas, uma de cada vez, para tudo sair no mesmo tom. Só quando a voz de
-// IA está pronta e nenhuma música toca; uma fala que deu erro não é tentada de novo nesta sessão.
+// Troca da voz de reserva: quando o usuário pediu uma fala e ela saiu na voz do Mac porque a de IA
+// ainda estava sendo preparada, a fala de IA entra assim que ficar pronta. Nada além disso é gerado
+// sozinho: marcação desatualizada ou de voz antiga fica como está até o usuário clicar em Gerar.
 
-const refreshFailed = new Set<string>();
-let refreshing = false;
+/** Marcações esperando a fala de IA que o usuário pediu. */
+const iaWaiting = new Map<string, { songId: string; text: string; voice: string; group?: string[] }>();
+let swapping = false;
 
-function nextStale(): { songId: string; id: string } | null {
-  const st = useStore.getState();
-  if (st.transport.isPlaying) return null;
-  const song = st.songs.find((s) => s.id === st.selectedSongId);
-  for (const n of sortedNarrations(song?.narrations ?? [])) {
-    if (!n.text.trim() || refreshFailed.has(n.id) || isGenerating(n.id)) continue;
-    if (narrationState(n) !== 'fresh') return { songId: song!.id, id: n.id };
-  }
-  return null;
-}
-
-async function refreshStale(): Promise<void> {
-  if (refreshing || !nextStale()) return;
-  const st = await voiceEngineStatus();
-  if (!st?.ready) return;
-  refreshing = true;
+async function swapReadySpeech(): Promise<void> {
+  const ready = window.vsDesktop?.maestroSpeechReady;
+  if (swapping || !ready || iaWaiting.size === 0 || useStore.getState().transport.isPlaying) return;
+  swapping = true;
   try {
-    for (let next = nextStale(); next; next = nextStale()) {
-      try {
-        await generateNarration(next.songId, next.id);
-      } catch {
-        refreshFailed.add(next.id);
-      }
-      const n = findNarration(next.songId, next.id);
-      if (n && narrationState(n) !== 'fresh') refreshFailed.add(next.id); // não ficou boa: não insiste
+    for (const [id, wait] of [...iaWaiting]) {
+      const n = findNarration(wait.songId, id);
+      // mudou o texto ou a voz depois do pedido: a fala esperada não vale mais
+      if (!n || n.text.trim() !== wait.text || n.voice !== wait.voice) { iaWaiting.delete(id); continue; }
+      let done = false;
+      try { done = await ready({ text: wait.text, voice: wait.voice, group: wait.group }); } catch { iaWaiting.delete(id); continue; }
+      if (!done) continue;
+      iaWaiting.delete(id);
+      try { await generateNarration(wait.songId, id); } catch { /* o erro fica na marcação */ }
     }
   } finally {
-    refreshing = false;
+    swapping = false;
   }
 }
 
 if (typeof window !== 'undefined' && window.vsDesktop?.maestroSpeak) {
-  // O timer fica consultando a música aberta a cada 10 s a vida toda. Numa tela escondida
-  // (janela minimizada, outra aba) o trabalho não adianta e só gasta pilha: só roda visível.
+  // Só trabalha quando há uma fala pedida à espera, e com a tela visível.
   window.setInterval(() => {
-    if (document.visibilityState === 'visible') void refreshStale();
+    if (iaWaiting.size > 0 && document.visibilityState === 'visible') void swapReadySpeech();
   }, 10_000);
 }

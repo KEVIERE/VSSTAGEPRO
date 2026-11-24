@@ -91,6 +91,27 @@ test('fala comum: duas palavras com pausa entre elas ficam inteiras', () => {
   assert.ok(speechBounds(s, RATE, { singleWord: true }).start <= 1, 'parte forte nunca sai, nem na contagem');
 });
 
+test('fala comum: o "es" de "Espera" fica, mesmo fraco e antes da pausa do "p"', () => {
+  const s = build([
+    { kind: 'silence', ms: 70 },
+    { kind: 'tone', level: 0.12, hz: 200, ms: 90 },
+    { kind: 'silence', ms: 80 },
+    { kind: 'tone', level: 0.7, ms: 300 },
+  ]);
+  const { start } = speechBounds(s, RATE);
+  assert.ok(Math.abs(ms(start) - 70) <= 2, `começa em ${ms(start).toFixed(1)} ms (esperado 70, no "es")`);
+});
+
+test('fala comum: respiração antes da pausa continua saindo', () => {
+  const s = build([
+    { kind: 'noise', level: 0.03, ms: 90 },
+    { kind: 'silence', ms: 60 },
+    { kind: 'tone', level: 0.7, ms: 300 },
+  ]);
+  const { start } = speechBounds(s, RATE);
+  assert.ok(Math.abs(ms(start) - 150) <= 2, `começa em ${ms(start).toFixed(1)} ms (esperado 150)`);
+});
+
 test('o corte entra sem estalo e mantém todos os canais alinhados', () => {
   const s = build([{ kind: 'silence', ms: 100 }, { kind: 'tone', level: 0.6, ms: 200 }]);
   const [l, r] = trimSpeechChannels([s, s.slice()], RATE);

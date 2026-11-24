@@ -19,6 +19,23 @@ export interface ReadyEntry {
 let dirPromise: Promise<FileSystemDirectoryHandle | null> | null = null;
 const known = new Set<string>();
 const usedThisSession = new Set<string>();
+// Quantas vezes cada cópia foi gravada ou apagada nesta sessão: quem guarda um leitor aberto
+// (diskSource) compara este número para saber que o arquivo mudou e que precisa abrir de novo.
+const generations = new Map<string, number>();
+
+function changed(name: string) {
+  generations.set(name, (generations.get(name) ?? 0) + 1);
+}
+
+function forget(name: string) {
+  known.delete(name);
+  changed(name);
+}
+
+/** Muda toda vez que a cópia `name` é gravada ou apagada nesta sessão. */
+export function entryGeneration(name: string): number {
+  return generations.get(name) ?? 0;
+}
 
 export function markUsed(name: string) {
   usedThisSession.add(name);
@@ -59,9 +76,17 @@ export function fullCopyName(songId: string, clipId: string, source: Blob, sampl
   return `f_${hash(`${sourceIdentity(songId, clipId, source)}|${sampleRate}`)}`;
 }
 
+/**
+ * Marca do áudio ajustado no nome do arquivo guardado. Com o BPM original e o tom alterado a faixa
+ * passou a sair na grade: o que foi guardado antes dessa correção deixa de valer. O resto continua.
+ */
+export function renderVersion(tempo: number, pitch: number): string {
+  return Math.abs(tempo - 1) < 1e-4 && Math.abs(pitch - 1) >= 1e-3 ? '|grade2' : '';
+}
+
 /** Faixa inteira já ajustada em BPM/tom: feita uma vez e reaproveitada nas próximas aberturas. */
 export function renderedName(songId: string, clipId: string, source: Blob, sampleRate: number, frames: number, tempo: number, pitch: number): string {
-  return `r_${hash(`${sourceIdentity(songId, clipId, source)}|${sampleRate}|${frames}|${tempo.toFixed(6)}|${pitch.toFixed(6)}`)}`;
+  return `r_${hash(`${sourceIdentity(songId, clipId, source)}|${sampleRate}|${frames}|${tempo.toFixed(6)}|${pitch.toFixed(6)}${renderVersion(tempo, pitch)}`)}`;
 }
 
 export async function entryExists(dir: FileSystemDirectoryHandle, name: string): Promise<boolean> {
@@ -78,6 +103,8 @@ export async function entryExists(dir: FileSystemDirectoryHandle, name: string):
 export async function writeEntry(dir: FileSystemDirectoryHandle, name: string, sampleRate: number, channels: Int16Array[], fullFrames: number, validFrames: number) {
   const frames = channels[0].length;
   const header = new Int32Array([MAGIC, sampleRate, channels.length, frames, fullFrames, validFrames]);
+  // O metadado era da cópia que vai ser trocada: sai antes (grave o novo depois desta gravação)
+  await dir.removeEntry(metaName(name)).catch(() => { /* não havia */ });
   // O navegador só grava o arquivo de verdade no close(): uma gravação interrompida não deixa arquivo pela metade.
   const handle = await dir.getFileHandle(name, { create: true });
   const writable = await handle.createWritable();
@@ -86,10 +113,86 @@ export async function writeEntry(dir: FileSystemDirectoryHandle, name: string, s
     for (const ch of channels) await writable.write(ch);
     await writable.close();
     known.add(name);
+    changed(name);
   } catch (err) {
     await writable.abort().catch(() => { /* ignore */ });
     await dir.removeEntry(name).catch(() => { /* ignore */ });
+    forget(name);
     throw err;
+  }
+}
+
+// ---------- metadado ao lado de uma cópia (ex.: o adiantamento medido de uma faixa ajustada r_) ----------
+
+const META_SUFFIX = '.meta';
+const META_MAX_KEYS = 64;
+const META_MAX_BYTES = 16 * 1024;
+
+/** Nome do arquivo de metadado de uma cópia. Ele segue a cópia: sai junto quando ela sai. */
+export function metaName(name: string): string {
+  return `${name}${META_SUFFIX}`;
+}
+
+function isMetaName(name: string): boolean {
+  return name.endsWith(META_SUFFIX);
+}
+
+function cleanMeta(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return out;
+  let n = 0;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    if (++n > META_MAX_KEYS) break;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** Valores guardados ao lado da cópia `name`, ou null se não há (ou se o arquivo não vale). */
+export async function readEntryMeta(dir: FileSystemDirectoryHandle, name: string): Promise<Record<string, number> | null> {
+  try {
+    const file = await (await dir.getFileHandle(metaName(name))).getFile();
+    if (file.size <= 0 || file.size > META_MAX_BYTES) return null;
+    return cleanMeta(JSON.parse(await file.text()));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Junta `values` (só números) ao metadado da cópia `name` e grava. Grave depois de writeEntry da
+ * mesma cópia terminar: regravar a cópia apaga o metadado dela. Devolve false se não gravou.
+ */
+export async function writeEntryMeta(dir: FileSystemDirectoryHandle, name: string, values: Record<string, number>): Promise<boolean> {
+  const old = (await readEntryMeta(dir, name)) ?? {};
+  const add = cleanMeta(values);
+  for (const k of Object.keys(add)) delete old[k];
+  const next = { ...old, ...add };
+  const keys = Object.keys(next);
+  // passou do limite: ficam os mais novos (os de `values` entram por último)
+  for (const k of keys.slice(0, Math.max(0, keys.length - META_MAX_KEYS))) delete next[k];
+  const text = JSON.stringify(next);
+  if (text.length > META_MAX_BYTES) return false;
+  let writable: FileSystemWritableFileStream | null = null;
+  try {
+    writable = await (await dir.getFileHandle(metaName(name), { create: true })).createWritable();
+    await writable.write(text);
+    await writable.close();
+    return true;
+  } catch {
+    await writable?.abort().catch(() => { /* ignore */ });
+    return false;
+  }
+}
+
+async function removeWithMeta(dir: FileSystemDirectoryHandle, name: string, metas: Set<string> | null): Promise<void> {
+  await dir.removeEntry(name);
+  forget(name);
+  const meta = metaName(name);
+  if (!metas || metas.has(meta)) {
+    metas?.delete(meta);
+    await dir.removeEntry(meta).catch(() => { /* não havia */ });
   }
 }
 
@@ -130,15 +233,14 @@ export async function openEntryRange(dir: FileSystemDirectoryHandle, name: strin
       channelCount: count,
       frames,
       fullFrames,
-      async read(start: number, n: number) {
+      read(start: number, n: number) {
         const from = Math.max(0, Math.min(frames, start));
         const to = Math.max(from, Math.min(frames, from + n));
-        const out: Int16Array[] = [];
-        for (let c = 0; c < count; c++) {
+        // os canais ficam um depois do outro no arquivo: as duas leituras vão juntas ao disco
+        return Promise.all(Array.from({ length: count }, async (_, c) => {
           const base = HEADER_INTS * 4 + c * frames * 2;
-          out.push(new Int16Array(await file.slice(base + from * 2, base + to * 2).arrayBuffer()));
-        }
-        return out;
+          return new Int16Array(await file.slice(base + from * 2, base + to * 2).arrayBuffer());
+        }));
       },
     };
   } catch {
@@ -159,8 +261,13 @@ function loadSeen(): Record<string, number> {
 export async function purgeStale(dir: FileSystemDirectoryHandle, projectNames: Set<string>) {
   const inUse = new Set([...projectNames, ...usedThisSession]);
   const names: string[] = [];
+  // metadados seguem a cópia dona: não entram na conta de uso nem no teto
+  const metas = new Set<string>();
   try {
-    for await (const name of (dir as unknown as { keys: () => AsyncIterable<string> }).keys()) names.push(name);
+    for await (const name of (dir as unknown as { keys: () => AsyncIterable<string> }).keys()) {
+      if (isMetaName(name)) metas.add(name);
+      else names.push(name);
+    }
   } catch {
     return;
   }
@@ -170,14 +277,18 @@ export async function purgeStale(dir: FileSystemDirectoryHandle, projectNames: S
   for (const name of names) {
     const last = inUse.has(name) ? now : seen[name] ?? now;
     if (now - last > MAX_UNUSED_MS) {
-      known.delete(name);
-      await dir.removeEntry(name).catch(() => { /* ignore */ });
+      await removeWithMeta(dir, name, metas).catch(() => { /* ignore */ });
       continue;
     }
     next[name] = last;
   }
-  await trimRenderedForSpace(dir, inUse, next);
-  await trimToCap(dir, inUse, next);
+  await trimRenderedForSpace(dir, inUse, next, metas);
+  await trimToCap(dir, inUse, next, metas);
+  // metadado sem a cópia dona (gravação dela interrompida, ou dona apagada antes): sai
+  for (const meta of metas) {
+    if (Object.prototype.hasOwnProperty.call(next, meta.slice(0, -META_SUFFIX.length))) continue;
+    await dir.removeEntry(meta).catch(() => { /* ignore */ });
+  }
   try {
     localStorage.setItem(SEEN_KEY, JSON.stringify(next));
   } catch { /* sem espaço: só deixa de limpar */ }
@@ -189,7 +300,7 @@ const CAP_MIN_IDLE_MS = 3 * 24 * 60 * 60 * 1000;
 
 // Teto fixo: sem ele a pasta passava de 13 GB num Mac de 228 GB. Sai primeiro o que nenhum projeto
 // aberto usa, do uso mais antigo para o mais novo, de qualquer tipo (o que sai é refeito se precisar).
-async function trimToCap(dir: FileSystemDirectoryHandle, inUse: Set<string>, seen: Record<string, number>) {
+async function trimToCap(dir: FileSystemDirectoryHandle, inUse: Set<string>, seen: Record<string, number>, metas: Set<string> | null = null) {
   const sizes: Array<{ name: string; size: number }> = [];
   let total = 0;
   for (const name of Object.keys(seen)) {
@@ -206,8 +317,7 @@ async function trimToCap(dir: FileSystemDirectoryHandle, inUse: Set<string>, see
   for (const { name, size } of candidates) {
     if (total <= MAX_TOTAL_BYTES) break;
     try {
-      await dir.removeEntry(name);
-      known.delete(name);
+      await removeWithMeta(dir, name, metas);
       delete seen[name];
       total -= size;
     } catch { /* ignore */ }
@@ -215,7 +325,7 @@ async function trimToCap(dir: FileSystemDirectoryHandle, inUse: Set<string>, see
 }
 
 // Com o disco apertado, as músicas ajustadas que o projeto aberto não usa saem primeiro, das mais antigas.
-async function trimRenderedForSpace(dir: FileSystemDirectoryHandle, inUse: Set<string>, seen: Record<string, number>) {
+async function trimRenderedForSpace(dir: FileSystemDirectoryHandle, inUse: Set<string>, seen: Record<string, number>, metas: Set<string> | null = null) {
   const estimate = await navigator.storage.estimate().catch(() => null);
   if (!estimate?.quota || estimate.usage === undefined) return;
   let excess = estimate.usage - estimate.quota * MAX_QUOTA_SHARE;
@@ -225,8 +335,7 @@ async function trimRenderedForSpace(dir: FileSystemDirectoryHandle, inUse: Set<s
     if (excess <= 0) break;
     try {
       const size = (await (await dir.getFileHandle(name)).getFile()).size;
-      await dir.removeEntry(name);
-      known.delete(name);
+      await removeWithMeta(dir, name, metas);
       delete seen[name];
       excess -= size;
     } catch { /* ignore */ }

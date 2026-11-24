@@ -97,9 +97,12 @@ function wavSeconds(buf) {
  * voz ganha força (12% do nível máximo) e só volta enquanto ainda é voz (6% ou mais) ou consoante
  * chiada, como o "v" de "Vamos" ou o "s" de "Segura" (fraca, mas com muitos cruzamentos por zero),
  * no máximo 80 ms. Respiração é fraca e "lisa": fica de fora.
+ * `preciseEdges` (voz clonada e contagem): o começo vem de `speechOnset`, que acha o "s" fraco antes
+ * do limiar de pico, e as pontas ganham uma entrada de 1 ms e uma saída curta, sem estalo.
+ * `compactTail` (números da contagem): o fim vem de `speechEnd`, sem cauda nem respiração.
  * Devolve um WAV com cabeçalho simples de 44 bytes.
  */
-function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}) {
+function trimSilence(buf, { dropTrailingBlips = false, tightStart = false, preciseEdges = false, compactTail = false } = {}) {
   const { start, end, frameBytes, byteRate } = wavLayout(buf);
   const frames = Math.floor((end - start) / frameBytes);
   if (frames <= 0) return buf;
@@ -119,7 +122,8 @@ function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}
   while (first < frames && !loud(first)) first++;
   // Toda fala: começa onde a voz pega força de verdade. Antes, só o modo `tightStart` fazia isso,
   // e a voz do Mac ficava com 20 a 30 ms de chiado fraco na frente — o "espaço" antes da palavra.
-  if (first < frames) first = voiceOnset(first, frames, rate, (i) => sample(i, 0));
+  if (preciseEdges) first = speechOnset(frames, rate, (i) => sample(i, 0));
+  else if (first < frames) first = voiceOnset(first, frames, rate, (i) => sample(i, 0));
   let last = frames - 1;
   while (last > first && !loud(last)) last--;
   if (dropTrailingBlips) last = withoutTrailingBlips(first, last, rate, peak, THRESHOLD, (i) => {
@@ -131,9 +135,147 @@ function trimSilence(buf, { dropTrailingBlips = false, tightStart = false } = {}
   // fala cair exatamente na linha da grade (junto com o click). Nenhuma rampa para cima: a voz
   // entra já no volume em que foi gerada ("vem forte no início").
   const from = first;
-  const to = Math.min(frames, last + 1 + Math.round(0.06 * rate));
+  if (compactTail) last = speechEnd(first, last, rate, (i) => sample(i, 0));
+  const hold = compactTail ? 0.02 : preciseEdges ? 0.04 : 0.06;
+  const to = Math.min(frames, last + 1 + Math.round(hold * rate));
   const body = Buffer.from(buf.subarray(start + from * frameBytes, start + to * frameBytes));
+  if (preciseEdges) fadeEdges(body, frameBytes, rate, compactTail ? 0.03 : 0.015);
   return wavFile(body, { channels: frameBytes / 2, byteRate });
+}
+
+/** Entrada de 1 ms e saída de `outSeconds` (cosseno) num PCM de 16 bits: a ponta nunca fica fora do zero. */
+function fadeEdges(pcm, frameBytes, rate, outSeconds) {
+  const frames = Math.floor(pcm.length / frameBytes);
+  const channels = frameBytes / 2;
+  const scale = (i, g) => {
+    for (let c = 0; c < channels; c++) {
+      const at = i * frameBytes + c * 2;
+      pcm.writeInt16LE(Math.round(pcm.readInt16LE(at) * g), at);
+    }
+  };
+  const fadeIn = Math.min(frames, Math.max(1, Math.round(rate * 0.001)));
+  for (let i = 0; i < fadeIn; i++) scale(i, 0.5 - 0.5 * Math.cos(Math.PI * (i / fadeIn)));
+  const fadeOut = Math.min(frames - fadeIn, Math.round(rate * outSeconds));
+  for (let i = 0; i < fadeOut; i++) scale(frames - 1 - i, 0.5 - 0.5 * Math.cos(Math.PI * (i / fadeOut)));
+}
+
+/** Nível e cruzamentos por zero em janelas de 5 ms, de `from` até `to` (exclusive). */
+function shortFrames(from, to, rate, sampleAt) {
+  const win = Math.max(1, Math.round(rate * 0.005));
+  const count = Math.max(0, Math.floor((to - from) / win));
+  const level = new Float64Array(count);
+  const crossings = new Float64Array(count);
+  let max = 0;
+  for (let w = 0; w < count; w++) {
+    let sum = 0;
+    let zc = 0;
+    let prev = sampleAt(from + w * win);
+    for (let i = 0; i < win; i++) {
+      const v = sampleAt(from + w * win + i);
+      sum += v * v;
+      if ((v >= 0) !== (prev >= 0)) zc++;
+      prev = v;
+    }
+    level[w] = Math.sqrt(sum / win);
+    crossings[w] = zc / win;
+    if (level[w] > max) max = level[w];
+  }
+  return { win, count, level, crossings, max };
+}
+
+/**
+ * Onde a fala começa de verdade, olhando o áudio inteiro. Medido na voz clonada: o "s" de "Seis"
+ * nasce 46 dB abaixo do máximo, com 29% a 60% de cruzamentos por zero, e o corte antigo o perdia
+ * em 70 ms. O ruído que o modelo solta antes da palavra fica até em -28 dB, mas é grave (menos de
+ * 14% de cruzamentos), então nível sozinho não separa os dois: consoante chiada precisa de nível
+ * E de cruzamentos, e de estar acima do fundo medido antes da palavra.
+ * Devolve a amostra do começo, recuada até o cruzamento por zero mais próximo (no máximo 1,5 ms).
+ */
+function speechOnset(frames, rate, sampleAt) {
+  const { win, count, level, crossings, max } = shortFrames(0, frames, rate, sampleAt);
+  if (count < 2 || max <= 0) return 0;
+  let m = 0;
+  while (m < count && level[m] < max * 0.12) m++;
+  if (m >= count) return 0;
+  const before = Array.from(level.subarray(0, m)).sort((a, b) => a - b);
+  const floor = before.length >= 4 ? before[Math.floor(before.length / 4)] : 0; // quartil: o próprio "s" pode ser metade do trecho
+  const isSpeech = (w) => {
+    if (level[w] >= max * 0.06) return true;
+    // chiado claro: o ruído do modelo nunca passou de 18% de cruzamentos, mesmo quando é mais forte
+    if (crossings[w] >= 0.25 && level[w] >= max * 0.0032) return true;
+    return crossings[w] >= 0.15 && level[w] >= max * 0.008 && level[w] > floor * 1.6;
+  };
+  const maxBack = Math.round(0.16 / 0.005);
+  let at = m;
+  while (at > 0 && m - at < maxBack && isSpeech(at - 1)) at--;
+  const onset = at * win;
+  const reach = Math.round(rate * 0.0015);
+  for (let i = onset; i > Math.max(0, onset - reach); i--) {
+    if ((sampleAt(i) >= 0) !== (sampleAt(i - 1) >= 0)) return i;
+  }
+  return onset;
+}
+
+/**
+ * Onde termina um número falado sozinho: a última janela acima de -32 dB do máximo (abaixo disso é
+ * cauda ou respiração do modelo; a sílaba final fraca de "Sete" fica em -26 dB e continua). Um "s"
+ * ou "z" final esticado fica com no máximo 180 ms: medido em "Três!", o modelo arrasta 300 ms.
+ */
+function speechEnd(first, last, rate, sampleAt) {
+  const { win, count, level, crossings, max } = shortFrames(first, last + 1, rate, sampleAt);
+  if (count < 2 || max <= 0) return last;
+  let end = count - 1;
+  while (end > 0 && level[end] < max * 0.025) end--;
+  let hiss = end;
+  while (hiss > 0 && crossings[hiss - 1] >= 0.2) hiss--;
+  const maxHiss = Math.round(0.18 / 0.005);
+  if (crossings[end] >= 0.2 && end - hiss + 1 > maxHiss) end = hiss + maxHiss - 1;
+  return Math.min(last, first + (end + 1) * win - 1);
+}
+
+/**
+ * Confere um número da contagem já cortado. `syllables`: sílabas da palavra. Recusa fala curta ou
+ * longa demais para a palavra e palavra repetida (duas falas fortes separadas por uma pausa).
+ * Devolve { ok, seconds, reason }.
+ */
+function checkCountWord(wav, syllables) {
+  const seconds = wavSeconds(wav);
+  const min = 0.14 + 0.05 * syllables;
+  const max = 0.6 + 0.22 * syllables;
+  if (seconds < min) return { ok: false, seconds, reason: 'curta' };
+  if (seconds > max) return { ok: false, seconds, reason: 'longa' };
+  const { start, end, frameBytes } = wavLayout(wav);
+  const frames = Math.floor((end - start) / frameBytes);
+  const rate = wavRate(wav);
+  const size = Math.max(1, Math.round(rate * 0.01));
+  const env = [];
+  for (let f = 0; f + size <= frames; f += size) {
+    let sum = 0;
+    for (let i = f; i < f + size; i++) { const v = wav.readInt16LE(start + i * frameBytes) / 32768; sum += v * v; }
+    env.push(Math.sqrt(sum / size));
+  }
+  const peak = env.reduce((m, v) => Math.max(m, v), 0);
+  if (peak <= 0) return { ok: false, seconds, reason: 'muda' };
+  const gate = peak * 0.0316; // -30 dB
+  const parts = [];
+  let quiet = Infinity;
+  for (let f = 0; f < env.length; f++) {
+    if (env[f] <= gate) { quiet++; continue; }
+    if (quiet >= 12 || !parts.length) parts.push({ len: 0, peak: 0 });
+    const p = parts[parts.length - 1];
+    p.len++;
+    p.peak = Math.max(p.peak, env[f]);
+    quiet = 0;
+  }
+  const strong = parts.filter((p) => p.peak >= peak * 0.25 && p.len >= 8);
+  if (strong.length > 1) return { ok: false, seconds, reason: 'repetida' };
+  return { ok: true, seconds, reason: null };
+}
+
+/** Taxa de amostragem de um WAV. */
+function wavRate(buf) {
+  const { frameBytes, byteRate } = wavLayout(buf);
+  return byteRate / frameBytes;
 }
 
 /** Onde a voz começa de verdade, sem a respiração da frente (ver `tightStart` em trimSilence). */
@@ -354,4 +496,4 @@ function floatToWav(samples, sampleRate) {
   return wavFile(pcm, { channels: 1, byteRate: sampleRate * 2 });
 }
 
-module.exports = { fitPace, wavLayout, wavSeconds, trimSilence, wavFile, floatToWav, removeDcOffset, splitWords };
+module.exports = { fitPace, wavLayout, wavSeconds, trimSilence, wavFile, floatToWav, removeDcOffset, splitWords, speechOnset, speechEnd, checkCountWord };

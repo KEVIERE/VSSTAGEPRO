@@ -216,7 +216,7 @@ export const FAQS = [
   },
   {
     q: 'Roda no Windows ou só no Mac?',
-    a: 'O programa roda no Mac, com Apple Silicon (M1 a M4) ou Intel. A Área do Músico e o teleprompter abrem em qualquer celular, tablet ou TV com navegador.',
+    a: 'O programa roda no Mac, com Apple Silicon (M1 a M4) ou Intel. A versão para Windows 10 e 11 está em teste e já pode ser baixada na página de download. A Área do Músico e o teleprompter abrem em qualquer celular, tablet ou TV com navegador.',
   },
   {
     q: 'Como funciona o teste grátis de 48 horas?',

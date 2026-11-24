@@ -43,6 +43,12 @@ Deno.serve(async (req) => {
   const { ok, email } = await callerIsAdmin(req);
   if (!ok) return json({ error: "not_allowed" }, 403);
 
+  // Travado enquanto a main estiver atrasada: este disparo sempre publica a main e voltaria o
+  // site e o programa para uma versão antiga. O upgrade sai pela branch de trabalho (CLAUDE.md).
+  if (Deno.env.get("ADMIN_PROMOTE_ENABLED") !== "true") {
+    return json({ error: "promote_disabled" }, 409);
+  }
+
   const pat = Deno.env.get("GITHUB_PAT");
   if (!pat) return json({ error: "github_not_configured" }, 500);
 

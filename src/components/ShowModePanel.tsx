@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo, useSyncExternalStore } from 'react';
+import { memo, useEffect, useState, useRef, useMemo, useSyncExternalStore } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Headphones,
   X, Repeat, Layers, ListOrdered, Search, Music2, Speaker,
@@ -7,8 +7,8 @@ import SegmentDisplay from '@/components/SegmentDisplay';
 import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 import { useStore } from '@/store';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
-import { formatTime, useShowTotals } from '@/components/ShowRundown';
-import { currentAndNextSlice, paramsAt, sliceDuration } from '@/lib/medley';
+import { formatTime, showTotalSeconds } from '@/components/ShowRundown';
+import { currentAndNextSlice, medleySlices, paramsAt, sliceDuration } from '@/lib/medley';
 import { effectiveBpm } from '@/lib/musicianApi';
 import { bpmAt } from '@/lib/grid';
 import { songKeyLabel } from '@/lib/musicKey';
@@ -20,6 +20,7 @@ import {
 } from '@/lib/showClock';
 import { audioEngine } from '@/lib/audioEngine';
 import { getLiveProgressPct } from '@/lib/playProgress';
+import { useLiveFill } from '@/lib/frameClock';
 import type { PlayFlow, PlaylistEntry, Song } from '@/types';
 
 const FLOWS: { id: PlayFlow; label: string; hint: string; icon: typeof Repeat }[] = [
@@ -28,13 +29,19 @@ const FLOWS: { id: PlayFlow; label: string; hint: string; icon: typeof Repeat }[
   { id: 'uma-uma', label: 'Uma a Uma', hint: 'Para no fim de cada música', icon: ListOrdered },
 ];
 
+const clockNow = () => {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+};
+
+// Guarda o texto "hh:mm": o painel inteiro só redesenha quando o minuto vira, não a cada segundo.
 function useClock() {
-  const [now, setNow] = useState(() => new Date());
+  const [text, setText] = useState(clockNow);
   useEffect(() => {
-    const id = window.setInterval(() => setNow(new Date()), 1000);
+    const id = window.setInterval(() => setText(clockNow()), 1000);
     return () => window.clearInterval(id);
   }, []);
-  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  return text;
 }
 
 // Nome curto da placa em uso: sem o "Default - " e sem o código USB do fim (ex.: "(1235:821d)").
@@ -120,7 +127,8 @@ function ShowDurationInput({ initial, onDone }: { initial: number; onDone: (sec:
 // "Falta no show" é um cronômetro de parede (showClock): começa com a duração do show selecionado,
 // conta a partir do Iniciar sem depender da música, e dois cliques trocam a duração.
 function ShowTotalsSummary({ playlist, songs }: { playlist: PlaylistEntry[]; songs: Song[] }) {
-  const { total } = useShowTotals(playlist, songs);
+  // Só a duração: ler o tempo tocando aqui redesenhava o quadro inteiro 10 vezes por segundo.
+  const total = useMemo(() => showTotalSeconds(playlist, songs), [playlist, songs]);
   const showKey = showKeyOf(useStore((s) => s.activeShowId));
   const clock = useSyncExternalStore(subscribeShowClock, getShowClock);
   const duration = durationFor(clock, showKey, total);
@@ -232,9 +240,10 @@ function RemainingDisplay({ title }: { title: string }) {
   );
 }
 
-// Barra contínua de alta taxa: escreve style.width direto no DOM em cada quadro (60fps),
-// eliminando completamente o atraso, pulo ou efeito elástico de CSS transitions.
-// Funciona como ampulheta com 100% de concordância entre Tocando e Próxima (inclusive em medleys).
+// Barra ao vivo pelo relógio de quadro único (frameClock): anda a cada quadro só com a música
+// tocando e dorme parada. Mesma conta de sempre (getLiveProgressPct), com o preenchimento por
+// transform (sem refazer o layout a cada quadro). Tocando e Próxima leem o mesmo valor no mesmo
+// quadro, então a ampulheta continua batendo com a barra da música (inclusive em medleys).
 function LiveProgressBar({
   tone,
   reverse = false,
@@ -245,28 +254,27 @@ function LiveProgressBar({
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const colorCls = tone === 'green' ? 'bg-logic-lcd-green' : 'bg-logic-lcd-amber';
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (barRef.current) {
-        const pct = getLiveProgressPct();
-        barRef.current.style.width = `${pct}%`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  useLiveFill(barRef, getLiveProgressPct, reverse);
 
   // barra de LEDs: a cor enche e as linhas escuras por cima recortam em segmentos
   return (
-    <div className={`relative flex h-2 rounded-[1px] bg-white/[0.06] overflow-hidden ${reverse ? 'justify-end' : ''}`}>
-      <div ref={barRef} className={`h-full ${colorCls} will-change-[width]`} style={{ width: '0%', boxShadow: '0 0 6px currentColor' }} />
+    <div className="relative flex h-2 rounded-[1px] bg-white/[0.06] overflow-hidden">
+      <div ref={barRef} className={`h-full w-full ${colorCls} will-change-transform`} style={{ transform: reverse ? 'translateX(100%)' : 'translateX(-100%)', boxShadow: '0 0 6px currentColor' }} />
       <div className="absolute inset-0 pointer-events-none" style={{ background: 'repeating-linear-gradient(90deg, transparent 0 5px, #0c0e0d 5px 7px)' }} />
     </div>
   );
 }
+
+type StoreState = ReturnType<typeof useStore.getState>;
+// Parte do medley no ar e a próxima, como texto "atual|próxima": o painel redesenha só quando a
+// parte muda. Antes o painel lia o relógio do áudio ao desenhar e só trocava o nome da parte quando
+// outra coisa o redesenhava. Tocando vale o cursor do store (o motor o atualiza); parado, o início.
+const selShowSlices = (s: StoreState) => {
+  const t = s.transport;
+  const song = !t.isStopped || t.isPlaying ? s.songs.find((sg) => sg.id === t.currentSongId) : undefined;
+  const sl = currentAndNextSlice(song, t.isPlaying ? t.currentTime : 0);
+  return `${sl.current?.id ?? ''}|${sl.next?.id ?? ''}`;
+};
 
 /**
  * Tom e BPM valendo numa música. `at`: 'live' = no ponto em que ela está tocando (num medley,
@@ -339,7 +347,7 @@ function SongCard({
   );
 }
 
-export default function ShowModePanel({ showName }: { showName: string }) {
+function ShowModePanel({ showName }: { showName: string }) {
   const isPlaying = useStore((s) => s.transport.isPlaying);
   const isStopped = useStore((s) => s.transport.isStopped);
   const currentSongId = useStore((s) => s.transport.currentSongId);
@@ -358,7 +366,15 @@ export default function ShowModePanel({ showName }: { showName: string }) {
   const active = !isStopped || isPlaying;
   const current = active ? songs.find((s) => s.id === currentSongId) : undefined;
   const next = playFlow !== 'uma-uma' ? songs.find((s) => s.id === nextSongId) : undefined;
-  const slices = currentAndNextSlice(current, isPlaying && audioEngine.isRunning() ? audioEngine.getCurrentTime() : 0);
+  const sliceIds = useStore(selShowSlices);
+  const slices = useMemo(() => {
+    const [curId, nextId] = sliceIds.split('|');
+    const all = current && (curId || nextId) ? medleySlices(current) : [];
+    return {
+      current: curId ? all.find((sl) => sl.id === curId) ?? null : null,
+      next: nextId ? all.find((sl) => sl.id === nextId) ?? null : null,
+    };
+  }, [current, sliceIds]);
   const currentName = current ? slices.current?.name ?? current.name ?? null : null;
   const nextName = current && slices.next ? slices.next.name : next?.name ?? null;
   const nextTime = current && slices.next
@@ -539,3 +555,6 @@ export default function ShowModePanel({ showName }: { showName: string }) {
     </aside>
   );
 }
+
+// memo: o App redesenha com a rede e as janelas; o Modo Show só pelo que ele mesmo assina.
+export default memo(ShowModePanel);

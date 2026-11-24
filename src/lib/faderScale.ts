@@ -12,3 +12,11 @@ export function gainToFader(gain: number): number {
   return gain * 0.8;
 }
 
+/**
+ * Master desligado: o fader dele vira o volume geral dos canais com saída própria. Só abaixa até
+ * 0 dB: essas saídas não passam pelo limitador do Master, e subir poderia estourar o PA.
+ */
+export function directOutFaderGain(masterOff: boolean, volume: number): number {
+  return masterOff ? Math.min(1, faderToGain(volume)) : 1;
+}
+

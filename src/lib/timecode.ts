@@ -57,9 +57,9 @@ export function lastOutput(track: Pick<Track, 'outputChannel' | 'outputStereo'>)
   return outs.length ? outs[outs.length - 1] : 0;
 }
 
-/** Saídas físicas já ocupadas por outras faixas (o Master usa 1 e 2). */
-export function usedOutputs(tracks: Track[], exceptId: string): Set<number> {
-  const used = new Set<number>([1, 2]);
+/** Saídas físicas já ocupadas por outras faixas e pelo Master (por padrão, 1 e 2). */
+export function usedOutputs(tracks: Track[], exceptId: string, masterOuts: number[] = [1, 2]): Set<number> {
+  const used = new Set<number>(masterOuts);
   for (const t of tracks) {
     if (t.id === exceptId || t.parentId) continue;
     trackOutputs(t).forEach((n) => used.add(n));
@@ -80,10 +80,10 @@ export interface OutputOption {
  * Música: Master L/R, Desligado (não sai em lugar nenhum) + saídas mono 1..N, ou pares estéreo 1/2, 3/4, 5/6…
  * Timecode: sempre mono, nunca no Master nem numa saída já usada pela música.
  */
-export function outputOptions(track: Track, tracks: Track[], count: number, stereo: boolean): OutputOption[] {
+export function outputOptions(track: Track, tracks: Track[], count: number, stereo: boolean, masterOuts: number[] = [1, 2]): OutputOption[] {
   const outs = (last: number) => Array.from({ length: Math.max(0, last) }, (_, i) => i + 1);
   if (isTimecodeTrackId(track.id)) {
-    const used = usedOutputs(tracks, track.id);
+    const used = usedOutputs(tracks, track.id, masterOuts);
     return [
       { value: NO_OUTPUT, stereo: false, label: 'Sem Saída', disabled: false },
       ...outs(count).map((n) => ({
@@ -91,7 +91,7 @@ export function outputOptions(track: Track, tracks: Track[], count: number, ster
         stereo: false,
         label: outputLabel(n),
         disabled: used.has(n),
-        hint: n <= 2 ? 'Master' : used.has(n) ? 'em uso' : undefined,
+        hint: masterOuts.includes(n) ? 'Master' : used.has(n) ? 'em uso' : undefined,
       })),
     ];
   }
@@ -104,6 +104,44 @@ export function outputOptions(track: Track, tracks: Track[], count: number, ster
       return { value: n, stereo, label: outputLabel(n, stereo), disabled: hitsTc, hint: hitsTc ? 'timecode' : undefined };
     }),
   ];
+}
+
+/** O Master nessa saída pegaria o timecode? Vale o par inteiro: o LR mágico abre o mono em L e R. */
+export function masterHitsTimecode(channel: number, tcOut: number): boolean {
+  if (tcOut <= 0) return false;
+  const start = channel - ((channel - 1) % 2);
+  return tcOut === start || tcOut === start + 1;
+}
+
+/**
+ * Saídas que o Master pode escolher: mono 1..N ou pares 1/2, 3/4... Nunca a do timecode (o chiado
+ * do LTC não pode misturar com a música). Saída com faixa direta pode, e o som das duas soma.
+ */
+export function masterOutputOptions(tracks: Track[], count: number, stereo: boolean): OutputOption[] {
+  const tcOut = tracks.find((t) => t.id === TIMECODE_TRACK_ID)?.outputChannel ?? NO_OUTPUT;
+  const direct = new Set(tracks.filter((t) => !t.parentId && !isTimecodeTrackId(t.id)).flatMap(trackOutputs));
+  const all = Array.from({ length: Math.max(0, stereo ? count - 1 : count) }, (_, i) => i + 1);
+  return (stereo ? all.filter(isPairStart) : all).map((n) => {
+    const hits = trackOutputs({ outputChannel: n, outputStereo: stereo });
+    const hitsTc = masterHitsTimecode(n, tcOut);
+    return {
+      value: n, stereo, label: outputLabel(n, stereo), disabled: hitsTc,
+      hint: hitsTc ? 'timecode' : hits.some((x) => direct.has(x)) ? 'em uso' : undefined,
+    };
+  });
+}
+
+/**
+ * O Master está mesmo calado? "Desligado" só vale enquanto os canais roteados têm para onde ir:
+ * placa fora do ar, LR mágico ou saída que a placa não tem mandam o som para o Master, e aí ele
+ * volta sozinho para o show não ficar mudo.
+ */
+export function masterSilenced(
+  m: { off: boolean; magic: boolean; outputCount: number; interfaceMissing: boolean },
+  tracks: Pick<Track, 'id' | 'parentId' | 'outputChannel' | 'outputStereo'>[],
+): boolean {
+  if (!m.off || m.magic || m.interfaceMissing) return false;
+  return !tracks.some((t) => !t.parentId && !isTimecodeTrackId(t.id) && lastOutput(t) > m.outputCount);
 }
 
 /** A opção é a saída atual da faixa? (Master e "Sem Saída" não têm modo mono/estéreo.) */

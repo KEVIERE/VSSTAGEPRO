@@ -46,7 +46,7 @@ test('o motor usa rampa curta nas falas do Maestro e a normal no resto', () => {
   const src = fs.readFileSync(path.join(here, '..', 'src', 'lib', 'audioEngine.ts'), 'utf8');
   assert.match(src, /export function isSpeechTrack\(/, 'existe a distinção de fala');
   assert.match(src, /track\.id === MAESTRO_IA_TRACK_ID \|\| track\.parentId === 'track-maestro'/, 'cobre a subfaixa do Maestro');
-  assert.match(src, /fadeInFrames: isSpeech \?/, 'a rampa de entrada depende de ser fala');
+  assert.match(src, /if \(track && entersDry\(track\)\) return fast \? 256 : 10;/, 'a rampa de entrada depende de ser fala');
   // a rampa de 512 frames (10 ms a 48 kHz) só vale para música
-  assert.match(src, /: \(fastSeek \? 1024 : 512\)/, 'música continua com a rampa de sempre');
+  assert.match(src, /entryFadeFrames\(track, fastSeek \? 1024 : 512, fastSeek\)/, 'música continua com a rampa de sempre');
 });

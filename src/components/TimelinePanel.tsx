@@ -2,10 +2,10 @@ import TrackContextMenu from '@/components/TrackContextMenu';
 import { useStore, ROUTABLE_TRACKS } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
 import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered, Combine } from 'lucide-react';
-import { consolidateMaestroIa, CONSOLIDATE_MESSAGES } from '@/lib/maestroConsolidate';
+import { runConsolidateMaestroIa } from '@/lib/maestroConsolidate';
 import SaveCancelButton from '@/components/SaveCancelButton';
 import { memo, useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { anchoredScroll, clampZoom, pastEndReach, previewLow, previewTarget, reachWidthFor, thumbGeometry, timelineWidthFor, visibleWindow, zoomOutWindow } from '@/lib/zoomPreview';
 import { cancelImport } from '@/lib/importManager';
 import { audioEngine } from '@/lib/audioEngine';
@@ -18,7 +18,7 @@ import { startPlayback, stopPlayback } from '@/lib/transportControl';
 import Playhead from '@/components/Playhead';
 import { formatRegionTime, freeSlotAt, presetColor, suggestRegionStyle } from '@/lib/regions';
 import { RegionNamePicker } from '@/components/LanePopover';
-import { RegionLane, RegionGuides, type RegionDrag } from '@/components/RegionLane';
+import { RegionLane, RegionGuides } from '@/components/RegionLane';
 import { NarrationLane, NARRATION_LANE_HEIGHT } from '@/components/NarrationLane';
 import { cursorTime, lastPitch, lastVoice } from '@/lib/maestroVoice';
 import { MAESTRO_IA_TRACK_ID, NARRATION_MIN_LENGTH, beatStartAt, looseMaestroClips, placeNarration } from '@/lib/narrations';
@@ -28,6 +28,7 @@ import { MedleyLane, cutMedleyAt } from '@/components/MedleyLane';
 import { ClipWaveform, ZoomedClipWaveform, routingColorOf, type VisibleRange } from '@/components/ClipWaveform';
 import { liveWaveFrame, liveWavePointer, liveWavePrepare, liveWaveScrolled, liveWaveSettle } from '@/lib/liveWaveHub';
 import { prefetchFinePeaks } from '@/lib/finePeaks';
+import { dragHasFiles, dropAudioOnTrack } from '@/lib/dropAudio';
 import MiniFader from '@/components/MiniFader';
 import { LedMeterH } from '@/components/MeterMask';
 import { dropSlot, laneMoves, laneOffset, reorderChildren } from '@/lib/trackOrder';
@@ -36,8 +37,11 @@ import { NARRATION_ROW, clipsInBox, marqueeSelection, rangeSelection, selectionR
 import { mergeFolderPeaks, type FolderPreview } from '@/lib/folderPreview';
 import { BarRulerLayer, GridLinesCanvas, GridToolbar, RulerCanvas, StepLinesCanvas } from '@/components/TimelineGrid';
 import { createZoomCanvasHub, spanInView, zoomPx, zoomPxMin } from '@/lib/zoomGeometry';
-import { getTimelineVisible, setTimelineVisible, subscribeTimelineVisible, useTimelineVisible } from '@/lib/timelineView';
-import { barBeatLabel, barStartAt, moveTempoChange, snapTime, songGrid, tempoChangeIndex } from '@/lib/grid';
+import {
+  getTimelineVisible, setTimelineVisible, subscribeTimelineVisible, useTimelineVisible, createViewValue, useViewValue, trimDragView, moveDragView, dragOf, regionDragView,
+  timelineRowsView, setTimelineRows, rowsWindow, rowInRows, rowTops, sameIdList, type TimelineRows, type TimelineVisible,
+} from '@/lib/timelineView';
+import { barBeatLabel, barStartAt, markBarStart, snapTime, songGrid } from '@/lib/grid';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { TIMECODE_TRACK_ID } from '@/lib/timecode';
 import TimecodeTrackRow from '@/components/TimecodeTrackRow';
@@ -113,9 +117,8 @@ function useLayoutTracks(): Track[] {
   });
 }
 
-type TrimDrag = { ids: Set<string>; delta: number; anchorId: string; end: number; label: string; side?: 'start' | 'end' } | null;
-// `ghosts`: áudios indo para outra trilha (a prévia aparece na trilha de destino); `laneLabel`: para onde.
-type MoveDrag = { ids: Set<string>; delta: number; anchorId: string; start: number; label: string; ghosts?: { trackId: string; clipId: string }[]; laneLabel?: string } | null;
+/** Toggle das trilhas de dentro de uma pasta (elas não abrem nem fecham): a mesma função sempre. */
+const NOOP = () => {};
 
 /** Medidor VU de LEDs estilo DAW profissional (Logic Pro / Pro Tools) para a entrada da placa */
 function InputVuMeter({ trackHeight = 40 }: { trackHeight?: number }) {
@@ -188,7 +191,8 @@ function LiveRecordingTrackBlock({ startTime }: { startTime: number }) {
   );
 }
 
-function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
+// memo: arrastar uma trilha para mudar a ordem na pasta redesenha só as linhas que mudam
+const ChildTrackRow = memo(function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
   childId: string; depth: number; expanded: boolean; onToggle: () => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
   groupColor?: string; isLastChild?: boolean;
@@ -198,7 +202,7 @@ function ChildTrackRow({ childId, depth, expanded, onToggle, onContextMenu, grou
   const track = useStore((s) => s.tracks.find((t) => t.id === childId));
   if (!track) return null;
   return <TrackRow track={track} depth={depth} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} groupColor={groupColor} isLastChild={isLastChild} onReorderStart={onReorderStart} dragging={dragging} />;
-}
+});
 
 // Alça fina no topo/fim de uma faixa: por padrão arrasta a altura de TODAS as faixas de
 // uma vez (igual à alça da borda direita); segurando ⌘ (Cmd), muda só a altura desta faixa.
@@ -296,7 +300,8 @@ function TrackHeightHandle({ trackId, edge }: { trackId: string; edge: 'top' | '
  * Nome da régua do Maestro por IA na coluna das faixas (mesma altura da régua, para tudo ficar
  * alinhado). Tem o mudo das falas e o botão de criar uma fala no beat do cursor.
  */
-function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: () => void; onCount: () => void }) {
+// memo: com as funções estáveis do painel, só redesenha pelo que ele mesmo lê
+const MaestroIaHeader = memo(function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: () => void; onCount: () => void }) {
   const count = useStore((s) => s.songs.find((sg) => sg.id === songId)?.narrations?.length ?? 0);
   const iaTrack = useStore((s) => s.tracks.find((t) => t.id === MAESTRO_IA_TRACK_ID));
   const toggleMute = useStore((s) => s.toggleMute);
@@ -309,14 +314,7 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
     if (consolidating) return;
     setConsolidating(true);
     try {
-      const result = await consolidateMaestroIa(songId);
-      const message = result === 'ok'
-        ? 'Falas do Maestro IA consolidadas num áudio só, na faixa Maestro. Cmd+Z desfaz.'
-        : CONSOLIDATE_MESSAGES[result];
-      useStore.getState().setImportProgress({ clipId: 'maestro-consolidado', status: result === 'ok' ? 'done' : 'error', message });
-      setTimeout(() => {
-        if (useStore.getState().importProgress?.clipId === 'maestro-consolidado') useStore.getState().setImportProgress(null);
-      }, 3500);
+      await runConsolidateMaestroIa(songId);
     } finally {
       setConsolidating(false);
     }
@@ -367,7 +365,7 @@ function MaestroIaHeader({ songId, onAdd, onCount }: { songId: string; onAdd: ()
       )}
     </div>
   );
-}
+});
 
 // memo: mexer no fader de uma faixa redesenha só a linha dela, não a coluna inteira.
 const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded = true, onToggle, onContextMenu, groupColor, isLastChild, onReorderStart, dragging }: {
@@ -699,12 +697,17 @@ const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded 
   );
 });
 
-function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
+// memo, com o abrir e fechar estável: antes o toggle nascia a cada render do painel e a pasta, as
+// trilhas de dentro e as linhas delas redesenhavam junto com qualquer coisa da timeline.
+const FolderGroup = memo(function FolderGroup({ track, expanded = true, onToggleFolder, onContextMenu }: {
   track: Track;
   expanded?: boolean;
-  onToggle?: () => void;
+  /** Abre ou fecha a pasta pelo id (a mesma função para todas as pastas). */
+  onToggleFolder?: (folderId: string) => void;
   onContextMenu?: (e: React.MouseEvent, track: Track) => void;
 }) {
+  const folderId = track.id;
+  const onToggle = useCallback(() => onToggleFolder?.(folderId), [onToggleFolder, folderId]);
   const reorderChildTrack = useStore((s) => s.reorderChildTrack);
   const listRef = useRef<HTMLDivElement>(null);
   // Trilha sendo arrastada, a posição onde ela vai entrar e a altura da linha âmbar que mostra isso
@@ -761,7 +764,7 @@ function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
               childId={childId}
               depth={1}
               expanded={true}
-              onToggle={() => {}}
+              onToggle={NOOP}
               onContextMenu={onContextMenu}
               groupColor={track.color}
               isLastChild={i === track.children.length - 1}
@@ -779,6 +782,15 @@ function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
       )}
     </>
   );
+});
+
+/**
+ * Os clipes que um ajuste do modo DAW (ganho, fade) muda: este e os outros selecionados com ele,
+ * lidos na hora do gesto (a mesma regra de antes, sem assinar a seleção).
+ */
+function clipTargets(clipId: string): string[] {
+  const sel = useStore.getState().selectedClipIds;
+  return sel.includes(clipId) && sel.length > 1 ? sel : [clipId];
 }
 
 // Knob minúsculo de ganho do clipe (modo DAW):
@@ -786,17 +798,19 @@ function FolderGroup({ track, expanded = true, onToggle, onContextMenu }: {
 // - Lado direito (até +135°): +12dB (~3.98x)
 // - Lado esquerdo (até -135°): silêncio total (-inf dB / 0 volume)
 function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
-  const setClipGain = useStore((s) => s.setClipGain);
-  const selectedClipIds = useStore((s) => s.selectedClipIds);
+  const setClipsGain = useStore((s) => s.setClipsGain);
+  // Da seleção, o botão só mostra quantos áudios ajusta junto (na dica). Antes ele assinava a
+  // seleção inteira e todo clique num clipe redesenhava o botão de todos os clipes.
+  const batch = useRef<{ ids: string[] | null; count: number }>({ ids: null, count: 1 });
+  const batchCount = useStore((s) => {
+    const ids = s.selectedClipIds;
+    if (ids !== batch.current.ids) batch.current = { ids, count: ids.length > 1 && ids.includes(clipId) ? ids.length : 1 };
+    return batch.current.count;
+  });
 
-  const targets = useMemo(() => {
-    return selectedClipIds.includes(clipId) && selectedClipIds.length > 1
-      ? selectedClipIds
-      : [clipId];
-  }, [selectedClipIds, clipId]);
-
-  const applyGain = (g: number) => {
-    targets.forEach((id) => setClipGain(id, g));
+  // quem ajusta junto: a seleção da hora do clique (o clipe e os outros selecionados com ele)
+  const applyGain = (g: number, targets = clipTargets(clipId)) => {
+    setClipsGain(targets, g);
   };
 
   const angle = useMemo(() => {
@@ -825,15 +839,16 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
         target.setPointerCapture(e.pointerId);
         const startY = e.clientY;
         const startGain = gain;
+        const targets = clipTargets(clipId);
         const move = (ev: PointerEvent) => {
           const deltaY = startY - ev.clientY;
           const startDb = startGain <= 0.0001 ? -48 : 20 * Math.log10(startGain);
           const nextDb = Math.min(12, startDb + deltaY * 0.3);
           if (nextDb <= -42) {
-            applyGain(0);
+            applyGain(0, targets);
           } else {
             const nextGain = Math.round(Math.pow(10, nextDb / 20) * 100) / 100;
-            applyGain(nextGain);
+            applyGain(nextGain, targets);
           }
         };
         const up = () => {
@@ -847,7 +862,7 @@ function ClipGainKnob({ clipId, gain }: { clipId: string; gain: number }) {
         target.addEventListener('pointercancel', up);
       }}
       onClick={(e) => e.stopPropagation()}
-      title={targets.length > 1 ? `Ganho em lote (${targets.length} áudios): ${dbLabel}` : `Ganho do clipe: ${dbLabel} (arraste = ajustar, duplo clique = 0dB)`}
+      title={batchCount > 1 ? `Ganho em lote (${batchCount} áudios): ${dbLabel}` : `Ganho do clipe: ${dbLabel} (arraste = ajustar, duplo clique = 0dB)`}
     >
       <svg viewBox="0 0 28 28" className="absolute inset-0 w-full h-full pointer-events-none">
         <circle cx="14" cy="14" r="12.5" fill="#1a1a1c" stroke="#3a3a3e" strokeWidth="1" />
@@ -908,17 +923,13 @@ function FadeHandle({
   playLength: number;
   editable: boolean;
 }) {
-  const setClipFade = useStore((s) => s.setClipFade);
-  const selectedClipIds = useStore((s) => s.selectedClipIds);
+  const setClipsFade = useStore((s) => s.setClipsFade);
 
-  const targets = useMemo(() => {
-    return selectedClipIds.includes(clipId) && selectedClipIds.length > 1
-      ? selectedClipIds
-      : [clipId];
-  }, [selectedClipIds, clipId]);
-
-  const applyFade = (patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }) => {
-    targets.forEach((id) => setClipFade(id, patch));
+  // Quem muda junto é lido na hora do gesto: a alça não assina a seleção (antes todo clique num
+  // clipe redesenhava as duas alças de fade de todos os clipes da música). Vários clipes entram
+  // numa ação só do store, com o mesmo estado final de um ajuste por clipe.
+  const applyFade = (patch: { fadeIn?: number; fadeOut?: number; fadeCurveIn?: FadeCurve; fadeCurveOut?: FadeCurve }, targets = clipTargets(clipId)) => {
+    setClipsFade(targets, patch);
   };
 
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
@@ -948,10 +959,11 @@ function FadeHandle({
     target.setPointerCapture(e.pointerId);
     const startX = e.clientX;
     const startSeconds = seconds;
+    const targets = clipTargets(clipId);
     const move = (ev: PointerEvent) => {
       const deltaPx = side === 'in' ? ev.clientX - startX : startX - ev.clientX;
       const next = Math.max(0, Math.min(playLength, startSeconds + deltaPx / useStore.getState().zoomH));
-      applyFade(side === 'in' ? { fadeIn: next } : { fadeOut: next });
+      applyFade(side === 'in' ? { fadeIn: next } : { fadeOut: next }, targets);
     };
     const up = () => {
       target.removeEventListener('pointermove', move);
@@ -1089,8 +1101,10 @@ function FadeHandle({
             </div>
           )}
 
-          {/* Menu de Contexto ao clicar com botão direito na linha do Fade */}
-          {menuPos && (
+          {/* Menu de Contexto ao clicar com botão direito na linha do Fade. No <body>: dentro do
+              clipe, o filtro do clipe selecionado ou mudo virava a referência do position: fixed e o
+              overflow do clipe cortava o menu (abria fora do lugar). */}
+          {menuPos && createPortal(
             <div
               ref={menuRef}
               className="fixed z-[400] py-1.5 bg-[#13141a] border border-white/20 rounded-xl shadow-2xl text-xs text-white min-w-[210px] animate-[fadeIn_100ms_ease-out]"
@@ -1129,7 +1143,8 @@ function FadeHandle({
                   {curve === opt.id && <Check size={14} className="text-logic-lcd-green shrink-0 ml-2" />}
                 </button>
               ))}
-            </div>
+            </div>,
+            document.body,
           )}
         </>
       )}
@@ -1141,18 +1156,20 @@ type ClipBlockProps = {
   clip: AudioClip; isSelected: boolean;
   onTrimStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: 'start' | 'end') => void;
   onMoveStart: (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip) => void;
-  trim: TrimDrag; move: MoveDrag; trackHeight: number; allowMove: boolean; timelineLocked: boolean;
+  trackHeight: number; allowMove: boolean; timelineLocked: boolean;
 };
 
 /**
  * O clipe fica em segundos no estilo (calc com var(--vs-zoom), gravada no conteúdo da timeline) e
  * a janela visível chega por variável CSS (rótulo) e pela onda (ZoomedClipWaveform): nem o zoom nem
  * a rolagem passam pelas props. Quem decide se o clipe aparece é o painel (spanInView), então o
- * clipe só redesenha quando muda o que é dele: o próprio clipe, a seleção, um arraste, a altura.
+ * clipe só redesenha quando muda o que é dele: o próprio clipe, a seleção, a altura. O arraste
+ * (mover ou cortar) chega pelo trimDragView e pelo moveDragView: só os clipes arrastados
+ * redesenham a cada movimento do mouse (antes todos recebiam o mesmo objeto e redesenhavam).
  */
 function sameClipBlockProps(a: ClipBlockProps, b: ClipBlockProps): boolean {
   return a.clip === b.clip && a.isSelected === b.isSelected && a.onTrimStart === b.onTrimStart &&
-    a.onMoveStart === b.onMoveStart && a.trim === b.trim && a.move === b.move &&
+    a.onMoveStart === b.onMoveStart &&
     a.trackHeight === b.trackHeight && a.allowMove === b.allowMove &&
     a.timelineLocked === b.timelineLocked;
 }
@@ -1174,7 +1191,10 @@ function clipColorTable(tracks: Track[], skin: 'estudio' | 'oficina' | 'padrao')
   return table;
 }
 
-const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trim, move, trackHeight, allowMove, timelineLocked }: ClipBlockProps) {
+const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMoveStart, trackHeight, allowMove, timelineLocked }: ClipBlockProps) {
+  // o arraste só quando ele leva este clipe (os outros clipes não redesenham com o mouse)
+  const trim = useViewValue(trimDragView, (d) => dragOf(d, clip.id));
+  const move = useViewValue(moveDragView, (d) => dragOf(d, clip.id));
   const dawMode = useStore((s) => s.dawMode);
   // Estúdio: o clipe é pintado na cor da faixa (viva) e a onda vai escura por cima
   const clipSkin = useSkin();
@@ -1459,10 +1479,13 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
   );
 }
 
-function FooterProgress({ importProgress, exportProgress }: {
-  importProgress: ImportProgress | null;
-  exportProgress: { active: boolean; message: string } | null;
-}) {
+/**
+ * Progresso da importação, da exportação e do salvar no rodapé. Assina o progresso sozinho: antes o
+ * painel assinava, e cada mensagem de progresso (o Cmd+S manda várias) redesenhava a timeline inteira.
+ */
+const FooterProgress = memo(function FooterProgress() {
+  const importProgress: ImportProgress | null = useStore((s) => s.importProgress);
+  const exportProgress: { active: boolean; message: string } | null = useStore((s) => s.exportProgress);
   const item = importProgress
     ? {
         message: importProgress.message,
@@ -1510,10 +1533,14 @@ function FooterProgress({ importProgress, exportProgress }: {
       )}
     </div>
   );
-}
+});
 
-/** Barra de rolagem horizontal nativa customizada (exclusiva para as faixas, sem alças de zoom) */
-function TimelineHorizontalScrollbar({
+/**
+ * Barra de rolagem horizontal nativa customizada (exclusiva para as faixas, sem alças de zoom).
+ * O controle anda direto no estilo a cada rolagem, sem render do React (antes eram três setState
+ * por evento de rolagem). memo: só redesenha quando mudam largura, zoom ou as funções.
+ */
+const TimelineHorizontalScrollbar = memo(function TimelineHorizontalScrollbar({
   scrollRef,
   timelineWidth,
   headerWidth,
@@ -1536,20 +1563,39 @@ function TimelineHorizontalScrollbar({
   paused?: () => boolean;
 }) {
   const barRef = useRef<HTMLDivElement>(null);
-  const [scrollLeft, setScrollLeft] = useState(0);
-  const [clientWidth, setClientWidth] = useState(1000);
-  const [scrollWidth, setScrollWidth] = useState(2000);
-  /** Lê a rolagem para o estado (também no fim do zoom ao vivo, que pulou as leituras). */
-  const updateRef = useRef<() => void>(() => {});
+  const thumbRef = useRef<HTMLDivElement>(null);
+  // Rolagem lida da timeline (fora do React) e a largura de agora da timeline.
+  const geoRef = useRef({ scrollLeft: 0, clientWidth: 1000, scrollWidth: 2000 });
+  const widthRef = useRef(timelineWidth);
+  widthRef.current = timelineWidth;
+  /** Último desenho do controle (o zoom ao vivo volta para ele no fim do gesto). */
+  const shownThumb = useRef({ left: -1, width: -1 });
 
+  /** Proporção e posição do thumb (a mesma conta do zoom ao vivo), escritas direto no estilo. */
+  const paint = useCallback(() => {
+    const th = thumbRef.current;
+    if (!th) return;
+    const g = geoRef.current;
+    const t = thumbGeometry(g.scrollLeft, g.clientWidth, widthRef.current, g.scrollWidth);
+    if (t.left === shownThumb.current.left && t.width === shownThumb.current.width) return;
+    shownThumb.current = { left: t.left, width: t.width };
+    th.style.left = `${t.left}%`;
+    th.style.width = `${t.width}%`;
+  }, []);
+  // largura nova da timeline (zoom, música): o controle acompanha no mesmo quadro
+  useLayoutEffect(() => {
+    if (!paused?.()) paint();
+  });
+
+  /** Lê a rolagem e move o controle (também no fim do zoom ao vivo, que pulou as leituras). */
+  const updateRef = useRef<() => void>(() => {});
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const update = () => {
       if (paused?.()) return;
-      setScrollLeft(el.scrollLeft);
-      setClientWidth(el.clientWidth);
-      setScrollWidth(el.scrollWidth);
+      geoRef.current = { scrollLeft: el.scrollLeft, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth };
+      paint();
     };
     updateRef.current = update;
     update();
@@ -1559,34 +1605,29 @@ function TimelineHorizontalScrollbar({
       el.removeEventListener('scroll', update);
       window.removeEventListener('resize', update);
     };
-  }, [scrollRef, headerWidth, timelineWidth, paused]);
+  }, [scrollRef, headerWidth, timelineWidth, paused, paint]);
 
-  // A área visível da timeline (exclusiva das faixas)
-  const maxScroll = Math.max(1, scrollWidth - clientWidth);
+  // A área visível da timeline (exclusiva das faixas) e a proporção do controle, na hora do gesto
+  const barGeometry = () => {
+    const g = geoRef.current;
+    const { width } = thumbGeometry(g.scrollLeft, g.clientWidth, widthRef.current, g.scrollWidth);
+    return { maxScroll: Math.max(1, g.scrollWidth - g.clientWidth), ratio: width / 100 };
+  };
 
-  // Proporção e posição do thumb (a mesma conta do zoom ao vivo)
-  const { left: thumbLeftPct, width: thumbWidthPct } = thumbGeometry(scrollLeft, clientWidth, timelineWidth, scrollWidth);
-  const ratio = thumbWidthPct / 100;
-
-  // Zoom ao vivo: o controle acompanha o gesto direto no estilo; no fim volta ao último desenho do
-  // React (o que o React acha que está na tela) e lê a rolagem de novo, e a render segue dali.
-  const thumbRef = useRef<HTMLDivElement>(null);
-  const renderedThumb = useRef({ left: thumbLeftPct, width: thumbWidthPct });
-  useLayoutEffect(() => {
-    renderedThumb.current = { left: thumbLeftPct, width: thumbWidthPct };
-  });
+  // Zoom ao vivo: o controle acompanha o gesto direto no estilo; no fim volta ao último desenho e
+  // lê a rolagem de novo.
   useEffect(() => {
     if (!previewRef) return;
     previewRef.current = (view) => {
       const th = thumbRef.current;
       if (!th) return;
-      const g = view ? thumbGeometry(view.scrollLeft, clientWidth, view.timelineWidth, view.timelineWidth) : renderedThumb.current;
+      const g = view ? thumbGeometry(view.scrollLeft, geoRef.current.clientWidth, view.timelineWidth, view.timelineWidth) : shownThumb.current;
       th.style.left = `${g.left}%`;
       th.style.width = `${g.width}%`;
       if (!view) updateRef.current();
     };
     return () => { previewRef.current = null; };
-  }, [previewRef, clientWidth]);
+  }, [previewRef]);
 
   // Arraste suave do thumb
   const handleThumbPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1597,6 +1638,7 @@ function TimelineHorizontalScrollbar({
     const startX = e.clientX;
     const startScroll = scrollRef.current?.scrollLeft ?? 0;
     const barW = barRef.current?.clientWidth ?? 1;
+    const { maxScroll, ratio } = barGeometry();
 
     let rafId: number | null = null;
     const move = (ev: PointerEvent) => {
@@ -1636,7 +1678,7 @@ function TimelineHorizontalScrollbar({
     const view = Math.max(10, el.clientWidth);
     const leftTime = el.scrollLeft / zoom0;
     const rightTime = (el.scrollLeft + view) / zoom0;
-    const thumb0 = Math.max(24, ratio * barW);
+    const thumb0 = Math.max(24, barGeometry().ratio * barW);
     const startX = e.clientX;
     let rafId: number | null = null;
     const move = (ev: PointerEvent) => {
@@ -1667,6 +1709,7 @@ function TimelineHorizontalScrollbar({
     if (e.button !== 0 || !barRef.current || !scrollRef.current) return;
     const rect = barRef.current.getBoundingClientRect();
     const clickRatio = (e.clientX - rect.left) / rect.width;
+    const { maxScroll, ratio } = barGeometry();
     const targetScroll = (clickRatio - ratio / 2) * maxScroll / Math.max(0.01, 1 - ratio);
     scrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, targetScroll));
   };
@@ -1685,11 +1728,8 @@ function TimelineHorizontalScrollbar({
       <div
         ref={thumbRef}
         className="absolute top-1/2 -translate-y-1/2 h-[8px] rounded-full bg-[#3e3e3e] hover:bg-[#525252] active:bg-[#626262] border border-white/[0.08] shadow-sm cursor-grab active:cursor-grabbing transition-colors"
-        style={{
-          left: `${thumbLeftPct}%`,
-          width: `${thumbWidthPct}%`,
-          minWidth: '24px',
-        }}
+        // left e width vão direto no estilo (paint), fora da render
+        style={{ minWidth: '24px' }}
         onPointerDown={handleThumbPointerDown}
         onDoubleClick={(e) => {
           e.stopPropagation();
@@ -1710,6 +1750,210 @@ function TimelineHorizontalScrollbar({
       </div>
     </div>
   );
+});
+
+/**
+ * Faixa vertical que monta clipes antes de a timeline medir a tela (painel recém-aberto, rolagem no
+ * topo): a altura da janela e mais uma tela de folga. A medida de verdade chega logo em seguida.
+ */
+function firstRows(): TimelineRows {
+  return rowsWindow(0, typeof window === 'undefined' ? 800 : window.innerHeight);
+}
+
+/**
+ * Prévia dos áudios que vão cair nesta trilha (arraste para outra trilha) e o realce dela. Assina o
+ * arraste sozinha: só as trilhas de destino redesenham a cada movimento do mouse.
+ */
+function LaneDragOverlay({ trackId, songClips, rowHeight }: { trackId: string; songClips: AudioClip[]; rowHeight: number }) {
+  const drag = useViewValue(moveDragView, (d) => (d?.ghosts?.some((g) => g.trackId === trackId) ? d : null));
+  if (!drag) return null;
+  return (
+    <>
+      {/* realce da trilha de destino (antes no fundo da própria linha; por baixo dos clipes do mesmo jeito) */}
+      <div className="absolute inset-0 pointer-events-none bg-[#ffab1f]/[0.07] shadow-[inset_0_0_0_1px_rgba(255,171,31,0.55)]" />
+      {drag.ghosts?.filter((g) => g.trackId === trackId).map((g) => {
+        const c = songClips.find((x) => x.id === g.clipId);
+        if (!c) return null;
+        return (
+          <div
+            key={`ghost-${g.clipId}`}
+            className="absolute rounded-sm border border-dashed border-[#ffab1f] bg-[#ffab1f]/15 pointer-events-none z-20 flex items-start px-1.5 pt-0.5 text-[10px] font-semibold text-[#ffcf7a] truncate"
+            style={{
+              left: zoomPx(Math.max(0, c.startTime + drag.delta)),
+              top: '2px',
+              width: zoomPxMin(8, clipPlayLength(c)),
+              height: `${rowHeight - 4}px`,
+            }}
+          >
+            {c.name}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+type TrackLaneProps = {
+  track: Track;
+  songId: string;
+  songClips: AudioClip[];
+  rowHeight: number;
+  /** Topo da linha no conteúdo e altura dela com a régua das falas logo abaixo (recorte vertical). */
+  top: number;
+  span: number;
+  zoomH: number;
+  selectedSet: Set<string>;
+  trimIds: Set<string> | null;
+  moveIds: Set<string> | null;
+  stableTrimStart: ClipBlockProps['onTrimStart'];
+  stableMoveStart: ClipBlockProps['onMoveStart'];
+  timelineLocked: boolean;
+  folderPreview?: { preview: FolderPreview; count: number };
+  /** Gravação do Maestro nesta música (início em s), só na linha do Maestro. */
+  recordingStart: number | null;
+};
+
+/**
+ * Uma linha da timeline (os clipes de uma trilha). Assina sozinha a janela visível: rolar para os
+ * lados redesenha só as linhas, não o painel inteiro (régua, coluna dos nomes, barras). E só monta
+ * os clipes quando a linha cruza a faixa vertical da tela com uma tela de folga; fora dela, a linha
+ * fica vazia com a mesma altura (as linhas abaixo não saem do lugar). Clipes arrastados sempre montam.
+ */
+const TrackLane = memo(function TrackLane({
+  track, songId, songClips, rowHeight, top, span, zoomH, selectedSet, trimIds, moveIds,
+  stableTrimStart, stableMoveStart, timelineLocked, folderPreview, recordingStart,
+}: TrackLaneProps) {
+  const visible = useTimelineVisible();
+  // só a resposta (dentro ou fora): rolar na vertical redesenha só as linhas que entram ou saem
+  const inRows = useViewValue(timelineRowsView, (rows) => rowInRows(top, span, rows ?? firstRows()));
+  const isFolder = track.isSubgroup;
+  const isTc = track.id === TIMECODE_TRACK_ID;
+  // O clipe monta se cruza a janela visível no zoom atual (a conta que o ClipBlock fazia antes de
+  // devolver null) e a linha está perto da tela; arrastando (aparar ou mover), monta sempre.
+  const clipShown = (c: AudioClip) =>
+    !!trimIds?.has(c.id) || !!moveIds?.has(c.id) || (inRows && spanInView(c.startTime, c.duration, zoomH, visible));
+  // só os clipes que cruzam a janela visível (e os que estão sendo arrastados) montam
+  const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id && clipShown(c));
+  // Áudio arrastado do Finder (ou de qualquer pasta) cai nesta trilha, no ponto em que foi solto.
+  const [fileOver, setFileOver] = useState(false);
+  const canDropFiles = !isFolder && !isTc && !timelineLocked;
+  // Pasta recolhida é UMA linha só, aqui e na coluna dos nomes (as filhas saem das duas). Antes a
+  // timeline guardava a altura de todas as filhas enquanto a coluna mostrava uma linha, e tudo
+  // abaixo da pasta ficava desalinhado.
+  return (
+    <div
+      data-lane-track-id={track.id}
+      className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''}`}
+      style={{ height: `${rowHeight}px` }}
+      onDragOver={canDropFiles ? (e) => {
+        if (!dragHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        if (!fileOver) setFileOver(true);
+      } : undefined}
+      onDragLeave={canDropFiles ? (e) => {
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setFileOver(false);
+      } : undefined}
+      onDrop={canDropFiles ? (e) => {
+        if (!dragHasFiles(e.dataTransfer)) return;
+        e.preventDefault();
+        setFileOver(false);
+        const at = (e.clientX - e.currentTarget.getBoundingClientRect().left) / zoomH;
+        void dropAudioOnTrack(songId, track.id, Array.from(e.dataTransfer.files), at);
+      } : undefined}
+    >
+      {fileOver && (
+        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-logic-lcd-amber/10 ring-2 ring-inset ring-logic-lcd-amber/70">
+          <span className="rounded bg-black/70 px-2 py-0.5 text-[11px] font-semibold text-logic-lcd-amber">Solte o áudio aqui</span>
+        </div>
+      )}
+      {/* Prévia dos áudios que vão cair nesta trilha */}
+      {!isFolder && !isTc && <LaneDragOverlay trackId={track.id} songClips={songClips} rowHeight={rowHeight} />}
+      {isFolder && inRows && folderPreview && (
+        <FolderPreviewBlock
+          folder={track}
+          songId={songId}
+          preview={folderPreview.preview}
+          count={folderPreview.count}
+          height={rowHeight - 4}
+          zoomH={zoomH}
+          visible={visible}
+        />
+      )}
+      {trackClips.map((clip) => (
+        <ClipBlock
+          key={clip.id}
+          clip={clip}
+          isSelected={selectedSet.has(clip.id)}
+          onTrimStart={stableTrimStart}
+          onMoveStart={stableMoveStart}
+          trackHeight={rowHeight}
+          allowMove={!timelineLocked}
+          timelineLocked={timelineLocked}
+        />
+      ))}
+      {recordingStart !== null && (
+        <LiveRecordingTrackBlock startTime={recordingStart} />
+      )}
+    </div>
+  );
+});
+
+/** Retângulo de seleção (arrastar na grade vazia), em pixels da área da timeline, fora do React. */
+const marqueeView = createViewValue<{ left: number; top: number; width: number; height: number } | null>(null);
+
+/** O retângulo de seleção: assina sozinho, só ele redesenha a cada movimento do mouse. */
+function MarqueeBox() {
+  const marquee = useViewValue(marqueeView);
+  return (
+    <>
+      {marquee && (
+        <div
+          className="absolute z-50 pointer-events-none rounded-[2px] border border-[#5aaaff] bg-[#5aaaff]/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+          style={marquee}
+        />
+      )}
+    </>
+  );
+}
+
+/** Linha e rótulo do corte e do arraste em curso. Assinam o arraste sozinhos (fora do painel). */
+function DragGuides() {
+  const trimDrag = useViewValue(trimDragView);
+  const moveDrag = useViewValue(moveDragView);
+  return (
+    <>
+      {trimDrag && (
+        <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: zoomPx(trimDrag.end) }}>
+          <div className="absolute top-0 bottom-0 w-px bg-logic-lcd-amber/80" />
+          <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-amber/60 text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
+            Fim {trimDrag.label}{trimDrag.ids.size > 1 ? ` (${trimDrag.ids.size} áudios)` : ''}
+          </span>
+        </div>
+      )}
+
+      {moveDrag && (
+        <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: zoomPx(moveDrag.start) }}>
+          <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
+          <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
+            Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}{moveDrag.laneLabel ? ` · para ${moveDrag.laneLabel}` : ''}
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Depois de cada mudança da janela visível já desenhada (grade e ondas mais à frente mudam a área
+ * rolável), chama `onCommit`. Fica no fim do painel: roda depois dos desenhos daquela mudança, como
+ * o efeito do painel fazia quando ele redesenhava inteiro a cada rolagem.
+ */
+function AfterVisibleCommit({ onCommit }: { onCommit: () => void }) {
+  const visible = useTimelineVisible();
+  useLayoutEffect(() => { onCommit(); }, [visible, onCommit]);
+  return null;
 }
 
 const VIEW_MARGIN_PX = 600;
@@ -1750,9 +1994,6 @@ function TimelinePanel() {
   const selectClips = useStore((s) => s.selectClips);
   const trimClips = useStore((s) => s.trimClips);
   const snapStep = useStore((s) => s.snapStep);
-  const isPlaying = useStore((s) => s.transport.isPlaying);
-  const importProgress = useStore((s) => s.importProgress);
-  const exportProgress = useStore((s) => s.exportProgress);
   const zoomH = useStore((s) => s.zoomH);
   const zoomV = useStore((s) => s.zoomV);
   const setZoomH = useStore((s) => s.setZoomH);
@@ -1766,7 +2007,6 @@ function TimelinePanel() {
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const trackHeadersRef = useRef<HTMLDivElement>(null);
   const timelinePanelRef = useRef<HTMLDivElement>(null);
-  const [regionDrag, setRegionDrag] = useState<RegionDrag>(null);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
   // Editor da marcação de fala do Maestro por IA (texto, voz e ritmo)
   const [readingNarrationId, setReadingNarrationId] = useState<string | null>(null);
@@ -1776,16 +2016,20 @@ function TimelinePanel() {
   // Último recurso manual: cravar o BPM a partir de um ponto da régua quando a detecção automática
   // não conseguir sincronizar um trecho (ex.: medley com transições muito sutis ou sem click).
   const [manualTempoPoint, setManualTempoPoint] = useState<{ time: number; x: number; y: number; existingBpm?: number; editing?: boolean } | null>(null);
-  const [tempoDrag, setTempoDrag] = useState<{ from: number; to: number } | null>(null);
   const setTempoAt = useStore((s) => s.setTempoAt);
   const removeTempoAt = useStore((s) => s.removeTempoAt);
-  // Janela visível fora do React (src/lib/timelineView.ts): as ondas dos clipes leem direto dela
-  const visible = useTimelineVisible();
+  // A janela visível fica fora do React (src/lib/timelineView.ts): as linhas, a régua, a grade e as
+  // ondas assinam sozinhas, e rolar para os lados não redesenha o painel inteiro.
   const [noSpaceHint, setNoSpaceHint] = useState(false);
   // "Pare para dividir": a tecla S (ou o botão Dividir) com esta música tocando
   const [splitHint, setSplitHint] = useState(false);
-  const [trimDrag, setTrimDrag] = useState<TrimDrag>(null);
-  const [moveDrag, setMoveDrag] = useState<MoveDrag>(null);
+  // Arraste em curso fora do React (trimDragView, moveDragView): a cada movimento redesenham só os
+  // clipes arrastados, a prévia na trilha de destino e a linha com o rótulo. O painel lê só quem está
+  // sendo arrastado (o mesmo conjunto do começo ao fim do arraste): redesenha ao começar e ao soltar.
+  const trimIds = useViewValue(trimDragView, (d) => d?.ids ?? null);
+  const moveIds = useViewValue(moveDragView, (d) => d?.ids ?? null);
+  const setTrimDrag = trimDragView.set;
+  const setMoveDrag = moveDragView.set;
   const updateClip = useStore((s) => s.updateClip);
   const updateClips = useStore((s) => s.updateClips);
   const moveClipsToTracks = useStore((s) => s.moveClipsToTracks);
@@ -1793,8 +2037,6 @@ function TimelinePanel() {
   const splitClipsAt = useStore((s) => s.splitClipsAt);
   const removeClips = useStore((s) => s.removeClips);
   const removeNarration = useStore((s) => s.removeNarration);
-  // Retângulo de seleção (arrastar na grade vazia), em pixels da área da timeline
-  const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const recordingMaestro = useStore((s) => s.recordingMaestro);
   const timelineLocked = useStore((s) => s.timelineLocked);
   const groupClips = useStore((s) => s.groupClips);
@@ -1816,6 +2058,19 @@ function TimelinePanel() {
 
   const activeSongId = selectedSongId ?? playlist[0]?.songId ?? null;
   const song = songs.find((sg) => sg.id === activeSongId);
+  // Trocou de música com a janela da fala aberta: ela some sem passar pelo fechar, então a marcação
+  // nova ainda vazia sai daqui (na música anterior) e a janela não fica presa.
+  const readingSongId = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = readingSongId.current;
+    readingSongId.current = song?.id ?? null;
+    if (!previous || previous === song?.id || !readingNarrationId) return;
+    const state = useStore.getState();
+    const left = state.songs.find((sg) => sg.id === previous)?.narrations?.find((n) => n.id === readingNarrationId);
+    if (left && !left.text.trim() && !left.clipId) state.removeNarration(previous, left.id);
+    setReadingNarrationId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [song?.id]);
   const createNarration = useCallback((start: number, end: number) => {
     if (!song) return;
     const id = `narracao-${Date.now()}-${Math.floor(Math.random() * 1e4)}`;
@@ -1856,13 +2111,9 @@ function TimelinePanel() {
       (c) => c.trackId === 'track-click' || /cli[cqk]|klick|metr[oô]|\bclk/i.test(c.fileName) || /cli[cqk]|klick|metr[oô]|\bclk/i.test(c.name)
     );
   }, [songClips]);
+  // Enquanto a plaquinha amarela é arrastada, a régua, as placas e as linhas mostram a mudança de
+  // andamento no lugar novo: cada uma assina o arraste sozinha (TimelineGrid, tempoDragView).
   const grid = useMemo(() => songGrid(song, clickClip), [song, clickClip]);
-  // enquanto a plaquinha amarela é arrastada, a grade mostra a mudança de andamento no lugar novo
-  const shownGrid = useMemo(() => {
-    if (!grid?.tempoSegments || !tempoDrag) return grid;
-    const index = tempoChangeIndex(grid.tempoSegments, tempoDrag.from);
-    return index < 1 ? grid : { ...grid, tempoSegments: moveTempoChange(grid.tempoSegments, index, tempoDrag.to) };
-  }, [grid, tempoDrag]);
   const selectedSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
 
   const allVisibleTracks = useMemo(() => {
@@ -2149,8 +2400,27 @@ function TimelinePanel() {
     const before = additive ? useStore.getState().selectedClipIds : [];
     const clipsNow = songClips;
     let active = false;
+    // última seleção mandada: o store só é chamado quando o retângulo pega outro conjunto
+    let picked: string[] | null = null;
+    // As linhas (trilhas e régua das falas) medidas uma vez, em px do conteúdo; a cada movimento só
+    // entra quanto a timeline rolou. Antes eram todas lidas da tela a cada movimento do mouse.
+    const laneRows: { id: string; top: number; bottom: number }[] = [];
+    content.querySelectorAll<HTMLElement>('[data-lane-track-id], [data-narration-lane]').forEach((el) => {
+      const b = el.getBoundingClientRect();
+      laneRows.push({ id: el.hasAttribute('data-narration-lane') ? NARRATION_ROW : (el.dataset.laneTrackId ?? ''), top: b.top - r0.top, bottom: b.bottom - r0.top });
+    });
+    const scroller = scrollRef.current;
+    const scroll0 = { x: scroller?.scrollLeft ?? 0, y: scroller?.scrollTop ?? 0 };
+    const scrolled = { x: 0, y: 0 };
+    const onScroll = () => {
+      if (!scroller) return;
+      scrolled.x = scroller.scrollLeft - scroll0.x;
+      scrolled.y = scroller.scrollTop - scroll0.y;
+    };
+    scroller?.addEventListener('scroll', onScroll, { passive: true });
     const move = (ev: PointerEvent) => {
-      const rect = content.getBoundingClientRect();
+      // o conteúdo anda na tela só com a rolagem da timeline
+      const rect = { left: r0.left - scrolled.x, top: r0.top - scrolled.y };
       const cx = ev.clientX - rect.left;
       const cy = ev.clientY - rect.top;
       if (!active && Math.hypot(cx - sx, cy - sy) < 5) return;
@@ -2159,22 +2429,21 @@ function TimelinePanel() {
       const top = Math.max(0, Math.min(sy, cy));
       const width = Math.abs(cx - sx);
       const height = Math.abs(cy - sy);
-      setMarquee({ left, top, width, height });
-      const yA = rect.top + top;
-      const yB = rect.top + top + height;
-      const rows: string[] = [];
-      content.querySelectorAll<HTMLElement>('[data-lane-track-id], [data-narration-lane]').forEach((el) => {
-        const b = el.getBoundingClientRect();
-        if (b.bottom > yA && b.top < yB) rows.push(el.hasAttribute('data-narration-lane') ? NARRATION_ROW : (el.dataset.laneTrackId ?? ''));
-      });
-      const picked = clipsInBox(clipsNow, rows, left / zoomH, (left + width) / zoomH, clipPlayLength, MAESTRO_IA_TRACK_ID, { extraRows: collapsedRows });
-      selectClips(marqueeSelection(before, picked, additive));
+      // o retângulo desenha sozinho (MarqueeBox): o painel não redesenha a cada movimento
+      marqueeView.set({ left, top, width, height });
+      const rows = laneRows.filter((b) => b.bottom > top && b.top < top + height).map((b) => b.id);
+      const inBox = clipsInBox(clipsNow, rows, left / zoomH, (left + width) / zoomH, clipPlayLength, MAESTRO_IA_TRACK_ID, { extraRows: collapsedRows });
+      const next = marqueeSelection(before, inBox, additive);
+      if (picked && sameIdList(picked, next)) return;
+      picked = next;
+      selectClips(next);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
-      setMarquee(null);
+      scroller?.removeEventListener('scroll', onScroll);
+      marqueeView.set(null);
       if (active) lastSelectedClipIdRef.current = null;
       else onClick?.();
     };
@@ -2228,12 +2497,22 @@ function TimelinePanel() {
     const sourceLanes = targets.filter((c) => c.trackId !== MAESTRO_IA_TRACK_ID).map((c) => lanes.indexOf(c.trackId));
     let offset = 0;
     let laneMovesNow: { clipId: string; trackId: string }[] = [];
-    const laneUnder = (y: number): string | null => {
-      const root = scrollRef.current;
-      if (!root) return null;
-      for (const row of root.querySelectorAll<HTMLElement>('[data-lane-track-id]')) {
+    // As linhas das trilhas são medidas uma vez, aqui; a cada movimento só entra quanto a timeline
+    // rolou desde então (antes eram todas as linhas lidas da tela a cada movimento do mouse).
+    const root = scrollRef.current;
+    const laneBoxes = root
+      ? [...root.querySelectorAll<HTMLElement>('[data-lane-track-id]')].map((row) => {
         const b = row.getBoundingClientRect();
-        if (y >= b.top && y < b.bottom) return row.dataset.laneTrackId ?? null;
+        return { id: row.dataset.laneTrackId ?? null, top: b.top, bottom: b.bottom };
+      })
+      : [];
+    const scrollTop0 = root?.scrollTop ?? 0;
+    let scrolled = 0;
+    const onLaneScroll = () => { if (root) scrolled = root.scrollTop - scrollTop0; };
+    root?.addEventListener('scroll', onLaneScroll, { passive: true });
+    const laneUnder = (y: number): string | null => {
+      for (const b of laneBoxes) {
+        if (y + scrolled >= b.top && y + scrolled < b.bottom) return b.id;
       }
       return null;
     };
@@ -2277,6 +2556,7 @@ function TimelinePanel() {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
+      root?.removeEventListener('scroll', onLaneScroll);
       try { el.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
       setMoveDrag(null);
 
@@ -2323,7 +2603,7 @@ function TimelinePanel() {
 
   useEffect(() => {
     setEditingRegionId(null);
-    setRegionDrag(null);
+    regionDragView.set(null);
   }, [activeSongId]);
 
   useEffect(() => {
@@ -2393,7 +2673,12 @@ function TimelinePanel() {
     const el = scrollRef.current;
     if (!el || liveRef.current) return;
     setTimelineVisible(visibleWindow(el.scrollLeft, el.clientWidth, VIEW_MARGIN_PX));
+    // e a faixa vertical (com uma tela de folga): as trilhas longe da tela ficam sem clipes montados
+    setTimelineRows(rowsWindow(el.scrollTop, el.clientHeight));
   }, []);
+  // Painel fechado (Modo Show, outra tela): a faixa vertical volta a "não medida"; ao abrir de novo
+  // a rolagem começa do topo e a primeira medida chega logo depois de montar.
+  useEffect(() => () => setTimelineRows(null), []);
 
   /**
    * A coluna dos nomes anda junto com a timeline. Feito dentro do quadro de pintura (em vez de no
@@ -2441,16 +2726,14 @@ function TimelinePanel() {
     }
   }, [applyFollowRange]);
 
-  const handleScroll = useCallback(() => {
-    // no zoom ao vivo o próprio quadro já acertou régua, caminho e janela (applyPending)
-    if (liveRef.current) return;
-    syncHeaders();
-    updateVisible();
-  }, [updateVisible, syncHeaders]);
-
-  // Rolar com dois dedos (pad) na coluna dos nomes: a rolagem é sempre a da timeline.
+  // Rolar com dois dedos (pad) na coluna dos nomes: a rolagem é sempre a da timeline. Este é o
+  // único ouvinte da rolagem da timeline (antes havia também o onScroll do React, que fazia o mesmo
+  // trabalho de novo a cada evento). A timeline só existe com uma música aberta: ligado de novo
+  // sempre que ela aparece (sem isso, o painel aberto antes da primeira música ficava sem ouvinte).
+  const hasSong = !!song;
   useEffect(() => {
     const at = () => {
+      // no zoom ao vivo o próprio quadro já acertou régua, caminho e janela (applyPending)
       if (liveRef.current) return;
       syncHeaders();
       updateVisible();
@@ -2465,11 +2748,10 @@ function TimelinePanel() {
       heads?.removeEventListener('scroll', at);
       main?.removeEventListener('scroll', at);
     };
-  }, [syncHeaders, updateVisible]);
+  }, [syncHeaders, updateVisible, hasSong]);
 
   // A coluna das faixas só existe com uma música aberta: o rolar com dois dedos é ligado sempre
   // que ela aparece (antes era ligado uma vez só, na abertura — sem música ainda, nunca ligava).
-  const hasSong = !!song;
   useEffect(() => {
     const el = trackHeadersRef.current;
     if (!el) return;
@@ -2494,7 +2776,7 @@ function TimelinePanel() {
     const ro = new ResizeObserver(updateVisible);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [updateVisible]);
+  }, [updateVisible, hasSong]);
 
   // Zoom ao vivo, como numa DAW: durante a pinça ou a roda, cada quadro muda só as variáveis CSS do
   // zoom (--vs-zoom e a largura --vs-tl-w), o scrollLeft e os canvas da régua e da grade, sem render
@@ -2610,10 +2892,11 @@ function TimelinePanel() {
     if (content) ro.observe(content);
     return () => ro.disconnect();
   }, [hasSong, timelineWidth, applyFollowRange]);
-  // a grade e as ondas desenhadas mais à frente mudam a área rolável sem mudar o tamanho de nada
-  useLayoutEffect(() => {
+  // a grade e as ondas desenhadas mais à frente mudam a área rolável sem mudar o tamanho de nada:
+  // conferido depois de cada janela nova desenhada (AfterVisibleCommit, no fim do painel)
+  const followAfterVisible = useCallback(() => {
     if (FOLLOW_SCROLL_CSS) applyFollowRange();
-  }, [visible, applyFollowRange]);
+  }, [applyFollowRange]);
 
   /**
    * Zoom de verdade: o instante anchorTime fica no ponto anchorScreen da tela. Zoom e janela visível
@@ -2895,7 +3178,9 @@ function TimelinePanel() {
       target.removeEventListener('pointercancel', up);
       const finalT = computeTime(ev.clientX, ev.altKey);
       setCurrentTime(finalT);
-      if (isPlaying && song) {
+      // tocando ou não, lido na hora de soltar: o painel não assina o Play (Play e Stop não
+      // redesenham a timeline inteira)
+      if (useStore.getState().transport.isPlaying && song) {
         audioEngine.seekTo(finalT);
       } else {
         audioEngine.endUserSeek();
@@ -2904,7 +3189,7 @@ function TimelinePanel() {
     target.addEventListener('pointermove', move);
     target.addEventListener('pointerup', up);
     target.addEventListener('pointercancel', up);
-  }, [zoomH, setCurrentTime, isPlaying, song, grid, snapStep]);
+  }, [zoomH, setCurrentTime, song, grid, snapStep]);
 
   // Duplo clique na barra de rolagem horizontal: a música inteira (até o último clipe) cabe na
   // tela. Liga o modo "caber na tela": cada música selecionada depois também se ajusta sozinha,
@@ -2944,10 +3229,36 @@ function TimelinePanel() {
     applyZoom(zoom, anchorTime, anchorX);
   }, [applyZoom]);
 
-  // O clipe monta se cruza a janela visível no zoom atual (a conta que o ClipBlock fazia antes de
-  // devolver null); arrastando (aparar ou mover), monta sempre.
-  const clipShown = (c: AudioClip) =>
-    !!trimDrag?.ids.has(c.id) || !!moveDrag?.ids.has(c.id) || spanInView(c.startTime, c.duration, zoomH, visible);
+  // Áudio da faixa Maestro IA que não é mais uma fala: monta se cruza a janela visível (a régua das
+  // falas chama com a janela dela, sem o painel redesenhar a cada rolagem); arrastando, sempre.
+  const clipShownAt = (c: AudioClip, vis: TimelineVisible) =>
+    !!trimIds?.has(c.id) || !!moveIds?.has(c.id) || spanInView(c.startTime, c.duration, zoomH, vis);
+
+  // Contagem nova no cursor e edição de BPM pela placa: funções estáveis para o cabeçalho do Maestro
+  // e as placas (memo) não redesenharem com o resto do painel.
+  const openCountAtCursor = useCallback(() => {
+    if (songIdNow) setCountTarget({ kind: 'new', start: cursorTime(songIdNow) ?? 0 });
+  }, [songIdNow]);
+  const editTempoAt = useCallback(({ time, bpm, x, y }: { time: number; bpm: number; x: number; y: number }) => {
+    // a mudança fica exatamente no início do trecho com esse andamento
+    const seg = grid?.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
+    setManualTempoPoint({ time: seg?.startTime ?? time, x, y, existingBpm: bpm, editing: true });
+  }, [grid]);
+  const editNarration = useCallback((n: { id: string }) => setReadingNarrationId(n.id), []);
+  const editCountGroup = useCallback((group: string) => setCountTarget({ kind: 'edit', group }), []);
+
+  // Topo de cada linha da timeline (recorte vertical): a linha da trilha e, logo abaixo do Maestro,
+  // a régua das falas. As mesmas alturas que as linhas usam.
+  const maestroLaneHeight = Math.round(NARRATION_LANE_HEIGHT * zoomV);
+  const laneLayout = useMemo(() => {
+    const heights = allVisibleTracks.map((track) => {
+      const rowHeight = track.id === TIMECODE_TRACK_ID ? trackHeight : Math.round((track.height ?? 40) * zoomV);
+      return rowHeight + (track.id === 'track-maestro' ? maestroLaneHeight : 0);
+    });
+    const tops = rowTops(heights);
+    return new Map(allVisibleTracks.map((track, i) => [track.id, { top: tops[i], span: heights[i] }]));
+  }, [allVisibleTracks, trackHeight, zoomV, maestroLaneHeight]);
+  const recordingStart = recordingMaestro?.isRecording && song && recordingMaestro.songId === song.id ? recordingMaestro.startTime : null;
 
   return (
     <div ref={timelinePanelRef} className={`flex flex-col h-full bg-logic-bg flex-1 min-w-0 relative ${FOLLOW_SCROLL_CSS ? 'timeline-follow-scope' : ''}`}>
@@ -3024,8 +3335,6 @@ function TimelinePanel() {
               <RegionLane
                 song={song}
                 zoomH={zoomH}
-                drag={regionDrag}
-                onDragChange={setRegionDrag}
                 editingId={editingRegionId}
                 onEdit={setEditingRegionId}
               />
@@ -3040,13 +3349,10 @@ function TimelinePanel() {
                 e.preventDefault();
                 if (!song || !grid) return;
                 if (e.shiftKey) {
-                  // Shift + botão direito: cravar início de compasso (comportamento original)
+                  // Shift + botão direito: o ponto clicado passa a ser um 1 de compasso na grade
                   const rect = e.currentTarget.getBoundingClientRect();
-                  const clickX = e.clientX - rect.left;
-                  const clickTime = Math.max(0, clickX / zoomH);
-                  const barDuration = grid.beatsPerBar * grid.beat;
-                  const newDownbeat = clickTime % barDuration;
-                  updateSong(song.id, { downbeat: Math.round(newDownbeat * 1000) / 1000 });
+                  const clickTime = Math.max(0, (e.clientX - rect.left) / zoomH);
+                  updateSong(song.id, { tempoSegments: markBarStart(song, clickTime, song.duration), tempoMapSource: 'manual' });
                   return;
                 }
                 // Botão direito simples: último recurso manual — abre o campo para cravar o
@@ -3063,19 +3369,14 @@ function TimelinePanel() {
               title="Clique para posicionar cursor. Botão direito: cravar o andamento neste ponto (último recurso). Shift + botão direito: cravar início de compasso."
             >
               {/* traços e números da régua num canvas da janela visível (as placas de BPM vêm depois, em DOM) */}
-              <RulerCanvas grid={song ? shownGrid : null} hasGrid={!!grid} zoomH={zoomH} visible={visible} contentEnd={contentEnd} hub={canvasHub} />
-              {shownGrid && song && (
+              {/* a janela visível e o arraste da placa de BPM chegam direto na régua e nas placas */}
+              <RulerCanvas grid={song ? grid : null} hasGrid={!!grid} zoomH={zoomH} contentEnd={contentEnd} hub={canvasHub} />
+              {grid && song && (
                 <BarRulerLayer
                   song={song}
-                  grid={shownGrid}
+                  grid={grid}
                   zoomH={zoomH}
-                  visible={visible}
-                  onTempoDrag={setTempoDrag}
-                  onEditTempo={({ time, bpm, x, y }) => {
-                    // a mudança fica exatamente no início do trecho com esse andamento
-                    const seg = grid?.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
-                    setManualTempoPoint({ time: seg?.startTime ?? time, x, y, existingBpm: bpm, editing: true });
-                  }}
+                  onEditTempo={editTempoAt}
                 />
               )}
             </div>
@@ -3109,7 +3410,7 @@ function TimelinePanel() {
                       key={track.id}
                       track={track}
                       expanded={!collapsedFolders.has(track.id)}
-                      onToggle={() => toggleFolder(track.id)}
+                      onToggleFolder={toggleFolder}
                       onContextMenu={handleOpenTrackMenu}
                     />
                   );
@@ -3118,7 +3419,7 @@ function TimelinePanel() {
                   return (
                     <div key={track.id}>
                       <TrackRow track={track} depth={0} onContextMenu={handleOpenTrackMenu} />
-                      <MaestroIaHeader songId={song.id} onAdd={addNarrationAtCursor} onCount={() => setCountTarget({ kind: 'new', start: cursorTime(song.id) ?? 0 })} />
+                      <MaestroIaHeader songId={song.id} onAdd={addNarrationAtCursor} onCount={openCountAtCursor} />
                     </div>
                   );
                 }
@@ -3139,7 +3440,6 @@ function TimelinePanel() {
             <div
               ref={scrollRef}
               className={`flex-1 overflow-x-scroll overflow-y-auto timeline-scroll-container relative z-10 ${FOLLOW_SCROLL_CSS ? 'timeline-follow-source' : ''}`}
-              onScroll={handleScroll}
             >
               {/* o conteúdo estica até a altura desta camada, como antes com min-height 100% */}
               <div className="flex min-h-full">
@@ -3165,7 +3465,7 @@ function TimelinePanel() {
                       const clickTime = snapTime(Math.max(0, clickX / zoomH), grid, e.altKey ? 'off' : snapStep);
                       onClick = () => {
                         setCurrentTime(clickTime);
-                        if (isPlaying && song) audioEngine.seekTo(clickTime);
+                        if (useStore.getState().transport.isPlaying && song) audioEngine.seekTo(clickTime);
                       };
                     }
                     // arrastar na grade vazia desenha o retângulo de seleção (Cmd ou Shift: soma)
@@ -3174,103 +3474,54 @@ function TimelinePanel() {
                 }}
               >
                 {/* música sem andamento: linha a cada passo da régua, por baixo dos clipes */}
-                {!grid && <StepLinesCanvas zoomH={zoomH} visible={visible} timelineWidth={timelineWidth} hub={canvasHub} />}
+                {!grid && <StepLinesCanvas zoomH={zoomH} timelineWidth={timelineWidth} hub={canvasHub} />}
                 {/* retângulo de seleção (arrastar na grade vazia) */}
-                {marquee && (
-                  <div
-                    className="absolute z-50 pointer-events-none rounded-[2px] border border-[#5aaaff] bg-[#5aaaff]/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
-                    style={marquee}
-                  />
-                )}
+                <MarqueeBox />
                 {allVisibleTracks.map((track) => {
-                  const isFolder = track.isSubgroup;
                   const isTc = track.id === TIMECODE_TRACK_ID;
-                  // só os clipes que cruzam a janela visível (e os que estão sendo arrastados) montam
-                  const trackClips = isFolder ? [] : songClips.filter((c) => c.trackId === track.id && clipShown(c));
                   const rowHeight = isTc ? trackHeight : Math.round((track.height ?? 40) * zoomV);
                   // Logo abaixo da faixa Maestro fica a régua do Maestro por IA (falas geradas por voz).
                   // Ela acompanha a altura das faixas: com altura fixa, cada linha daqui para baixo
                   // saía deslocada da coluna dos nomes assim que se mudava o tamanho das tracks.
                   const isMaestroRow = track.id === 'track-maestro';
-                  const maestroLaneHeight = Math.round(NARRATION_LANE_HEIGHT * zoomV);
-                  // Pasta recolhida é UMA linha só, aqui e na coluna dos nomes (as filhas saem das
-                  // duas). Antes a timeline guardava a altura de todas as filhas enquanto a coluna
-                  // mostrava uma linha, e tudo abaixo da pasta ficava desalinhado.
+                  const place = laneLayout.get(track.id) ?? { top: 0, span: rowHeight };
                   return (
                     <div key={track.id}>
-                    <div
-                      data-lane-track-id={track.id}
-                      className={`relative overflow-hidden ${isTc ? 'border-b-2 border-logic-lcd-amber/40 bg-logic-lcd-amber/[0.04]' : 'border-b border-logic-border-dark'} ${isFolder ? 'bg-logic-bg-deep/40 pointer-events-none' : ''} ${moveDrag?.ghosts?.some((g) => g.trackId === track.id) ? 'bg-[#ffab1f]/[0.07] shadow-[inset_0_0_0_1px_rgba(255,171,31,0.55)]' : ''}`}
-                      style={{ height: `${rowHeight}px` }}
-                    >
-                      {/* Prévia dos áudios que vão cair nesta trilha */}
-                      {moveDrag?.ghosts?.filter((g) => g.trackId === track.id).map((g) => {
-                        const c = songClips.find((x) => x.id === g.clipId);
-                        if (!c) return null;
-                        return (
-                          <div
-                            key={`ghost-${g.clipId}`}
-                            className="absolute rounded-sm border border-dashed border-[#ffab1f] bg-[#ffab1f]/15 pointer-events-none z-20 flex items-start px-1.5 pt-0.5 text-[10px] font-semibold text-[#ffcf7a] truncate"
-                            style={{
-                              left: zoomPx(Math.max(0, c.startTime + moveDrag.delta)),
-                              top: '2px',
-                              width: zoomPxMin(8, clipPlayLength(c)),
-                              height: `${rowHeight - 4}px`,
-                            }}
-                          >
-                            {c.name}
-                          </div>
-                        );
-                      })}
-                      {isFolder && folderPreviews.has(track.id) && (
-                        <FolderPreviewBlock
-                          folder={track}
-                          songId={song.id}
-                          preview={folderPreviews.get(track.id)!.preview}
-                          count={folderPreviews.get(track.id)!.count}
-                          height={rowHeight - 4}
-                          zoomH={zoomH}
-                          visible={visible}
-                        />
-                      )}
-                      {trackClips.map((clip) => (
-                        <ClipBlock
-                          key={clip.id}
-                          clip={clip}
-                          isSelected={selectedSet.has(clip.id)}
-                          onTrimStart={stableTrimStart}
-                          onMoveStart={stableMoveStart}
-                          trim={trimDrag}
-                          move={moveDrag}
-                          trackHeight={rowHeight}
-                          allowMove={!timelineLocked}
-                          timelineLocked={timelineLocked}
-                        />
-                      ))}
-                      {track.id === 'track-maestro' && recordingMaestro?.isRecording && recordingMaestro.songId === song.id && (
-                        <LiveRecordingTrackBlock startTime={recordingMaestro.startTime} />
-                      )}
-                    </div>
+                    <TrackLane
+                      track={track}
+                      songId={song.id}
+                      songClips={songClips}
+                      rowHeight={rowHeight}
+                      top={place.top}
+                      span={place.span}
+                      zoomH={zoomH}
+                      selectedSet={selectedSet}
+                      trimIds={trimIds}
+                      moveIds={moveIds}
+                      stableTrimStart={stableTrimStart}
+                      stableMoveStart={stableMoveStart}
+                      timelineLocked={timelineLocked}
+                      folderPreview={track.isSubgroup ? folderPreviews.get(track.id) : undefined}
+                      recordingStart={isMaestroRow ? recordingStart : null}
+                    />
                     {isMaestroRow && (
                       <NarrationLane
                         song={song}
                         zoomH={zoomH}
                         height={maestroLaneHeight}
-                        visible={visible}
-                        onEdit={(n) => setReadingNarrationId(n.id)}
+                        onEdit={editNarration}
                         onCreate={createNarration}
-                        onEditCount={(group) => setCountTarget({ kind: 'edit', group })}
-                        move={moveDrag}
+                        onEditCount={editCountGroup}
                         onSelectClip={handleNarrationSelect}
                         onGroupDrag={(ev, clipId) => {
                           const c = songClips.find((x) => x.id === clipId);
                           if (c) handleMoveStart(ev, c);
                         }}
-                        clipLayer={(() => {
+                        clipLayer={(vis) => {
                           // Áudio da faixa Maestro IA que não é mais uma fala (dividido, emendado,
                           // colado): um clipe como qualquer outro, desenhado na régua das falas.
                           const loose = looseMaestroClips(songClips, song.narrations);
-                          const shown = loose.filter(clipShown);
+                          const shown = loose.filter((c) => clipShownAt(c, vis));
                           return shown.length === 0 ? null : shown.map((clip) => (
                             <ClipBlock
                               key={clip.id}
@@ -3278,41 +3529,23 @@ function TimelinePanel() {
                               isSelected={selectedSet.has(clip.id)}
                               onTrimStart={stableTrimStart}
                               onMoveStart={stableMoveStart}
-                              trim={trimDrag}
-                              move={moveDrag}
                               trackHeight={maestroLaneHeight}
                               allowMove={!timelineLocked}
                               timelineLocked={timelineLocked}
                             />
                           ));
-                        })()}
+                        }}
                       />
                     )}
                     </div>
                   );
                 })}
 
-                {shownGrid && <GridLinesCanvas grid={shownGrid} zoomH={zoomH} visible={visible} timelineWidth={timelineWidth} hub={canvasHub} />}
+                {grid && <GridLinesCanvas grid={grid} zoomH={zoomH} timelineWidth={timelineWidth} hub={canvasHub} />}
 
-                <RegionGuides song={song} drag={regionDrag} />
+                <RegionGuides song={song} />
 
-                {trimDrag && (
-                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: zoomPx(trimDrag.end) }}>
-                    <div className="absolute top-0 bottom-0 w-px bg-logic-lcd-amber/80" />
-                    <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-amber/60 text-2xs font-mono text-logic-text whitespace-nowrap shadow-lg">
-                      Fim {trimDrag.label}{trimDrag.ids.size > 1 ? ` (${trimDrag.ids.size} áudios)` : ''}
-                    </span>
-                  </div>
-                )}
-
-                {moveDrag && (
-                  <div className="absolute top-0 bottom-0 z-30 pointer-events-none" style={{ left: zoomPx(moveDrag.start) }}>
-                    <div className="absolute top-0 bottom-0 w-[2px] bg-logic-lcd-green shadow-[0_0_8px_rgba(48,209,88,0.8)]" />
-                    <span className="absolute top-1 left-1.5 px-1.5 py-0.5 rounded bg-logic-bg-elevated border border-logic-lcd-green/60 text-2xs font-mono text-logic-lcd-green font-bold whitespace-nowrap shadow-lg">
-                      Início: {moveDrag.label}{moveDrag.ids.size > 1 ? ` (${moveDrag.ids.size} faixas)` : ''}{moveDrag.laneLabel ? ` · para ${moveDrag.laneLabel}` : ''}
-                    </span>
-                  </div>
-                )}
+                <DragGuides />
 
                 <Playhead songId={song.id} />
               </div>
@@ -3352,7 +3585,7 @@ function TimelinePanel() {
           da playlist: uma faixa só, de ponta a ponta) */}
       <div className="vs-legend-bar flex items-center justify-between gap-3 px-3 h-7 bg-[#121318] border-t border-logic-border-dark text-2xs text-logic-text-muted">
         <GridToolbar song={song} onSelectAll={selectAllSongClips} />
-        <FooterProgress importProgress={importProgress} exportProgress={exportProgress} />
+        <FooterProgress />
       </div>
 
       {isSongLoading && (
@@ -3391,6 +3624,8 @@ function TimelinePanel() {
         return n ? <NarrationDialog song={song} narration={n} onClose={() => setReadingNarrationId(null)} /> : null;
       })()}
 
+      {/* por último: confere o caminho da coluna dos nomes depois dos desenhos de cada janela nova */}
+      <AfterVisibleCommit onCommit={followAfterVisible} />
     </div>
   );
 }

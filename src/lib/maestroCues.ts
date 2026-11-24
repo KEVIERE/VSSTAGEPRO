@@ -1,10 +1,9 @@
-// Falas prontas do Maestro por IA: frases comuns de palco gravadas uma vez, nas vozes Felipe e Bianca
-// (ElevenLabs, plano pago), em três intensidades. Os arquivos ficam em
-// public/maestro-falas/<voz>/<id>.mp3 (Normal) e public/maestro-falas/<voz>/<calma|forte>/<id>.mp3,
-// e funcionam sem internet. Texto fora desta lista sai numa voz do próprio Mac (Masculina ou Feminina).
-// Felipe e Bianca são as vozes padrão do Maestro por IA. Toda fala tem a Normal gravada; quando a
-// Calma ou a Forte de uma fala ainda não foi gravada, ela sai na Normal (veja recordedIntensity).
-// Fala nova na lista e ainda sem áudio sai na voz do Mac, com aviso.
+// Falas prontas do Maestro por IA: frases de palco gravadas uma vez, em três modos (Calma, Normal,
+// Forte). Maestro 1 (pasta "felipe") vem embutido e funciona sem internet; Maestro 2 e Maestro 3 (pastas
+// "will" e "carla") chegam como pacotes baixados uma vez. O catálogo lista TODAS as falas, mas cada
+// voz só mostra as que tem gravadas (veja voiceHasCue): voz sem áudio não aparece, e modo que falta
+// sai no Normal da MESMA voz. Com uma voz clonada, a lista serve de biblioteca de frases.
+// Marcações antigas (pronta:moca, intensidades antigas) continuam tocando do arquivo embutido.
 
 import { RECORDED_CALMA, RECORDED_FORTE, RECORDED_NORMAL } from './maestroFalasGravadas.ts';
 
@@ -269,6 +268,103 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'mais-pesado', text: "Mais pesado" },
     { id: 'delicado', text: "Delicado" },
     { id: 'crescendo', text: "Crescendo" },
+    { id: 'preparar-para-crescente', text: "Preparar para crescente" },
+    { id: 'crescente', text: "Crescente" },
+    { id: 'ataque', text: "Ataque" },
+    { id: 'banda-bem-baixinho', text: "Banda bem baixinho" },
+    { id: 'banda-la-embaixo', text: "Banda lá embaixo" },
+    { id: 'crescente-no-refrao', text: "Crescente no refrão" },
+    { id: 'crescente-na-ponte', text: "Crescente na ponte" },
+    { id: 'crescente-de-quatro-compassos', text: "Crescente de quatro compassos" },
+    { id: 'crescente-de-oito-compassos', text: "Crescente de oito compassos" },
+    { id: 'crescente-ate-o-ataque', text: "Crescente até o ataque" },
+    { id: 'crescente-na-caixa', text: "Crescente na caixa" },
+    { id: 'rufo', text: "Rufo" },
+    { id: 'rufo-de-caixa', text: "Rufo de caixa" },
+    { id: 'rufo-de-prato', text: "Rufo de prato" },
+    { id: 'decrescendo', text: "Decrescendo" },
+    { id: 'pianissimo', text: "Pianíssimo" },
+    { id: 'fortissimo', text: "Fortíssimo" },
+    { id: 'banda-la-em-cima', text: "Banda lá em cima" },
+    { id: 'banda-no-talo', text: "Banda no talo" },
+    { id: 'banda-bem-leve', text: "Banda bem leve" },
+    { id: 'deixa-a-voz-na-frente', text: "Deixa a voz na frente" },
+    { id: 'baixa-pra-fala', text: "Baixa pra fala" },
+    { id: 'sobe-tudo', text: "Sobe tudo" },
+    { id: 'baixa-tudo', text: "Baixa tudo" },
+    { id: 'prepara-o-ataque', text: "Prepara o ataque" },
+    { id: 'ataque-forte', text: "Ataque forte" },
+    { id: 'ataque-seco', text: "Ataque seco" },
+    { id: 'ataque-junto', text: "Ataque junto" },
+    { id: 'ataque-no-refrao', text: "Ataque no refrão" },
+    { id: 'explode-no-um', text: "Explode no um" },
+    { id: 'nao-cresce-ainda', text: "Não cresce ainda" },
+    { id: 'segura-pra-explodir', text: "Segura pra explodir" },
+    { id: 'guarda-pro-refrao', text: "Guarda pro refrão" },
+  ] },
+  { id: 'arranjo-e-convencoes', label: "Arranjo e convenções", cues: [
+    { id: 'atencao-pro-arranjo', text: "Atenção pro arranjo" },
+    { id: 'marcacao', text: "Marcação" },
+    { id: 'marca', text: "Marca" },
+    { id: 'marcacao-forte', text: "Marcação forte" },
+    { id: 'marcacao-no-um', text: "Marcação no um" },
+    { id: 'marcacao-no-surdo', text: "Marcação no surdo" },
+    { id: 'marcacao-no-bumbo', text: "Marcação no bumbo" },
+    { id: 'mantem-a-marcacao', text: "Mantém a marcação" },
+    { id: 'sem-marcacao', text: "Sem marcação" },
+    { id: 'marca-o-tempo', text: "Marca o tempo" },
+    { id: 'marca-junto', text: "Marca junto" },
+    { id: 'marca-comigo', text: "Marca comigo" },
+    { id: 'marca-no-prato', text: "Marca no prato" },
+    { id: 'olha-o-arranjo', text: "Olha o arranjo" },
+    { id: 'segue-o-arranjo', text: "Segue o arranjo" },
+    { id: 'muda-o-arranjo', text: "Muda o arranjo" },
+    { id: 'arranjo-original', text: "Arranjo original" },
+    { id: 'arranjo-do-ensaio', text: "Arranjo do ensaio" },
+    { id: 'arranjo-da-gravacao', text: "Arranjo da gravação" },
+    { id: 'arranjo-reduzido', text: "Arranjo reduzido" },
+    { id: 'arranjo-completo', text: "Arranjo completo" },
+    { id: 'prepara-a-convencao', text: "Prepara a convenção" },
+    { id: 'atencao-na-convencao', text: "Atenção na convenção" },
+    { id: 'convencao-no-refrao', text: "Convenção no refrão" },
+    { id: 'convencao-na-ponte', text: "Convenção na ponte" },
+    { id: 'convencao-no-final', text: "Convenção no final" },
+    { id: 'convencao-de-metais', text: "Convenção de metais" },
+    { id: 'frase-de-metais', text: "Frase de metais" },
+    { id: 'frase-de-sanfona', text: "Frase de sanfona" },
+    { id: 'frase-de-baixo', text: "Frase de baixo" },
+    { id: 'riff-de-metais', text: "Riff de metais" },
+    { id: 'riff-de-sanfona', text: "Riff de sanfona" },
+    { id: 'riff-de-teclado', text: "Riff de teclado" },
+    { id: 'riff-principal', text: "Riff principal" },
+    { id: 'contracanto', text: "Contracanto" },
+    { id: 'contracanto-de-metais', text: "Contracanto de metais" },
+    { id: 'contracanto-de-guitarra', text: "Contracanto de guitarra" },
+    { id: 'resposta-dos-metais', text: "Resposta dos metais" },
+    { id: 'resposta-da-sanfona', text: "Resposta da sanfona" },
+    { id: 'resposta-da-guitarra', text: "Resposta da guitarra" },
+    { id: 'metais-em-bloco', text: "Metais em bloco" },
+    { id: 'banda-em-unissono', text: "Banda em uníssono" },
+    { id: 'tutti', text: "Tutti" },
+    { id: 'bem-curto', text: "Bem curto" },
+    { id: 'bem-ligado', text: "Bem ligado" },
+    { id: 'antecipa', text: "Antecipa" },
+    { id: 'antecipa-o-um', text: "Antecipa o um" },
+    { id: 'cama-de-teclado', text: "Cama de teclado" },
+    { id: 'cama-de-cordas', text: "Cama de cordas" },
+    { id: 'cama-de-pad', text: "Cama de pad" },
+    { id: 'arpejo', text: "Arpejo" },
+    { id: 'metais-na-frente', text: "Metais na frente" },
+    { id: 'cordas-na-frente', text: "Cordas na frente" },
+    { id: 'sanfona-na-frente', text: "Sanfona na frente" },
+    { id: 'guitarra-na-frente', text: "Guitarra na frente" },
+    { id: 'primeira-casa', text: "Primeira casa" },
+    { id: 'segunda-casa', text: "Segunda casa" },
+    { id: 'vai-pra-coda', text: "Vai pra coda" },
+    { id: 'vai-pro-tema', text: "Vai pro tema" },
+    { id: 'volta-pro-tema', text: "Volta pro tema" },
+    { id: 'toca-o-tema', text: "Toca o tema" },
+    { id: 'tema-principal', text: "Tema principal" },
   ] },
   { id: 'paradas-e-finais', label: "Paradas e finais", cues: [
     { id: 'breque', text: "Breque" },
@@ -328,6 +424,12 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'pausa-geral', text: "Pausa geral" },
     { id: 'pausa-de-um-compasso', text: "Pausa de um compasso" },
     { id: 'pausa-de-dois-tempos', text: "Pausa de dois tempos" },
+    { id: 'final-com-ataque', text: "Final com ataque" },
+    { id: 'final-com-convencao', text: "Final com convenção" },
+    { id: 'final-com-rufo', text: "Final com rufo" },
+    { id: 'final-com-tudo', text: "Final com tudo" },
+    { id: 'ultimo-ataque', text: "Último ataque" },
+    { id: 'dois-ataques', text: "Dois ataques" },
   ] },
   { id: 'quem-toca', label: "Quem toca", cues: [
     { id: 'so-voz', text: "Só voz" },
@@ -394,6 +496,14 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'deixa-so-a-voz', text: "Deixa só a voz" },
     { id: 'deixa-so-o-teclado', text: "Deixa só o teclado" },
     { id: 'deixa-so-o-violao', text: "Deixa só o violão" },
+    { id: 'so-harmonia', text: "Só harmonia" },
+    { id: 'so-harmonia-e-voz', text: "Só harmonia e voz" },
+    { id: 'so-ritmo', text: "Só ritmo" },
+    { id: 'so-as-congas', text: "Só as congas" },
+    { id: 'so-o-surdo', text: "Só o surdo" },
+    { id: 'so-sanfona-e-zabumba', text: "Só sanfona e zabumba" },
+    { id: 'so-zabumba-e-triangulo', text: "Só zabumba e triângulo" },
+    { id: 'sem-harmonia', text: "Sem harmonia" },
   ] },
   { id: 'entradas-e-solos', label: "Entradas e solos", cues: [
     { id: 'entra-a-bateria', text: "Entra a bateria" },
@@ -492,6 +602,50 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'faz-a-convencao', text: "Faz a convenção" },
     { id: 'toca-a-melodia', text: "Toca a melodia" },
     { id: 'guitarra-dobra-a-voz', text: "Guitarra dobra a voz" },
+    { id: 'solo-de-bongo', text: "Solo de bongô" },
+    { id: 'solo-de-repique', text: "Solo de repique" },
+    { id: 'solo-de-congas', text: "Solo de congas" },
+    { id: 'solo-de-timbales', text: "Solo de timbales" },
+    { id: 'solo-de-surdo', text: "Solo de surdo" },
+    { id: 'solo-de-tamborim', text: "Solo de tamborim" },
+    { id: 'solo-de-tanta', text: "Solo de tantã" },
+    { id: 'solo-de-rebolo', text: "Solo de rebolo" },
+    { id: 'solo-de-cuica', text: "Solo de cuíca" },
+    { id: 'solo-de-agogo', text: "Solo de agogô" },
+    { id: 'solo-de-triangulo', text: "Solo de triângulo" },
+    { id: 'solo-de-atabaque', text: "Solo de atabaque" },
+    { id: 'solo-de-caixa', text: "Solo de caixa" },
+    { id: 'solo-de-alfaia', text: "Solo de alfaia" },
+    { id: 'solo-de-berimbau', text: "Solo de berimbau" },
+    { id: 'solo-de-rabeca', text: "Solo de rabeca" },
+    { id: 'solo-de-guitarra-baiana', text: "Solo de guitarra baiana" },
+    { id: 'entra-o-bongo', text: "Entra o bongô" },
+    { id: 'entram-os-timbales', text: "Entram os timbales" },
+    { id: 'entra-o-repique', text: "Entra o repique" },
+    { id: 'entra-o-surdo', text: "Entra o surdo" },
+    { id: 'entra-o-tamborim', text: "Entra o tamborim" },
+    { id: 'entra-o-tanta', text: "Entra o tantã" },
+    { id: 'entra-o-rebolo', text: "Entra o rebolo" },
+    { id: 'entra-a-cuica', text: "Entra a cuíca" },
+    { id: 'entra-o-agogo', text: "Entra o agogô" },
+    { id: 'entra-o-atabaque', text: "Entra o atabaque" },
+    { id: 'entra-o-ganza', text: "Entra o ganzá" },
+    { id: 'entra-a-alfaia', text: "Entra a alfaia" },
+    { id: 'entra-o-berimbau', text: "Entra o berimbau" },
+    { id: 'entra-o-reco-reco', text: "Entra o reco-reco" },
+    { id: 'entra-a-rabeca', text: "Entra a rabeca" },
+    { id: 'entra-a-guitarra-baiana', text: "Entra a guitarra baiana" },
+    { id: 'duelo-de-percussao', text: "Duelo de percussão" },
+    { id: 'duelo-de-guitarras', text: "Duelo de guitarras" },
+    { id: 'duelo-de-sanfona-e-guitarra', text: "Duelo de sanfona e guitarra" },
+    { id: 'troca-de-solos', text: "Troca de solos" },
+    { id: 'percussao-na-frente', text: "Percussão na frente" },
+    { id: 'virada-de-percussao', text: "Virada de percussão" },
+    { id: 'virada-de-timbales', text: "Virada de timbales" },
+    { id: 'virada-de-surdo', text: "Virada de surdo" },
+    { id: 'virada-de-repique', text: "Virada de repique" },
+    { id: 'chamada-de-repique', text: "Chamada de repique" },
+    { id: 'chamada-de-timbales', text: "Chamada de timbales" },
   ] },
   { id: 'cada-musico', label: "Para cada músico", cues: [
     { id: 'bateria-segura', text: "Bateria, segura" },
@@ -745,6 +899,103 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'meia-levada', text: "Meia levada" },
     { id: 'balanco', text: "Balanço" },
     { id: 'batida', text: "Batida" },
+    { id: 'levada-de-vaneirao', text: "Levada de vaneirão" },
+    { id: 'levada-de-piseiro', text: "Levada de piseiro" },
+    { id: 'levada-de-seresta', text: "Levada de seresta" },
+    { id: 'levada-de-vaneira', text: "Levada de vaneira" },
+    { id: 'levada-de-carnaval', text: "Levada de carnaval" },
+    { id: 'levada-de-xaxado', text: "Levada de xaxado" },
+    { id: 'levada-de-arrasta-pe', text: "Levada de arrasta-pé" },
+    { id: 'levada-de-forro-pe-de-serra', text: "Levada de forró pé de serra" },
+    { id: 'levada-de-forro-eletronico', text: "Levada de forró eletrônico" },
+    { id: 'levada-de-quadrilha', text: "Levada de quadrilha" },
+    { id: 'levada-de-coco', text: "Levada de coco" },
+    { id: 'levada-de-ciranda', text: "Levada de ciranda" },
+    { id: 'levada-de-maracatu', text: "Levada de maracatu" },
+    { id: 'levada-de-frevo', text: "Levada de frevo" },
+    { id: 'levada-de-toada', text: "Levada de toada" },
+    { id: 'levada-de-carimbo', text: "Levada de carimbó" },
+    { id: 'levada-de-lambada', text: "Levada de lambada" },
+    { id: 'levada-de-guitarrada', text: "Levada de guitarrada" },
+    { id: 'levada-de-boi-bumba', text: "Levada de boi-bumbá" },
+    { id: 'levada-de-brega', text: "Levada de brega" },
+    { id: 'levada-de-tecnobrega', text: "Levada de tecnobrega" },
+    { id: 'levada-de-brega-funk', text: "Levada de brega funk" },
+    { id: 'levada-de-calypso', text: "Levada de calypso" },
+    { id: 'levada-de-arrocha', text: "Levada de arrocha" },
+    { id: 'levada-de-modao', text: "Levada de modão" },
+    { id: 'levada-de-moda-de-viola', text: "Levada de moda de viola" },
+    { id: 'levada-de-caterete', text: "Levada de cateretê" },
+    { id: 'levada-de-sertanejo-universitario', text: "Levada de sertanejo universitário" },
+    { id: 'levada-de-guarania', text: "Levada de guarânia" },
+    { id: 'levada-de-chamame', text: "Levada de chamamé" },
+    { id: 'levada-de-rasqueado', text: "Levada de rasqueado" },
+    { id: 'levada-de-polca', text: "Levada de polca" },
+    { id: 'levada-de-bugio', text: "Levada de bugio" },
+    { id: 'levada-de-milonga', text: "Levada de milonga" },
+    { id: 'levada-de-rancheira', text: "Levada de rancheira" },
+    { id: 'levada-de-samba-de-roda', text: "Levada de samba de roda" },
+    { id: 'levada-de-partido-alto', text: "Levada de partido-alto" },
+    { id: 'levada-de-samba-enredo', text: "Levada de samba-enredo" },
+    { id: 'levada-de-samba-cancao', text: "Levada de samba-canção" },
+    { id: 'levada-de-samba-rock', text: "Levada de samba-rock" },
+    { id: 'levada-de-samba-reggae', text: "Levada de samba-reggae" },
+    { id: 'levada-de-samba-de-breque', text: "Levada de samba de breque" },
+    { id: 'levada-de-pagodao', text: "Levada de pagodão" },
+    { id: 'levada-de-choro', text: "Levada de choro" },
+    { id: 'levada-de-maxixe', text: "Levada de maxixe" },
+    { id: 'levada-de-ijexa', text: "Levada de ijexá" },
+    { id: 'levada-de-afoxe', text: "Levada de afoxé" },
+    { id: 'levada-de-marcha', text: "Levada de marcha" },
+    { id: 'levada-de-marchinha', text: "Levada de marchinha" },
+    { id: 'levada-de-marcha-rancho', text: "Levada de marcha-rancho" },
+    { id: 'levada-de-funk-carioca', text: "Levada de funk carioca" },
+    { id: 'levada-de-funk-americano', text: "Levada de funk americano" },
+    { id: 'levada-de-soul', text: "Levada de soul" },
+    { id: 'levada-de-disco', text: "Levada de disco" },
+    { id: 'levada-de-r-b', text: "Levada de R&B" },
+    { id: 'levada-de-hip-hop', text: "Levada de hip-hop" },
+    { id: 'levada-eletronica', text: "Levada eletrônica" },
+    { id: 'levada-de-salsa', text: "Levada de salsa" },
+    { id: 'levada-de-merengue', text: "Levada de merengue" },
+    { id: 'levada-de-bolero', text: "Levada de bolero" },
+    { id: 'levada-de-cumbia', text: "Levada de cúmbia" },
+    { id: 'levada-de-rumba', text: "Levada de rumba" },
+    { id: 'levada-de-mambo', text: "Levada de mambo" },
+    { id: 'levada-de-cha-cha-cha', text: "Levada de chá-chá-chá" },
+    { id: 'levada-de-bachata', text: "Levada de bachata" },
+    { id: 'levada-de-tango', text: "Levada de tango" },
+    { id: 'levada-de-reggaeton', text: "Levada de reggaeton" },
+    { id: 'levada-de-zouk', text: "Levada de zouk" },
+    { id: 'levada-latina', text: "Levada latina" },
+    { id: 'levada-de-pop-rock', text: "Levada de pop rock" },
+    { id: 'levada-de-rock-pesado', text: "Levada de rock pesado" },
+    { id: 'levada-de-balada-rock', text: "Levada de balada rock" },
+    { id: 'levada-de-blues', text: "Levada de blues" },
+    { id: 'levada-de-jazz', text: "Levada de jazz" },
+    { id: 'levada-de-country', text: "Levada de country" },
+    { id: 'levada-de-ska', text: "Levada de ska" },
+    { id: 'levada-gospel', text: "Levada gospel" },
+    { id: 'levada-de-worship', text: "Levada de worship" },
+    { id: 'levada-de-louvor', text: "Levada de louvor" },
+    { id: 'levada-de-adoracao', text: "Levada de adoração" },
+    { id: 'levada-dois-por-quatro', text: "Levada dois por quatro" },
+    { id: 'levada-tres-por-quatro', text: "Levada três por quatro" },
+    { id: 'levada-quatro-por-quatro', text: "Levada quatro por quatro" },
+    { id: 'levada-doze-por-oito', text: "Levada doze por oito" },
+    { id: 'levada-no-chimbal', text: "Levada no chimbal" },
+    { id: 'levada-no-surdo', text: "Levada no surdo" },
+    { id: 'levada-no-cajon', text: "Levada no cajón" },
+    { id: 'levada-nas-congas', text: "Levada nas congas" },
+    { id: 'levada-so-de-percussao', text: "Levada só de percussão" },
+    { id: 'levada-mais-aberta', text: "Levada mais aberta" },
+    { id: 'levada-mais-fechada', text: "Levada mais fechada" },
+    { id: 'vira-forro', text: "Vira forró" },
+    { id: 'vira-piseiro', text: "Vira piseiro" },
+    { id: 'vira-xote', text: "Vira xote" },
+    { id: 'vira-samba', text: "Vira samba" },
+    { id: 'vira-axe', text: "Vira axé" },
+    { id: 'vira-rock', text: "Vira rock" },
   ] },
   { id: 'publico', label: "Público", cues: [
     { id: 'publico-canta', text: "Público canta" },
@@ -903,6 +1154,50 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'proxima', text: "Próxima" },
     { id: 'musica-anterior', text: "Música anterior" },
     { id: 'pula-essa-musica', text: "Pula essa música" },
+    { id: 'vai-comecar-o-show', text: "Vai começar o show" },
+    { id: 'preparar-para-abertura', text: "Preparar para abertura" },
+    { id: 'preparar-para-o-tema-final', text: "Preparar para o tema final" },
+    { id: 'tema-final', text: "Tema final" },
+    { id: 'todo-mundo-no-palco', text: "Todo mundo no palco" },
+    { id: 'banda-no-palco', text: "Banda no palco" },
+    { id: 'todo-mundo-a-postos', text: "Todo mundo a postos" },
+    { id: 'dois-minutos-pro-show', text: "Dois minutos pro show" },
+    { id: 'um-minuto-pro-show', text: "Um minuto pro show" },
+    { id: 'solta-a-abertura', text: "Solta a abertura" },
+    { id: 'tema-de-abertura', text: "Tema de abertura" },
+    { id: 'abertura-instrumental', text: "Abertura instrumental" },
+    { id: 'abertura-com-tudo', text: "Abertura com tudo" },
+    { id: 'abertura-so-percussao', text: "Abertura só percussão" },
+    { id: 'entra-o-cantor', text: "Entra o cantor" },
+    { id: 'entra-a-cantora', text: "Entra a cantora" },
+    { id: 'solta-o-tema-final', text: "Solta o tema final" },
+    { id: 'tema-final-com-tudo', text: "Tema final com tudo" },
+    { id: 'tema-final-instrumental', text: "Tema final instrumental" },
+    { id: 'preparar-para-o-encerramento', text: "Preparar para o encerramento" },
+    { id: 'vai-terminar-o-show', text: "Vai terminar o show" },
+    { id: 'ultima-do-show', text: "Última do show" },
+    { id: 'final-do-show', text: "Final do show" },
+    { id: 'prepara-o-bis', text: "Prepara o bis" },
+    { id: 'volta-pro-bis', text: "Volta pro bis" },
+    { id: 'bis-com-tudo', text: "Bis com tudo" },
+    { id: 'vinheta-de-saida', text: "Vinheta de saída" },
+    { id: 'banda-sai-tocando', text: "Banda sai tocando" },
+    { id: 'prepara-o-medley', text: "Prepara o medley" },
+    { id: 'medley-de-forro', text: "Medley de forró" },
+    { id: 'medley-de-sertanejo', text: "Medley de sertanejo" },
+    { id: 'medley-de-axe', text: "Medley de axé" },
+    { id: 'medley-de-samba', text: "Medley de samba" },
+    { id: 'medley-de-carnaval', text: "Medley de carnaval" },
+    { id: 'bloco-de-forro', text: "Bloco de forró" },
+    { id: 'bloco-de-sertanejo', text: "Bloco de sertanejo" },
+    { id: 'bloco-de-samba', text: "Bloco de samba" },
+    { id: 'bloco-de-pagode', text: "Bloco de pagode" },
+    { id: 'bloco-de-axe', text: "Bloco de axé" },
+    { id: 'bloco-de-carnaval', text: "Bloco de carnaval" },
+    { id: 'bloco-de-rock', text: "Bloco de rock" },
+    { id: 'bloco-gospel', text: "Bloco gospel" },
+    { id: 'bloco-romantico', text: "Bloco romântico" },
+    { id: 'bloco-dancante', text: "Bloco dançante" },
   ] },
   { id: 'com-a-banda', label: "Com a banda", cues: [
     { id: 'olha-pra-mim', text: "Olha pra mim" },
@@ -947,6 +1242,25 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'agora-sim', text: "Agora sim" },
     { id: 'igual-ao-ensaio', text: "Igual ao ensaio" },
     { id: 'como-combinamos', text: "Como combinamos" },
+    { id: 'atencao-musicos', text: "Atenção, músicos" },
+    { id: 'olho-no-maestro', text: "Olho no maestro" },
+    { id: 'segue-o-maestro', text: "Segue o maestro" },
+    { id: 'segue-a-marcacao', text: "Segue a marcação" },
+    { id: 'mais-atencao', text: "Mais atenção" },
+    { id: 'concentra', text: "Concentra" },
+    { id: 'todo-mundo-atento', text: "Todo mundo atento" },
+    { id: 'todo-mundo-comigo', text: "Todo mundo comigo" },
+    { id: 'presta-atencao', text: "Presta atenção" },
+    { id: 'na-minha-mao', text: "Na minha mão" },
+    { id: 'na-minha-contagem', text: "Na minha contagem" },
+    { id: 'aguarda-a-contagem', text: "Aguarda a contagem" },
+    { id: 'ao-meu-comando', text: "Ao meu comando" },
+    { id: 'mantem', text: "Mantém" },
+    { id: 'firme-banda', text: "Firme, banda" },
+    { id: 'segura-firme', text: "Segura firme" },
+    { id: 'bora-banda', text: "Bora, banda" },
+    { id: 'vamos-com-tudo', text: "Vamos com tudo" },
+    { id: 'ta-lindo-banda', text: "Tá lindo, banda" },
   ] },
   { id: 'tecnico', label: "Técnico e som", cues: [
     { id: 'click', text: "Click" },
@@ -1028,7 +1342,11 @@ export const READY_CUE_GROUPS: ReadonlyArray<ReadyCueGroup> = [
     { id: 'oito-compassos', text: "Oito compassos" },
     { id: 'nove', text: "Nove" },
     { id: 'dez', text: "Dez" },
+    { id: 'onze', text: "Onze" },
     { id: 'doze', text: "Doze" },
+    { id: 'treze', text: "Treze" },
+    { id: 'catorze', text: "Catorze" },
+    { id: 'quinze', text: "Quinze" },
     { id: 'dezesseis', text: "Dezesseis" },
     { id: 'um-dois', text: "Um, dois" },
     { id: 'um-dois-tres', text: "Um, dois, três" },
@@ -1087,6 +1405,8 @@ export interface ReadyVoice {
   dir: string;
   /** Voz do Mac usada quando o texto não é uma fala pronta. */
   fallback: 'masculina' | 'feminina';
+  /** Tem arquivos dentro do programa (public/maestro-falas)? Sem isso, só existe com o pacote. */
+  embedded: boolean;
 }
 
 /** Quanta energia a voz pronta põe na fala. */
@@ -1104,9 +1424,13 @@ export interface ReadyVoiceChoice extends ReadyVoice {
 }
 
 export const READY_VOICES: ReadonlyArray<ReadyVoice> = [
-  { id: 'pronta:felipe', label: 'Felipe', dir: 'felipe', fallback: 'masculina' },
-  // o id e a pasta continuam "moca" (projetos salvos e arquivos gravados); só o nome na tela mudou
-  { id: 'pronta:moca', label: 'Bianca', dir: 'moca', fallback: 'feminina' },
+  // o id e a pasta continuam "felipe" (projetos salvos e arquivos gravados); na tela é o Maestro 1
+  { id: 'pronta:felipe', label: 'Maestro 1', dir: 'felipe', fallback: 'masculina', embedded: true },
+  // só com o pacote instalado
+  { id: 'pronta:will', label: 'Maestro 2', dir: 'will', fallback: 'masculina', embedded: false },
+  { id: 'pronta:carla', label: 'Maestro 3', dir: 'carla', fallback: 'feminina', embedded: false },
+  // saiu da escolha; os arquivos embutidos seguem só para as marcações antigas (id e pasta "moca")
+  { id: 'pronta:moca', label: 'Bianca', dir: 'moca', fallback: 'feminina', embedded: true },
 ];
 
 /**
@@ -1148,20 +1472,34 @@ export function findReadyCue(text: string): ReadyCue | null {
   return BY_KEY.get(cueKey(text)) ?? null;
 }
 
-/** Endereço do arquivo da fala, no site e no app do Mac. */
-export function readyCueUrl(voice: ReadyVoiceChoice, cue: ReadyCue, base = '/'): string {
-  const got = recordedIntensity(cue, voice.intensity);
+/** Endereço do arquivo embutido da fala, no site e no app do computador. */
+export function readyCueUrl(voice: ReadyVoiceChoice, cue: Pick<ReadyCue, 'id'>, base = '/'): string {
+  const got = recordedIntensity(cue.id, voice.intensity, voice.dir);
   const level = got === 'normal' ? '' : `${got}/`;
   return `${base.endsWith('/') ? base : `${base}/`}maestro-falas/${voice.dir}/${level}${cue.id}.mp3`;
+}
+
+/** De onde o áudio da fala é lido: do pacote baixado (pelo processo principal) ou do embutido. */
+export type ReadyCueSource =
+  | { pack: true; key: string; voice: 'will' | 'carla'; mode: ReadyIntensity; id: string }
+  | { pack: false; key: string; url: string };
+
+/** A origem da fala nesta voz. A chave identifica o arquivo no cache e muda com o pacote. */
+export function readyCueSource(voice: ReadyVoiceChoice, cue: Pick<ReadyCue, 'id'>, base = '/'): ReadyCueSource {
+  const got = recordedIntensity(cue.id, voice.intensity, voice.dir);
+  const pack = packs.get(voice.dir);
+  if (pack?.modes[got].has(cue.id)) {
+    return { pack: true, key: `pack:${voice.dir}:${pack.revision}:${got}:${cue.id}`, voice: voice.dir as 'will' | 'carla', mode: got, id: cue.id };
+  }
+  return { pack: false, key: readyCueUrl(voice, cue), url: readyCueUrl(voice, cue, base) };
 }
 
 // ---------------------------------------------------------------------------------------------
 // Gravação: quais falas já têm o áudio
 
 /**
- * Falas que já têm o áudio gravado (as duas vozes têm os mesmos arquivos), na lista gerada a partir
- * de public/maestro-falas/felipe. Toda fala gravada tem a Normal; Calma e Forte podem faltar e aí
- * saem na Normal. Fala da lista sem gravação sai na voz do Mac, com aviso, como texto livre.
+ * Falas gravadas nos arquivos embutidos (Maestro IA e Bianca têm os mesmos), na lista gerada a
+ * partir de public/maestro-falas/felipe. Calma e Forte podem faltar e aí saem na Normal.
  */
 export const RECORDED_CUE_IDS: ReadonlySet<string> = new Set(RECORDED_NORMAL);
 const RECORDED_LEVEL: Record<'calma' | 'forte', ReadonlySet<string>> = {
@@ -1169,27 +1507,154 @@ const RECORDED_LEVEL: Record<'calma' | 'forte', ReadonlySet<string>> = {
   forte: new Set(RECORDED_FORTE),
 };
 
-/** A intensidade que esta fala tem gravada: a pedida ou, se ela faltar, a Normal. */
-export function recordedIntensity(cue: ReadyCue | string, intensity: ReadyIntensity): ReadyIntensity {
-  if (intensity === 'normal') return 'normal';
-  return RECORDED_LEVEL[intensity].has(typeof cue === 'string' ? cue : cue.id) ? intensity : 'normal';
+/** Situação de um pacote de voz instalado, como o programa do computador informa. */
+export interface VoicePackStatus {
+  /** Pasta da voz: will ou carla. */
+  voice: string;
+  state?: string;
+  progress?: number;
+  /** Só o que está numa versão completa e conferida. */
+  recorded?: Partial<Record<ReadyIntensity, readonly string[]>>;
 }
 
-/** A fala pronta já tem o áudio gravado? */
+interface InstalledPack { revision: number; modes: Record<ReadyIntensity, ReadonlySet<string>> }
+
+// só as listas de ids: o áudio continua no disco e abre sob demanda
+let packs: ReadonlyMap<string, InstalledPack> = new Map();
+let packsVersion = 0;
+let packRevisions = 0;
+const packListeners = new Set<() => void>();
+const CATALOG_IDS: ReadonlySet<string> = new Set(READY_CUE_GROUPS.flatMap((g) => g.cues.map((c) => c.id)));
+
+const packIds = (list: unknown): ReadonlySet<string> => new Set(
+  Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && CATALOG_IDS.has(id)) : [],
+);
+
+const sameIds = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((id) => b.has(id));
+const sameModes = (a: InstalledPack['modes'], b: InstalledPack['modes']) => (
+  sameIds(a.normal, b.normal) && sameIds(a.calma, b.calma) && sameIds(a.forte, b.forte)
+);
+
+/**
+ * Troca os pacotes conhecidos, no formato de maestroPackStatus. Entrada inválida é ignorada: a voz
+ * só não aparece. `changed`: vozes cujo áudio pode ter mudado mesmo com as mesmas falas.
+ */
+export function setVoicePacks(list: unknown, changed: readonly string[] = []): void {
+  const next = new Map<string, InstalledPack>();
+  for (const raw of Array.isArray(list) ? list as Array<Partial<VoicePackStatus> | null> : []) {
+    const dir = raw?.voice;
+    if (!raw || typeof dir !== 'string' || !READY_VOICES.some((v) => v.dir === dir)) continue;
+    const modes = { calma: packIds(raw.recorded?.calma), normal: packIds(raw.recorded?.normal), forte: packIds(raw.recorded?.forte) };
+    if (!modes.normal.size) continue;
+    const old = packs.get(dir);
+    next.set(dir, old && !changed.includes(dir) && sameModes(old.modes, modes) ? old : { revision: ++packRevisions, modes });
+  }
+  const moved = next.size !== packs.size || [...next].some(([dir, p]) => packs.get(dir) !== p);
+  packs = next;
+  if (!moved) return;
+  packsVersion++;
+  packListeners.forEach((fn) => fn());
+}
+
+export const voicePacksVersion = (): number => packsVersion;
+/** Muda quando o áudio do pacote desta voz muda: entra na chave do que fica guardado. */
+export const voicePackRevision = (dir: string): number => packs.get(dir)?.revision ?? 0;
+/** Esta voz está com pacote instalado? */
+export const voiceHasPack = (dir: string): boolean => packs.has(dir);
+export function subscribeVoicePacks(fn: () => void): () => void {
+  packListeners.add(fn);
+  return () => { packListeners.delete(fn); };
+}
+
+const idOf = (cue: ReadyCue | string) => (typeof cue === 'string' ? cue : cue.id);
+const embeddedHas = (id: string, level: ReadyIntensity) => (level === 'normal' ? RECORDED_CUE_IDS : RECORDED_LEVEL[level]).has(id);
+
+/** Esta voz tem o arquivo desta fala exatamente neste modo? */
+function voiceHasLevel(dir: string, id: string, level: ReadyIntensity): boolean {
+  if (packs.get(dir)?.modes[level].has(id)) return true;
+  return !!READY_VOICES.find((v) => v.dir === dir)?.embedded && embeddedHas(id, level);
+}
+
+/** O modo que esta fala tem gravado NESTA voz: o pedido ou, se faltar, o Normal da mesma voz. */
+export function recordedIntensity(cue: ReadyCue | string, intensity: ReadyIntensity, dir = 'felipe'): ReadyIntensity {
+  if (intensity === 'normal') return 'normal';
+  return voiceHasLevel(dir, idOf(cue), intensity) ? intensity : 'normal';
+}
+
+/** A fala existe nos arquivos embutidos? */
 export function hasRecording(cue: ReadyCue | string): boolean {
-  return RECORDED_CUE_IDS.has(typeof cue === 'string' ? cue : cue.id);
+  return RECORDED_CUE_IDS.has(idOf(cue));
+}
+
+/** Esta voz consegue tocar a fala neste modo (ou no Normal dela)? */
+export function voiceHasCue(voice: Pick<ReadyVoice, 'dir'>, cue: ReadyCue | string, intensity: ReadyIntensity = 'normal'): boolean {
+  const id = idOf(cue);
+  return voiceHasLevel(voice.dir, id, intensity) || voiceHasLevel(voice.dir, id, 'normal');
+}
+
+/** Esta voz tem alguma fala gravada neste modo? */
+export function voiceHasMode(voice: Pick<ReadyVoice, 'dir'>, intensity: ReadyIntensity): boolean {
+  if (packs.get(voice.dir)?.modes[intensity].size) return true;
+  return !!READY_VOICES.find((v) => v.dir === voice.dir)?.embedded
+    && (intensity === 'normal' ? RECORDED_CUE_IDS : RECORDED_LEVEL[intensity]).size > 0;
+}
+
+/** Vozes na tela: Maestro 1 sempre; Maestro 2 e Maestro 3 só com o pacote instalado. */
+export function offeredReadyVoices(): ReadonlyArray<ReadyVoice> {
+  return READY_VOICES.filter((v) => v.id === DEFAULT_READY_VOICE || packs.has(v.dir));
+}
+
+/** Até cinco falas para o exemplo: a chamada e a contagem, ou a primeira que a voz tiver. */
+export function voiceSampleTexts(voice: ReadyVoiceChoice): string[] {
+  const wanted = ['atencao', 'um', 'dois', 'tres', 'quatro'];
+  const cues = READY_CUE_GROUPS.flatMap((g) => g.cues);
+  const found = wanted.flatMap((id) => cues.filter((c) => c.id === id && voiceHasCue(voice, c, voice.intensity)));
+  if (found.length) return found.map((c) => c.text);
+  const first = cues.find((c) => voiceHasCue(voice, c, voice.intensity));
+  return first ? [first.text] : [];
+}
+
+/** As palavras da contagem sem gravação nesta voz pronta (voz clonada tem o pacote próprio). */
+export function wordsMissingInVoice(voiceId: string | undefined, words: readonly string[]): string[] {
+  const ready = readyVoice(voiceId);
+  if (!ready) return [];
+  const lacking = words.filter((w) => {
+    const cue = findReadyCue(w);
+    return !cue || !voiceHasCue(ready, cue, ready.intensity);
+  });
+  return [...new Set(lacking.map((w) => w.replace(/[.!?,;:]+$/, '').trim()))];
+}
+
+/** A fala aparece na lista desta voz? Voz pronta: só a gravada nela. Outras: as falas embutidas. */
+export function cueShownFor(voiceId: string | undefined, cue: ReadyCue | string): boolean {
+  const ready = readyVoice(voiceId);
+  return ready ? voiceHasCue(ready, cue, ready.intensity) : hasRecording(cue);
 }
 
 // ---------------------------------------------------------------------------------------------
 // Voz padrão
 
-/** Voz padrão do Maestro por IA: o Felipe (fala pronta, na intensidade Normal). */
+/** Voz pronta padrão: o Maestro IA, pasta "felipe", na intensidade Normal. */
 export const DEFAULT_READY_VOICE = 'pronta:felipe';
 
 /**
- * A voz guardada antes de Felipe e Bianca virarem as padrão. Masculina vira Felipe e Feminina vira
- * Bianca; voz pronta e voz online continuam; o resto (vozes apagadas, voz do Mac pelo nome) vai
- * para o Felipe. Depois disso, Feminina e Masculina escolhidas de novo valem como estão.
+ * Números e sequências de contagem: só o botão Contagem usa, porque ele põe cada número na grade.
+ * Saem da lista de falas, mas continuam no catálogo: o botão e os projetos antigos seguem tocando.
+ */
+const COUNT_ONLY_CUES: ReadonlySet<string> = new Set([
+  'um', 'dois', 'tres', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez', 'onze', 'doze', 'treze', 'catorze', 'quinze', 'dezesseis',
+  'um-dois', 'um-dois-tres', 'um-dois-tres-quatro', 'cinco-seis-sete-oito', 'tres-dois-um',
+]);
+
+/** A fala aparece na lista de falas desta voz? */
+export function cueInPicker(voice: string | undefined, cue: ReadyCue): boolean {
+  return !COUNT_ONLY_CUES.has(cue.id) && cueShownFor(voice, cue);
+}
+
+/**
+ * A voz guardada antes das vozes prontas virarem as padrão (migração antiga). Masculina vira
+ * pronta:felipe e Feminina vira pronta:moca; voz pronta e voz online continuam; o resto vai para
+ * pronta:felipe. Quem usa o resultado (lastVoice) ainda troca o que não é oferecido no "+".
  */
 export function voiceFromOldChoice(old: string | null | undefined, isOnline: (voice: string) => boolean = () => false): string {
   if (!old) return DEFAULT_READY_VOICE;
@@ -1236,7 +1701,7 @@ const numberOf = (word: string) => NUMBER_WORDS[word] ?? word;
  * acha "Verso 2"); palavra que só bate com o nome do assunto também vale ("culto" mostra o assunto
  * todo). As que batem no texto vêm primeiro, depois as mais curtas.
  */
-export function searchReadyCues(query: string, limit = Infinity): ReadyCueHit[] {
+export function searchReadyCues(query: string, limit = Infinity, allow?: (cue: ReadyCue) => boolean): ReadyCueHit[] {
   const words = searchWords(query);
   if (!words.length) return [];
   const whole = words.join(' ');
@@ -1246,6 +1711,7 @@ export function searchReadyCues(query: string, limit = Infinity): ReadyCueHit[] 
     const label = wordsOf(foldChars(group.label));
     for (const cue of group.cues) {
       order++;
+      if (allow && !allow(cue)) continue;
       const folded = foldChars(cue.text);
       const tokens = wordsOf(folded);
       const ranges: Array<[number, number]> = [];

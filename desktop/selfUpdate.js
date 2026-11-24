@@ -9,6 +9,7 @@ const os = require('os');
 const { machineArch } = require('./machineArch');
 
 const execFileAsync = promisify(execFile);
+const IS_WIN = process.platform === 'win32';
 
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
@@ -76,15 +77,28 @@ function compareVersions(a, b) {
  * gerar o .dmg). Em dev, ou se o arquivo não existir por algum motivo, assume 0 —
  * assim qualquer publicação já conta como mais nova.
  */
-function currentBuild() {
+function readBuildInfo() {
   try {
     const p = app.isPackaged
       ? path.join(process.resourcesPath, 'build-info.json')
       : path.join(__dirname, 'build-info.json');
-    return Number(JSON.parse(fs.readFileSync(p, 'utf8')).build) || 0;
+    return JSON.parse(fs.readFileSync(p, 'utf8')) || {};
   } catch {
-    return 0;
+    return {};
   }
+}
+
+function currentBuild() {
+  return Number(readBuildInfo().build) || 0;
+}
+
+/**
+ * Programa para Mac Intel com macOS 10.15 (Electron 32). Ele se atualiza só pelo
+ * manifest próprio (mac/legacy/manifest.json): o instalador normal exige macOS 11
+ * e não abriria nesse Mac.
+ */
+function isLegacyBuild() {
+  return readBuildInfo().legacy === true;
 }
 
 /**
@@ -101,7 +115,10 @@ let currentWork = '';
 async function checkForUpdate(_supabaseUrl) {
   try {
     const base = UPDATES_BASE;
-    const manifest = await fetchJson(`${base}mac/manifest.json?t=${Date.now()}`);
+    const legacy = isLegacyBuild();
+    // Windows tem manifest próprio (win/manifest.json), com o instalador .exe
+    const manifestPath = IS_WIN ? 'win/manifest.json' : `mac/${legacy ? 'legacy/' : ''}manifest.json`;
+    const manifest = await fetchJson(`${base}${manifestPath}?t=${Date.now()}`);
     if (typeof manifest?.version !== 'string' || !Array.isArray(manifest.builds)) return null;
     const cmp = compareVersions(manifest.version, app.getVersion());
     // Mesmo número de versão: só é "mudança" se o build publicado for diferente do
@@ -111,9 +128,10 @@ async function checkForUpdate(_supabaseUrl) {
     // Exceção: este processo é o programa de Intel rodando traduzido num Mac com chip
     // Apple. Aí a versão é a mesma mas o programa está errado, então troca mesmo assim
     // pelo do chip (é o que tira a lentidão). Sem isso o app nunca sairia do Intel.
-    const wrongChip = isTranslatedProcess();
+    // No legacy não há troca de chip: Mac com chip Apple sempre roda macOS 11 ou mais novo.
+    const wrongChip = !IS_WIN && !legacy && isTranslatedProcess();
     if (cmp === 0 && Number(manifest.build) === currentBuild() && !wrongChip) return null;
-    const build = manifest.builds.find((b) => b.arch === archForThisMac());
+    const build = manifest.builds.find((b) => b.arch === (IS_WIN ? 'x64' : legacy ? 'x64-legacy' : archForThisMac()));
     if (!build) return null;
     // Programa do processador errado instalado: é sempre "atualizar", nunca "voltar",
     // mesmo com a versão publicada igual ou mais baixa que a instalada.
@@ -135,6 +153,7 @@ async function downloadAndInstall({ build, base }, onProgress) {
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'vs-update-'));
   currentWork = work;
   const dmgPath = path.join(work, build.file);
+  let keepWork = false;
   try {
     const out = fs.createWriteStream(dmgPath);
     let received = 0;
@@ -153,6 +172,14 @@ async function downloadAndInstall({ build, base }, onProgress) {
     const hash = await sha256File(dmgPath);
     if (hash !== build.sha256) throw new Error('hash_mismatch');
     onProgress(0.88);
+
+    // Windows: o instalador .exe roda depois que o programa fechar (relaunchFromPath).
+    // A pasta fica: o instalador ainda vai ser lido; a limpeza da próxima abertura apaga.
+    if (IS_WIN) {
+      keepWork = true;
+      onProgress(1);
+      return dmgPath;
+    }
 
     const mountPoint = path.join(work, 'mnt');
     fs.mkdirSync(mountPoint, { recursive: true });
@@ -195,12 +222,19 @@ async function downloadAndInstall({ build, base }, onProgress) {
       await execFileAsync('hdiutil', ['detach', mountPoint, '-quiet']).catch(() => { /* já pode ter sido ejetado */ });
     }
   } finally {
-    fs.rm(work, { recursive: true, force: true }, () => {});
+    if (!keepWork) fs.rm(work, { recursive: true, force: true }, () => {});
   }
 }
 
 /** Abre a cópia já atualizada e encerra o processo atual. */
 function relaunchFromPath(appPath) {
+  if (IS_WIN) {
+    // instalador NSIS em silêncio; --force-run abre o VS Stage de novo quando termina
+    const { spawn } = require('child_process');
+    spawn(appPath, ['/S', '--force-run'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    app.exit(0);
+    return;
+  }
   execFile('open', ['-n', appPath], () => {});
   app.exit(0);
 }
@@ -210,22 +244,24 @@ function relaunchFromPath(appPath) {
  *
  * `downloadAndInstall` já limpa a sua pasta no `finally`, mas quando o processo morre no meio
  * (app fechado, Mac reiniciado, `.dmg` travado) o `.dmg` de ~400 MB fica para trás em `/tmp`.
- * Em 05/11/2026 havia seis pastas assim, somando 2,4 GB. Roda uma vez, ao abrir o programa.
+ * Em 05/11/2026 havia seis pastas assim, somando 2,4 GB. Roda uma vez, ao abrir o programa, em
+ * segundo plano: apagar 400 MB com rmSync segurava o principal (e a abertura) até o disco terminar.
  */
-function cleanLeftovers() {
+async function cleanLeftovers() {
   let removed = 0;
-  try {
-    const dir = os.tmpdir();
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.startsWith('vs-update-')) continue;
-      // Pasta de uma atualização em andamento agora não pode ser apagada.
-      if (name === path.basename(currentWork)) continue;
-      try {
-        fs.rmSync(path.join(dir, name), { recursive: true, force: true });
-        removed += 1;
-      } catch { /* em uso por outro processo: fica para a próxima */ }
-    }
-  } catch { /* sem acesso ao /tmp */ }
+  let names = [];
+  const dir = os.tmpdir();
+  try { names = await fs.promises.readdir(dir); } catch { return 0; /* sem acesso ao /tmp */ }
+  for (const name of names) {
+    if (!name.startsWith('vs-update-')) continue;
+    // Pasta de uma atualização em andamento agora não pode ser apagada (conferido a cada pasta:
+    // uma atualização pode ter começado durante a limpeza).
+    if (currentWork && name === path.basename(currentWork)) continue;
+    try {
+      await fs.promises.rm(path.join(dir, name), { recursive: true, force: true });
+      removed += 1;
+    } catch { /* em uso por outro processo: fica para a próxima */ }
+  }
   if (removed > 0) console.log(`Limpeza: ${removed} pasta(s) de atualização antiga removida(s).`);
   return removed;
 }

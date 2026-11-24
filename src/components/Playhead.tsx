@@ -10,7 +10,7 @@ export default function Playhead({ songId }: { songId: string }) {
     const tick = () => {
       const st = useStore.getState();
       const live = st.transport.isPlaying && st.transport.currentSongId === songId && audioEngine.isRunning() && !audioEngine.isUserSeeking();
-      const t = live ? audioEngine.getCurrentTime() : st.transport.currentTime;
+      const t = live ? audioEngine.getHeardTime() : st.transport.currentTime;
       // Posição em segundos vezes o zoom da variável CSS do conteúdo (--vs-zoom): no zoom o cursor
       // já sai no lugar certo no mesmo quadro (também no zoom ao vivo, que muda só a variável),
       // sem esperar este rAF nem reiniciar o laço.

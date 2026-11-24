@@ -4,9 +4,13 @@
 // região com o nome dela (início e fim), e o andamento e a fórmula de compasso entram como
 // marcas de tempo no começo de cada uma. Cada faixa do VS Stage vira uma faixa do projeto, com
 // volume, balanço e mudo; as pastas (faixa com subfaixas) viram pastas.
-// Sem dependência do programa (só tipos), para rodar também nos testes.
+// Sem dependência do programa (só tipos e as contas da grade), para rodar também nos testes.
+import { beatSpans, spanIndexAt, type BeatSpan } from './grid.ts';
 
 export const RPP_SONG_GAP_S = 3;
+
+/** Maior andamento que o REAPER aceita numa marca. */
+const RPP_MAX_BPM = 960;
 
 export interface RppOutItem {
   name: string;
@@ -108,23 +112,51 @@ export interface TempoSlice {
 export interface SongTempoInput {
   bpm: number;
   beatsPerBar?: number;
-  tempoSegments?: Array<{ startTime: number; bpm: number }>;
+  tempoSegments?: Array<{ startTime: number; bpm: number; endTime?: number; downbeat?: number; barOffset?: number; beatsPerBar?: number }>;
 }
 
 /**
- * Marcas de andamento de uma música no projeto. O VS Stage começa o compasso 1 no 0:00 de cada
- * música, então a primeira marca (com a fórmula de compasso) fica no começo dela. Mudanças de
- * BPM marcadas na régua (trechos) viram marcas novas; o BPM ajustado (alpha) entra no valor.
+ * Marcas de andamento de uma música no projeto, com as mesmas batidas da grade do programa. A primeira
+ * marca (com a fórmula de compasso) fica no começo dela. Quando a batida não cai no ponto da marca, uma
+ * marca de ajuste leva a grade até a batida real. Cada trecho que sabe onde está o 1 abre compasso nele,
+ * e a sobra no fim de um trecho vira uma batida, para a contagem não sair de fase na troca.
  */
 export function songTempoPoints(song: SongTempoInput, slices: TempoSlice[]): RppOutTempo[] {
   const segs = (song.tempoSegments ?? []).filter((s) => s.bpm > 0);
   const sorted = segs.length >= 2 ? [...segs].sort((a, b) => a.startTime - b.startTime) : null;
-  const bpmAt = (t: number) => {
-    if (!sorted) return song.bpm;
-    let bpm = sorted[0].bpm;
-    for (const s of sorted) if (t >= s.startTime - 1e-9) bpm = s.bpm;
-    return bpm;
+  const fallback = song.beatsPerBar ?? 4;
+  const spans = sorted
+    ? beatSpans({ bpm: song.bpm, beatsPerBar: fallback, tempoSegments: sorted.map((x) => ({ ...x, endTime: x.endTime ?? x.startTime })) })
+    : null;
+  const single: BeatSpan = { start: 0, beat: 60 / song.bpm, bpm: song.bpm, perBar: fallback, pickup: 0, firstBeat: 0, lastBeat: Infinity, limit: Infinity, firstBar: 1 };
+  const list = spans ?? [single];
+
+  type Mark = { t: number; bpm: number; bar?: number };
+  const marks: Mark[] = [];
+  list.forEach((sp, i) => {
+    const next = list[i + 1];
+    if (i > 0) marks.push({ t: sp.start, bpm: sp.bpm });
+    if (sorted?.[i]?.downbeat !== undefined) marks.push({ t: sp.start + sp.pickup * sp.beat, bpm: sp.bpm, bar: sp.perBar });
+    if (next && sp.lastBeat >= 0 && Number.isFinite(sp.lastBeat)) {
+      const tail = sp.start + sp.lastBeat * sp.beat;
+      const gap = next.start - tail;
+      if (gap > 1e-3 && Math.abs(gap - sp.beat) > 1e-4) marks.push({ t: tail, bpm: 60 / gap });
+    }
+  });
+
+  // batida real em que a grade entra a partir de `from`: perto demais pede um BPM impossível
+  const lead = (from: number): { bpm: number; mark?: Mark } => {
+    const at = spanIndexAt(list, from);
+    const sp = list[at];
+    let k = Math.ceil((from - sp.start) / sp.beat - 1e-9);
+    const grid = (b: number) => (b > sp.lastBeat && list[at + 1] ? list[at + 1].start : sp.start + b * sp.beat);
+    let to = grid(k);
+    if (to - from < 1e-4) return { bpm: sp.bpm };
+    if (to - from < 0.2 * sp.beat) { k++; to = grid(k); }
+    const n = Math.max(1, Math.round((to - from) / sp.beat));
+    return { bpm: Math.min(RPP_MAX_BPM, (60 * n) / (to - from)), mark: { t: to, bpm: list[spanIndexAt(list, to)].bpm } };
   };
+
   const out: RppOutTempo[] = [];
   const push = (time: number, bpm: number, beatsPerBar?: number) => {
     if (!(bpm > 0) || !Number.isFinite(bpm)) return;
@@ -138,14 +170,16 @@ export function songTempoPoints(song: SongTempoInput, slices: TempoSlice[]): Rpp
   };
   slices.forEach((sl, i) => {
     const a = sl.alpha > 0 ? sl.alpha : 1;
-    push(sl.outStart, bpmAt(sl.srcStart) / a, i === 0 ? (song.beatsPerBar ?? 4) : undefined);
-    if (sorted) {
-      for (const s of sorted) {
-        if (s.startTime > sl.srcStart + 1e-6 && s.startTime < sl.srcEnd - 1e-6) {
-          push(sl.outStart + (s.startTime - sl.srcStart) * a, s.bpm / a);
-        }
-      }
-    }
+    const place = (t: number) => sl.outStart + (t - sl.srcStart) * a;
+    const entry = lead(sl.srcStart);
+    const firstBar = i === 0 ? list[spanIndexAt(list, sl.srcStart)].perBar : undefined;
+    push(sl.outStart, entry.bpm / a, firstBar);
+    // entre o começo e a marca de ajuste vale só o BPM do ajuste: outra marca ali tiraria a grade de fase
+    const from = entry.mark ? entry.mark.t : sl.srcStart;
+    const inside = marks.filter((m) => m.t > from - 1e-6 && m.t > sl.srcStart + 1e-6 && m.t < sl.srcEnd - 1e-6);
+    if (entry.mark && entry.mark.t < sl.srcEnd - 1e-6) inside.push(entry.mark);
+    inside.sort((x, y) => x.t - y.t || (x.bar ? 1 : -1));
+    for (const m of inside) push(place(m.t), m.bpm / a, m.bar);
   });
   return out;
 }

@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react';
+import { memo, useState, useRef, useEffect, useLayoutEffect, useMemo, useSyncExternalStore } from 'react';
 import { useStore, BLOCK_COLORS } from '@/store';
 import {
-  ListMusic, Plus, Music2, Flag, ArrowUp,
+  ListMusic, Plus, Music2, Flag,
   FlagTriangleRight, Link, Maximize2, Minimize2, SlidersHorizontal, Loader2, AlertTriangle, FolderDown, Gauge, AudioWaveform,
   ChevronRight, ChevronsDownUp, ChevronsUpDown, CheckCircle2, Search, X, LayoutGrid,
 } from 'lucide-react';
@@ -14,20 +14,246 @@ import { MedleySlices } from '@/components/MedleySlices';
 import { isMedley, playedDuration } from '@/lib/medley';
 import { useCollapsedRows } from '@/lib/useCollapsedRows';
 import { groupDroppedEntries, importSongGroups, takeDroppedEntries } from '@/lib/importManager';
-import { audioEngine } from '@/lib/audioEngine';
 import { getLiveProgressPct } from '@/lib/playProgress';
+import { useLiveFill } from '@/lib/frameClock';
 import { stopPlayback } from '@/lib/transportControl';
 import SegmentDisplay from '@/components/SegmentDisplay';
+import type { Block, PlaylistEntry, Song } from '@/types';
 
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
 
-export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpenAiSeparator?: () => void; maximized?: boolean } = {}) {
+type DropPos = { type: 'top' | 'song' | 'block' | 'blockInsert'; id: string | null; half: 'before' | 'after' };
+/** Marca de soltar desta linha: linha azul (mover música) ou âmbar (mover bloco), em cima ou embaixo. */
+type DropMark = 'song-before' | 'song-after' | 'insert-before' | 'insert-after' | null;
+
+const hasDetails = (sg: Song | undefined) => !!sg && (isMedley(sg) || (sg.regions?.length ?? 0) > 0);
+
+function DropLine({ active }: { active: boolean }) {
+  return <div className={`h-0.5 -my-px transition-colors ${active ? 'bg-logic-accent' : 'bg-transparent'}`} />;
+}
+
+/**
+ * Ações das linhas, sempre as mesmas funções (lêem o estado de agora por uma ref): assim a linha
+ * em memo não redesenha só porque o painel redesenhou.
+ */
+interface RowActions {
+  select: (songId: string) => void;
+  rowDragStart: (e: React.DragEvent, index: number, songId: string) => void;
+  rowDragOver: (e: React.DragEvent<HTMLDivElement>, index: number, songId: string) => void;
+  /** soltar sobre uma linha ou cabeçalho: resolve pela posição marcada no arrasto */
+  drop: (e: React.DragEvent) => void;
+  dragEnd: () => void;
+  startRename: (entry: PlaylistEntry) => void;
+  songMenu: (e: React.MouseEvent, songId: string) => void;
+  toggleRow: (songId: string) => void;
+  setRenameValue: (v: string) => void;
+  submitRename: () => void;
+  cancelRename: (name: string) => void;
+  blockDragStart: (e: React.DragEvent, blockId: string) => void;
+  blockDragOver: (e: React.DragEvent, blockId: string) => void;
+  selectBlock: (blockId: string) => void;
+  startBlockRename: (block: Block) => void;
+  blockMenu: (e: React.MouseEvent, blockId: string) => void;
+  setBlockRenameValue: (v: string) => void;
+  commitBlockRename: (blockId: string) => void;
+  cancelBlockRename: () => void;
+}
+
+interface PlaylistRowProps {
+  entry: PlaylistEntry;
+  index: number;
+  song: Song | undefined;
+  /** "Entra em": soma do que toca antes desta música */
+  start: number;
+  isCurrent: boolean;
+  isNext: boolean;
+  isSelected: boolean;
+  isPlayed: boolean;
+  /** próxima com a música tocando: mostra a ampulheta */
+  countdown: boolean;
+  missing: boolean;
+  collapsed: boolean;
+  wide: boolean;
+  wideCols: string;
+  showBpmTower: boolean;
+  showTunerTower: boolean;
+  renaming: boolean;
+  renameValue: string;
+  dropMark: DropMark;
+  /** cabeçalho do bloco antes desta música (só na primeira visível do bloco) */
+  block: Block | null;
+  blockDuration: number;
+  blockRenaming: boolean;
+  blockRenameValue: string;
+  blockRing: boolean;
+  actions: RowActions;
+}
+
+// Uma música da playlist (com o cabeçalho do bloco, quando é a primeira dele). Em memo: no Play, na
+// troca da próxima ou da seleção, só as linhas que mudam de estado redesenham, não a lista inteira.
+const PlaylistRow = memo(function PlaylistRow({
+  entry, index, song, start, isCurrent, isNext, isSelected, isPlayed, countdown, missing, collapsed,
+  wide, wideCols, showBpmTower, showTunerTower, renaming, renameValue, dropMark,
+  block, blockDuration, blockRenaming, blockRenameValue, blockRing, actions,
+}: PlaylistRowProps) {
+  const canExpand = hasDetails(song);
+  const expanded = canExpand && !collapsed;
+  const audioStatus = missing ? (
+    <span title="Arquivo de áudio não encontrado no computador." className="inline-flex flex-shrink-0 text-logic-lcd-red">
+      <AlertTriangle size={wide ? 14 : 11} />
+    </span>
+  ) : null;
+
+  return (
+    <div>
+      {block && (
+        <div
+          data-selectable="block"
+          draggable
+          onDragStart={(e) => actions.blockDragStart(e, block.id)}
+          onDragOver={(e) => actions.blockDragOver(e, block.id)}
+          onDrop={actions.drop}
+          onDragEnd={actions.dragEnd}
+          className={`cue-block relative flex items-center gap-1.5 border-b ${wide ? 'px-6 h-9 mt-2' : 'px-2 h-7'} border-black ${blockRing ? 'ring-1 ring-logic-accent' : ''}`}
+          style={{ backgroundColor: block.color, borderLeft: `4px solid ${blockEdge(block.color)}` }}
+          onClick={() => actions.selectBlock(block.id)}
+          onDoubleClick={(e) => {
+            e.stopPropagation();
+            actions.startBlockRename(block);
+          }}
+          onContextMenu={(e) => actions.blockMenu(e, block.id)}
+        >
+          <div className={`flex-1 min-w-0 flex items-center gap-1.5 justify-center ${wide ? 'px-16' : ''}`}>
+            <FlagTriangleRight size={10} className="flex-shrink-0" style={{ color: blockInk(block.color) }} />
+            {blockRenaming ? (
+              <input
+                autoFocus
+                value={blockRenameValue}
+                onChange={(e) => actions.setBlockRenameValue(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={() => actions.commitBlockRename(block.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') actions.commitBlockRename(block.id);
+                  else if (e.key === 'Escape') actions.cancelBlockRename();
+                }}
+                className="flex-1 min-w-0 bg-logic-bg-deep text-xs text-white px-1 py-0.5 rounded border border-logic-accent outline-none text-center"
+              />
+            ) : (
+              <span className={`font-stage font-bold truncate ${wide ? 'text-[15px] uppercase tracking-[0.12em]' : 'text-[13px] tracking-wide'}`} style={{ color: blockInk(block.color) }}>
+                {block.name}
+              </span>
+            )}
+          </div>
+          <span className={`font-stage font-semibold text-[12px] tabular-nums opacity-75 flex-shrink-0 ${wide ? 'absolute right-6 top-1/2 -translate-y-1/2 text-[13px]' : ''}`} style={{ color: blockInk(block.color) }}>
+            {formatTime(blockDuration)}
+          </span>
+        </div>
+      )}
+
+      {/* Song row */}
+      <div
+        data-selectable="song"
+        data-song-id={entry.songId}
+        draggable
+        onDragStart={(e) => actions.rowDragStart(e, index, entry.songId)}
+        onDragOver={(e) => actions.rowDragOver(e, index, entry.songId)}
+        onDrop={actions.drop}
+        onDragEnd={actions.dragEnd}
+        onClick={() => actions.select(entry.songId)}
+        onDoubleClick={() => actions.startRename(entry)}
+        onContextMenu={(e) => actions.songMenu(e, entry.songId)}
+        className={`cue-row group flex flex-col border-b border-black/60 cursor-pointer transition-colors duration-75 relative
+          ${isCurrent ? 'is-current' : isNext ? 'is-next' : isSelected ? 'is-selected' : ''}
+          ${isPlayed && !isSelected ? 'opacity-45 hover:opacity-80' : ''}
+          ${dropMark === 'song-before' ? 'border-t-2 border-t-logic-accent' : dropMark === 'song-after' ? 'border-b-2 border-b-logic-accent' : ''}
+          ${dropMark === 'insert-before' ? 'border-t-2 border-t-logic-lcd-amber' : dropMark === 'insert-after' ? 'border-b-2 border-b-logic-lcd-amber' : ''}`}
+      >
+        {wide && !renaming ? (
+          <div className="relative grid items-center gap-3 px-6 h-14 tabular-nums" style={{ gridTemplateColumns: wideCols }}>
+            {/* LED da linha: verde tocando, âmbar próxima */}
+            <span className={`console-led is-lg absolute left-[9px] top-1/2 -translate-y-1/2 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
+            <span className="flex items-center gap-1">
+              <SegmentDisplay
+                text={String(index + 1).padStart(2, '0')}
+                label={`Música ${index + 1}`}
+                ghost={isCurrent || isNext}
+                className={`h-[17px] ${isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}
+              />
+              {canExpand && (
+                <button
+                  className="w-5 h-5 rounded flex items-center justify-center text-logic-text-muted hover:text-logic-text hover:bg-white/10 transition-colors"
+                  onClick={(e) => { e.stopPropagation(); actions.toggleRow(entry.songId); }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  aria-expanded={expanded}
+                  title={expanded ? 'Recolher' : 'Expandir'}
+                >
+                  <ChevronRight size={14} className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
+                </button>
+              )}
+            </span>
+            <span className={`text-lg font-semibold truncate ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : isSelected ? 'text-white' : 'text-logic-text'}`}>
+              {entry.name}
+              {audioStatus && <span className="ml-2 align-middle">{audioStatus}</span>}
+              {isCurrent && <span className="console-display console-glow ml-3 px-1.5 py-px align-middle font-stage text-[12px] font-semibold tracking-wide text-logic-lcd-green">No ar</span>}
+              {isNext && <span className="console-display console-glow ml-3 px-1.5 py-px align-middle font-stage text-[12px] font-semibold tracking-wide text-logic-lcd-amber">Próxima</span>}
+            </span>
+            <span className="font-stage text-[14px] text-right text-logic-text-dim">{bpmLabel(song)}</span>
+            <span className={`font-stage text-[14px] text-right ${song && song.tuner !== 0 ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`}>{song ? toneLabel(song.tuner) : '-'}</span>
+            <span className="font-stage text-[15px] font-semibold text-right text-logic-text">{formatTime(playedDuration(song, entry.duration))}</span>
+            <span className="font-stage text-[14px] text-right text-logic-text-muted">{formatTime(start)}</span>
+            {showBpmTower && <div className="flex justify-center"><SongAdjuster songId={entry.songId} kind="bpm" value={song?.bpmAdjust ?? 0} /></div>}
+            {showTunerTower && <div className="flex justify-center"><SongAdjuster songId={entry.songId} kind="tuner" value={song?.tuner ?? 0} /></div>}
+          </div>
+        ) : (
+        <div className="flex items-center gap-2 px-2 h-10">
+          <span className={`console-led flex-shrink-0 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
+          <span className={`font-stage text-[12px] tabular-nums text-right flex-shrink-0 w-4 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{index + 1}</span>
+
+          {renaming ? (
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => actions.setRenameValue(e.target.value)}
+              onFocus={(e) => e.currentTarget.select()}
+              onBlur={actions.submitRename}
+              onKeyDown={(e) => { if (e.key === 'Enter') actions.submitRename(); else if (e.key === 'Escape') { e.preventDefault(); actions.cancelRename(entry.name); } }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 bg-logic-bg-deep text-xs text-white px-1 py-0.5 rounded border border-logic-accent outline-none min-w-0"
+            />
+          ) : (
+            <div className="flex-1 min-w-0 flex items-center">
+              <span className={`text-sm font-bold truncate block text-left ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : isSelected ? 'text-white' : 'text-logic-text'}`}>
+                {entry.name}
+              </span>
+              {audioStatus && <span className="ml-1">{audioStatus}</span>}
+              {song && (
+                <span className={`font-stage text-[12px] tabular-nums ml-auto flex-shrink-0 pl-1 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{formatTime(song.duration)}</span>
+              )}
+            </div>
+          )}
+          {showBpmTower && <div className="flex justify-center flex-shrink-0 border-l border-logic-border-dark/60 h-full items-center" style={{ width: NARROW_TOWER_W - 8 }}><SongAdjuster songId={entry.songId} kind="bpm" value={song?.bpmAdjust ?? 0} /></div>}
+          {showTunerTower && <div className="flex justify-center flex-shrink-0 border-l border-logic-border-dark/60 h-full items-center" style={{ width: NARROW_TOWER_W - 8 }}><SongAdjuster songId={entry.songId} kind="tuner" value={song?.tuner ?? 0} /></div>}
+        </div>
+        )}
+
+        {wide && expanded && isCurrent && song && <SectionPads song={song} />}
+        {wide && expanded && song && isMedley(song) && (
+          <MedleySlices song={song} songNumber={index + 1} showStart={start} isCurrent={isCurrent} cols={wideCols} showBpm={showBpmTower} showTuner={showTunerTower} />
+        )}
+        {wide && isCurrent && <CurrentProgressBar />}
+        {wide && countdown && song && (
+          <NextCountdownBar />
+        )}
+      </div>
+    </div>
+  );
+});
+
+function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpenAiSeparator?: () => void; maximized?: boolean } = {}) {
   const playlist = useStore((s) => s.playlist);
-  const playlistOrder = useStore((s) => s.playlistOrder);
   const blocks = useStore((s) => s.blocks);
   const selectedSongId = useStore((s) => s.selectedSongId);
-  const selectedBlockId = useStore((s) => s.selectedBlockId);
   const currentSongIdSel = useStore((s) => s.transport.currentSongId);
   const nextSongIdSel = useStore((s) => s.transport.nextSongId);
   const playFlow = useStore((s) => s.transport.playFlow);
@@ -40,7 +266,6 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
   const showTunerTower = useStore((s) => s.showTunerTower);
 
   const selectSong = useStore((s) => s.selectSong);
-  const reorderPlaylist = useStore((s) => s.reorderPlaylist);
   const createBlock = useStore((s) => s.createBlock);
   const setNextSong = useStore((s) => s.setNextSong);
   const mixerVisible = useStore((s) => s.mixerVisible);
@@ -48,15 +273,12 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
   const instantPrep = useStore((s) => s.instantPrep);
   const toggleMixer = useStore((s) => s.toggleMixer);
   const padsVisible = useSyncExternalStore(subscribePads, () => getPadsState().visible);
-  const renameBlock = useStore((s) => s.renameBlock);
   const setBlockColor = useStore((s) => s.setBlockColor);
   const deleteBlock = useStore((s) => s.deleteBlock);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [dragBlockId, setDragBlockId] = useState<string | null>(null);
-  const [dragOverBlockId, setDragOverBlockId] = useState<string | null>(null);
-  const [dropPos, setDropPos] = useState<{ type: 'top' | 'song' | 'block' | 'blockInsert'; id: string | null; half: 'before' | 'after' } | null>(null);
+  const [dropPos, setDropPos] = useState<DropPos | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [renamingBlockId, setRenamingBlockId] = useState<string | null>(null);
@@ -72,7 +294,10 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
   const fileDragDepth = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-  const lastVisibleEntryRef = useRef<typeof playlist[0] | null>(null);
+
+  // O estado de agora para as ações das linhas (as funções delas não mudam entre os desenhos).
+  const live = useRef({ dragIndex, dragBlockId, dropPos, playlist, blocks, renamingId, renameValue, renameBlockValue, toggleRow });
+  live.current = { dragIndex, dragBlockId, dropPos, playlist, blocks, renamingId, renameValue, renameBlockValue, toggleRow };
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -112,87 +337,162 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
     },
   };
 
-  const handleDrop = (index: number) => {
-    if (dragIndex !== null && dragIndex !== index) {
-      reorderPlaylist(dragIndex, index);
-    }
-    setDragIndex(null);
-    setDragOverIndex(null);
-  };
+  const actions = useMemo(() => {
+    const clearDrag = () => { setDropPos(null); setDragIndex(null); setDragBlockId(null); };
+    // O dragover chega dezenas de vezes por segundo mesmo com o mouse parado: com a mesma posição,
+    // devolve o mesmo objeto e o painel não redesenha.
+    const markDrop = (type: DropPos['type'], id: string | null, half: DropPos['half']) => {
+      setDropPos((p) => (p && p.type === type && p.id === id && p.half === half ? p : { type, id, half }));
+    };
+    // resolve a ação de soltar a partir da posição marcada durante o drag
+    const resolveDrop = () => {
+      const { dropPos, dragIndex, dragBlockId, playlist, blocks } = live.current;
+      if (!dropPos) return;
+      if (dragIndex !== null) {
+        const dragEntry = playlist[dragIndex];
+        const without = playlist.filter((_, i) => i !== dragIndex);
+        let insertIdx: number;
 
-  // resolve a ação de soltar a partir da posição marcada durante o drag
-  const resolveDrop = () => {
-    if (!dropPos) return;
-    if (dragIndex !== null) {
-      const dragEntry = playlist[dragIndex];
-      const without = playlist.filter((_, i) => i !== dragIndex);
-      let insertIdx: number;
-
-      if (dropPos.type === 'top') {
-        insertIdx = 0;
-      } else if (dropPos.type === 'song') {
-        const tIdx = playlist.findIndex((p) => p.songId === dropPos.id);
-        if (tIdx === -1) { clearDrag(); return; }
-        const origPos = dropPos.half === 'before' ? tIdx : tIdx + 1;
-        insertIdx = origPos > dragIndex ? origPos - 1 : origPos;
-      } else if (dropPos.type === 'block') {
-        // soltou sobre o cabeçalho de um bloco: vira a 1ª música do bloco
-        const block = blocks.find((b) => b.id === dropPos.id);
-        if (block) {
-          const firstInBlock = playlist.find((p) => p.blockId === block.id);
-          useStore.getState().moveSongTo(dragEntry.songId, firstInBlock?.songId ?? null, block.id);
+        if (dropPos.type === 'top') {
+          insertIdx = 0;
+        } else if (dropPos.type === 'song') {
+          const tIdx = playlist.findIndex((p) => p.songId === dropPos.id);
+          if (tIdx === -1) { clearDrag(); return; }
+          const origPos = dropPos.half === 'before' ? tIdx : tIdx + 1;
+          insertIdx = origPos > dragIndex ? origPos - 1 : origPos;
+        } else if (dropPos.type === 'block') {
+          // soltou sobre o cabeçalho de um bloco: vira a 1ª música do bloco
+          const block = blocks.find((b) => b.id === dropPos.id);
+          if (block) {
+            const firstInBlock = playlist.find((p) => p.blockId === block.id);
+            useStore.getState().moveSongTo(dragEntry.songId, firstInBlock?.songId ?? null, block.id);
+          }
+          clearDrag();
+          return;
+        } else {
+          clearDrag();
+          return;
         }
-        clearDrag();
-        return;
-      } else {
-        clearDrag();
-        return;
-      }
 
-      if (insertIdx < 0) insertIdx = 0;
-      if (insertIdx > without.length) insertIdx = without.length;
-      const beforeSongId = without[insertIdx]?.songId ?? null;
-      if (beforeSongId !== dragEntry.songId) {
-        // a música herda o bloco da música que fica logo acima dela
-        const prev = insertIdx > 0 ? without[insertIdx - 1] : null;
-        useStore.getState().moveSongTo(dragEntry.songId, beforeSongId, prev?.blockId ?? null);
+        if (insertIdx < 0) insertIdx = 0;
+        if (insertIdx > without.length) insertIdx = without.length;
+        const beforeSongId = without[insertIdx]?.songId ?? null;
+        if (beforeSongId !== dragEntry.songId) {
+          // a música herda o bloco da música que fica logo acima dela
+          const prev = insertIdx > 0 ? without[insertIdx - 1] : null;
+          useStore.getState().moveSongTo(dragEntry.songId, beforeSongId, prev?.blockId ?? null);
+        }
+      } else if (dragBlockId) {
+        let beforeSongId: string | null = null;
+        if (dropPos.type === 'top') {
+          beforeSongId = playlist[0]?.songId ?? null;
+        } else if (dropPos.type === 'blockInsert' || dropPos.type === 'song') {
+          const tIdx = playlist.findIndex((p) => p.songId === dropPos.id);
+          if (tIdx === -1) { clearDrag(); return; }
+          beforeSongId = dropPos.half === 'before' ? dropPos.id : (playlist[tIdx + 1]?.songId ?? null);
+        } else if (dropPos.type === 'block') {
+          // soltou sobre o cabeçalho de outro bloco: posiciona antes da 1ª música dele
+          if (dragBlockId !== dropPos.id) {
+            beforeSongId = playlist.find((p) => p.blockId === dropPos.id)?.songId ?? null;
+          } else { clearDrag(); return; }
+        }
+        useStore.getState().moveBlockTo(dragBlockId, beforeSongId);
       }
-    } else if (dragBlockId) {
-      let beforeSongId: string | null = null;
-      if (dropPos.type === 'top') {
-        beforeSongId = playlist[0]?.songId ?? null;
-      } else if (dropPos.type === 'blockInsert' || dropPos.type === 'song') {
-        const tIdx = playlist.findIndex((p) => p.songId === dropPos.id);
-        if (tIdx === -1) { clearDrag(); return; }
-        beforeSongId = dropPos.half === 'before' ? dropPos.id : (playlist[tIdx + 1]?.songId ?? null);
-      } else if (dropPos.type === 'block') {
-        // soltou sobre o cabeçalho de outro bloco: posiciona antes da 1ª música dele
-        if (dragBlockId !== dropPos.id) {
-          beforeSongId = playlist.find((p) => p.blockId === dropPos.id)?.songId ?? null;
-        } else { clearDrag(); return; }
+      clearDrag();
+    };
+    const submitRename = () => {
+      const { renamingId, renameValue } = live.current;
+      if (renamingId && renameValue.trim()) {
+        useStore.getState().renameSong(renamingId, renameValue.trim());
       }
-      useStore.getState().moveBlockTo(dragBlockId, beforeSongId);
+      setRenamingId(null);
+    };
+    const commitBlockRename = (blockId: string) => {
+      const n = live.current.renameBlockValue.trim();
+      if (n) useStore.getState().renameBlock(blockId, n);
+      setRenamingBlockId(null);
+    };
+    const halfOf = (e: React.DragEvent<HTMLElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      return e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
+    };
+    const row: RowActions = {
+      select: (songId) => useStore.getState().selectSong(songId),
+      rowDragStart: (e, index, songId) => {
+        if (live.current.dragBlockId) { e.preventDefault(); return; }
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', songId);
+        setDragIndex(index);
+      },
+      rowDragOver: (e, index, songId) => {
+        const { dragIndex, dragBlockId } = live.current;
+        if (dragIndex !== null) {
+          if (dragIndex === index) return;
+          e.preventDefault();
+          markDrop('song', songId, halfOf(e));
+        } else if (dragBlockId) {
+          // arrastando um bloco: permite soltá-lo entre as músicas
+          e.preventDefault();
+          markDrop('blockInsert', songId, halfOf(e));
+        }
+      },
+      drop: (e) => { e.preventDefault(); e.stopPropagation(); resolveDrop(); },
+      dragEnd: clearDrag,
+      startRename: (entry) => { setRenamingId(entry.songId); setRenameValue(entry.name); },
+      songMenu: (e, songId) => {
+        e.preventDefault();
+        useStore.getState().selectSong(songId);
+        setSongMenu({ x: e.clientX, y: e.clientY, songId });
+      },
+      toggleRow: (songId) => live.current.toggleRow(songId),
+      setRenameValue,
+      submitRename,
+      cancelRename: (name) => { setRenameValue(name); setRenamingId(null); },
+      blockDragStart: (e, blockId) => {
+        e.stopPropagation();
+        setDragBlockId(blockId);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', blockId);
+      },
+      blockDragOver: (e, blockId) => {
+        if (!live.current.dragBlockId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        markDrop('block', blockId, 'before');
+      },
+      selectBlock: (blockId) => useStore.getState().selectBlock(blockId),
+      startBlockRename: (block) => { setRenamingBlockId(block.id); setRenameBlockValue(block.name); },
+      blockMenu: (e, blockId) => {
+        e.preventDefault();
+        setBlockMenu({ x: e.clientX, y: e.clientY, blockId });
+      },
+      setBlockRenameValue: setRenameBlockValue,
+      commitBlockRename,
+      cancelBlockRename: () => setRenamingBlockId(null),
+    };
+    return { row, clearDrag, markDrop, resolveDrop };
+  }, []);
+  const { clearDrag, markDrop, resolveDrop } = actions;
+
+  // Música por id e as somas de tempo, uma vez por mudança da lista (antes: um find por linha e
+  // uma volta na lista inteira para cada bloco, a cada desenho do painel).
+  const songById = useMemo(() => {
+    const m = new Map<string, Song>();
+    for (const sg of songs) if (!m.has(sg.id)) m.set(sg.id, sg);
+    return m;
+  }, [songs]);
+  const timing = useMemo(() => {
+    const starts: number[] = [];
+    const blockDurations = new Map<string, number>();
+    let total = 0;
+    for (const p of playlist) {
+      starts.push(total);
+      const d = playedDuration(songById.get(p.songId), p.duration);
+      total += d;
+      if (p.blockId) blockDurations.set(p.blockId, (blockDurations.get(p.blockId) ?? 0) + d);
     }
-    clearDrag();
-  };
-
-  const clearDrag = () => { setDropPos(null); setDragIndex(null); setDragBlockId(null); setDragOverBlockId(null); setDragOverIndex(null); };
-
-  const DropLine = ({ active }: { active: boolean }) => (
-    <div className={`h-0.5 -my-px transition-colors ${active ? 'bg-logic-accent' : 'bg-transparent'}`} />
-  );
-
-  const handleDoubleClick = (entry: typeof playlist[0]) => {
-    setRenamingId(entry.songId);
-    setRenameValue(entry.name);
-  };
-
-  const handleRenameSubmit = () => {
-    if (renamingId && renameValue.trim()) {
-      useStore.getState().renameSong(renamingId, renameValue.trim());
-    }
-    setRenamingId(null);
-  };
+    return { starts, blockDurations, total };
+  }, [playlist, songById]);
 
   const currentSongId = transport.currentSongId;
   const nextSongId = transport.nextSongId;
@@ -209,32 +509,62 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
 
   if (!playlistVisible && !playlistMaximized) return null;
 
-  // a duração do bloco é a soma do que toca das músicas entre o cabeçalho dele e o próximo bloco
-  const getBlockDuration = (blockId: string): number => {
-    let total = 0;
-    for (const p of playlist) {
-      if (p.blockId !== blockId) continue;
-      total += playedDuration(songs.find((sg) => sg.id === p.songId), p.duration);
-    }
-    return total;
-  };
-
-  const starts: number[] = [];
-  playlist.reduce((acc, p) => {
-    starts.push(acc);
-    return acc + playedDuration(songs.find((sg) => sg.id === p.songId), p.duration);
-  }, 0);
+  const { starts, blockDurations, total: totalShow } = timing;
   const currentIndex = currentSongId && transport.isPlaying ? playlist.findIndex((p) => p.songId === currentSongId) : -1;
   const wide = playlistMaximized;
   const wideCols = `48px minmax(0,1fr) 72px 80px 72px 72px${showBpmTower ? ' 112px' : ''}${showTunerTower ? ' 112px' : ''}`;
   const towerCount = (showBpmTower ? 1 : 0) + (showTunerTower ? 1 : 0);
   const narrowWidth = 360 + towerCount * NARROW_TOWER_W;
-  const hasDetails = (sg: typeof songs[number] | undefined) => !!sg && (isMedley(sg) || (sg.regions?.length ?? 0) > 0);
-  const expandableIds = playlist.filter((p) => hasDetails(songs.find((sg) => sg.id === p.songId))).map((p) => p.songId);
+  const expandableIds = playlist.filter((p) => hasDetails(songById.get(p.songId))).map((p) => p.songId);
   const allCollapsed = expandableIds.length > 0 && expandableIds.every((id) => collapsedRows.has(id));
   // teclas pequenas do cabeçalho: acendem quando a função está ligada
   const hdrKey = (lit = '') => `console-key w-6 h-6 flex items-center justify-center shrink-0 disabled:opacity-30 ${lit}`;
-  const totalShow = starts.length ? starts[starts.length - 1] + playedDuration(songs.find((sg) => sg.id === playlist[playlist.length - 1]?.songId), playlist[playlist.length - 1]?.duration) : 0;
+
+  const query = searchQuery.trim().toLowerCase();
+  // Compara com a última música VISÍVEL (não a anterior na lista completa), senão uma busca que
+  // esconde a 1ª música de um bloco deixaria o cabeçalho do bloco sem aparecer.
+  let prevVisibleEntry: PlaylistEntry | null = null;
+  const rows = playlist.map((entry, index) => {
+    if (query && !entry.name.toLowerCase().includes(query)) return null;
+    const block = entry.blockId ? blocks.find((b) => b.id === entry.blockId) ?? null : null;
+    const showBlock = !!block && (!prevVisibleEntry || prevVisibleEntry.blockId !== block.id);
+    prevVisibleEntry = entry;
+    const isCurrent = entry.songId === currentSongId && transport.isPlaying;
+    const isNext = entry.songId === nextSongId;
+    const dropMark: DropMark = dropPos?.id === entry.songId
+      ? dropPos.type === 'song' ? (dropPos.half === 'before' ? 'song-before' : 'song-after')
+        : dropPos.type === 'blockInsert' ? (dropPos.half === 'before' ? 'insert-before' : 'insert-after') : null
+      : null;
+    return (
+      <PlaylistRow
+        key={entry.songId}
+        entry={entry}
+        index={index}
+        song={songById.get(entry.songId)}
+        start={starts[index]}
+        isCurrent={isCurrent}
+        isNext={isNext}
+        isSelected={selectedSongId === entry.songId}
+        isPlayed={currentIndex >= 0 && index < currentIndex}
+        countdown={isNext && transport.isPlaying}
+        missing={incompleteSongIds.includes(entry.songId)}
+        collapsed={collapsedRows.has(entry.songId)}
+        wide={wide}
+        wideCols={wideCols}
+        showBpmTower={showBpmTower}
+        showTunerTower={showTunerTower}
+        renaming={renamingId === entry.songId}
+        renameValue={renamingId === entry.songId ? renameValue : ''}
+        dropMark={dropMark}
+        block={showBlock ? block : null}
+        blockDuration={showBlock && block ? blockDurations.get(block.id) ?? 0 : 0}
+        blockRenaming={showBlock && !!block && renamingBlockId === block.id}
+        blockRenameValue={showBlock && !!block && renamingBlockId === block.id ? renameBlockValue : ''}
+        blockRing={showBlock && !!block && dropPos?.type === 'block' && dropPos.id === block.id && dragIndex !== null}
+        actions={actions.row}
+      />
+    );
+  });
 
   return (
     <div
@@ -424,7 +754,7 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
               onDragOver={(e) => {
                 if (dragIndex === null && !dragBlockId) return;
                 e.preventDefault();
-                setDropPos({ type: 'top', id: null, half: 'before' });
+                markDrop('top', null, 'before');
               }}
               onDrop={(e) => { e.preventDefault(); resolveDrop(); }}
               onDragEnd={clearDrag}
@@ -433,234 +763,14 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
               <DropLine active={dropPos?.type === 'top'} />
             </div>
 
-            {(() => { lastVisibleEntryRef.current = null; return null; })()}
-            {playlist.map((entry, index) => {
-              if (searchQuery.trim() && !entry.name.toLowerCase().includes(searchQuery.trim().toLowerCase())) {
-                return null;
-              }
-              const isCurrent = entry.songId === currentSongId && transport.isPlaying;
-              const isNext = entry.songId === nextSongId;
-              const isSelected = selectedSongId === entry.songId;
-              const block = entry.blockId ? blocks.find((b) => b.id === entry.blockId) : null;
-              const song = songs.find((sg) => sg.id === entry.songId);
-              // Compara com a última música VISÍVEL (não a anterior na lista completa), senão uma
-              // busca que esconde a 1ª música de um bloco deixaria o cabeçalho do bloco sem aparecer.
-              const prevVisibleEntry = lastVisibleEntryRef.current;
-              const showBlock = block && (!prevVisibleEntry || prevVisibleEntry.blockId !== block.id);
-              lastVisibleEntryRef.current = entry;
-              const isPlayed = currentIndex >= 0 && index < currentIndex;
-              const canExpand = hasDetails(song);
-              const expanded = canExpand && !collapsedRows.has(entry.songId);
-              const audioStatus = incompleteSongIds.includes(entry.songId) ? (
-                <span title="Arquivo de áudio não encontrado no computador." className="inline-flex flex-shrink-0 text-logic-lcd-red">
-                  <AlertTriangle size={wide ? 14 : 11} />
-                </span>
-              ) : null;
-
-              return (
-                <div key={entry.songId}>
-                  {showBlock && block && (
-                    <div
-                      data-selectable="block"
-                      draggable
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        setDragBlockId(block.id);
-                        e.dataTransfer.effectAllowed = 'move';
-                        e.dataTransfer.setData('text/plain', block.id);
-                      }}
-                      onDragOver={(e) => {
-                        if (!dragBlockId) return;
-                        e.preventDefault();
-                        e.stopPropagation();
-                        setDropPos({ type: 'block', id: block.id, half: 'before' });
-                      }}
-                      onDrop={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        resolveDrop();
-                      }}
-                      onDragEnd={clearDrag}
-                      className={`cue-block relative flex items-center gap-1.5 border-b ${wide ? 'px-6 h-9 mt-2' : 'px-2 h-7'} border-black ${dragOverBlockId === block.id && dragBlockId !== block.id ? 'ring-1 ring-logic-accent' : ''} ${dropPos?.type === 'block' && dropPos.id === block.id && dragIndex !== null ? 'ring-1 ring-logic-accent' : ''}`}
-                      style={{ backgroundColor: block.color, borderLeft: `4px solid ${blockEdge(block.color)}` }}
-                      onClick={() => useStore.getState().selectBlock(block.id)}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        setRenamingBlockId(block.id);
-                        setRenameBlockValue(block.name);
-                      }}
-                      onContextMenu={(e) => {
-                        e.preventDefault();
-                        setBlockMenu({ x: e.clientX, y: e.clientY, blockId: block.id });
-                      }}
-                    >
-                      <div className={`flex-1 min-w-0 flex items-center gap-1.5 justify-center ${wide ? 'px-16' : ''}`}>
-                        <FlagTriangleRight size={10} className="flex-shrink-0" style={{ color: blockInk(block.color) }} />
-                        {renamingBlockId === block.id ? (
-                          <input
-                            autoFocus
-                            value={renameBlockValue}
-                            onChange={(e) => setRenameBlockValue(e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onBlur={() => {
-                              const n = renameBlockValue.trim();
-                              if (n) renameBlock(block.id, n);
-                              setRenamingBlockId(null);
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                const n = renameBlockValue.trim();
-                                if (n) renameBlock(block.id, n);
-                                setRenamingBlockId(null);
-                              } else if (e.key === 'Escape') {
-                                setRenamingBlockId(null);
-                              }
-                            }}
-                            className="flex-1 min-w-0 bg-logic-bg-deep text-xs text-white px-1 py-0.5 rounded border border-logic-accent outline-none text-center"
-                          />
-                        ) : (
-                          <span className={`font-stage font-bold truncate ${wide ? 'text-[15px] uppercase tracking-[0.12em]' : 'text-[13px] tracking-wide'}`} style={{ color: blockInk(block.color) }}>
-                            {block.name}
-                          </span>
-                        )}
-                      </div>
-                      <span className={`font-stage font-semibold text-[12px] tabular-nums opacity-75 flex-shrink-0 ${wide ? 'absolute right-6 top-1/2 -translate-y-1/2 text-[13px]' : ''}`} style={{ color: blockInk(block.color) }}>
-                        {formatTime(getBlockDuration(block.id))}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Song row */}
-                  <div
-                    data-selectable="song"
-                    data-song-id={entry.songId}
-                    draggable
-                    onDragStart={(e) => {
-                      if (dragBlockId) { e.preventDefault(); return; }
-                      e.dataTransfer.effectAllowed = 'move';
-                      e.dataTransfer.setData('text/plain', entry.songId);
-                      setDragIndex(index);
-                    }}
-                    onDragOver={(e) => {
-                      if (dragIndex !== null) {
-                        if (dragIndex === index) return;
-                        e.preventDefault();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const half = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
-                        setDragOverIndex(index);
-                        setDropPos({ type: 'song', id: entry.songId, half });
-                      } else if (dragBlockId) {
-                        // arrastando um bloco: permite soltá-lo entre as músicas
-                        e.preventDefault();
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const half = e.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
-                        setDropPos({ type: 'blockInsert', id: entry.songId, half });
-                      }
-                    }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); resolveDrop(); }}
-                    onDragEnd={clearDrag}
-                    onClick={() => selectSong(entry.songId)}
-                    onDoubleClick={() => handleDoubleClick(entry)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      selectSong(entry.songId);
-                      setSongMenu({ x: e.clientX, y: e.clientY, songId: entry.songId });
-                    }}
-                    className={`cue-row group flex flex-col border-b border-black/60 cursor-pointer transition-colors duration-75 relative
-                      ${isCurrent ? 'is-current' : isNext ? 'is-next' : isSelected ? 'is-selected' : ''}
-                      ${isPlayed && !isSelected ? 'opacity-45 hover:opacity-80' : ''}
-                      ${dropPos?.type === 'song' && dropPos.id === entry.songId ? (dropPos.half === 'before' ? 'border-t-2 border-t-logic-accent' : 'border-b-2 border-b-logic-accent') : ''}
-                      ${dropPos?.type === 'blockInsert' && dropPos.id === entry.songId ? (dropPos.half === 'before' ? 'border-t-2 border-t-logic-lcd-amber' : 'border-b-2 border-b-logic-lcd-amber') : ''}`}
-                  >
-                    {wide && renamingId !== entry.songId ? (
-                      <div className="relative grid items-center gap-3 px-6 h-14 tabular-nums" style={{ gridTemplateColumns: wideCols }}>
-                        {/* LED da linha: verde tocando, âmbar próxima */}
-                        <span className={`console-led is-lg absolute left-[9px] top-1/2 -translate-y-1/2 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
-                        <span className="flex items-center gap-1">
-                          <SegmentDisplay
-                            text={String(index + 1).padStart(2, '0')}
-                            label={`Música ${index + 1}`}
-                            ghost={isCurrent || isNext}
-                            className={`h-[17px] ${isCurrent ? 'text-logic-lcd-green' : isNext ? 'text-logic-lcd-amber' : 'text-logic-text-muted'}`}
-                          />
-                          {canExpand && (
-                            <button
-                              className="w-5 h-5 rounded flex items-center justify-center text-logic-text-muted hover:text-logic-text hover:bg-white/10 transition-colors"
-                              onClick={(e) => { e.stopPropagation(); toggleRow(entry.songId); }}
-                              onDoubleClick={(e) => e.stopPropagation()}
-                              aria-expanded={expanded}
-                              title={expanded ? 'Recolher' : 'Expandir'}
-                            >
-                              <ChevronRight size={14} className={`transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`} />
-                            </button>
-                          )}
-                        </span>
-                        <span className={`text-lg font-semibold truncate ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : isSelected ? 'text-white' : 'text-logic-text'}`}>
-                          {entry.name}
-                          {audioStatus && <span className="ml-2 align-middle">{audioStatus}</span>}
-                          {isCurrent && <span className="console-display console-glow ml-3 px-1.5 py-px align-middle font-stage text-[12px] font-semibold tracking-wide text-logic-lcd-green">No ar</span>}
-                          {isNext && <span className="console-display console-glow ml-3 px-1.5 py-px align-middle font-stage text-[12px] font-semibold tracking-wide text-logic-lcd-amber">Próxima</span>}
-                        </span>
-                        <span className="font-stage text-[14px] text-right text-logic-text-dim">{bpmLabel(song)}</span>
-                        <span className={`font-stage text-[14px] text-right ${song && song.tuner !== 0 ? 'text-logic-lcd-amber' : 'text-logic-text-dim'}`}>{song ? toneLabel(song.tuner) : '-'}</span>
-                        <span className="font-stage text-[15px] font-semibold text-right text-logic-text">{formatTime(playedDuration(song, entry.duration))}</span>
-                        <span className="font-stage text-[14px] text-right text-logic-text-muted">{formatTime(starts[index])}</span>
-                        {showBpmTower && <div className="flex justify-center"><SongAdjuster songId={entry.songId} kind="bpm" value={song?.bpmAdjust ?? 0} /></div>}
-                        {showTunerTower && <div className="flex justify-center"><SongAdjuster songId={entry.songId} kind="tuner" value={song?.tuner ?? 0} /></div>}
-                      </div>
-                    ) : (
-                    <div className="flex items-center gap-2 px-2 h-10">
-                      <span className={`console-led flex-shrink-0 ${isCurrent ? 'is-on-green' : isNext ? 'is-on-amber' : ''}`} />
-                      <span className={`font-stage text-[12px] tabular-nums text-right flex-shrink-0 w-4 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{index + 1}</span>
-
-                      {renamingId === entry.songId ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onFocus={(e) => e.currentTarget.select()}
-                          onBlur={handleRenameSubmit}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleRenameSubmit(); else if (e.key === 'Escape') { e.preventDefault(); setRenameValue(entry.name); setRenamingId(null); } }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="flex-1 bg-logic-bg-deep text-xs text-white px-1 py-0.5 rounded border border-logic-accent outline-none min-w-0"
-                        />
-                      ) : (
-                        <div className="flex-1 min-w-0 flex items-center">
-                          <span className={`text-sm font-bold truncate block text-left ${isCurrent ? 'text-logic-lcd-green console-glow' : isNext ? 'text-logic-lcd-amber console-glow' : isSelected ? 'text-white' : 'text-logic-text'}`}>
-                            {entry.name}
-                          </span>
-                          {audioStatus && <span className="ml-1">{audioStatus}</span>}
-                          {song && (
-                            <span className={`font-stage text-[12px] tabular-nums ml-auto flex-shrink-0 pl-1 ${isSelected ? 'text-white' : 'text-logic-text-muted'}`}>{formatTime(song.duration)}</span>
-                          )}
-                        </div>
-                      )}
-                      {showBpmTower && <div className="flex justify-center flex-shrink-0 border-l border-logic-border-dark/60 h-full items-center" style={{ width: NARROW_TOWER_W - 8 }}><SongAdjuster songId={entry.songId} kind="bpm" value={song?.bpmAdjust ?? 0} /></div>}
-                      {showTunerTower && <div className="flex justify-center flex-shrink-0 border-l border-logic-border-dark/60 h-full items-center" style={{ width: NARROW_TOWER_W - 8 }}><SongAdjuster songId={entry.songId} kind="tuner" value={song?.tuner ?? 0} /></div>}
-                    </div>
-                    )}
-
-                    {wide && expanded && isCurrent && song && <SectionPads song={song} />}
-                    {wide && expanded && song && isMedley(song) && (
-                      <MedleySlices song={song} songNumber={index + 1} showStart={starts[index]} isCurrent={isCurrent} cols={wideCols} showBpm={showBpmTower} showTuner={showTunerTower} />
-                    )}
-                    {wide && isCurrent && <CurrentProgressBar />}
-                    {wide && isNext && transport.isPlaying && song && (
-                      <NextCountdownBar />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {rows}
 
             {/* zona de soltar no fim da lista */}
             <div
               onDragOver={(e) => {
                 if (dragIndex === null && !dragBlockId) return;
                 e.preventDefault();
-                const lastId = playlist[playlist.length - 1]?.songId ?? null;
-                if (dragBlockId) setDropPos({ type: 'song', id: lastId, half: 'after' });
-                else setDropPos({ type: 'song', id: lastId, half: 'after' });
+                markDrop('song', playlist[playlist.length - 1]?.songId ?? null, 'after');
               }}
               onDrop={(e) => { e.preventDefault(); resolveDrop(); }}
               onDragEnd={clearDrag}
@@ -783,6 +893,9 @@ export default function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpen
   );
 }
 
+// memo: com as funções do App estáveis, a playlist só redesenha pelo que ela mesma assina.
+export default memo(PlaylistPanel);
+
 function luminance(hex: string): number {
   const n = parseInt(hex.slice(1, 7), 16);
   const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => {
@@ -803,52 +916,29 @@ function blockEdge(hex: string): string {
   return `#${ch((n >> 16) & 255)}${ch((n >> 8) & 255)}${ch(n & 255)}`;
 }
 
-// Lê a posição direto do motor de áudio (clock do AudioContext) via requestAnimationFrame e
-// escreve no DOM sem passar pelo estado do Zustand — assim o preenchimento acompanha a música
-// em tempo real, sem o salto/travada de re-renderizar o React a cada tick do transport.
+// Barras ao vivo pelo relógio de quadro único (frameClock): andam a cada quadro só com a música
+// tocando, com a mesma conta de sempre (getLiveProgressPct, o relógio do áudio). O preenchimento vai
+// por transform, sem refazer o layout a cada quadro; os LEDs por cima (.led-bar::after) ficam parados.
 function CurrentProgressBar() {
   const barRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (barRef.current) {
-        const pct = getLiveProgressPct();
-        barRef.current.style.width = `${pct}%`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  useLiveFill(barRef, getLiveProgressPct);
 
   return (
     <div className="led-bar h-1.5 text-logic-lcd-green">
-      <div ref={barRef} className="led-bar-fill will-change-[width]" style={{ width: '0%' }} />
+      <div ref={barRef} className="led-bar-fill w-full will-change-transform" style={{ transform: 'translateX(-100%)' }} />
     </div>
   );
 }
 
-// Barra de regresso do painel Próxima: enche da direita para a esquerda continuamente a 60fps
-// Funciona como ampulheta com 100% de concordância com a música que está tocando (inclusive em medleys).
+// Barra de regresso do painel Próxima: enche da direita para a esquerda, como ampulheta com a
+// mesma conta da barra da música que está tocando (inclusive em medleys).
 function NextCountdownBar() {
   const barRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (barRef.current) {
-        const pct = getLiveProgressPct();
-        barRef.current.style.width = `${pct}%`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  useLiveFill(barRef, getLiveProgressPct, true);
 
   return (
-    <div className="led-bar h-1.5 text-logic-lcd-amber flex justify-end">
-      <div ref={barRef} className="led-bar-fill ml-auto will-change-[width]" style={{ width: '0%' }} />
+    <div className="led-bar h-1.5 text-logic-lcd-amber">
+      <div ref={barRef} className="led-bar-fill w-full will-change-transform" style={{ transform: 'translateX(100%)' }} />
     </div>
   );
 }

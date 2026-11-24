@@ -32,6 +32,31 @@ export function encodePcm24(buffer: AudioBuffer): ArrayBuffer {
   return out.buffer;
 }
 
+/** Quadros convertidos por vez nas versões em pedaços: cerca de 10 ms de trabalho na thread da tela. */
+const ENCODE_SLICE = 1 << 17;
+
+/** Igual a encodeWavPcm24, em pedaços, cedendo a vez à tela entre eles. */
+export async function encodeWavPcm24Async(buffer: AudioBuffer): Promise<ArrayBuffer> {
+  const header = wavHeaderPcm24(buffer.length, buffer.numberOfChannels, buffer.sampleRate);
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
+  const out = new Uint8Array(header.byteLength + buffer.length * channels.length * 3);
+  out.set(new Uint8Array(header));
+  let pos = header.byteLength;
+  for (let start = 0; start < buffer.length; start += ENCODE_SLICE) {
+    const end = Math.min(buffer.length, start + ENCODE_SLICE);
+    for (let i = start; i < end; i++) {
+      for (const channel of channels) {
+        const sample = channel[i];
+        if (!Number.isFinite(sample)) throw new Error('A exportação contém amostras de áudio inválidas.');
+        const value = Math.round(Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 8388608 : 8388607));
+        out[pos++] = value & 255; out[pos++] = (value >> 8) & 255; out[pos++] = (value >> 16) & 255;
+      }
+    }
+    if (end < buffer.length) await new Promise((r) => setTimeout(r, 0));
+  }
+  return out.buffer;
+}
+
 export function encodeWavPcm24(buffer: AudioBuffer): ArrayBuffer {
   const header = wavHeaderPcm24(buffer.length, buffer.numberOfChannels, buffer.sampleRate);
   const pcm = encodePcm24(buffer);

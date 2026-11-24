@@ -14,6 +14,24 @@ function sampleScale(arr) {
 }
 
 const TAIL_PAD = 16384 * 2;
+// No BPM original (só tom alterado) a faixa precisa cair junto da bateria. O SoundTouch adianta o
+// áudio (primeira sobreposição guardada + passo dentro da janela): a voz ao vivo lê do original esse
+// tanto antes, em amostras do original. Com o BPM alterado, a leitura fica como sempre foi.
+function liveLeadFrames(sr, tempo, pitch) {
+  if (Math.abs(tempo - 1) >= 1e-4) return 0;
+  const stretch = tempo / pitch;
+  const ms = (12 + 35 * (1 - stretch)) * (pitch < 1 ? pitch : 1);
+  return Math.max(0, Math.round((ms * sr) / 1000));
+}
+// Com o BPM alterado, a voz ao vivo também lê antes do ponto: o SoundTouch adianta a saída e o click
+// remontado está na grade. É a conta nominal (em amostras do original); quando o áudio preparado chega,
+// vale o adiantamento medido em cada faixa (leadFrames).
+function tempoLeadFrames(sr, tempo, pitch) {
+  if (Math.abs(tempo - 1) < 1e-4) return 0;
+  const stretch = tempo / pitch;
+  const ms = (12 + 35 * (1 - stretch)) * (pitch < 1 ? pitch : 1);
+  return Math.round((ms * sr) / 1000);
+}
 // Fade-out da posição antiga numa busca com a música tocando (~5 ms a 48 kHz).
 const SEEK_FADE_OUT_FRAMES = 256;
 // Atraso de largada que vale descontar: abaixo disso é arredondamento do relógio (meio bloco).
@@ -244,7 +262,7 @@ function spanAt(data, p) {
 
 // Áudio já processado em segundo plano (contínuo, transferido): a tabela de pedaços é montada uma
 // vez aqui, e cada voz nova só aponta para ela.
-function makeRendered(left, right, tempo, pitch, partial, validFrames) {
+function makeRendered(left, right, tempo, pitch, partial, validFrames, leadFrames) {
   const r = right || left;
   const slotsL = sliceSlots(left, left.length);
   return {
@@ -253,6 +271,8 @@ function makeRendered(left, right, tempo, pitch, partial, validFrames) {
     scale: sampleScale(left),
     length: left.length,
     tempo, pitch, partial, validFrames,
+    // quanto este áudio sai adiantado (quadros dele): a voz lê esse tanto antes para o som cair na grade
+    leadFrames: leadFrames | 0,
   };
 }
 
@@ -274,6 +294,8 @@ class ClipArraySource {
     const n = d.total;
     const available = Math.min(numFrames, Math.max(0, n + TAIL_PAD - position));
     let i = 0;
+    // antes do começo do clipe (a voz lê um pouco antes para compensar o SoundTouch): silêncio
+    for (; i < available && position + i < 0; i++) { target[i * 2] = 0; target[i * 2 + 1] = 0; }
     while (i < available) {
       const p = position + i;
       if (p >= n) {
@@ -318,6 +340,8 @@ class Voice {
     this.starved = false;
     // já saiu som desta voz (só então ela precisa de fade-out ao ser trocada)
     this.heard = false;
+    // silêncio antes do primeiro quadro (áudio preparado entrando na grade logo no começo do clipe)
+    this.hold = 0;
     this.scratch = new Float32Array(1024);
     if (!this.isBypass()) this.buildFilter();
   }
@@ -334,23 +358,28 @@ class Voice {
     this.engine.tempo = this.tempo;
     this.engine.pitch = this.pitch;
     this.source = new ClipArraySource(this.data);
-    this.source.position = this.pos;
+    const from = this.pos - this.leadFrames();
+    this.source.position = from;
     this.filter = new SimpleFilter(this.source, this.engine);
     // A posição do filtro nunca volta (busca e salto criam outra voz): sem histórico guardado,
     // a fila de saída fica pequena e cada cópia interna do SoundTouch move menos dados.
     this.filter.historyBufferSize = 0;
-    this.filter.sourcePosition = this.pos;
+    this.filter.sourcePosition = from;
     this.primeFill = 0;
     this.primeReadPos = 0;
     this.primed = false;
   }
+  leadFrames() {
+    return liveLeadFrames(this.sr, this.tempo, this.pitch) + tempoLeadFrames(this.sr, this.tempo, this.pitch);
+  }
   setParams(tempo, pitch, process) {
+    const leadBefore = this.leadFrames();
     if (typeof process === 'boolean') this.forceProcess = process;
     if (typeof tempo === 'number') this.tempo = tempo;
     if (typeof pitch === 'number') this.pitch = pitch;
     if (this.isBypass()) {
       if (this.filter) {
-        this.pos = Math.min(this.length, this.source.position);
+        this.pos = Math.max(0, Math.min(this.length, this.source.position));
         this.filter = null;
         this.engine = null;
         this.source = null;
@@ -364,11 +393,24 @@ class Voice {
       this.buildFilter();
       return;
     }
+    // ainda sem soar: a leitura recomeça no ponto certo para o andamento novo
+    if (!this.heard && this.leadFrames() !== leadBefore) {
+      this.buildFilter();
+      return;
+    }
     this.engine.tempo = this.tempo;
     this.engine.pitch = this.pitch;
   }
   // Leitura direta: a posição sempre anda junto com o relógio, tenha ou não chegado o dado.
   readDirect(outL, outR, start, count) {
+    if (this.hold > 0) {
+      const h = Math.min(this.hold, count);
+      for (let i = 0; i < h; i++) { outL[start + i] = 0; outR[start + i] = 0; }
+      this.hold -= h;
+      start += h;
+      count -= h;
+      if (count <= 0) return;
+    }
     const d = this.data;
     const avail = Math.max(0, Math.min(count, d.total - this.pos));
     let i = 0;
@@ -395,7 +437,7 @@ class Voice {
   // silêncio de "ainda não chegou" ficaria guardado no começo da faixa.
   pump() {
     if (this.primed || !this.filter) return;
-    const at = this.source.position;
+    const at = Math.max(0, this.source.position);
     if (at < this.length && !spanAt(this.data, at).filled) return;
     const chunk = Math.min(this.primeTarget - this.primeFill, 512);
     if (chunk > 0) {
@@ -459,13 +501,15 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     this.loadedPosted = isComplete(this.data);
     this.underrun = false;
     // Começo já processado (só os primeiros segundos): vale até validFrames; depois o motor troca para o áudio inteiro.
-    this.rendered = o.renderedLeft ? makeRendered(o.renderedLeft, o.renderedRight, o.renderedTempo, o.renderedPitch, true, o.renderedValidFrames | 0) : null;
+    this.rendered = o.renderedLeft ? makeRendered(o.renderedLeft, o.renderedRight, o.renderedTempo, o.renderedPitch, true, o.renderedValidFrames | 0, o.renderedLeadFrames) : null;
     // ponto (no áudio original) de onde a voz principal começa: base para descontar largada atrasada
     this.voiceOffset = o.offsetSamples | 0;
     this.voice = this.makeVoice(this.voiceOffset);
     this.fadeInTotal = (o.fadeInFrames | 0) || 0;
     this.fadeInDone = 0;
     this.jump = null;
+    // salto de loop que espera uma troca de BPM/tom já marcada: entra na vaga quando ela acontecer
+    this.nextJump = null;
     this.fadeOutVoice = null;
     this.fadeOutTotal = 0;
     this.fadeOutDone = 0;
@@ -538,6 +582,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       this.voiceOffset = d.offsetSamples | 0;
       this.voice = this.makeVoice(this.voiceOffset);
       this.jump = null;
+      this.nextJump = null;
       this.readyPosted = false;
       this.endedPosted = false;
       this.underrun = false;
@@ -557,7 +602,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       const late = this.lateBy(resumeAt);
       const resumeOriginal = resumeAt;
       if (late > 0) { offset += this.lateFrames(late); resumeAt = currentTime; this.noteLate(late); }
-      this.jump = {
+      const entry = {
         at: d.at,
         resumeAt,
         crossfade: Math.max(1, d.crossfadeFrames | 0),
@@ -565,11 +610,14 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
         fadeIn: offset > 0 && (late > 0 || resumeOriginal <= d.at),
         voice: this.makeVoice(offset),
       };
+      // uma troca de BPM/tom já marcada não pode ser apagada: o salto fica na fila, logo atrás dela
+      if (d.afterRetime && this.jump && this.jump.at <= d.at) this.nextJump = entry;
+      else { this.jump = entry; this.nextJump = null; }
       return;
     }
     // Áudio já processado em segundo plano: as próximas vozes só leem, sem SoundTouch ao vivo.
     if (d.type === 'rendered') {
-      this.rendered = makeRendered(d.left, d.right, d.tempo, d.pitch, false, d.left.length);
+      this.rendered = makeRendered(d.left, d.right, d.tempo, d.pitch, false, d.left.length, d.leadFrames);
       return;
     }
     // Troca BPM/tom de todas as faixas no mesmo instante, a partir da mesma posição.
@@ -589,10 +637,12 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
         fadeIn: true,
         voice: this.makeVoice(offset),
       };
+      this.nextJump = null;
       return;
     }
     if (d.type === 'cancelJump') {
       this.jump = null;
+      this.nextJump = null;
       return;
     }
     if (typeof d.tempo === 'number') this.tempo = d.tempo;
@@ -602,6 +652,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       this.dropStaleRendered();
       this.voice = this.retuneVoice(this.voice, d);
       if (this.jump) this.jump.voice = this.retuneVoice(this.jump.voice, d);
+      if (this.nextJump) this.nextJump.voice = this.retuneVoice(this.nextJump.voice, d);
       if (this.fadeOutVoice) {
         if (this.fadeOutVoice.rendered) this.fadeOutVoice = null;
         else this.fadeOutVoice.setParams(d.tempo, d.pitch, d.process);
@@ -677,7 +728,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
   afterDataChange() {
     const data = this.data;
     this.loadedPosted = isComplete(data);
-    for (const v of [this.voice, this.jump && this.jump.voice, this.fadeOutVoice]) {
+    for (const v of [this.voice, this.jump && this.jump.voice, this.nextJump && this.nextJump.voice, this.fadeOutVoice]) {
       if (v && !v.rendered && !v.filter && v.drained && v.pos < v.length) v.drained = false;
     }
   }
@@ -689,6 +740,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
     this.rendered = null;
     this.voice = null;
     this.jump = null;
+    this.nextJump = null;
     this.fadeOutVoice = null;
     this.port.onmessage = null;
   }
@@ -715,16 +767,19 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
       const total = r.partial ? Math.max(r.validFrames, Math.ceil(this.data.total / this.tempo)) : r.length;
       // a tabela de pedaços do processado já foi montada ao receber; aqui só o objeto da voz
       const data = { left: r.slotsL, right: r.slotsR, mono: r.slotsL === r.slotsR, scale: r.scale, slotFrames: SLOT_FRAMES, total, ranges: [[0, Math.min(r.validFrames, r.length)]] };
-      const v = new Voice(data, this.sr, 1, 1, Math.floor(offset / this.tempo), this.primeTarget, false);
+      const at = Math.floor(offset / this.tempo) - r.leadFrames;
+      const v = new Voice(data, this.sr, 1, 1, Math.max(0, at), this.primeTarget, false);
       v.rendered = true;
       v.tempoScale = this.tempo;
+      v.renderedLead = r.leadFrames;
+      v.hold = Math.max(0, -at);
       return v;
     }
     return new Voice(this.data, this.sr, this.tempo, this.pitch, offset, this.primeTarget, this.processAll);
   }
 
   retuneVoice(v, d) {
-    if (v.rendered) return this.makeVoice(Math.floor(v.pos * v.tempoScale));
+    if (v.rendered) return this.makeVoice(Math.floor((v.pos + v.renderedLead - v.hold) * v.tempoScale));
     v.setParams(d.tempo, d.pitch, d.process);
     return v;
   }
@@ -757,7 +812,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
 
   // Ponto que a voz está lendo nos dados dela (o SoundTouch lê à frente do que já soou).
   readPos(v) {
-    return v.filter ? v.source.position : v.pos;
+    return v.filter ? Math.max(0, v.source.position) : v.pos;
   }
 
   // Quadros já recebidos em sequência a partir de p (a folga até faltar dado).
@@ -825,6 +880,7 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
 
     if (!this.voice.primed) this.voice.pump();
     if (this.jump && !this.jump.voice.primed) this.jump.voice.pump();
+    if (this.nextJump && !this.nextJump.voice.primed) this.nextJump.voice.pump();
     if (this.voice.primed && !this.readyPosted) {
       this.readyPosted = true;
       try { this.port.postMessage({ type: 'ready' }); } catch (e) {}
@@ -837,7 +893,8 @@ class ClipPlayerProcessor extends AudioWorkletProcessor {
 
     if (swapAt < frames) {
       const j = this.jump;
-      this.jump = null;
+      this.jump = this.nextJump;
+      this.nextJump = null;
       const wasPlaying = this.startTime <= j.at && !this.voice.drained;
       this.fadeOutVoice = wasPlaying ? this.voice : null;
       this.fadeOutTotal = j.crossfade;

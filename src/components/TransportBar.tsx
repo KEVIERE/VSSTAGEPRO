@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import { keyName, parseKey, songKeyLabel, transposeKey } from '@/lib/musicKey';
 import { Play, Pause, Square, ArrowRight, Gauge, AudioWaveform, X, Headphones, SlidersVertical } from 'lucide-react';
 import { useStore } from '@/store';
@@ -13,6 +13,7 @@ import type { PlayFlow } from '@/types';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import DiskLagNotice from '@/components/DiskLagNotice';
 import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
+import { useLiveFill } from '@/lib/frameClock';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
   'continuo': 'Contínuo',
@@ -90,59 +91,36 @@ const STATUS_STYLES = {
   loading: { label: 'CARREGANDO', text: 'text-logic-accent', dot: 'bg-logic-accent shadow-[0_0_6px_1px_rgba(10,132,255,0.5)] animate-pulse', bar: 'bg-logic-accent' },
 } as const;
 
-// Barra contínua de alta taxa: escreve style.width direto no DOM em cada quadro (60fps),
-// eliminando completamente o atraso, pulo ou efeito elástico de CSS transitions.
+// Barras ao vivo pelo relógio de quadro único (frameClock): andam a cada quadro só com a música
+// tocando e dormem parado. O preenchimento vai por transform (sem refazer o layout a cada quadro),
+// com a mesma conta de sempre (getLiveProgressPct) e sem transição de CSS, que atrasaria a barra.
 function TransportPlayingBar({ isFinalCountdown }: { isFinalCountdown: boolean }) {
   const barRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (barRef.current) {
-        const pct = getLiveProgressPct();
-        barRef.current.style.width = `${pct}%`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  useLiveFill(barRef, getLiveProgressPct);
 
   return (
     <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden">
       <div
         ref={barRef}
-        className={`h-full ${isFinalCountdown ? 'bg-logic-lcd-red' : 'bg-logic-lcd-green'} will-change-[width]`}
-        style={{ width: '0%' }}
+        className={`h-full w-full ${isFinalCountdown ? 'bg-logic-lcd-red' : 'bg-logic-lcd-green'} will-change-transform`}
+        style={{ transform: 'translateX(-100%)' }}
       />
     </div>
   );
 }
 
-// Barra de regresso do painel Próxima: enche da direita para a esquerda continuamente a 60fps
-// Funciona como uma ampulheta sincronizada exatamente com a música que está tocando.
+// Barra de regresso do painel Próxima: enche da direita para a esquerda, como uma ampulheta
+// sincronizada com a música que está tocando.
 function TransportNextBar() {
   const barRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let raf = 0;
-    const tick = () => {
-      if (barRef.current) {
-        const pct = getLiveProgressPct();
-        barRef.current.style.width = `${pct}%`;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  useLiveFill(barRef, getLiveProgressPct, true);
 
   return (
-    <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden flex justify-end">
+    <div className="h-1 shrink-0 bg-logic-bg-deep rounded-full overflow-hidden">
       <div
         ref={barRef}
-        className="h-full bg-logic-lcd-amber ml-auto will-change-[width]"
-        style={{ width: '0%' }}
+        className="h-full w-full bg-logic-lcd-amber will-change-transform"
+        style={{ transform: 'translateX(100%)' }}
       />
     </div>
   );
@@ -173,7 +151,7 @@ const selFinalCountdown = (s: StoreState) => {
   return secondsLeft <= 10 ? Math.ceil(secondsLeft) : null;
 };
 
-export default function TransportBar() {
+function TransportBar() {
   const isPlaying = useStore((s) => s.transport.isPlaying);
   const isPaused = useStore((s) => s.transport.isPaused);
   const isStopped = useStore((s) => s.transport.isStopped);
@@ -403,3 +381,6 @@ export default function TransportBar() {
     </div>
   );
 }
+
+// memo: sem props, o transporte só redesenha pelo que ele mesmo assina no store.
+export default memo(TransportBar);
