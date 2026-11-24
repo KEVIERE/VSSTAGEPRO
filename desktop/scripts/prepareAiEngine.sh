@@ -117,7 +117,8 @@ fi
 # Python do Windows não entende caminho do Git Bash (/d/a/...) em variável de ambiente
 [ "$WIN" = 1 ] && TORCH_HOME="$(cygpath -w "$TORCH_HOME")" && export TORCH_HOME
 ${RUN[@]+"${RUN[@]}"} "$PY_BIN" -c "import demucs.pretrained; demucs.pretrained.get_model('htdemucs_6s')"
-[ "$(shasum -a 256 "$MODEL_PATH" | cut -d' ' -f1)" = "$MODEL_SHA256" ] || { echo "::error::Os pesos do htdemucs_6s não conferem"; exit 1; }
+# Windows (Git Bash) não tem shasum; usa sha256sum, como na conferência da cópia acima
+[ "$( (command -v shasum >/dev/null && shasum -a 256 "$MODEL_PATH" || sha256sum "$MODEL_PATH") | cut -d' ' -f1 | tr -d '\\')" = "$MODEL_SHA256" ] || { echo "::error::Os pesos do htdemucs_6s não conferem"; exit 1; }
 
 echo "5. Teste: versões e separação real de 3 s de áudio (WAV e MP3), do mesmo jeito que o programa chama..."
 # Mac de usuário comum: sem ffmpeg nem nada instalado além do sistema
