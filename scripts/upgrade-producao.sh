@@ -16,7 +16,7 @@ set -u
 BRANCH="feat/saidas-estereo"
 # Projeto em uso desde 26/10/2026. O antigo, xfpkftewsxaxycdwwnnv (vs-stage), está bloqueado.
 PROJECT_REF="eknjqqiamuztomdygalv"
-FUNCTIONS=("infinitepay-webhook" "pix-checkout" "pix-renewal-reminder" "admin-insights" "health-check" "admin-coupons" "prompter-audio" "prompter-audio-sweep" "admin-promote" "admin-releases" "outreach-send" "outreach-unsubscribe" "twilio-inbound")
+FUNCTIONS=("infinitepay-webhook" "pix-checkout" "pix-renewal-reminder" "admin-insights" "health-check" "admin-coupons" "prompter-audio" "prompter-audio-sweep" "admin-promote" "admin-releases" "outreach-send" "outreach-unsubscribe" "twilio-inbound" "bonus-download")
 # Funções chamadas sem login do Supabase (avisos de fora): publicadas com --no-verify-jwt,
 # mesmo que o config.toml já diga verify_jwt = false. Sem isso a InfinitePay recebe 401.
 NO_VERIFY_JWT=("infinitepay-webhook")
