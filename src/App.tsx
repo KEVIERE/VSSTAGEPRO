@@ -48,6 +48,7 @@ const SubscriptionReturn = lazy(() => import('@/components/SubscriptionReturn'))
 const AdminPage = lazy(() => import('@/components/admin/AdminPage'));
 const AffiliatePage = lazy(() => import('@/components/affiliate/AffiliatePage'));
 const SubscriberArea = lazy(() => import('@/components/SubscriberArea'));
+const StageDownloadPage = lazy(() => import('@/components/StageDownloadPage'));
 // Telas de quem entra por um link próprio (músico, telão, produtor, controle no celular). Só
 // páginas de entrada: janelas usadas durante o show continuam no pacote principal, para nunca
 // dependerem de buscar arquivo com a música tocando.
@@ -89,7 +90,7 @@ function SitePageFallback() {
   return <div className="min-h-screen bg-black" />;
 }
 
-function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' | 'affiliate' | 'subscriber' {
+function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'director' | 'sales' | 'subscribed' | 'admin' | 'recovery' | 'pricing' | 'remote' | 'affiliate' | 'subscriber' | 'stagedownload' {
   const { pathname, hash, search } = window.location;
   // No build de staging (servido em /staging/, mesmo domínio), o próprio prefixo
   // entra no pathname — ignora esse primeiro segmento pra rotear igual à produção.
@@ -99,6 +100,7 @@ function routeFromUrl(): 'musician' | 'screen' | 'producer' | 'download' | 'dire
   if (seg === 'afiliado' || hash.startsWith('#afiliado')) return 'affiliate';
   // Área do Assinante (bônus): abre igual no computador e no celular
   if (seg === 'area-do-assinante' || hash.startsWith('#area-do-assinante')) return 'subscriber';
+  if (seg === 'stagedownload' || hash.startsWith('#stagedownload')) return 'stagedownload';
   if (
     seg === 'recuperar' ||
     seg === 'recuperar-senha' ||
@@ -321,6 +323,13 @@ function App() {
     return (
       <ErrorBoundary>
         <Suspense fallback={<SitePageFallback />}><AffiliatePage /></Suspense>
+      </ErrorBoundary>
+    );
+  }
+  if (route === 'stagedownload') {
+    return (
+      <ErrorBoundary>
+        <Suspense fallback={<SitePageFallback />}><StageDownloadPage /></Suspense>
       </ErrorBoundary>
     );
   }

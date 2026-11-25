@@ -36,7 +36,8 @@ test('ids dos bônus valem como pasta do bucket e não se repetem', () => {
   const ids = BONUSES.map((b) => b.id);
   assert.equal(new Set(ids).size, ids.length);
   for (const id of ids) assert.match(id, /^[a-z0-9-]{1,60}$/);
-  for (const b of BONUSES) assert.ok(['download', 'soon'].includes(b.kind), b.id);
+  for (const b of BONUSES) assert.ok(['download', 'page', 'soon'].includes(b.kind), b.id);
+  for (const b of BONUSES.filter((x) => x.kind === 'page')) assert.match(b.page ?? '', /^[a-z0-9-]+$/, b.id);
 });
 
 test('mensagens de erro e data', () => {

@@ -7,9 +7,11 @@
 //      privado "bonus" do Supabase, dentro de uma pasta com o mesmo nome do id
 //      (ex.: bonus/pack-de-loops/Pack de Loops.zip). O servidor só entrega o link para
 //      quem é assinante em dia (função bonus-download).
-//   3. Enquanto não estiver pronto, use kind 'soon': aparece na lista como "Em breve".
+//   3. Se for uma página do site: kind 'page' e o endereço em `page` (ex.: 'stagedownload').
+//      A própria página confere a assinatura de novo (não dá para abrir só pelo endereço).
+//   4. Enquanto não estiver pronto, use kind 'soon': aparece na lista como "Em breve".
 
-export type BonusKind = 'download' | 'soon';
+export type BonusKind = 'download' | 'page' | 'soon';
 
 export type BonusItem = {
   id: string;
@@ -18,6 +20,8 @@ export type BonusItem = {
   kind: BonusKind;
   /** Texto curto no canto do cartão (ex.: "Mac", "ZIP · 1,2 GB") */
   tag?: string;
+  /** kind 'page': endereço da página no site, sem a barra (ex.: 'stagedownload') */
+  page?: string;
 };
 
 export const BONUSES: BonusItem[] = [
@@ -25,8 +29,9 @@ export const BONUSES: BonusItem[] = [
     id: 'stage-download',
     title: 'Stage Download',
     description: 'Cole um link e baixe o áudio ou o vídeo na qualidade original, em MP3, WAV, FLAC ou M4A.',
-    kind: 'soon',
-    tag: 'Mac',
+    kind: 'page',
+    page: 'stagedownload',
+    tag: 'No navegador',
   },
 ];
 

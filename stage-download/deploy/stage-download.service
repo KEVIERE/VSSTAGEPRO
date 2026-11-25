@@ -1,0 +1,28 @@
+# Stage Download no servidor do site (bônus da Área do Assinante).
+# Instalado em /etc/systemd/system/stage-download.service. Um processo só: a fila de
+# downloads fica na memória dele (e a VPS tem 1 processador).
+[Unit]
+Description=Stage Download (vsstagepro.com.br/stagedownload)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=stagedl
+Group=stagedl
+WorkingDirectory=/opt/stage-download/app
+EnvironmentFile=/etc/stage-download.env
+Environment=STAGE_DATA=/var/lib/stage-download
+Environment=PATH=/opt/stage-download/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/stage-download/venv/bin/gunicorn --workers 1 --threads 8 --timeout 900 --bind 127.0.0.1:8790 server:app
+Restart=always
+RestartSec=5
+# o yt-dlp atualiza todo dia (os sites mudam): ver stage-download-update.timer
+Nice=5
+MemoryMax=1500M
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/stage-download
+
+[Install]
+WantedBy=multi-user.target

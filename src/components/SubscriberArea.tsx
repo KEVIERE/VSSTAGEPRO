@@ -3,7 +3,7 @@
 // bônus fica num bucket privado e a função bonus-download só entrega o link ao assinante.
 import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { Download, Loader2, Lock } from 'lucide-react';
+import { Download, ExternalLink, Loader2, Lock } from 'lucide-react';
 import DownloadAccess from '@/components/DownloadAccess';
 import VsLogo from '@/components/VsLogo';
 import { supabase } from '@/lib/supabaseClient';
@@ -157,6 +157,10 @@ function BonusCard({ bonus, allowed }: { bonus: BonusItem; allowed: boolean }) {
           <span className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)]">
             <Lock size={14} /> Só para assinantes
           </span>
+        ) : bonus.kind === 'page' && bonus.page ? (
+          <a href={`${import.meta.env.BASE_URL}${bonus.page}`} className="vs-key vs-key-sm vs-key-amber">
+            <ExternalLink size={15} /><span className="ml-1.5">Abrir</span>
+          </a>
         ) : soon ? (
           <span className="inline-flex items-center gap-2 text-sm text-[color:var(--cream-dim)]">
             <span className="vs-led is-amber" /> Em breve

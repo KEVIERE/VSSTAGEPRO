@@ -1,0 +1,8 @@
+# Atualiza o yt-dlp (YouTube, Instagram e afins mudam com frequência) e reinicia o motor.
+[Unit]
+Description=Atualiza o yt-dlp do Stage Download
+
+[Service]
+Type=oneshot
+ExecStart=/opt/stage-download/venv/bin/pip install -q -U "yt-dlp[default]"
+ExecStartPost=/bin/systemctl try-restart stage-download.service
