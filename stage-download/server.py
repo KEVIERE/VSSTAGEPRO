@@ -119,7 +119,8 @@ def friendly_error(e: Exception) -> str:
     msg = str(e).replace("ERROR: ", "")
     low = msg.lower()
     if "sign in to confirm" in low or "not a bot" in low:
-        return "Esse site pediu confirmação de robô para o nosso servidor. Tente de novo mais tarde."
+        return ("O YouTube recusou o nosso servidor agora (pediu confirmação de robô). "
+                "Tente de novo em alguns minutos ou use outro link.")
     if "login" in low or "cookies" in low or "private" in low:
         return "Esse conteúdo é privado ou pede login, e o servidor não consegue abrir."
     if "unsupported url" in low:
@@ -142,6 +143,17 @@ def _cookie_copy(folder: Path):
     except OSError:
         pass
     return None
+
+
+def first_link(text: str) -> str:
+    """O primeiro link do texto (colar duas vezes juntava dois links num só)."""
+    t = (text or "").strip()
+    i = t.lower().find("http")
+    if i < 0:
+        return t
+    rest = t[i:]
+    j = rest.lower().find("http", 4)
+    return (rest[:j] if j > 0 else rest).split()[0]
 
 
 def _base_opts():
@@ -175,7 +187,7 @@ def health():
 @app.post("/info")
 def info():
     require_subscriber()
-    url = ((request.get_json(silent=True) or {}).get("url") or "").strip()
+    url = first_link((request.get_json(silent=True) or {}).get("url") or "")
     if not url.startswith("http"):
         return jsonify({"error": "Cole um link que comece com http."}), 400
     platform = dl.detect_platform(url)
@@ -226,7 +238,7 @@ def _public(job):
 def start_download():
     user = require_subscriber()
     body = request.get_json(silent=True) or {}
-    url = (body.get("url") or "").strip()
+    url = first_link(body.get("url") or "")
     mode = body.get("mode", "audio")
     fmt = body.get("format", "mp3")
     quality = str(body.get("quality", "320"))
