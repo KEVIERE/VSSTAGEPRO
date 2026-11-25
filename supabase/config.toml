@@ -39,6 +39,10 @@ verify_jwt = true
 [functions.prompter-audio]
 verify_jwt = true
 
+# Área do Assinante: só entrega o bônus para quem está logado e é assinante.
+[functions.bonus-download]
+verify_jwt = true
+
 # Chamada pelo agendamento do banco (pg_cron), com a senha do Vault em x-cron-secret.
 [functions.prompter-audio-sweep]
 verify_jwt = false

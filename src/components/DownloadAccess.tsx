@@ -31,7 +31,21 @@ const TITLES: Record<View, string> = {
 
 // Gate da página de downloads: só libera os botões de baixar depois de
 // entrar ou criar conta — a mesma conta usada para abrir o VS Stage.
-export default function DownloadAccess({ children }: { children: (session: Session, signOut: () => void) => React.ReactNode }) {
+type GateText = { heading: string; signin: string; signup: string; button: string };
+
+const DOWNLOAD_TEXT: GateText = {
+  heading: 'Acessar Downloads',
+  signin: 'Entre com seu e-mail para liberar o download e o teste de 48 horas.',
+  signup: 'Cadastre-se para baixar o instalador oficial e começar seu teste grátis.',
+  button: 'Entrar e Acessar Downloads',
+};
+
+// Também protege a Área do Assinante: muda só o endereço de volta (hash) e os textos.
+export default function DownloadAccess({ children, hash = 'baixar', text = DOWNLOAD_TEXT }: {
+  children: (session: Session, signOut: () => void) => React.ReactNode;
+  hash?: string;
+  text?: GateText;
+}) {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState<View>('signin');
@@ -59,7 +73,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
       if (emailLinkType === 'signup') {
         if (data.session) setJustConfirmed(true);
         // o acesso que veio no link já foi lido: o endereço fica só o da página de downloads
-        window.history.replaceState(null, '', `${window.location.pathname}#baixar`);
+        window.history.replaceState(null, '', `${window.location.pathname}#${hash}`);
       }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
@@ -67,7 +81,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
       if (event === 'PASSWORD_RECOVERY') setView('recovery');
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
-  }, []);
+  }, [hash]);
 
   const go = (v: View) => { setError(null); setErrorIsAlreadyRegistered(false); setErrorHasNoAccount(false); setInfo(null); setView(v); };
 
@@ -98,7 +112,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           password,
           options: {
           data: { name: name.trim(), phone: normalizedPhone },
-          emailRedirectTo: authRedirect('/#baixar'),
+          emailRedirectTo: authRedirect(`/#${hash}`),
         },
         });
         if (err) throw err;
@@ -121,7 +135,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
         if (password.length < 6) throw new Error('password should be at least 6');
         const { error: err } = await supabase.auth.updateUser({ password });
         if (err) throw err;
-        window.history.replaceState(null, '', `${window.location.pathname}#baixar`);
+        window.history.replaceState(null, '', `${window.location.pathname}#${hash}`);
         setView('signin');
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -186,14 +200,14 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
               </div>
             )}
             <h1 className="text-2xl font-semibold text-white tracking-tight">
-              {view === 'signin' && 'Acessar Downloads'}
+              {view === 'signin' && text.heading}
               {view === 'signup' && 'Criar Conta de Acesso'}
               {view === 'forgot' && 'Recuperar Senha'}
               {view === 'recovery' && 'Criar Nova Senha'}
             </h1>
             <p className="text-sm text-apple-text-secondary mt-1.5 leading-relaxed">
-              {view === 'signin' && 'Entre com seu e-mail para liberar o download e o teste de 48 horas.'}
-              {view === 'signup' && 'Cadastre-se para baixar o instalador oficial e começar seu teste grátis.'}
+              {view === 'signin' && text.signin}
+              {view === 'signup' && text.signup}
               {view === 'forgot' && 'Digite seu e-mail para receber as instruções de recuperação.'}
               {view === 'recovery' && 'Escolha uma nova senha segura para sua conta.'}
             </p>
@@ -297,7 +311,7 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
             className="w-full h-12 rounded-full btn-apple-blue text-white text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-[#0071e3]/25"
           >
             {busy && <Loader2 size={16} className="animate-spin text-white" />}
-            {view === 'signin' && 'Entrar e Acessar Downloads'}
+            {view === 'signin' && text.button}
             {view === 'signup' && 'Criar Conta e Liberar Download'}
             {view === 'forgot' && 'Enviar link de recuperação'}
             {view === 'recovery' && 'Salvar nova senha'}

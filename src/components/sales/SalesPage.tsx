@@ -23,6 +23,8 @@ const INTRO_KEY = 'vs_site_intro_v1';
 
 const goPlans = () => { window.location.hash = '#planos'; };
 const goDownload = () => { window.location.hash = '#baixar'; };
+// BASE_URL: no staging o site fica em /staging/, então o endereço acompanha
+const goSubscriberArea = () => { window.location.href = `${import.meta.env.BASE_URL}area-do-assinante`; };
 
 function scrollToId(e: MouseEvent<HTMLElement>, id: string) {
   const el = document.getElementById(id);
@@ -99,10 +101,12 @@ function Nav() {
           <VsLogo size={26} />
           <span className="vs-wordmark">VS Stage Pro</span>
         </a>
-        <nav className="hidden lg:flex items-center gap-7 mx-auto text-[0.875rem]" aria-label="Seções do site">
+        <nav className="hidden lg:flex items-center gap-5 xl:gap-7 mx-auto text-[0.875rem] whitespace-nowrap" aria-label="Seções do site">
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id)} className="vs-nav-link">{l.label}</a>
           ))}
+          {/* em telas estreitas não cabe no topo: fica só no rodapé */}
+          <a href={`${import.meta.env.BASE_URL}area-do-assinante`} className="vs-nav-link hidden xl:inline">Área do Assinante</a>
         </nav>
         <div className="ml-auto lg:ml-0 flex items-center gap-2">
           <button type="button" onClick={goPlans} className="vs-key vs-key-sm vs-key-steel hidden sm:inline-flex">Assinar</button>
@@ -943,6 +947,7 @@ const FOOTER_COLS: { title: string; links: { label: string; id?: string; go?: ()
   ] },
   { title: 'Assinatura', links: [
     { label: 'Preços', id: 'precos' }, { label: 'Planos', go: goPlans }, { label: 'Teste grátis de 48 horas', go: goDownload },
+    { label: 'Área do Assinante', go: goSubscriberArea },
   ] },
 ];
 
