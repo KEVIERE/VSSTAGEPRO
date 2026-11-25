@@ -12,7 +12,7 @@ export default function StemSplitStatus() {
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-4 right-4 z-[120] w-[320px] console-face rounded-lg border border-black shadow-2xl p-3 flex flex-col gap-2 animate-[fadeIn_150ms_ease-out]"
+      className="pointer-events-auto w-[320px] console-face rounded-lg border border-black shadow-2xl p-3 flex flex-col gap-2 animate-[fadeIn_150ms_ease-out]"
     >
       <div className="flex items-center gap-2 min-w-0">
         <span className={`console-led ${lit} ${working ? 'animate-pulse' : ''}`} />

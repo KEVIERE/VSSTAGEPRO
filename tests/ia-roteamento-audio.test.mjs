@@ -86,3 +86,12 @@ test('importação ouve os áudios sem nome antes de criar as faixas', () => {
   assert.match(ai, /ensureSongLoaded\(clip\.songId\)/, 'reclassificar carrega o áudio da música');
   assert.match(ai, /setSuggestion\(/, 'reclassificar sugere numa janelinha antes de mover');
 });
+
+test('avisos do canto (Separar stems, metrônomo) ficam numa pilha, sem um cobrir o outro', () => {
+  const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+  assert.match(app, /fixed bottom-4 right-4 z-\[120\] flex flex-col-reverse[\s\S]{0,80}<StemSplitStatus \/>\s*<ClickStatus \/>/);
+  for (const f of ['StemSplitStatus', 'ClickStatus']) {
+    const src = readFileSync(new URL(`../src/components/${f}.tsx`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /fixed bottom-4 right-4/, `${f} não se posiciona sozinho`);
+  }
+});

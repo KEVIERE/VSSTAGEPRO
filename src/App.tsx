@@ -930,8 +930,12 @@ export function DirectorApp({ license }: { license: License }) {
 
         {!playlistMaximized && <MixerPanel />}
         <ContextMenu />
-        <StemSplitStatus />
-        <ClickStatus />
+        {/* Avisos do canto (Separar stems, Recriar metrônomo...) numa pilha: antes cada um era
+            desenhado no mesmo lugar e um escondia o outro (a separação parecia não fazer nada). */}
+        <div className="fixed bottom-4 right-4 z-[120] flex flex-col-reverse gap-2 pointer-events-none">
+          <StemSplitStatus />
+          <ClickStatus />
+        </div>
         <BounceDialog />
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
         {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}
