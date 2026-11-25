@@ -502,13 +502,29 @@ async function applyMedleyMap(songId: string, createClick: boolean, alive: () =>
       tempoMapSource: mapSource,
       tempoMapSig: tempoMapSignature(undefined),
     });
+    medleyNotices.push(bpmFoundNotice(current.name, [map.bpm]));
     return;
   }
   setSongBpm(songId, map.bpm, source, 0, segments, mapSource);
   if (createClick && !isClick && hasTempoChanges(segments) && !isFinalRitOnly(segments)) {
     await addMedleyClick(songId);
     medleyNotices.push(medleyEstimateNotice(current.name, segments));
+  } else {
+    medleyNotices.push(bpmFoundNotice(current.name, segments.map((s) => s.bpm)));
   }
+}
+
+/** Aviso da importação (e do Medir BPM de novo): os andamentos encontrados na música. Ao abrir o projeto, não sai. */
+export function bpmFoundNotice(songName: string, bpms: number[]): string {
+  const fmt = (b: number) => Number(b.toFixed(2)).toLocaleString('pt-BR');
+  const list: string[] = [];
+  for (const b of bpms) {
+    const t = fmt(b);
+    if (list[list.length - 1] !== t) list.push(t);
+  }
+  if (list.length <= 1) return `"${songName}": ${list[0] ?? fmt(bpms[0] ?? 0)} BPM.`;
+  const shown = list.length > 6 ? [...list.slice(0, 6), 'outros'] : list;
+  return `"${songName}": ${list.length} andamentos encontrados (${shown.slice(0, -1).join(', ')} e ${shown[shown.length - 1]} BPM).`;
 }
 
 // Mapa que a medição automática não pode refazer: feito à mão, do REAPER, ou antigo sem registro.
@@ -825,7 +841,8 @@ export async function checkSavedBarPhase(songId: string, canGoOn: () => boolean)
       ...(mark ? { tempoBarCheck: mark } : {}),
     } : sg)),
   }));
-  useStore.getState().setPlaybackError(`Tempo 1 de "${latest.name}" ajustado. As batidas não mudaram. Para voltar, use Desfazer.`);
+  // sem aviso: as batidas não mudam, só qual delas é o 1, e o Desfazer volta (o aviso repetia a cada
+  // abertura de projeto que não foi salvo depois da correção)
   return 'replaced';
 }
 
