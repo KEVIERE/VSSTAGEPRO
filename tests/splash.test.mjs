@@ -1,5 +1,5 @@
 // Abertura do app do Mac (desktop/splash.html): o logo com a onda desenhada a laser, o nome em
-// Outfit e a barra em verde-limão. Precisa caber no tempo do app e ser leve até nos Macs Intel.
+// SF Pro (fonte do sistema) e a barra em verde-limão. Precisa caber no tempo do app e ser leve até nos Macs Intel.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -26,9 +26,10 @@ test('leve até no Intel: nenhuma animação mexe em filtro e sem desfoque do fu
 
 test('as fontes usadas viajam no instalador', () => {
   const fonts = [...splash.matchAll(/url\('(build\/fonts\/[^']+)'\)/g)].map((m) => m[1]);
-  assert.ok(fonts.length > 0);
+  // o nome usa a fonte do sistema (SF Pro no Mac): nada a carregar
+  assert.match(splash, /\.title \{ font-family: -apple-system/);
   for (const f of fonts) assert.ok(pkg.build.files.includes(f), `${f} está no package.json`);
-  assert.match(splash, /class="title"[^>]*>VS Stage Pro</, 'o nome da marca, em Outfit');
+  assert.match(splash, /class="title"[^>]*>VS Stage Pro</, 'o nome da marca');
 });
 
 test('sem luz azul em volta do logo: o ícone tem luz neutra e a aura é branca', () => {

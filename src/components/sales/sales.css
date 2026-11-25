@@ -32,8 +32,8 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
 
 /* ---------- Tipografia ---------- */
 /* nome na barra de cima: letreiro de marca, mais sóbrio que os títulos */
-/* Nome do programa junto da logo: Outfit, a mesma do programa (ver .vs-brand em src/index.css) */
-.vs-wordmark { font-family: 'Outfit', 'Inter', system-ui, sans-serif; font-weight: 600; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--cream); white-space: nowrap; }
+/* Nome do programa junto da logo: SF Pro, a mesma do programa (ver .vs-brand em src/index.css) */
+.vs-wordmark { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif; font-weight: 600; font-size: 1.05rem; letter-spacing: -0.015em; color: var(--cream); white-space: nowrap; }
 .vs-display {
   font-family: 'Barlow Semi Condensed', 'Inter', system-ui, sans-serif;
   font-weight: 600;
@@ -73,7 +73,8 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
 .vs-key {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem;
   height: 3.25rem; padding: 0 1.6rem; border-radius: 0.6rem;
-  font-family: 'Barlow Semi Condensed', 'Inter', sans-serif; font-weight: 700; font-size: 1.12rem; letter-spacing: 0.02em;
+  /* fonte dos botões da Apple (SF Pro): peso médio e letras juntas, mais formal */
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif; font-weight: 500; font-size: 1.0625rem; letter-spacing: -0.01em;
   transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.2s ease;
   white-space: nowrap;
 }
@@ -93,9 +94,11 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
   box-shadow: 0 0 0 1px rgba(231, 226, 214, 0.09), inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 22px -8px rgba(0, 0, 0, 0.8);
 }
 .vs-key-steel:hover { filter: brightness(1.15); }
-.vs-key-sm { height: 2.375rem; padding: 0 1.05rem; font-size: 1rem; border-radius: 0.5rem; }
+.vs-key-sm { height: 2.375rem; padding: 0 1.05rem; font-size: 0.9375rem; border-radius: 0.5rem; }
+/* botões do topo: menores, para acompanhar os links finos */
+.vs-key-nav { height: 1.875rem; padding: 0 0.9rem; font-size: 0.8125rem; border-radius: 0.45rem; }
 /* no toque, as teclas pequenas chegam a 44 px de altura */
-@media (pointer: coarse) { .vs-key-sm { height: 2.75rem; } }
+@media (pointer: coarse) { .vs-key-sm { height: 2.75rem; } .vs-key-nav { height: 2.5rem; } }
 
 .vs-led {
   display: inline-block; flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px;
@@ -189,8 +192,14 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
   backdrop-filter: saturate(1.5) blur(18px);
   border-bottom: 1px solid var(--line);
 }
-.vs-nav a.vs-nav-link { color: var(--cream-dim); transition: color 0.2s ease; }
-.vs-nav a.vs-nav-link:hover { color: var(--cream); }
+/* links do topo como os do site da Apple: SF Pro Text pequena e fina, cinza claro que acende no hover */
+.vs-nav a.vs-nav-link {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  font-size: 0.75rem; font-weight: 400; letter-spacing: -0.01em;
+  color: rgba(232, 232, 237, 0.8); transition: color 0.2s ease;
+}
+.vs-nav a.vs-nav-link:hover { color: #fff; }
+.vs-nav .vs-wordmark { font-size: 0.95rem; }
 
 /* ---------- Topo (hero) ---------- */
 .vs-hero { position: relative; padding-top: clamp(3.5rem, 10vh, 7rem); padding-bottom: clamp(2.5rem, 7vh, 5rem); text-align: center; overflow: hidden; isolation: isolate; }
@@ -402,7 +411,7 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
   .vs-band-phones { align-self: center; }
 }
 
-/* ---------- TV do palco ---------- */
+/* ---------- Teleprompter ---------- */
 .vs-tv-wrap { --notice: clamp(0, calc((var(--sp, 0) - 0.55) * 5), 1); }
 .vs-tv { position: relative; padding: clamp(5px, 0.7vw, 10px); border-radius: 12px; background: #0b0c0e; box-shadow: 0 0 0 1px #2d3238, inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 50px 120px -40px #000; }
 .vs-tv-screen { position: relative; overflow: hidden; border-radius: 4px; container-type: inline-size; }

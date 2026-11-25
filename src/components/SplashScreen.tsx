@@ -9,8 +9,8 @@ const STEPS = [
 const EXIT_AT = 3600;
 const EXIT_MS = 450;
 const TITLE = 'VS Stage Pro';
-// Nome do programa: fonte Outfit (carregada em src/index.css), a mesma de todo lugar
-const BRAND_FONT = "'Outfit', 'Inter', system-ui, sans-serif";
+// Nome do programa: SF Pro, a fonte da Apple (a mesma de .vs-brand em src/index.css)
+const BRAND_FONT = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif";
 const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
 export default function SplashScreen({ onDone }: { onDone: () => void }) {

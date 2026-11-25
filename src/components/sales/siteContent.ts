@@ -155,9 +155,11 @@ export const TV_POINTS = [
 ];
 
 export const NEWS = [
+  { title: 'O Maestro com a sua voz', text: 'Grave a sua voz no próprio programa e depois é só digitar: o Maestro fala com a sua voz, direto na timeline, no tempo certo.' },
+  { title: 'Abre projetos do Reaper', text: 'Abra o projeto .RPP do Reaper e cada região vira uma música do show. Também dá para salvar o show em .RPP.' },
   { title: 'Cara de equipamento de verdade', text: 'Skins Analógica, Grafite, Estúdio e Oficina, com knobs de LED, VUs de ponteiro, loudness e a placa da marca.' },
   { title: 'Pads ao vivo no Modo Show', text: '9 pads em 10 bancos com reverb, delay, roll no tempo, loop e saída própria. Tecla P abre na hora.' },
-  { title: 'Mais de mil falas prontas do Maestro', text: 'Botões por assunto, com intensidade Calma, Normal ou Forte, nas vozes Felipe e Bianca.' },
+  { title: 'Mais de mil falas prontas do Maestro', text: 'Três vozes de maestro, com botões por assunto e intensidade Calma, Normal ou Forte.' },
   { title: 'Letra automática na TV', text: 'A IA lê a letra da música e marca cada trecho na onda, no tempo certo de aparecer.' },
   { title: 'Cifra que rola sozinha', text: 'No Modo show do músico a cifra desce na velocidade escolhida, de bem devagar até rápido.' },
   { title: 'Gravar na faixa Maestro', text: 'REC e microfone direto na faixa, com a placa e o canal que você escolher.' },
@@ -169,13 +171,13 @@ export const NEWS = [
 
 export const COMPARISON = [
   { topic: 'Trocar de música', studio: 'Abrir outro projeto ou rolar uma timeline enorme', vs: 'Cada música tem a sua timeline e a troca é instantânea' },
-  { topic: 'Montar um VS', studio: 'Importar, nomear e rotear faixa por faixa', vs: 'Arraste a pasta e a IA roteia sozinha, ou deixe a IA separar a música pronta' },
+  { topic: 'Montar um VS', studio: 'Importar, nomear e rotear faixa por faixa', vs: 'Arraste a pasta e a IA roteia sozinha, abra o projeto .RPP do Reaper ou deixe a IA separar a música pronta' },
   { topic: 'Tom e andamento', studio: 'Plugins pesados que deformam o timbre', vs: 'Tom e BPM com um clique, em tempo real, sem bagunçar o projeto' },
   { topic: 'Banda e cantores', studio: 'Papel impresso ou outro aplicativo, sem sincronia', vs: 'Partitura no celular de cada músico e letra na TV, no tempo da música' },
   { topic: 'Na hora do show', studio: 'Telas cheias de botões pequenos e risco de clique errado', vs: 'Modo Show com displays grandes e trava contra toques sem querer' },
   { topic: 'Iluminação', studio: 'Gerador de timecode configurado à parte', vs: 'Faixa de timecode LTC pronta, com fader, trava e saída própria' },
   { topic: 'Vinhetas e efeitos', studio: 'Sampler ou outro programa aberto junto', vs: 'Pads no Modo Show, com efeitos e saída própria, sem sair da tela do show' },
-  { topic: 'Regência', studio: 'Gravar a voz do maestro à mão, música por música', vs: 'Maestro com IA: você digita, a IA fala no tempo certo' },
+  { topic: 'Regência', studio: 'Gravar a voz do maestro à mão, música por música', vs: 'Maestro com IA: você digita e ele fala no tempo certo, até com a sua voz' },
 ];
 
 export type Tool = { title: string; text: string; viz: ToolViz; wide?: boolean };
@@ -186,7 +188,7 @@ export const TOOLS: Tool[] = [
   { title: 'Faixa só para o timecode', text: 'O timecode LTC tem faixa, fader, trava e saída próprios. A mesa de luz e os painéis de LED seguem cada música sem vazar no PA.', viz: 'timecode', wide: true },
   { title: 'Master com IA', text: 'Um toque no IGUALAR e a IA nivela todos os VS do projeto: as músicas baixas sobem, as altas descem, e o show soa por igual do começo ao fim.', viz: 'equal', wide: true },
   { title: 'Anti-clip em tempo real', text: 'Funciona como um limitador em tempo real: ligado, a faixa não clipa nem no pico mais forte. Adeus ao estalo no PA.', viz: 'anticlip' },
-  { title: 'Maestro com IA', text: 'Escreva a regência e a IA fala por você, no tempo certo: contagem, "prepara o refrão", "último refrão". A banda ouve no fone, o público não.', viz: 'maestro', wide: true },
+  { title: 'Maestro com IA', text: 'Escreva a regência e a IA fala por você, no tempo certo: contagem, "prepara o refrão", "último refrão". São três vozes de maestro, ou a sua própria voz clonada. A banda ouve no fone, o público não.', viz: 'maestro', wide: true },
   { title: 'BPM com IA', text: 'A IA ouve a música e descobre o andamento exato, sem ninguém precisar bater o pé.', viz: 'bpm' },
   { title: 'Tom e BPM com um clique', text: 'Subiu o tom para o cantor? Acelerou a música? Um clique, em tempo real, sem bagunçar o projeto do show.', viz: 'tune' },
   { title: 'Uma timeline por música', text: 'Chega de projetos imensos em que você não enxerga o fim. Cada música tem a sua timeline: visual limpo e troca instantânea.', viz: 'i-timeline' },
@@ -202,7 +204,7 @@ export const TOOLS: Tool[] = [
   { title: 'Arraste e solte', text: 'Arraste as músicas para qualquer posição e monte uma nova playlist em poucos cliques. Mudou o roteiro em cima da hora? Leva segundos.', viz: 'drag', wide: true },
   { title: 'Masterização com IA', text: 'Um botão trata o som da música com inteligência artificial e entrega presença e volume prontos para o PA.', viz: 'i-master' },
   { title: 'Pads ao vivo', text: 'Vinhetas, efeitos e loops em 9 pads por banco, com efeitos próprios e saída separada, direto no Modo Show.', viz: 'i-pads' },
-  { title: 'Letra automática', text: 'A IA lê a letra da música e marca cada trecho na onda para a TV do palco.', viz: 'i-letra' },
+  { title: 'Letra automática', text: 'A IA lê a letra da música e marca cada trecho na onda para o teleprompter.', viz: 'i-letra' },
   { title: 'Controle pelo celular', text: 'O Modo Show na palma da mão, pela rede local ou pela internet, com os medidores do show.', viz: 'i-remote' },
   { title: 'Gravar e recriar o click', text: 'Grave a voz na faixa Maestro e troque o som do metrônomo pelo que você quiser.', viz: 'i-rec' },
   { title: 'Skins de equipamento', text: 'Analógica, Grafite, Estúdio ou Oficina: escolha a cara do programa para o seu palco.', viz: 'i-skins' },
@@ -236,7 +238,11 @@ export const FAQS = [
   },
   {
     q: 'Como funciona o Maestro com IA?',
-    a: 'Você marca na faixa Maestro o ponto da música e digita o que o maestro tem que falar: a contagem, "prepara o refrão", "último refrão" e qualquer aviso. A IA transforma o texto em voz e encaixa no tempo da música, saindo pelo canal do Maestro, com a mesma saída e o mesmo volume. Também há mais de mil falas prontas em botões por assunto, nas vozes Felipe e Bianca.',
+    a: 'Você marca na faixa Maestro o ponto da música e digita o que o maestro tem que falar: a contagem, "prepara o refrão", "último refrão" e qualquer aviso. A IA transforma o texto em voz e encaixa no tempo da música, saindo pelo canal do Maestro, com a mesma saída e o mesmo volume. São três vozes de maestro e mais de mil falas prontas em botões por assunto. Você também pode clonar a sua voz: grava alguns segundos no próprio programa e, daí em diante, tudo o que digitar sai com a sua voz na timeline.',
+  },
+  {
+    q: 'Dá para abrir um projeto do Reaper?',
+    a: 'Dá. Escolha a pasta com o projeto .RPP e o VS Stage Pro monta o show: cada região ou marcador do Reaper vira uma música, com as faixas já na timeline. Também dá para salvar o show em .RPP e abrir de volta no Reaper.',
   },
   {
     q: 'Como funciona o timecode para a iluminação?',

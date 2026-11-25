@@ -55,6 +55,14 @@ test('bonus_access só lê a conta: não começa o teste grátis', () => {
   assert.match(sql, /VALUES \('bonus', 'bonus', false\)/);
 });
 
+test('parceiro (endorse) usa os bônus, e só enquanto não estiver bloqueado', () => {
+  const sql = read('supabase/migrations/20261125120000_area_do_assinante.sql');
+  const blocked = sql.indexOf("'status', 'blocked'");
+  const partner = sql.indexOf("coalesce(v_row.partner, false)");
+  assert.ok(blocked > 0 && partner > blocked, 'bloqueio vem antes do parceiro');
+  assert.match(sql.slice(partner, partner + 200), /'status', 'subscriber', 'partner', true/);
+});
+
 test('a função só assina o link depois de conferir a assinatura', () => {
   const fn = read('supabase/functions/bonus-download/index.ts');
   const check = fn.indexOf('status !== "subscriber"');

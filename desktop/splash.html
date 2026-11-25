@@ -14,9 +14,8 @@
   A contagem cabe no tempo do app (main.js: "Pronto" em 1460 ms e saída em 1550 ms).
 -->
 <style>
-  @font-face { font-family: 'Outfit'; font-weight: 600; src: url('build/fonts/Outfit-SemiBold.ttf') format('truetype'); }
   html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; user-select: none; cursor: default; }
-  /* textos na fonte do sistema (já está no Mac, nada a carregar); o nome em Outfit, a da marca */
+  /* tudo na fonte do sistema (SF Pro no Mac, a mesma do Logic Pro): já está no Mac, nada a carregar */
   body { font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
 
   /* Cartão: grafite com o grão da pintura eletrostática, borda fina e o filete de alumínio em cima */
@@ -51,7 +50,7 @@
   /* reflexo que passa no vidro do play (opacidade, sem filtro) */
   .play-gleam { will-change: opacity; animation: gleam 2400ms ease-in-out 1350ms infinite alternate; opacity: 0; }
 
-  .title { font-family: 'Outfit', -apple-system, sans-serif; font-weight: 600; animation: titleIn 560ms cubic-bezier(0.16, 1, 0.3, 1) 650ms both; }
+  .title { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif; font-weight: 600; animation: titleIn 560ms cubic-bezier(0.16, 1, 0.3, 1) 650ms both; }
   .subtitle { animation: rise 420ms ease-out 900ms both; }
   .fade { animation: fadeIn 380ms ease-out both; }
   #bar { transform-box: fill-box; transform-origin: left center; transform: scaleX(0.04); transition: transform 360ms cubic-bezier(0.22, 1, 0.36, 1); }
@@ -259,7 +258,7 @@
       </g>
     </svg>
 
-    <!-- Nome (Outfit, a fonte da marca) e a assinatura -->
+    <!-- Nome (SF Pro, a fonte da marca) e a assinatura -->
     <text class="title" x="280" y="216" text-anchor="middle" font-size="27" fill="#f4f4f6">VS Stage Pro</text>
     <text class="subtitle" x="280" y="237" text-anchor="middle" font-size="9.5" font-weight="600" fill="#9a9aa2" letter-spacing="4">LIVE PERFORMANCE ENGINE</text>
 

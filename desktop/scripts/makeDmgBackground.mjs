@@ -120,7 +120,7 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
 
   <!-- logo e nome, como no fim da abertura do site -->
   <image x="${W / 2 - LOGO / 2}" y="${LOGO_CY - LOGO / 2}" width="${LOGO}" height="${LOGO}" href="data:image/png;base64,${iconBase64}" filter="url(#shadow)"/>
-  <text x="${W / 2}" y="${LOGO_CY + LOGO / 2 + 31}" text-anchor="middle" font-family="Outfit" font-size="20" font-weight="600" fill="${CREAM}" letter-spacing="-0.2">VS Stage Pro</text>
+  <text x="${W / 2}" y="${LOGO_CY + LOGO / 2 + 31}" text-anchor="middle" font-family="Inter" font-size="20" font-weight="600" fill="${CREAM}" letter-spacing="-0.3">VS Stage Pro</text>
 
   <!-- contagem até o play: do programa para a pasta Aplicativos -->
   ${leds}
@@ -148,8 +148,10 @@ const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" 
   <rect x="0.5" y="0.5" width="${W - 1}" height="${H - 1}" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
 </svg>`;
 
+// O nome da marca no programa e no site é a SF Pro (fonte do sistema da Apple), mas o resvg não
+// desenha a fonte do sistema do Mac (sai em branco). Aqui vai a Inter, livre e bem parecida.
 const fontFiles = [
-  'BarlowSemiCondensed-Medium.ttf', 'BarlowSemiCondensed-SemiBold.ttf', 'BarlowSemiCondensed-Bold.ttf', 'Outfit-SemiBold.ttf',
+  'BarlowSemiCondensed-Medium.ttf', 'BarlowSemiCondensed-SemiBold.ttf', 'BarlowSemiCondensed-Bold.ttf', 'Inter-SemiBold.ttf',
 ].map((f) => `${root}build/fonts/${f}`);
 for (const [scale, file] of [[1, 'dmg-background.png'], [2, 'dmg-background@2x.png']]) {
   const png = new Resvg(svg, {

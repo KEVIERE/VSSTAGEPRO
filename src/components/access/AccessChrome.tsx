@@ -45,7 +45,7 @@ export function AccessStatus({ tone, children }: { tone: 'green' | 'amber' | 're
   );
 }
 
-/** Logo, título na fonte do programa e uma linha de apoio. `brand`: o título é o nome do programa (fonte Outfit). */
+/** Logo, título na fonte do programa e uma linha de apoio. `brand`: o título é o nome do programa (fonte SF Pro, a da Apple). */
 export function AccessTitle({ title, subtitle, id, brand = false }: { title: ReactNode; subtitle?: ReactNode; id?: string; brand?: boolean }) {
   return (
     <div className="text-center mb-6">

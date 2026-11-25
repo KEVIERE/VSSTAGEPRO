@@ -31,7 +31,7 @@ export default function SubscriberArea() {
   );
 }
 
-type Loaded = { access: BonusAccess; until: string | null };
+type Loaded = { access: BonusAccess; until: string | null; partner: boolean };
 
 function SubscriberAreaContent({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [state, setState] = useState<Loaded | 'loading' | 'error'>('loading');
@@ -41,7 +41,8 @@ function SubscriberAreaContent({ session, onSignOut }: { session: Session; onSig
     // bonus_access só lê a conta: não começa o teste grátis (license_status começa)
     const { data, error } = await supabase.rpc('bonus_access');
     if (error) { setState('error'); return; }
-    setState({ access: accessOf(data), until: untilLabel((data as { until?: unknown } | null)?.until) });
+    const d = data as { until?: unknown; partner?: unknown } | null;
+    setState({ access: accessOf(data), until: untilLabel(d?.until), partner: d?.partner === true });
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -81,13 +82,13 @@ function SubscriberAreaContent({ session, onSignOut }: { session: Session; onSig
           </div>
         )}
 
-        {typeof state === 'object' && <Bonuses access={state.access} until={state.until} />}
+        {typeof state === 'object' && <Bonuses access={state.access} until={state.until} partner={state.partner} />}
       </main>
     </div>
   );
 }
 
-function Bonuses({ access, until }: { access: BonusAccess; until: string | null }) {
+function Bonuses({ access, until, partner }: { access: BonusAccess; until: string | null; partner: boolean }) {
   const allowed = canUseBonus(access);
   const notice = lockedNotice(access);
   const goNotice = () => {
@@ -100,7 +101,7 @@ function Bonuses({ access, until }: { access: BonusAccess; until: string | null 
       {allowed ? (
         <p className="mt-8 flex items-center gap-2 text-sm text-[color:var(--cream-dim)]" role="status">
           <span className="vs-led is-green" />
-          Assinatura ativa{until ? ` até ${until}` : ''}. Todos os bônus estão liberados.
+          {partner ? 'Parceiro VS Stage Pro' : `Assinatura ativa${until ? ` até ${until}` : ''}`}. Todos os bônus estão liberados.
         </p>
       ) : notice && (
         <div className="vs-panel vs-card mt-8 p-6 sm:p-7 flex flex-col sm:flex-row sm:items-center gap-5" role="status">

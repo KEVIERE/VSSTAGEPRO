@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Download, Globe, Wifi } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Globe, Wifi, X } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import WhatsAppButton from './WhatsAppButton';
@@ -89,28 +89,31 @@ const NAV_LINKS = [
   { id: 'maestro', label: 'Maestro' },
   { id: 'mixer', label: 'Mixer' },
   { id: 'banda', label: 'Banda' },
-  { id: 'tv', label: 'TV do palco' },
+  { id: 'teleprompter', label: 'Teleprompter' },
   { id: 'precos', label: 'Preços' },
 ];
 
 function Nav() {
   return (
     <header className="vs-nav">
-      <div className="vs-wrap h-14 flex items-center gap-6">
-        <a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }} className="flex items-center gap-2.5 shrink-0">
-          <VsLogo size={26} />
+      {/* como o topo do site da Apple: largura toda, logo na ponta esquerda, links finos no meio,
+          botões na ponta direita (a grade de 3 colunas deixa os links no centro de verdade) */}
+      <div className="h-12 px-5 xl:px-8 grid grid-cols-[1fr_auto] lg:grid-cols-[1fr_auto_1fr] items-center gap-4 xl:gap-6">
+        <a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }} className="flex items-center gap-2 justify-self-start shrink-0">
+          <VsLogo size={22} />
           <span className="vs-wordmark">VS Stage Pro</span>
         </a>
-        <nav className="hidden lg:flex items-center gap-5 xl:gap-7 mx-auto text-[0.875rem] whitespace-nowrap" aria-label="Seções do site">
+        <nav className="hidden lg:flex items-center gap-3.5 xl:gap-8 whitespace-nowrap" aria-label="Seções do site">
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id)} className="vs-nav-link">{l.label}</a>
           ))}
-          {/* em telas estreitas não cabe no topo: fica só no rodapé */}
-          <a href={`${import.meta.env.BASE_URL}area-do-assinante`} className="vs-nav-link hidden xl:inline">Área do Assinante</a>
+          <a href={`${import.meta.env.BASE_URL}area-do-assinante`} className="vs-nav-link">Área do Assinante</a>
+          <a href={supportWhatsAppUrl(SITE_SUPPORT_MESSAGE)} target="_blank" rel="noopener noreferrer" className="vs-nav-link">Suporte</a>
         </nav>
-        <div className="ml-auto lg:ml-0 flex items-center gap-2">
-          <button type="button" onClick={goPlans} className="vs-key vs-key-sm vs-key-steel hidden sm:inline-flex">Assinar</button>
-          <button type="button" onClick={goDownload} className="vs-key vs-key-sm vs-key-amber">Testar grátis</button>
+        <div className="justify-self-end flex items-center gap-2">
+          {/* a assinatura em destaque (âmbar); o teste grátis discreto e fora do celular */}
+          <button type="button" onClick={goDownload} className="vs-key vs-key-nav vs-key-steel hidden sm:inline-flex">Testar grátis</button>
+          <button type="button" onClick={goPlans} className="vs-key vs-key-nav vs-key-amber">Assinar</button>
         </div>
       </div>
     </header>
@@ -141,9 +144,8 @@ function Hero({ on }: { on: boolean }) {
           controle de tom, mesa de som com Timecode LTC, pads ao vivo, cifras no celular da banda e teleprompter na TV do palco.
         </p>
         <div className="mt-9 flex flex-col sm:flex-row items-center gap-3 vs-rise" style={{ '--d': '320ms' } as CSSProperties}>
-          <button type="button" onClick={goDownload} className="vs-key vs-key-amber w-full sm:w-auto">
-            <Download size={19} strokeWidth={2.4} /> Começar teste grátis
-          </button>
+          {/* o teste grátis já está no topo: aqui o destaque é a assinatura */}
+          <button type="button" onClick={goPlans} className="vs-key vs-key-amber w-full sm:w-auto">Assinar agora</button>
           <a href="#por-que" onClick={(e) => scrollToId(e, 'por-que')} className="vs-key vs-key-steel w-full sm:w-auto">Por que o VS Stage Pro no palco?</a>
         </div>
         <p className="mt-5 text-[0.85rem] text-[color:var(--muted)] vs-rise" style={{ '--d': '400ms' } as CSSProperties}>
@@ -638,8 +640,9 @@ function MaestroSection() {
       <div className="vs-wrap">
         <SectionHead id="maestro-title" kicker="Maestro com IA" n={6} title="Um maestro que fala por você.">
           Escreva a regência e a inteligência artificial transforma o texto em voz, encaixada no tempo da música: a contagem, as
-          preparações, as viradas e os avisos que a banda precisa ouvir no fone. Ou escolha entre mais de mil falas prontas, em
-          botões por assunto, nas vozes Felipe e Bianca. Você dirige o show sem tirar as mãos do teclado.
+          preparações, as viradas e os avisos que a banda precisa ouvir no fone. São três vozes de maestro e mais de mil falas
+          prontas, em botões por assunto. E agora o Maestro pode falar com a sua voz: grave alguns segundos no próprio programa,
+          digite o que quer dizer e a sua voz entra na timeline. Você dirige o show sem tirar as mãos do teclado.
         </SectionHead>
         <div ref={box.ref} className="mt-10 max-w-[40rem]">
           <MaestroTyping active={box.revealed} big />
@@ -709,9 +712,9 @@ function BandSection() {
 function TvSection() {
   const ref = useScrollScene<HTMLDivElement>();
   return (
-    <section id="tv" className="vs-section pt-0" aria-labelledby="tv-title">
+    <section id="teleprompter" className="vs-section pt-0" aria-labelledby="tv-title">
       <div className="vs-wrap">
-        <SectionHead id="tv-title" kicker="TV do palco" n={9} title="A letra na TV, um instante antes de cantar.">
+        <SectionHead id="tv-title" kicker="Teleprompter" n={9} title="A letra na TV, um instante antes de cantar.">
           O teleprompter usa os mesmos displays do programa: relógio, tempo de show, a música no ar e a próxima com tom e BPM, a
           playlist do show e a letra, que aparece um instante antes da hora de cantar. A IA lê a letra da música e marca cada
           trecho sozinha, e o produtor técnico controla tudo pelo tablet, conectado direto ao computador do diretor.
@@ -830,9 +833,12 @@ function CompareSection() {
           {COMPARISON.map((r) => (
             <div key={r.topic} className="vs-compare-row" role="row">
               <span role="cell" className="vs-display text-[1.2rem] leading-tight">{r.topic}</span>
-              <span role="cell" className="text-[0.95rem] leading-relaxed text-[color:var(--muted)]">{r.studio}</span>
+              {/* X vermelho no que o programa de estúdio não resolve; visto verde no VS Stage Pro */}
+              <span role="cell" className="text-[0.95rem] leading-relaxed text-[color:var(--muted)] flex gap-2.5">
+                <X size={15} strokeWidth={2.75} className="shrink-0 mt-[0.3rem] text-[color:var(--red)]" aria-label="Não tem" />{r.studio}
+              </span>
               <span role="cell" className="text-[0.98rem] leading-relaxed text-[color:var(--cream)] flex gap-2.5">
-                <span className="vs-led is-green mt-[0.45rem]" />{r.vs}
+                <Check size={15} strokeWidth={2.75} className="shrink-0 mt-[0.3rem] text-[color:var(--green)]" aria-label="Tem" />{r.vs}
               </span>
             </div>
           ))}
@@ -942,7 +948,7 @@ const FOOTER_COLS: { title: string; links: { label: string; id?: string; go?: ()
     { label: 'Maestro', id: 'maestro' }, { label: 'Mixer', id: 'mixer' },
   ] },
   { title: 'Palco', links: [
-    { label: 'Área do Músico', id: 'banda' }, { label: 'TV do palco', id: 'tv' }, { label: 'Novidades', id: 'novidades' },
+    { label: 'Área do Músico', id: 'banda' }, { label: 'Teleprompter', id: 'teleprompter' }, { label: 'Novidades', id: 'novidades' },
     { label: 'Palco × estúdio', id: 'por-que' },
   ] },
   { title: 'Assinatura', links: [

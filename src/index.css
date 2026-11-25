@@ -1112,19 +1112,13 @@
   .access-beam { animation: none; }
 }
 
-/* Nome do programa ("VS Stage Pro") junto da logo: fonte Outfit, em todo lugar (programa, site,
-   abertura). O arquivo vai junto no pacote, então aparece igual mesmo sem internet. */
-@font-face {
-  font-family: 'Outfit';
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url('../desktop/build/fonts/Outfit-SemiBold.ttf') format('truetype');
-}
+/* Nome do programa ("VS Stage Pro") junto da logo: a fonte da Apple (SF Pro, a mesma do Logic Pro),
+   em todo lugar (programa, site, abertura). A licença da Apple não deixa embutir o arquivo, então
+   pede a do sistema: Mac e iPhone já têm; Windows e Android mostram a Inter, bem parecida. */
 .vs-brand {
-  font-family: 'Outfit', 'Inter', system-ui, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', 'Segoe UI', system-ui, sans-serif;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   text-transform: none;
   text-indent: 0;
 }

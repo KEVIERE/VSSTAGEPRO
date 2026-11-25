@@ -40,7 +40,7 @@ export function accessOf(raw: unknown): BonusAccess {
   return typeof s === 'string' && (ACCESS as readonly string[]).includes(s) ? (s as BonusAccess) : 'none';
 }
 
-/** Só assinante em dia usa os bônus. Teste grátis, vencido e bloqueado ficam de fora. */
+/** Só assinante em dia (e parceiro, que vem como 'subscriber') usa os bônus. Teste grátis, vencido e bloqueado ficam de fora. */
 export function canUseBonus(access: BonusAccess): boolean {
   return access === 'subscriber';
 }

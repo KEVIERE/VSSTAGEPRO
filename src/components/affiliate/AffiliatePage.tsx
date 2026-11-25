@@ -483,7 +483,7 @@ export default function AffiliatePage() {
       <div className="w-full max-w-[880px] flex flex-col items-center gap-5">
         <div className="w-full flex items-center justify-between gap-3">
           <div>
-            <p className="console-legend uppercase tracking-[0.14em] text-logic-text-muted">VS Stage Pro</p>
+            <p className="vs-brand text-sm text-logic-text-muted">VS Stage Pro</p>
             <h1 className="font-stage font-bold text-[1.8rem] leading-tight text-logic-text">Área do afiliado</h1>
           </div>
           <div className="flex items-center gap-2">

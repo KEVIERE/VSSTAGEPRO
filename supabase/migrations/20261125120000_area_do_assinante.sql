@@ -6,7 +6,8 @@
        o teste grátis de 48 horas de quem ainda não abriu o programa.
      - 'subscriber' com as mesmas regras de conta ativa do license_status(): período pago
        (InfinitePay, PIX ou manual), assinatura antiga do Stripe ou acesso de cortesia
-       (cupom/parceiro). Teste grátis, vencido e bloqueado não usam os bônus.
+       (cupom). Parceiros (endorse) também usam, com partner = true na resposta.
+       Teste grátis, vencido e bloqueado não usam os bônus.
   2. Bucket privado "bonus": um arquivo por pasta com o nome do bônus (bonus/<id>/<arquivo>).
      Sem políticas: só o servidor (service role) lê, e a função bonus-download entrega um
      link temporário apenas para quem bonus_access() diz que é assinante.
@@ -25,6 +26,11 @@ BEGIN
   IF NOT FOUND THEN RETURN json_build_object('status', 'none'); END IF;
 
   IF v_row.blocked THEN RETURN json_build_object('status', 'blocked'); END IF;
+
+  -- Parceiro (endorse): liberado enquanto a marca de parceiro estiver ligada
+  IF coalesce(v_row.partner, false) THEN
+    RETURN json_build_object('status', 'subscriber', 'partner', true);
+  END IF;
 
   IF (v_row.pix_paid_until IS NOT NULL AND v_row.pix_paid_until > now())
      OR v_row.subscription = 'active'
