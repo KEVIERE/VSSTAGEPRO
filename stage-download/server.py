@@ -40,6 +40,10 @@ MAX_ITEMS_PER_DAY = 60          # faixas por pessoa a cada 24 horas
 MAX_TRACKS = 25                 # playlist / álbum
 MAX_DURATION = 20 * 60          # cada faixa ou vídeo
 MAX_VIDEO_HEIGHT = 1080         # 4K pesa demais na VPS
+# O YouTube às vezes pede "confirme que você não é um robô" ao servidor. O caminho que ele mesmo
+# aceita é entrar numa conta: se houver um arquivo de cookies de uma conta (no formato Netscape),
+# o motor usa. Uma cópia por pedido, porque o yt-dlp regrava o arquivo ao terminar.
+COOKIES = Path(os.environ.get("STAGE_COOKIES", "/etc/stage-download/youtube-cookies.txt"))
 
 app = Flask(__name__)
 app.json.sort_keys = False
@@ -127,8 +131,25 @@ def friendly_error(e: Exception) -> str:
     return msg[:300]
 
 
+def _cookie_copy(folder: Path):
+    """Cópia dos cookies para este pedido (ou None, sem conta)."""
+    try:
+        if COOKIES.is_file():
+            folder.mkdir(parents=True, exist_ok=True)
+            dst = folder / "cookies.txt"
+            shutil.copyfile(COOKIES, dst)
+            return str(dst)
+    except OSError:
+        pass
+    return None
+
+
 def _base_opts():
-    return {"quiet": True, "no_warnings": True, "skip_download": True}
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    c = _cookie_copy(DATA / "_info")
+    if c:
+        opts["cookiefile"] = c
+    return opts
 
 
 def _probe(url):
@@ -164,7 +185,7 @@ def info():
         if platform in dl.MUSIC_SERVICES:
             name, tracks = dl.resolve_music_link(url, platform)
             src = None
-            yt = dl.find_on_youtube(tracks[0], {})
+            yt = dl.find_on_youtube(tracks[0], {k: v for k, v in _base_opts().items() if k == "cookiefile"})
             if yt:
                 src = _probe(yt)
             data = {**base, "title": name, "count": len(tracks),
@@ -292,6 +313,9 @@ def run_job(job):
     opts["match_filter"] = _too_long
     opts["playlistend"] = MAX_TRACKS
     opts["max_filesize"] = 1_500_000_000
+    cookies = _cookie_copy(folder / "_auth")
+    if cookies:
+        opts["cookiefile"] = cookies
     by_key = {}
 
     def item_for(info, label=None):
@@ -341,7 +365,7 @@ def run_job(job):
                     it = item_for({}, label)
                     it["state"] = "procurando"
                     try:
-                        yt = dl.find_on_youtube(t, {})
+                        yt = dl.find_on_youtube(t, {"cookiefile": cookies} if cookies else {})
                         if not yt:
                             raise RuntimeError("Não encontrei essa música.")
                         with yt_dlp.YoutubeDL({**opts, "noplaylist": True}) as ydl:
