@@ -180,7 +180,8 @@ function TransportBar() {
     const id = s.transport.currentSongId ?? s.selectedSongId;
     return !!id && s.loadingSongIds.includes(id);
   });
-  const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
+  const soloActive = useStore((s) => s.tracks.some((t) => t.solo) || s.clips.some((c) => c.solo));
+  const clearAllSolos = useStore((s) => s.clearAllSolos);
   const currentSong = songs.find((sg) => sg.id === transport.currentSongId);
   const nextSong = songs.find((sg) => sg.id === transport.nextSongId);
   const slicesOfSong = currentSong ? medleySlices(currentSong) : [];
@@ -255,13 +256,16 @@ function TransportBar() {
       </div>
 
       {soloActive && (
-        <span
-          role="status"
-          title="Há faixas em solo: as outras estão mudas"
-          className="flex items-center gap-1 h-7 px-2 rounded border border-logic-lcd-amber/70 bg-logic-lcd-amber/15 text-2xs font-semibold uppercase tracking-wider text-logic-lcd-amber shrink-0 animate-pulse"
+        // clicar tira o solo de tudo (faixas e clipes), sem ter que desligar um por um
+        <button
+          type="button"
+          onClick={clearAllSolos}
+          title="Há faixas em solo: as outras estão mudas. Clique para tirar todos os solos."
+          aria-label="Solo ativo. Tirar todos os solos"
+          className="flex items-center gap-1 h-7 px-2 rounded border border-logic-lcd-amber/70 bg-logic-lcd-amber/15 text-2xs font-semibold uppercase tracking-wider text-logic-lcd-amber shrink-0 animate-pulse hover:bg-logic-lcd-amber/30 hover:animate-none"
         >
           <Headphones size={12} /> Solo ativo
-        </span>
+        </button>
       )}
 
       <div className="flex items-center gap-1 ml-1 shrink-0">

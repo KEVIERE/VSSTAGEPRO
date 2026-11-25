@@ -358,7 +358,8 @@ function ShowModePanel({ showName }: { showName: string }) {
   const showBpmTower = useStore((s) => s.showBpmTower);
   const showTunerTower = useStore((s) => s.showTunerTower);
   const playbackError = useStore((s) => s.playbackError);
-  const soloActive = useStore((s) => s.tracks.some((t) => t.solo));
+  const soloActive = useStore((s) => s.tracks.some((t) => t.solo) || s.clips.some((c) => c.solo));
+  const clearAllSolos = useStore((s) => s.clearAllSolos);
   const { toggleBpmTower, toggleTunerTower, setPlayFlow, togglePlaylistMaximized, setPlaybackError, selectSong, setNextSong } = useStore.getState();
   const clock = useClock();
   const [searchQuery, setSearchQuery] = useState('');
@@ -472,9 +473,14 @@ function ShowModePanel({ showName }: { showName: string }) {
 
       <div className="flex flex-col flex-1 min-h-0 gap-3 p-4 overflow-y-auto logic-scroll">
         {soloActive && (
-          <div role="status" className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-logic-lcd-amber/60 bg-logic-lcd-amber/10 text-xs font-semibold text-logic-lcd-amber">
-            <Headphones size={14} /> Solo ativo: só as faixas em solo estão tocando
-          </div>
+          <button
+            type="button"
+            onClick={clearAllSolos}
+            title="Clique para tirar todos os solos"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-logic-lcd-amber/60 bg-logic-lcd-amber/10 text-xs font-semibold text-logic-lcd-amber hover:bg-logic-lcd-amber/20 text-left"
+          >
+            <Headphones size={14} /> Solo ativo: só as faixas em solo estão tocando. Clique para tirar todos os solos.
+          </button>
         )}
         <div className="grid grid-cols-2 gap-2.5">
           {/* Tocar: acende verde enquanto o show toca */}

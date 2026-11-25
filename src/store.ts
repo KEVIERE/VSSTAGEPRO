@@ -262,6 +262,8 @@ interface StoreActions {
   selectBlock: (id: string | null) => void;
   toggleMute: (trackId: string) => void;
   toggleSolo: (trackId: string) => void;
+  /** Clique no aviso SOLO ATIVO: tira o solo de todas as faixas e clipes de uma vez. */
+  clearAllSolos: () => void;
   toggleAntiClip: (trackId: string) => void;
   setVolume: (trackId: string, volume: number) => void;
   setPan: (trackId: string, pan: number) => void;
@@ -890,6 +892,13 @@ export const useStore = create<Store>()(
 
       toggleMute: (trackId) => set((s) => ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, mute: !t.mute } : t) })),
       toggleSolo: (trackId) => set((s) => isTimecodeTrackId(trackId) ? s : ({ tracks: s.tracks.map((t) => t.id === trackId ? { ...t, solo: !t.solo } : t) })),
+      clearAllSolos: () => set((s) => {
+        if (!s.tracks.some((t) => t.solo) && !s.clips.some((c) => c.solo)) return s;
+        return {
+          tracks: s.tracks.map((t) => (t.solo ? { ...t, solo: false } : t)),
+          clips: s.clips.map((c) => (c.solo ? { ...c, solo: false } : c)),
+        };
+      }),
       // Anti-clip do canal: liga/desliga o limitador de pico em -0,1 dBFS (audioEngine). Ao ligar,
       // apaga o indicador de clip: dali em diante o canal não passa do teto.
       toggleAntiClip: (trackId) => set((s) => isTimecodeTrackId(trackId) ? s : ({
