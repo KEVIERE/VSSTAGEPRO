@@ -148,7 +148,10 @@ async function drumParts(input: AudioBuffer, onProgress: (p: StemSplitProgress) 
       : 'o modelo da bateria ainda não foi baixado. Conecte o Mac à internet e tente de novo');
   }
   // A ordem importa: é a ordem que o script grava os WAVs, e cada peça vai para a sua faixa.
-  onProgress({ percent: 20, message: 'Separando a bateria em bumbo, caixa, pratos e tons...' });
+  // A IA da bateria não informa o andamento: o painel fica parado aqui até ela terminar, o que
+  // leva alguns minutos (mais num medley longo). Sem dizer isso, parecia travado.
+  const minutes = Math.max(1, Math.round(input.duration / 60));
+  onProgress({ percent: 20, message: `Separando a bateria em bumbo, caixa, pratos e tons. Pode levar alguns minutos (áudio de ${minutes} min)...` });
   const drums = await toStereo44k(input);
   const drumsWav = await encodeWavPcm24(drums);
   // cancelou enquanto o WAV era montado: nem começa a IA
