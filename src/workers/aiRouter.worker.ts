@@ -19,6 +19,8 @@ export interface WorkerResponse {
   childName: string | null;
   confidence: number;
   yamnetClass: string;
+  /** Os sons mais prováveis, para conferir o que a IA ouviu ("Singing 41%, Music 30%") */
+  top?: string;
   error?: string;
 }
 
@@ -67,7 +69,7 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
 
     // scoresTensor: [num_frames, 521] — média entre os frames dá o som predominante do clipe inteiro.
     const meanScores = scoresTensor.mean(0) as tf.Tensor1D;
-    const top = await tf.topk(meanScores, 8, true);
+    const top = await tf.topk(meanScores, 12, true);
     const topIndices = await top.indices.array() as number[];
     const topValues = await top.values.array() as number[];
 
@@ -91,6 +93,7 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
       childName: route?.childName ?? null,
       confidence: route?.confidence ?? 0,
       yamnetClass: route?.yamnetClass ?? ranked[0]?.className ?? '',
+      top: ranked.slice(0, 5).map((r) => `${r.className} ${Math.round(r.probability * 100)}%`).join(', '),
     } as WorkerResponse);
   } catch (err) {
     self.postMessage({

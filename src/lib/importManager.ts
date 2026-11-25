@@ -19,6 +19,7 @@ import { parseWavMetadata } from '@/lib/reaperMetadata';
 import { parseRpp, resolveMediaPath, splitShow, type ShowItem, type ShowSplit } from '@/lib/reaperProject';
 import { REGION_COLORS, presetColor } from '@/lib/regions';
 import { askImportAgain } from '@/lib/appPrompt';
+import { classifyClipAudio, type AiRouteResult } from '@/lib/aiRouter';
 
 const AUDIO_EXTENSIONS = /\.(wav|mp3|aac|ogg|flac|m4a|aif|aiff|wma|opus)$/i;
 const DECODE_CONCURRENCY = 4;
@@ -1244,6 +1245,31 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     console.warn('[import] arquivos que não abriram', Array.from(errors, ([i, msg]) => `${audioFiles[i].name}: ${msg}`));
   }
 
+  // Fase 1b: áudio cujo nome não diz o instrumento ("Audio 3.wav", "Track 07"): a IA ouve os
+  // trechos mais fortes e escolhe a faixa. O nome continua mandando quando reconhece; sem
+  // internet na primeira vez o modelo não baixa e o áudio cai em "Outros", como antes.
+  const nameRouteOf = (entry: DecodedEntry) =>
+    reaper ? routeReaperItem(entry.file, reaper.placements[entry.index]) : routeByName(entry.file.name);
+  const unnamed = decodedEntries.filter((e): e is DecodedEntry => !!e && !nameRouteOf(e));
+  const aiRoutes = new Map<number, AiRouteResult>();
+  for (let k = 0; k < unnamed.length && !cancelRequested; k++) {
+    const entry = unnamed[k];
+    useStore.getState().setImportProgress({
+      clipId: entry.clipId,
+      status: 'classifying',
+      message: `${label}A IA está ouvindo os áudios sem nome de instrumento: ${entry.file.name}`,
+      current: k,
+      total: unnamed.length,
+    });
+    const r = await classifyClipAudio(entry.audio, entry.clipId).catch(() => null);
+    if (r) aiRoutes.set(entry.index, r);
+  }
+  if (cancelRequested) {
+    store.removeSong(songId);
+    currentImportSongIds.delete(songId);
+    throw new Error('import_cancelled');
+  }
+
   useStore.getState().setImportProgress({
     clipId: 'routing',
     status: 'routing',
@@ -1262,15 +1288,21 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     const { file, clipId, audio, duration, sampleRate, channels, waveformPeaks, index } = entry;
 
     const placement = reaper?.placements[index];
-    const route = reaper ? routeReaperItem(file, placement) : routeByName(file.name);
+    const route = nameRouteOf(entry);
+    const aiRoute = route ? null : aiRoutes.get(index) ?? null;
     let trackId: RoutingTarget;
     let childTrackName: string;
-    const routingMethod: AudioClip['routingMethod'] = 'name';
+    let routingMethod: AudioClip['routingMethod'] = 'name';
     let routingConfidence = 1;
 
     if (route) {
       trackId = route.target;
       childTrackName = route.instrumentName;
+    } else if (aiRoute) {
+      trackId = aiRoute.target;
+      childTrackName = aiRoute.childName;
+      routingMethod = 'ai';
+      routingConfidence = aiRoute.confidence;
     } else {
       trackId = 'track-outros';
       childTrackName = 'Extra';
@@ -1286,7 +1318,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     // Quando o nome não bateu com nenhum instrumento (grupo "Extra"), o clipe mostra o
     // nome original do arquivo em vez de "Extra 1", "Extra 2"... — assim a pessoa sabe
     // o que é o áudio sem precisar abrir o arquivo. A faixa continua numerada normalmente.
-    const clipDisplayName = route ? numberedName : cleanClipName(file.name);
+    const clipDisplayName = route || aiRoute ? numberedName : cleanClipName(file.name);
 
     // S\u00f3 reaproveita a faixa se o nome for EXATAMENTE id\u00eantico e se a faixa ainda N\u00c3O tiver sido
     // ocupada por outro clipe nesta mesma m\u00fasica.

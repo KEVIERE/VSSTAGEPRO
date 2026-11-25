@@ -4,6 +4,7 @@ import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
 import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered, Combine } from 'lucide-react';
 import { runConsolidateMaestroIa } from '@/lib/maestroConsolidate';
 import SaveCancelButton from '@/components/SaveCancelButton';
+import AiRouteSuggestion from '@/components/AiRouteSuggestion';
 import { memo, useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { anchoredScroll, clampZoom, pastEndReach, previewLow, previewTarget, reachWidthFor, thumbGeometry, timelineWidthFor, visibleWindow, zoomOutWindow } from '@/lib/zoomPreview';
@@ -3586,6 +3587,7 @@ function TimelinePanel() {
       <div className="vs-legend-bar flex items-center justify-between gap-3 px-3 h-7 bg-[#121318] border-t border-logic-border-dark text-2xs text-logic-text-muted">
         <GridToolbar song={song} onSelectAll={selectAllSongClips} />
         <FooterProgress />
+        <AiRouteSuggestion />
       </div>
 
       {isSongLoading && (

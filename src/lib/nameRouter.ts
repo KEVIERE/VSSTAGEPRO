@@ -14,7 +14,8 @@ interface Keyword {
   requiresContext?: RoutingTarget;
 }
 
-const SOLO_PATTERN = /\bsolo\b/i;
+// "SL" é solo abreviado (ACC SL = sanfona solo)
+const SOLO_PATTERN = /\b(solo|sl)\b/i;
 
 // Pesos: 10 = palavra inteira muito específica, 5 = palavra comum, 2 = abreviação, 1 = modificador que só vale com contexto
 const KEYWORDS: Keyword[] = [
@@ -27,6 +28,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bmetron[oô]mo\b/i, target: 'track-click', childName: 'Click', weight: 10 },
   { pattern: /\bmetron/i, target: 'track-click', childName: 'Click', weight: 8 },
   { pattern: /\bclk\b/i, target: 'track-click', childName: 'Click', weight: 6 },
+  { pattern: /\bclik\b/i, target: 'track-click', childName: 'Click', weight: 8 },
   { pattern: /\btempo\b/i, target: 'track-click', childName: 'Click', weight: 3 },
   { pattern: /\bbeat\b/i, target: 'track-click', childName: 'Click', weight: 3 },
 
@@ -69,6 +71,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\brhods?\b/i, target: 'track-teclados', childName: 'Rhodes', weight: 10 },
   { pattern: /\brhod\b/i, target: 'track-teclados', childName: 'Rhodes', weight: 9 },
   { pattern: /\bpiano/i, target: 'track-teclados', childName: 'Piano', weight: 10 },
+  { pattern: /\bpno\b/i, target: 'track-teclados', childName: 'Piano', weight: 10 },
   { pattern: /\bkey[_\s-]?\d+\b/i, target: 'track-teclados', childName: 'Piano', weight: 11 },
   { pattern: /\bwurlitzer/i, target: 'track-teclados', childName: 'Wurlitzer', weight: 10 },
   { pattern: /\b[oó]rg[aã]o\b/i, target: 'track-teclados', childName: 'Órgão', weight: 10 },
@@ -119,6 +122,8 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bsf\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 9 },
   { pattern: /\baccordion/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
   { pattern: /\bsanfona/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 12 },
+  // ACC = acordeom (sanfona), como vem nos VS de forró
+  { pattern: /\bacc\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 10 },
   { pattern: /\bsanf\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 10 },
   { pattern: /\bsanfon/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 10 },
   { pattern: /\bgaita\b/i, target: 'track-sanfonas', childName: 'Sanfona', weight: 9 },
@@ -128,6 +133,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bviol[aã]o\b/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
   { pattern: /\bviol[aã]o\s*[lr]\b/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
   { pattern: /\bviolao/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
+  { pattern: /\bvlo\b/i, target: 'track-violoes', childName: 'Violão', weight: 10 },
   { pattern: /\bviol[oõ]es\b/i, target: 'track-violoes', childName: 'Violão', weight: 12 },
   { pattern: /\bnylon\b/i, target: 'track-violoes', childName: 'Violão', weight: 9 },
   { pattern: /\ba[cç]o\b/i, target: 'track-violoes', childName: 'Violão', weight: 7 },
@@ -243,6 +249,7 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bspd.?sx/i, target: 'track-percussoes', childName: 'SPD', weight: 10 },
   { pattern: /\bspd\b/i, target: 'track-percussoes', childName: 'SPD', weight: 7 },
   { pattern: /\bpercuss/i, target: 'track-percussoes', childName: 'Percussão', weight: 10 },
+  { pattern: /\bperc\b/i, target: 'track-percussoes', childName: 'Percussão', weight: 10 },
 
   { pattern: /\bflauta/i, target: 'track-outros', childName: 'Flauta', weight: 10 },
   { pattern: /\bflute/i, target: 'track-outros', childName: 'Flauta', weight: 10 },

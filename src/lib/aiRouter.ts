@@ -9,7 +9,7 @@
 // clipe cai em "Outros" como sempre caiu.
 import type { RoutingTarget } from '@/types';
 import type { WorkerRequest, WorkerResponse } from '@/workers/aiRouter.worker';
-import { getClipAudio, channelToFloat } from '@/lib/audioLibrary';
+import { ensureSongLoaded, getClipAudio, withSongAudio, type ClipAudio } from '@/lib/audioLibrary';
 import { useStore } from '@/store';
 
 export interface AiRouteResult {
@@ -93,9 +93,10 @@ export async function classifyInstrumentAudio(
   monoSamples: Float32Array,
   sampleRate: number
 ): Promise<AiRouteResult | null> {
-  // confiança mínima pra confiar no palpite da IA — abaixo disso, melhor cair em "Outros"
-  // do que arriscar botar uma guitarra na faixa de teclados.
-  const MIN_CONFIDENCE = 0.15;
+  // A régua de confiança fica em routeByYamnetScores (yamnetCategories.ts), que compara o
+  // instrumento com os outros sons. Aqui só barra resposta vazia: um mínimo fixo de 15%
+  // descartava voz (7%) e bumbo (10%), porque num stem o "Music" leva quase toda a nota.
+  const MIN_CONFIDENCE = 0.05;
   try {
     const res = await pool.classify(clipId, monoSamples, sampleRate);
     if (res.error || !res.targetTrackId || !res.childName) return null;
@@ -106,47 +107,121 @@ export async function classifyInstrumentAudio(
   }
 }
 
+/** Áudio de onde a IA tira os trechos: tamanho, taxa e o valor de cada amostra (-1 a 1). */
+export interface VoteSource {
+  length: number;
+  sampleRate: number;
+  channels: number;
+  sample: (channel: number, index: number) => number;
+}
+
 /**
- * Reclassifica manualmente um clipe já importado (menu de contexto: "Reclassificar com
- * IA"). Usa o próprio áudio do clipe (já carregado em memória) como entrada, pega até
- * 5s do meio do clipe — mais informativo que o início, que às vezes é silêncio — e
- * roteia para a faixa correspondente se a IA reconhecer o instrumento com confiança.
+ * Ouve até 3 trechos de 5 s entre os mais fortes do áudio e vota: vence o instrumento que
+ * aparecer mais (desempate pela confiança). Trecho do meio podia ser silêncio (piano que só
+ * entra no refrão, bumbo parado na intro) e a IA não reconhecia nada. null = não reconheceu.
+ */
+export async function classifyByVote(src: VoteSource, key: string): Promise<AiRouteResult | null> {
+  const sr = src.sampleRate;
+  const win = Math.min(src.length, Math.round(5 * sr));
+  if (win < sr || src.channels < 1) return null;
+  const step = Math.max(1, Math.floor(win / 2));
+  const energy: Array<{ at: number; e: number }> = [];
+  for (let at = 0; at + win <= src.length; at += step) {
+    let e = 0;
+    for (let c = 0; c < src.channels; c++) for (let i = at; i < at + win; i += 32) { const v = src.sample(c, i); e += v * v; }
+    energy.push({ at, e });
+  }
+  const picks = energy.sort((a, b) => b.e - a.e).slice(0, 3);
+  const votes = new Map<string, { n: number; conf: number; best: AiRouteResult }>();
+  for (let k = 0; k < picks.length; k++) {
+    const mono = new Float32Array(win);
+    for (let c = 0; c < src.channels; c++) for (let i = 0; i < win; i++) mono[i] += src.sample(c, picks[k].at + i) / src.channels;
+    const r = await classifyInstrumentAudio(`${key}-${k}`, mono, sr);
+    if (!r) continue;
+    const v = votes.get(r.target) ?? { n: 0, conf: 0, best: r };
+    v.n++; v.conf += r.confidence;
+    if (r.confidence > v.best.confidence) v.best = r;
+    votes.set(r.target, v);
+  }
+  let winner: { n: number; conf: number; best: AiRouteResult } | null = null;
+  for (const v of votes.values()) if (!winner || v.n > winner.n || (v.n === winner.n && v.conf > winner.conf)) winner = v;
+  return winner && winner.n >= 2 ? winner.best : winner && picks.length < 2 ? winner.best : null;
+}
+
+/** Mesma votação sobre o áudio de um clipe (16 bits na memória). */
+export function classifyClipAudio(audio: ClipAudio, key: string): Promise<AiRouteResult | null> {
+  return classifyByVote({
+    length: audio.length,
+    sampleRate: audio.sampleRate,
+    channels: audio.channels.length,
+    sample: (c, i) => audio.channels[c][i] / 32768,
+  }, key);
+}
+
+// ---------------------------------------------------------------- sugestão do clique direito
+
+/** O que a IA ouviu num clipe, esperando a pessoa confirmar ("Enviar para Violões"). */
+export interface AiSuggestion {
+  clipId: string;
+  clipName: string;
+  result: AiRouteResult;
+}
+
+let suggestion: AiSuggestion | null = null;
+const suggestionListeners = new Set<() => void>();
+const setSuggestion = (s: AiSuggestion | null) => { suggestion = s; suggestionListeners.forEach((f) => f()); };
+
+export function currentAiSuggestion(): AiSuggestion | null { return suggestion; }
+export function subscribeAiSuggestion(fn: () => void): () => void {
+  suggestionListeners.add(fn);
+  return () => { suggestionListeners.delete(fn); };
+}
+export function dismissAiSuggestion() { setSuggestion(null); }
+
+/** "Enviar para ...": manda o clipe para a faixa que a IA sugeriu. */
+export function acceptAiSuggestion() {
+  const s = suggestion;
+  if (!s) return;
+  setSuggestion(null);
+  const store = useStore.getState();
+  if (!store.clips.some((c) => c.id === s.clipId)) return;
+  store.routeClip(s.clipId, s.result.target, s.result.childName);
+  store.updateClip(s.clipId, { routingMethod: 'ai', routingConfidence: s.result.confidence });
+}
+
+/**
+ * Clique direito > "Reclassificar com IA": a IA ouve o clipe e SUGERE a faixa numa janelinha;
+ * só muda de faixa quando a pessoa confirma. O áudio pode não estar na memória (o programa
+ * libera as músicas fora de uso): carrega a música antes, senão o item não fazia nada.
  */
 export async function reclassifyClipWithAi(clipId: string): Promise<AiRouteResult | null> {
   const store = useStore.getState();
   const clip = store.clips.find((c) => c.id === clipId);
-  const audio = getClipAudio(clipId);
-  if (!clip || !audio || audio.channels.length === 0) return null;
+  if (!clip) return null;
+  const done = (status: 'done' | 'error', message: string) => {
+    useStore.getState().setImportProgress({ clipId, status, message });
+    setTimeout(() => useStore.getState().setImportProgress(null), 4000);
+  };
 
   store.setImportProgress({ clipId, status: 'classifying', message: `Ouvindo "${clip.name}" com IA...` });
-
   try {
-    const sampleRate = audio.sampleRate;
-    const maxLen = Math.min(audio.length, Math.floor(sampleRate * 5));
-    const start = Math.max(0, Math.floor((audio.length - maxLen) / 2));
-
-    // Mixa os canais para mono, como o resto do roteamento por IA espera.
-    const mono = new Float32Array(maxLen);
-    for (const ch of audio.channels) {
-      const f = channelToFloat(ch.subarray(start, start + maxLen));
-      for (let i = 0; i < maxLen; i++) mono[i] += f[i] / audio.channels.length;
-    }
-
-    const result = await classifyInstrumentAudio(`${clipId}-manual-${Date.now()}`, mono, sampleRate);
+    const result = await withSongAudio(clip.songId, async () => {
+      if (!getClipAudio(clipId)) await ensureSongLoaded(clip.songId);
+      const audio = getClipAudio(clipId);
+      if (!audio || audio.channels.length === 0) throw new Error('no_audio');
+      return classifyClipAudio(audio, `${clipId}-manual-${Date.now()}`);
+    });
     if (!result) {
-      store.setImportProgress({ clipId, status: 'error', message: 'A IA não reconheceu o instrumento com confiança suficiente.' });
-      setTimeout(() => useStore.getState().setImportProgress(null), 3000);
+      done('error', 'A IA não reconheceu o instrumento com confiança. Arraste o clipe para a faixa certa.');
       return null;
     }
-
-    store.routeClip(clipId, result.target, result.childName);
-    store.updateClip(clipId, { routingMethod: 'ai', routingConfidence: result.confidence });
-    store.setImportProgress({ clipId, status: 'done', message: `IA reconheceu: ${result.childName} (${Math.round(result.confidence * 100)}% de confiança)` });
-    setTimeout(() => useStore.getState().setImportProgress(null), 3000);
+    useStore.getState().setImportProgress(null);
+    setSuggestion({ clipId, clipName: clip.name, result });
     return result;
   } catch (err) {
-    store.setImportProgress({ clipId, status: 'error', message: 'Falha ao reclassificar com IA.' });
-    setTimeout(() => useStore.getState().setImportProgress(null), 3000);
+    done('error', (err as Error)?.message === 'no_audio'
+      ? 'Não consegui abrir o áudio desse clipe para a IA ouvir.'
+      : 'Falha ao ouvir o áudio com IA. Tente de novo.');
     console.error('[reclassifyClipWithAi]', err);
     return null;
   }

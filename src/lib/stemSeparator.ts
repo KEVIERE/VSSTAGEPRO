@@ -6,7 +6,7 @@ import { calculateMusicalAlignment, detectContinuousTempoMap, audioEntryTime, de
 import { isolateLiveCrowdAmbience } from '@/lib/crowdIsolation';
 import { encodeWavPcm24Async } from '@/lib/wavEncoder';
 import { waveformPeaksAsync } from '@/lib/waveformPeaks';
-import { classifyInstrumentAudio, type AiRouteResult } from '@/lib/aiRouter';
+import { classifyByVote, type AiRouteResult } from '@/lib/aiRouter';
 import {
   putClipAudio,
   registerClipSource,
@@ -25,32 +25,8 @@ const MAP_RETRY_LIMIT_MS = 120_000;
  * vence o instrumento que aparecer mais (desempate pela confiança). null = não reconheceu.
  */
 export async function classifyStem(buffer: AudioBuffer, key: string): Promise<AiRouteResult | null> {
-  const sr = buffer.sampleRate;
-  const win = Math.min(buffer.length, Math.round(5 * sr));
-  if (win < sr) return null;
   const chs = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
-  const step = Math.max(1, Math.floor(win / 2));
-  const energy: Array<{ at: number; e: number }> = [];
-  for (let at = 0; at + win <= buffer.length; at += step) {
-    let e = 0;
-    for (const ch of chs) for (let i = at; i < at + win; i += 32) e += ch[i] * ch[i];
-    energy.push({ at, e });
-  }
-  const picks = energy.sort((a, b) => b.e - a.e).slice(0, 3);
-  const votes = new Map<string, { n: number; conf: number; best: AiRouteResult }>();
-  for (let k = 0; k < picks.length; k++) {
-    const mono = new Float32Array(win);
-    for (const ch of chs) for (let i = 0; i < win; i++) mono[i] += ch[picks[k].at + i] / chs.length;
-    const r = await classifyInstrumentAudio(`${key}-${k}`, mono, sr);
-    if (!r) continue;
-    const v = votes.get(r.target) ?? { n: 0, conf: 0, best: r };
-    v.n++; v.conf += r.confidence;
-    if (r.confidence > v.best.confidence) v.best = r;
-    votes.set(r.target, v);
-  }
-  let winner: { n: number; conf: number; best: AiRouteResult } | null = null;
-  for (const v of votes.values()) if (!winner || v.n > winner.n || (v.n === winner.n && v.conf > winner.conf)) winner = v;
-  return winner && winner.n >= 2 ? winner.best : winner && picks.length < 2 ? winner.best : null;
+  return classifyByVote({ length: buffer.length, sampleRate: buffer.sampleRate, channels: chs.length, sample: (c, i) => chs[c][i] }, key);
 }
 
 /**
