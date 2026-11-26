@@ -1,3 +1,5 @@
+import { supabase } from '@/lib/supabaseClient';
+
 // Código promocional digitado na tela de entrada: é resgatado assim que a conta entra
 // (fica guardado caso o cadastro ainda precise ser confirmado).
 export const PENDING_PROMO_LS = 'vs-pending-promo';
@@ -22,8 +24,24 @@ export function maskPhone(raw: string): string {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
 }
 
-export function maskEmail(email: string) {
-  const [user, domain] = email.split('@');
-  if (!domain) return email;
-  return `${user.slice(0, 2)}${'•'.repeat(Math.max(1, user.length - 2))}@${domain}`;
+// Entrar ou criar conta com a conta do Google. Não pede confirmação de e-mail:
+// o OAuth do Supabase cria a conta (ou a acha se já existe) e já estabelece a sessão.
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${window.location.origin}${window.location.pathname}`,
+    },
+  });
+  if (error) throw error;
+}
+
+export async function phoneSignup(body: Record<string, unknown>): Promise<{ ok: true; phone_hint?: string }> {
+  const { data, error } = await supabase.functions.invoke('signup-phone', { body });
+  if (error) {
+    const res = await (error as { context?: Response }).context?.json?.().catch(() => null);
+    throw new Error(res?.error ?? 'request_failed');
+  }
+  if (data?.error) throw new Error(data.error);
+  return data;
 }
