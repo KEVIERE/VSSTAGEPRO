@@ -30,6 +30,19 @@ export function maskEmail(email: string) {
   return `${user.slice(0, 2)}${'•'.repeat(Math.max(1, user.length - 2))}@${domain}`;
 }
 
+// Entrar ou criar conta com a conta do Google. Não pede confirmação de e-mail:
+// o OAuth do Supabase cria a conta (ou a acha se já existe) e já estabelece a sessão.
+export async function signInWithGoogle(): Promise<void> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      // O login Google termina diretamente na área protegida de downloads.
+      redirectTo: `${window.location.origin}/#baixar`,
+    },
+  });
+  if (error) throw error;
+}
+
 export async function phoneSignup(body: Record<string, unknown>): Promise<{ ok: true; phone_hint?: string }> {
   const { data, error } = await supabase.functions.invoke('signup-phone', { body });
   if (error) {

@@ -105,6 +105,7 @@ function Nav() {
         </nav>
         <div className="ml-auto lg:ml-0 flex items-center gap-2">
           <button type="button" onClick={goPlans} className="vs-key vs-key-sm vs-key-steel hidden sm:inline-flex">Assinar</button>
+          <button type="button" onClick={goDownload} className="vs-key vs-key-sm vs-key-steel">Download</button>
           <button type="button" onClick={goDownload} className="vs-key vs-key-sm vs-key-amber">Testar grátis</button>
         </div>
       </div>

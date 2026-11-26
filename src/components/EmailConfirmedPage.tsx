@@ -19,6 +19,8 @@ export default function EmailConfirmedPage() {
     supabase.auth.getSession().then(({ data }) => {
       setEmail(data.session?.user.email ?? null);
       setLoading(false);
+      // Após confirmar o e-mail, a conta já está autenticada: abre direto os downloads.
+      if (!forMusician && data.session) window.location.replace('/#baixar');
     });
   }, []);
 
@@ -98,14 +100,15 @@ export default function EmailConfirmedPage() {
 
           {/* Botões de Ação */}
           <div className="mt-6 space-y-2.5">
-            <a
-              href="/#baixar"
+            <button
+              type="button"
+              onClick={() => { window.location.href = '/#baixar'; }}
               className="w-full h-12 rounded-xl bg-gradient-to-r from-logic-lcd-green to-emerald-500 hover:from-emerald-400 hover:to-logic-lcd-green text-black font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-logic-lcd-green/20 group"
             >
               <Apple size={18} className="transition-transform group-hover:scale-110" />
               <span>Baixar o VS Stage para Mac</span>
               <ChevronRight size={16} className="ml-0.5 opacity-70 group-hover:translate-x-0.5 transition-transform" />
-            </a>
+            </button>
 
             <a
               href="/"
