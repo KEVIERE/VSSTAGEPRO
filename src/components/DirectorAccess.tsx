@@ -8,8 +8,9 @@ import { AccessCard, AccessFoot, AccessNotice, AccessStage, AccessStatus, Access
 import { friendlyError } from '@/lib/friendlyError';
 import SubscribeDialog from '@/components/SubscribeDialog';
 import { LICENSE_REFRESH_EVENT } from '@/lib/licenseEvents';
-import { maskPhone, normalizePhone } from '@/lib/authFlow';
+import { maskPhone, normalizePhone, signInWithGoogle } from '@/lib/authFlow';
 import { forgetVoices } from '@/lib/maestroVoice';
+import { trackMetaLead } from '@/lib/metaPixel';
 
 export type License = {
   status: 'anonymous' | 'trial' | 'active' | 'expired' | 'blocked';
@@ -329,6 +330,10 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         if (signUpData.user && signUpData.user.identities?.length === 0) {
           throw new Error('already_registered');
         }
+        trackMetaLead({
+          eventId: signUpData.user?.id ? `lead_${signUpData.user.id}` : undefined,
+          source: 'director_access',
+        });
         if (!signUpData.session) {
           setInfo('Enviamos um e-mail de confirmação. Clique no link para ativar sua conta.');
           setBusy(false);
@@ -480,6 +485,13 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             )}
 
             <div className="flex items-center justify-between gap-3 flex-wrap">
+              <button
+                type="button" disabled={busy}
+                onClick={() => void signInWithGoogle().catch((err) => setError(friendlyError(err.message)))}
+                className={`w-full py-2 rounded-lg border border-logic-border text-logic-text-dim text-sm font-medium flex items-center justify-center gap-2 hover:bg-logic-bg-elevated transition disabled:opacity-50`}
+              >
+                <span className="text-logic-text">G</span> Entrar com o Google
+              </button>
               {view === 'signin' && (
                 <button
                   type="button" onClick={() => setRemember((v) => !v)} aria-pressed={remember}

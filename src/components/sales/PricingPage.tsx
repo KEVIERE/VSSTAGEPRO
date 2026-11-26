@@ -33,8 +33,10 @@ import { supportWhatsAppUrl } from '@/lib/support';
 import WhatsAppButton from './WhatsAppButton';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
+import { signInWithGoogle } from '@/lib/authFlow';
 import PixCheckout from '@/components/PixCheckout';
 import { AccessCard } from '@/components/access/AccessChrome';
+import { trackMetaLead } from '@/lib/metaPixel';
 
 export type Plan = 'monthly' | 'yearly';
 
@@ -211,6 +213,11 @@ export default function PricingPage() {
             setAuthBusy(false);
             return;
           }
+
+          trackMetaLead({
+            eventId: signUpData.user?.id ? `lead_${signUpData.user.id}` : undefined,
+            source: 'pricing_page',
+          });
 
           if (signUpData.user && !signUpData.session) {
             setAuthSuccessMsg(
@@ -868,7 +875,17 @@ export default function PricingPage() {
                   </div>
                 )}
 
-                <button
+                {(authMode !== 'forgot') && (
+                    <button
+                      type="button" disabled={authBusy}
+                      onClick={() => void signInWithGoogle().catch((err) => setAuthError(friendlyError(err.message)))}
+                      className="w-full py-2.5 rounded-xl border border-white/[0.14] text-white/[0.9] text-sm font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition disabled:opacity-50 mb-3"
+                    >
+                      <span className="text-white/[0.8]">G</span> Continuar com o Google
+                    </button>
+                  )}
+
+                  <button
                   type="submit"
                   disabled={authBusy || !authEmail.trim() || (authMode !== 'forgot' && authPassword.length < 6)}
                   className="w-full h-12 rounded-xl btn-apple-blue text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 mt-2"

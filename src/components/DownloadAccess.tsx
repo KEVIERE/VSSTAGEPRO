@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { authRedirect } from '@/lib/authRedirect';
 import { Check, ChevronLeft, Eye, EyeOff, KeyRound, Loader2, Lock, Mail, Phone, User } from 'lucide-react';
-import { maskPhone, normalizePhone } from '@/lib/authFlow';
+import { maskPhone, normalizePhone, signInWithGoogle } from '@/lib/authFlow';
 
 const SAVED_EMAIL_LS = 'vs-download-login-email';
 
@@ -302,6 +302,16 @@ export default function DownloadAccess({ children }: { children: (session: Sessi
           {view === 'signin' && (
             <button type="button" onClick={() => go('forgot')} className="w-full text-center text-xs text-apple-text-secondary hover:text-white transition-colors flex items-center justify-center gap-1.5">
               <KeyRound size={12} /> Esqueci minha senha
+            </button>
+          )}
+
+          {(view === 'signin' || view === 'signup') && (
+            <button
+              type="button" disabled={busy}
+              onClick={() => void signInWithGoogle().catch((err) => setError(friendlyError(err.message)))}
+              className="w-full py-2.5 rounded-xl border border-white/[0.14] text-white/[0.9] text-sm font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition disabled:opacity-50"
+            >
+              <span className="text-white/[0.8]">G</span> Continuar com o Google
             </button>
           )}
           {view === 'forgot' && (
