@@ -1,0 +1,45 @@
+name: Rollback instalador 1.2.50
+on:
+  workflow_dispatch:
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Baixar artefato oficial 1.2.50
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p /tmp/art
+          gh api repos/${{ github.repository }}/actions/artifacts/14965095234/zip > /tmp/mac.zip
+          unzip -q /tmp/mac.zip -d /tmp/art
+          find /tmp/art -name '*.dmg' -print
+      - name: Gerar e publicar manifest 1.2.50
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          KEY="$HOME/.ssh/vps_deploy_key"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$VPS_SSH_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          ssh-keyscan -H "$VPS_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+          ARM=$(find /tmp/art -type f -name '*arm64.dmg' | head -1)
+          INTEL=$(find /tmp/art -type f -name '*x64.dmg' ! -name '*legacy*' | head -1)
+          test -f "$ARM" && test -f "$INTEL"
+          make_manifest() {
+            local arch="$1" dmg="$2"; local size sha parts p
+            size=$(stat -c '%s' "$dmg")
+            sha=$(sha256sum "$dmg" | cut -d' ' -f1)
+            parts=""
+            for p in $(printf '%s' "$arch" | xargs -I{} ssh -i "$KEY" "$VPS_USER@$VPS_HOST" "find /var/www/download.vsstagepro.com.br/mac/1.2.50-94/{}/ -maxdepth 1 -name 'part*.bin' -printf '%f\\n' | sort"); do parts="$parts\"mac/1.2.50-94/$arch/$p\","; done
+            test -n "$parts"
+            printf '{"arch":"%s","label":"%s","file":"%s","size":%s,"sha256":"%s","parts":[%s]}' "$arch" "$([ "$arch" = arm64 ] && echo 'Apple Silicon (M1, M2, M3, M4)' || echo Intel)" "$(basename "$dmg")" "$size" "$sha" "${parts%,}"
+          }
+          A=$(make_manifest arm64 "$ARM")
+          X=$(make_manifest x64 "$INTEL")
+          printf '{"version":"1.2.50","build":94,"published":"2026-11-25T08:50:44Z","required":false,"builds":[%s,%s]}' "$A" "$X" > /tmp/manifest.json
+          scp -i "$KEY" /tmp/manifest.json "$VPS_USER@$VPS_HOST:/var/www/download.vsstagepro.com.br/mac/manifest.json"
+          echo 'Manifest 1.2.50 publicado.'
