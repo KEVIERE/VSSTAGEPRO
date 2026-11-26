@@ -12,6 +12,7 @@ import {
   Laptop,
   Loader2,
   LogOut,
+  MonitorPlay,
   RotateCcw,
   ShieldCheck,
   Terminal,
@@ -19,7 +20,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacManifest, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
+import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacLegacyBuild, fetchMacManifest, fetchWinBuild, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
 
@@ -27,7 +28,7 @@ const TRUST_BADGES = [
   { icon: ShieldCheck, text: 'Download verificado com hash SHA-256' },
   { icon: Timer, text: '48h de teste grátis sem cartão de crédito' },
   { icon: Wifi, text: 'Motor 100% offline no palco via rede local' },
-  { icon: Laptop, text: 'Compatível com macOS 11 (Big Sur) até macOS 15 (Sequoia)' },
+  { icon: Laptop, text: 'Compatível com macOS 10.15 (Catalina) até macOS 15 (Sequoia)' },
 ];
 
 type Status =
@@ -46,6 +47,16 @@ const CHIP_HINT: Record<MacBuild['arch'], { title: string; subtitle: string; hin
     title: 'Processador Intel',
     subtitle: 'Compatível x86_64 • Macs 2013-2020',
     hint: 'Para computadores Apple equipados com processador Intel Core i5, i7, i9 ou Xeon.',
+  },
+  'x64-legacy': {
+    title: 'Intel com macOS 10.15',
+    subtitle: 'Catalina • Macs Intel mais antigos',
+    hint: 'Para Mac Intel que não atualiza para o macOS 11. A voz de IA do Maestro usa a voz do Mac.',
+  },
+  'win-x64': {
+    title: 'Windows 10 e 11',
+    subtitle: '64 bits • PC com Windows',
+    hint: 'Para PC com Windows 10 ou 11 de 64 bits. Na primeira vez o Windows pode avisar "O Windows protegeu o computador": clique em "Mais informações" e depois em "Executar assim mesmo".',
   },
 };
 
@@ -71,13 +82,26 @@ const STEPS = [
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(0)} MB`;
 
+/**
+ * Prévia só em modo local (npm run dev, endereço com ?previa): abre sem login e mostra os
+ * instaladores em teste mesmo antes de publicados. O build do site remove este trecho.
+ */
+const PREVIEW = import.meta.env.DEV && new URLSearchParams(window.location.search).has('previa');
+const previewBuild = (arch: MacBuild['arch'], file: string, size: number): MacBuild => ({ arch, label: '', file, size, sha256: '', parts: ['previa'] });
+
 export default function MacDownloadPage() {
+  if (PREVIEW) {
+    const fake = { user: { email: 'previa@local' } } as unknown as Session;
+    return <MacDownloadPageContent session={fake} onSignOut={() => {}} />;
+  }
   return <DownloadAccess>{(session, signOut) => <MacDownloadPageContent session={session} onSignOut={signOut} />}</DownloadAccess>;
 }
 
 function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
   const [manifest, setManifest] = useState<MacManifest | null>(null);
   const [loadError, setLoadError] = useState(false);
+  const [legacy, setLegacy] = useState<MacBuild | null>(null);
+  const [winBuild, setWinBuild] = useState<MacBuild | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   const [suggested, setSuggested] = useState(guessMacArch);
   const [copied, setCopied] = useState(false);
@@ -88,6 +112,8 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
     fetchMacManifest()
       .then(setManifest)
       .catch(() => setLoadError(true));
+    fetchMacLegacyBuild().then((b) => setLegacy(b ?? (PREVIEW ? previewBuild('x64-legacy', 'VS-Stage-previa-x64-legacy.dmg', 690_000_000) : null)));
+    fetchWinBuild().then((b) => setWinBuild(b ?? (PREVIEW ? previewBuild('win-x64', 'VS-Stage-Setup-previa-x64.exe', 640_000_000) : null)));
     return () => abortRef.current?.abort();
   }, []);
 
@@ -236,8 +262,8 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           )}
 
           {manifest && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-              {manifest.builds.map((build) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch mb-8">
+              {[...manifest.builds.filter((b) => b.arch === 'arm64' || b.arch === 'x64'), ...(legacy ? [legacy] : []), ...(winBuild ? [winBuild] : [])].map((build) => {
                 const chip = CHIP_HINT[build.arch];
                 const isSuggested = suggested === build.arch;
                 const mine = status.kind !== 'idle' && status.arch === build.arch;
@@ -345,7 +371,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                           onClick={() => start(build)}
                           disabled={busy}
                           className={`relative overflow-hidden w-full h-14 rounded-full font-bold text-sm tracking-tight flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-[0.98] ${
-                            isSuggested
+                            suggested
                               ? 'bg-[#0071e3] hover:bg-[#0077ed] text-white shadow-lg shadow-[#0071e3]/30'
                               : 'bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15'
                           }`}
@@ -360,6 +386,10 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
               })}
             </div>
           )}
+
+          {/* Instaladores em teste: Mac Intel com macOS 10.15 (Catalina) e Windows */}
+          {/* (bloco unificado acima) */}
+
         </div>
 
         {/* Guia de Instalação Passo a Passo */}
