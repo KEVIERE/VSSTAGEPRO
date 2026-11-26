@@ -2,8 +2,6 @@
 const BASE = 'https://download.vsstagepro.com.br/';
 
 export interface MacBuild {
-  /** x64-legacy: Intel com macOS 10.15 (Catalina), em manifest separado (mac/legacy/manifest.json). */
-  /** win-x64: Windows, em manifest separado (win/manifest.json, onde o arch vem como "x64"). */
   arch: 'arm64' | 'x64' | 'x64-legacy' | 'win-x64';
   label: string;
   file: string;
