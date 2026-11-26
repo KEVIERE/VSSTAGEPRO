@@ -192,12 +192,13 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
   border-bottom: 1px solid var(--line);
 }
 /* links do topo como os do site da Apple: SF Pro Text pequena e fina, cinza claro que acende no hover */
-.vs-nav a.vs-nav-link {
+.vs-nav .vs-nav-link {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
   font-size: 0.75rem; font-weight: 400; letter-spacing: -0.01em;
   color: rgba(232, 232, 237, 0.8); transition: color 0.2s ease;
+  background: none; border: 0; padding: 0; cursor: pointer;
 }
-.vs-nav a.vs-nav-link:hover { color: #fff; }
+.vs-nav .vs-nav-link:hover { color: #fff; }
 .vs-nav .vs-wordmark { font-size: 0.95rem; }
 
 /* ---------- Topo (hero) ---------- */
