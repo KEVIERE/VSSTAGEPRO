@@ -23,18 +23,13 @@ import {
 } from 'lucide-react';
 import { friendlyError } from '@/lib/friendlyError';
 import BarChart from '@/components/admin/BarChart';
-import { LEGACY_PROVIDER } from '@/lib/legacyPayment';
 import {
   adminApi,
   dateTime,
   FEATURE_LABELS,
   money,
   num,
-  paymentMethodLabel,
-  paymentSourceLabel,
   relative,
-  SUB_PLAN_LABEL,
-  subscriberSource,
 } from '@/components/admin/adminApi';
 import type {
   FeatureUse,
@@ -45,14 +40,6 @@ import type {
   TrialInsight,
 } from '@/components/admin/adminApi';
 import { btnDanger, btnGhost, btnPrimary, Empty, ErrorBox, Kpi, Loading, Panel, PeriodPicker } from '@/components/admin/ui';
-
-/** Forma da venda: "Cartão (antigo)" para o provedor anterior (o servidor já manda
- *  method = 'credit_card' nessas vendas, por isso o provedor é testado primeiro), ou
- *  "PIX" / "Cartão" para as vendas da InfinitePay. */
-function saleMethodText(s: Overview['recent_sales'][number]): string | null {
-  if (s.provider === LEGACY_PROVIDER) return 'Cartão (antigo)';
-  return paymentMethodLabel(s.method);
-}
 
 function EmailStatusBadge({ confirmedAt }: { confirmedAt: string | null | undefined }) {
   if (confirmedAt) {
@@ -82,12 +69,13 @@ const shortDay = (iso: string) => {
   return `${d}/${m}`;
 };
 
-type ViewSection = 'subscribers' | 'trials' | 'suspicious' | 'analytics';
+type ViewSection = 'subscribers' | 'trials' | 'suspicious' | 'analytics' | 'online';
 
 export default function OverviewTab() {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<Overview | null>(null);
   const [insights, setInsights] = useState<InsightsData | null>(null);
+  const [onlineApps, setOnlineApps] = useState<import('@/components/admin/adminApi').OnlineApp[]>([]);
   const [usage, setUsage] = useState<FeatureUse[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -100,17 +88,22 @@ export default function OverviewTab() {
     setLoading(true);
     setError(null);
     try {
-      const [o, u, ins] = await Promise.all([
+      const [o, u, ins, on] = await Promise.all([
         adminApi.overview(d),
         adminApi.featureUsage(d),
         adminApi.insights().catch((err) => {
           console.warn('adminApi.insights fallback:', err);
           return null;
         }),
+        adminApi.onlineApps().catch((err) => {
+          console.warn('adminApi.onlineApps fallback:', err);
+          return { online: [], onlineCount: 0 };
+        }),
       ]);
       setData(o);
       setUsage(u);
       setInsights(ins);
+      setOnlineApps(on.online ?? []);
     } catch (e) {
       setError(friendlyError((e as Error).message));
     } finally {
@@ -301,6 +294,26 @@ export default function OverviewTab() {
                 {(insights?.stats.suspiciousCount ?? 0) > 0 ? 'Requer atenção imediata' : 'Nenhuma suspeita detectada'}
               </p>
             </div>
+
+            <div
+              onClick={() => setActiveSection('online')}
+              className={`cursor-pointer bg-logic-bg-panel hover:bg-logic-bg-panel-light border rounded-xl p-4 transition-all ${
+                onlineApps.length > 0
+                  ? 'border-logic-lcd-green/40 hover:border-logic-lcd-green'
+                  : 'border-logic-border hover:border-white/20'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-2xs font-semibold tracking-wider text-logic-text-muted uppercase">Programas abertos agora</p>
+                <Laptop size={14} className={onlineApps.length > 0 ? 'text-logic-lcd-green animate-pulse' : 'text-logic-text-muted'} />
+              </div>
+              <p className={`text-2xl font-black tabular-nums mt-1 ${onlineApps.length > 0 ? 'text-logic-lcd-green' : 'text-white'}`}>
+                {onlineApps.length}
+              </p>
+              <p className="text-2xs text-logic-text-dim mt-1">
+                {onlineApps.length > 0 ? 'Ativos nos últimos 15 minutos' : 'Nenhum sinal recente'}
+              </p>
+            </div>
           </div>
 
           {/* Abas e Filtros da Visão Geral */}
@@ -407,7 +420,7 @@ export default function OverviewTab() {
                       <tr className="border-b border-white/[0.08] bg-white/[0.02] text-2xs uppercase tracking-wider text-logic-text-muted font-bold">
                         <th className="py-3 px-4">Assinante / Contato</th>
                         <th className="py-3 px-4">Plano & Valor</th>
-                        <th className="py-3 px-4">Tempo Restante / Vencimento</th>
+                        <th className="py-3 px-4">Tempo Restante / Renovação</th>
                         <th className="py-3 px-4">IP do Computador</th>
                         <th className="py-3 px-4">Versão do App</th>
                         <th className="py-3 px-4">Último Acesso</th>
@@ -442,29 +455,11 @@ export default function OverviewTab() {
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
                             <span className="px-2 py-0.5 rounded text-2xs font-extrabold bg-logic-lcd-green/15 text-logic-lcd-green border border-logic-lcd-green/30">
-                              {SUB_PLAN_LABEL[sub.plan] ?? 'Plano Mensal'}
+                              {sub.plan === 'yearly' ? 'Plano Anual' : 'Plano Mensal'}
                             </span>
                             <div className="text-2xs text-white/90 font-bold mt-1">
                               {sub.priceFormatted}
                             </div>
-                            {(() => {
-                              const source = paymentSourceLabel(subscriberSource(sub), sub.paymentMethod, sub.installments);
-                              return source && (
-                                <div className="mt-1 flex items-center gap-1.5">
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-white/[0.06] border border-white/10 text-logic-text-dim">
-                                    {source}
-                                  </span>
-                                  {sub.receiptUrl && (
-                                    <a
-                                      href={sub.receiptUrl} target="_blank" rel="noreferrer"
-                                      className="text-[10px] text-logic-lcd-green hover:underline flex items-center gap-0.5 font-semibold"
-                                    >
-                                      Comprovante <ExternalLink size={9} />
-                                    </a>
-                                  )}
-                                </div>
-                              );
-                            })()}
                           </td>
 
                           <td className="py-3.5 px-4 whitespace-nowrap">
@@ -509,6 +504,18 @@ export default function OverviewTab() {
 
                           <td className="py-3.5 px-4 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
+                              {sub.stripeCustomerId && (
+                                <a
+                                  href={`https://dashboard.stripe.com/customers/${sub.stripeCustomerId}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-2.5 py-1 rounded-lg bg-white/[0.08] hover:bg-white/[0.15] text-white text-2xs font-bold transition flex items-center gap-1 border border-white/10"
+                                >
+                                  <CreditCard size={11} />
+                                  <span>Stripe</span>
+                                  <ExternalLink size={10} />
+                                </a>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleBlockUser(sub.userId, sub.email)}
@@ -806,6 +813,59 @@ export default function OverviewTab() {
           )}
 
           {/* ============================================================== */}
+          {/* SEÇÃO 3.5: PROGRAMAS ABERTOS AGORA                             */}
+          {/* ============================================================== */}
+          {activeSection === 'online' && (
+            <Panel title={<span className="flex items-center gap-1.5"><Laptop size={12} /> Programas abertos agora (últimos 15 minutos)</span>}>
+              {onlineApps.length === 0 ? (
+                <Empty text="Nenhum programa mandou sinal nos últimos 15 minutos." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-logic-text-muted border-b border-logic-border">
+                        <th className="px-4 py-2 font-semibold">Conta</th>
+                        <th className="px-4 py-2 font-semibold">Versão</th>
+                        <th className="px-4 py-2 font-semibold">IP</th>
+                        <th className="px-4 py-2 font-semibold">Sessão</th>
+                        <th className="px-4 py-2 font-semibold">Último sinal</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-logic-border">
+                      {onlineApps.map((o) => (
+                        <tr key={o.hwId} className="hover:bg-white/[0.03]">
+                          <td className="px-4 py-2.5">
+                            <div className="font-semibold text-logic-text">{o.email ?? 'Sem conta (não logado)'}</div>
+                            <div className="text-2xs text-logic-text-muted">{o.name ?? o.hwId.slice(0, 12)}</div>
+                          </td>
+                          <td className="px-4 py-2.5 text-logic-text-dim tabular-nums">{o.appVersion}</td>
+                          <td className="px-4 py-2.5 text-logic-text-dim tabular-nums">{o.ip ?? '—'}</td>
+                          <td className="px-4 py-2.5">
+                            {o.tampered ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-lcd-red/15 text-logic-lcd-red text-2xs font-bold">
+                                <AlertTriangle size={10} /> ADULTERADO
+                              </span>
+                            ) : o.hasSession ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-lcd-green/15 text-logic-lcd-green text-2xs font-bold">
+                                <CheckCircle2 size={10} /> LOGADO
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold">
+                                <AlertTriangle size={10} /> SEM LOGIN
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-2.5 text-logic-text-dim">{relative(o.lastSeenAt)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {/* ============================================================== */}
           {/* SEÇÃO 4: MÉTRICAS & GRÁFICOS DIÁRIOS                           */}
           {/* ============================================================== */}
           {activeSection === 'analytics' && (
@@ -886,7 +946,6 @@ export default function OverviewTab() {
                           </span>
                           <span className="text-logic-text-dim">
                             {money(s.amount_cents)} · {s.plan === 'yearly' ? 'Anual' : 'Mensal'}
-                            {saleMethodText(s) && <> · {saleMethodText(s)}</>}
                           </span>
                           <span className="text-logic-text-muted tabular-nums w-24 text-right">
                             {dateTime(s.created_at)}
