@@ -12,6 +12,7 @@ import {
   Laptop,
   Loader2,
   LogOut,
+  MonitorPlay,
   RotateCcw,
   ShieldCheck,
   Terminal,
@@ -22,7 +23,6 @@ import type { Session } from '@supabase/supabase-js';
 import { DownloadError, UA_ARCH_EVENT, downloadMacBuild, fetchMacLegacyBuild, fetchMacManifest, fetchWinBuild, guessMacArch, saveBlob, type MacBuild, type MacManifest } from '@/lib/macDownload';
 import VsLogo from '@/components/VsLogo';
 import DownloadAccess from '@/components/DownloadAccess';
-import { emailLinkType } from '@/lib/supabaseClient';
 
 const TRUST_BADGES = [
   { icon: ShieldCheck, text: 'Download verificado com hash SHA-256' },
@@ -205,11 +205,6 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
       <main className="relative z-10 flex-1 max-w-6xl mx-auto px-4 sm:px-6 py-16 sm:py-24 w-full">
         {/* Hero do Download - Estilo Apple */}
         <div className="text-center max-w-3xl mx-auto mb-16 sm:mb-20">
-          {emailLinkType === 'signup' && (
-            <div role="status" className="mx-auto mb-8 max-w-md px-4 py-3 rounded-xl border bg-emerald-500/15 border-emerald-500/40 text-emerald-400 text-sm flex items-center justify-center gap-2">
-              <CheckCircle2 size={16} className="shrink-0" /> Conta confirmada! Agora é só baixar o VS Stage para o seu Mac.
-            </div>
-          )}
           <div className="mx-auto w-16 h-16 mb-6 drop-shadow-[0_12px_24px_rgba(255,159,10,0.25)]">
             <VsLogo size={64} />
           </div>
@@ -267,8 +262,8 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           )}
 
           {manifest && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
-              {manifest.builds.map((build) => {
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch mb-8">
+              {[...manifest.builds.filter((b) => b.arch === 'arm64' || b.arch === 'x64'), ...(legacy ? [legacy] : []), ...(winBuild ? [winBuild] : [])].map((build) => {
                 const chip = CHIP_HINT[build.arch];
                 const isSuggested = suggested === build.arch;
                 const mine = status.kind !== 'idle' && status.arch === build.arch;
@@ -376,7 +371,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                           onClick={() => start(build)}
                           disabled={busy}
                           className={`relative overflow-hidden w-full h-14 rounded-full font-bold text-sm tracking-tight flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-[0.98] ${
-                            isSuggested
+                            suggested
                               ? 'bg-[#0071e3] hover:bg-[#0077ed] text-white shadow-lg shadow-[#0071e3]/30'
                               : 'bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15'
                           }`}
@@ -393,42 +388,8 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           )}
 
           {/* Instaladores em teste: Mac Intel com macOS 10.15 (Catalina) e Windows */}
-          {manifest && [
-            legacy && { build: legacy, name: `${CHIP_HINT['x64-legacy'].title} (Catalina)`, button: 'Baixar para macOS 10.15', done: 'Download concluído. Abra a pasta Downloads e dê dois cliques no .dmg.' },
-            winBuild && { build: winBuild, name: CHIP_HINT['win-x64'].title, button: 'Baixar para Windows (.exe)', done: 'Download concluído. Abra a pasta Downloads e dê dois cliques no instalador .exe.' },
-          ].filter((x): x is { build: MacBuild; name: string; button: string; done: string } => !!x).map(({ build, name, button, done }) => {
-            const mine = status.kind !== 'idle' && status.arch === build.arch;
-            const pct = mine && status.kind === 'downloading' ? Math.min(100, (status.received / build.size) * 100) : 0;
-            return (
-              <div key={build.arch} className="mt-6 rounded-2xl border border-white/10 bg-[#161618] p-5 flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
-                    {name}
-                    <span className="px-2 py-0.5 rounded-full bg-[#ff9f0a]/15 border border-[#ff9f0a]/40 text-[#ff9f0a] text-[10px] font-bold uppercase tracking-wide">
-                      Em teste
-                    </span>
-                  </h4>
-                  <p className="text-xs text-[#ff9f0a]/90 mt-1">Versão em teste: pode ter falhas. Se algo não funcionar, fale com o suporte.</p>
-                  <p className="text-xs text-[#86868b] mt-1 leading-relaxed">{CHIP_HINT[build.arch].hint} {mb(build.size)}.</p>
-                  {mine && status.kind === 'error' && (
-                    <p className="text-xs text-rose-400 mt-1.5">Falha ao baixar: {status.reason}. Tente novamente.</p>
-                  )}
-                  {mine && status.kind === 'done' && (
-                    <p className="text-xs text-emerald-400 mt-1.5">{done}</p>
-                  )}
-                </div>
-                <button
-                  onClick={() => start(build)}
-                  disabled={busy}
-                  className="shrink-0 h-11 px-5 rounded-full bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15 font-semibold text-xs flex items-center justify-center gap-2 transition disabled:opacity-50"
-                >
-                  {mine && status.kind === 'downloading'
-                    ? <><Loader2 size={16} className="animate-spin" /> {pct.toFixed(0)}%</>
-                    : <><Download size={16} /> {button}</>}
-                </button>
-              </div>
-            );
-          })}
+          {/* (bloco unificado acima) */}
+
         </div>
 
         {/* Guia de Instalação Passo a Passo */}
