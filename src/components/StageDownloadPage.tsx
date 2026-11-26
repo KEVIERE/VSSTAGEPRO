@@ -10,7 +10,7 @@ import VsLogo from '@/components/VsLogo';
 import { supabase } from '@/lib/supabaseClient';
 import { accessOf, canUseBonus, lockedNotice, type BonusAccess } from '@/lib/bonus';
 import {
-  STAGE_DOWNLOAD_API, downloadError, fileUrl, orderedQualities, qualityLabel, topQuality,
+  STAGE_DOWNLOAD_API, downloadError, fileUrl, firstLink, orderedQualities, qualityLabel, topQuality,
   type AudioFormats, type SdInfo, type SdJob,
 } from '@/lib/stageDownload';
 import '@/components/sales/sales.css';
@@ -164,8 +164,9 @@ function Downloader({ session }: { session: Session }) {
   useEffect(() => { void poll(); return () => { if (timer.current) window.clearTimeout(timer.current); }; }, [poll]);
 
   const analyze = async (link = url) => {
-    const u = link.trim();
+    const u = firstLink(link);
     if (!u) return;
+    if (u !== link) setUrl(u);
     setBusy(true); setError(null);
     try {
       const data = await api<SdInfo>('/info', { url: u });
@@ -179,7 +180,7 @@ function Downloader({ session }: { session: Session }) {
   };
 
   const paste = async () => {
-    try { const t = (await navigator.clipboard.readText()).trim(); setUrl(t); void analyze(t); } catch { /* sem permissão */ }
+    try { const t = firstLink(await navigator.clipboard.readText()); setUrl(t); void analyze(t); } catch { /* sem permissão */ }
   };
 
   const pickFormat = (f: string) => { setFmt(f); if (info) setAq(topQuality(info.audio, f)); };
@@ -207,7 +208,14 @@ function Downloader({ session }: { session: Session }) {
           <input
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            onPaste={(e) => { const t = e.clipboardData.getData('text').trim(); if (t) { setUrl(t); window.setTimeout(() => void analyze(t), 30); } }}
+            onPaste={(e) => {
+              // colar troca o link inteiro (antes juntava com o que já estava no campo)
+              const t = firstLink(e.clipboardData.getData('text'));
+              if (!t) return;
+              e.preventDefault();
+              setUrl(t);
+              window.setTimeout(() => void analyze(t), 30);
+            }}
             placeholder="Cole aqui o link da música ou do vídeo"
             className="flex-1 h-11 rounded-lg bg-[#0e1012] px-4 text-[0.95rem] text-[color:var(--cream)] placeholder:text-[color:var(--muted)] outline-none ring-1 ring-[#2d3238] focus:ring-[color:var(--amber)]"
           />
