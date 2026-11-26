@@ -39,18 +39,6 @@ export interface SdJob {
 
 const numeric = (k: string) => /^\d+$/.test(k);
 
-/**
- * O primeiro link do texto. Colar duas vezes no campo juntava os links
- * ("...watch?v=abchttps://www.youtube.com/...") e o servidor recebia um link quebrado.
- */
-export function firstLink(text: string): string {
-  const t = text.trim();
-  const starts = [...t.matchAll(/https?:\/\//gi)].map((m) => m.index ?? 0);
-  if (starts.length === 0) return t;
-  const end = starts[1] ?? t.length;
-  return t.slice(starts[0], end).split(/\s/)[0];
-}
-
 /** Qualidades do maior para o menor ("best" primeiro); WAV/FLAC na ordem que vieram. */
 export function orderedQualities(formats: AudioFormats, fmt: string): Array<[string, string]> {
   const entries = Object.entries(formats[fmt]?.qualities ?? {});
