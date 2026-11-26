@@ -108,12 +108,15 @@ export default function VersionsTab() {
       setNotice({
         ok: true,
         text: confirmRequired
-          ? `Revertido para a versão ${r.version} (build ${r.build}). Atualização obrigatória: todo app vai bloquear o uso até atualizar.`
-          : `Revertido para a versão ${r.version} (build ${r.build}). Todo app aberto com internet vai se ajustar sozinho.`,
+          ? `Revertido para a versão ${r.version} (build ${r.build}) no Supabase e na VPS. Atualização obrigatória: todo app vai bloquear o uso até atualizar.`
+          : `Revertido para a versão ${r.version} (build ${r.build}) no Supabase e na VPS. Todo app aberto com internet vai se ajustar sozinho.`,
       });
       await load();
     } catch (e) {
-      setNotice({ ok: false, text: friendlyError((e as Error).message) });
+      setNotice({
+        ok: false,
+        text: `${friendlyError((e as Error).message)} — se o erro mencionar VPS, o Supabase mudou mas a VPS pode ter ficado na versão antiga. Repita o rollback em alguns segundos.`,
+      });
     } finally {
       setRollingBack(null);
       setConfirmRequired(false);

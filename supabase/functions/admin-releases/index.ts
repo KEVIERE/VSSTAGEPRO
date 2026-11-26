@@ -176,25 +176,28 @@ async function rollback(req: Request, body: Record<string, unknown>) {
   });
   if (recErr) throw recErr;
 
-  // Dispara o workflow set-required no GitHub Actions em segundo plano para
-  // atualizar o manifest na VPS via SSH sincronizado com o Supabase.
+  // A VPS também precisa receber o manifest. Antes este disparo era assíncrono e
+  // silencioso: o Supabase mudava, mas a VPS podia continuar servindo a versão antiga.
+  // Agora a resposta informa explicitamente se a sincronização foi aceita pelo GitHub.
   const pat = Deno.env.get("GITHUB_PAT");
-  if (pat) {
-    fetch(
-      `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/set-required.yml/dispatches`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${pat}`,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-        body: JSON.stringify({ ref: "main", inputs: { required: String(required) } }),
+  if (!pat) return json({ ok: true, supabase: "synced", vps: "not_configured" }, 503);
+  const dispatch = await fetch(
+    `https://api.github.com/repos/${GITHUB_REPO}/actions/workflows/sync-manifest-vps.yml/dispatches`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
       },
-    ).catch((e) => console.error("set-required dispatch error:", e));
+      body: JSON.stringify({ ref: "main" }),
+    },
+  );
+  if (!dispatch.ok) {
+    console.error("sync-manifest-vps dispatch error", dispatch.status, await dispatch.text().catch(() => ""));
+    return json({ ok: true, supabase: "synced", vps: "dispatch_failed" }, 502);
   }
-
-  return json({ ok: true });
+  return json({ ok: true, supabase: "synced", vps: "sync_started" });
 }
 
 Deno.serve(async (req) => {
