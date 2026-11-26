@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
-import { ChevronLeft, ChevronRight, Download, Globe, Wifi } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Globe, Wifi, X } from 'lucide-react';
 import VsLogo from '@/components/VsLogo';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import WhatsAppButton from './WhatsAppButton';
@@ -11,7 +11,7 @@ import { useScrollReveal } from './useScrollReveal';
 import { prefersReducedMotion, useScrollScene } from './useScrollScene';
 import {
   AI_STEPS, BAND_POINTS, COMPARISON, FAQS, HIGHLIGHTS, MANIFESTO, MIXER_POINTS, NEWS, NUMBERS,
-  PRICES, SHOW_STEPS, SPOTS, STEMS, TIMELINE_POINTS, TOOLS, TV_POINTS, type ShowStep,
+  PADS_POINTS, PRICES, SHOW_STEPS, SPOTS, STEMS, TIMELINE_POINTS, TOOLS, TV_POINTS, type ShowStep,
 } from './siteContent';
 import './sales.css';
 
@@ -23,6 +23,8 @@ const INTRO_KEY = 'vs_site_intro_v1';
 
 const goPlans = () => { window.location.hash = '#planos'; };
 const goDownload = () => { window.location.hash = '#baixar'; };
+// BASE_URL: no staging o site fica em /staging/, então o endereço acompanha
+const goSubscriberArea = () => { window.location.href = `${import.meta.env.BASE_URL}area-do-assinante`; };
 
 function scrollToId(e: MouseEvent<HTMLElement>, id: string) {
   const el = document.getElementById(id);
@@ -62,6 +64,7 @@ export default function SalesPage() {
         <TimelineSection />
         <MaestroSection />
         <MixerSection />
+        <PadsSection />
         <BandSection />
         <TvSection />
         <OfflineSection />
@@ -86,27 +89,32 @@ const NAV_LINKS = [
   { id: 'maestro', label: 'Maestro' },
   { id: 'mixer', label: 'Mixer' },
   { id: 'banda', label: 'Banda' },
-  { id: 'tv', label: 'TV do palco' },
+  { id: 'teleprompter', label: 'Teleprompter' },
   { id: 'precos', label: 'Preços' },
 ];
 
 function Nav() {
   return (
     <header className="vs-nav">
-      <div className="vs-wrap h-14 flex items-center gap-6">
-        <a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }} className="flex items-center gap-2.5 shrink-0">
-          <VsLogo size={26} />
+      {/* como o topo do site da Apple: largura toda, logo na ponta esquerda, links finos no meio,
+          botões na ponta direita (a grade de 3 colunas deixa os links no centro de verdade) */}
+      <div className="h-12 px-5 xl:px-8 grid grid-cols-[1fr_auto] lg:grid-cols-[1fr_auto_1fr] items-center gap-4 xl:gap-6">
+        <a href="#" onClick={(e) => { e.preventDefault(); window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' }); }} className="flex items-center gap-2 justify-self-start shrink-0">
+          <VsLogo size={22} />
           <span className="vs-wordmark">VS Stage Pro</span>
         </a>
-        <nav className="hidden lg:flex items-center gap-7 mx-auto text-[0.875rem]" aria-label="Seções do site">
+        <nav className="hidden lg:flex items-center gap-3.5 xl:gap-8 whitespace-nowrap" aria-label="Seções do site">
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id)} className="vs-nav-link">{l.label}</a>
           ))}
+          <a href={`${import.meta.env.BASE_URL}area-do-assinante`} className="vs-nav-link">Área do Assinante</a>
+          <a href={supportWhatsAppUrl(SITE_SUPPORT_MESSAGE)} target="_blank" rel="noopener noreferrer" className="vs-nav-link">Suporte</a>
         </nav>
-        <div className="ml-auto lg:ml-0 flex items-center gap-2">
-          <button type="button" onClick={goPlans} className="vs-key vs-key-sm vs-key-steel hidden sm:inline-flex">Assinar</button>
-          <button type="button" onClick={goDownload} className="vs-key vs-key-sm vs-key-steel">Download</button>
-          <button type="button" onClick={goDownload} className="vs-key vs-key-sm vs-key-amber">Testar grátis</button>
+        <div className="justify-self-end flex items-center gap-2">
+          {/* a assinatura em destaque (âmbar); o teste grátis discreto e fora do celular */}
+          <button type="button" onClick={goDownload} className="vs-key vs-key-nav vs-key-steel hidden sm:inline-flex">Download</button>
+          <button type="button" onClick={goDownload} className="vs-key vs-key-nav vs-key-steel hidden sm:inline-flex">Testar grátis</button>
+          <button type="button" onClick={goPlans} className="vs-key vs-key-nav vs-key-amber">Assinar</button>
         </div>
       </div>
     </header>
@@ -133,13 +141,12 @@ function Hero({ on }: { on: boolean }) {
         </h1>
         <p className="vs-lead mt-7 mx-auto vs-rise" style={{ '--d': '220ms' } as CSSProperties}>
           Esqueça DAWs de estúdio que travam. Suba uma faixa pronta: a <strong className="text-[color:var(--cream)]">Inteligência Artificial</strong> separa
-          os stems, acerta o BPM e devolve um <strong className="text-[color:var(--cream)]">VS Stage Pro</strong> completo — com timeline por música,
-          controle de tom, mixer com Timecode LTC, cifras no celular da banda e teleprompter na TV do palco.
+          os stems, acerta o BPM e devolve um <strong className="text-[color:var(--cream)]">VS Stage Pro</strong> completo: timeline por música,
+          controle de tom, mesa de som com Timecode LTC, pads ao vivo, cifras no celular da banda e teleprompter na TV do palco.
         </p>
         <div className="mt-9 flex flex-col sm:flex-row items-center gap-3 vs-rise" style={{ '--d': '320ms' } as CSSProperties}>
-          <button type="button" onClick={goDownload} className="vs-key vs-key-amber w-full sm:w-auto">
-            <Download size={19} strokeWidth={2.4} /> Começar teste grátis
-          </button>
+          {/* o teste grátis já está no topo: aqui o destaque é a assinatura */}
+          <button type="button" onClick={goPlans} className="vs-key vs-key-amber w-full sm:w-auto">Assinar agora</button>
           <a href="#por-que" onClick={(e) => scrollToId(e, 'por-que')} className="vs-key vs-key-steel w-full sm:w-auto">Por que o VS Stage Pro no palco?</a>
         </div>
         <p className="mt-5 text-[0.85rem] text-[color:var(--muted)] vs-rise" style={{ '--d': '400ms' } as CSSProperties}>
@@ -149,16 +156,16 @@ function Hero({ on }: { on: boolean }) {
 
       <div ref={tilt} className="vs-devices" role="group" aria-label="O VS Stage Pro no computador de mesa, no notebook, no celular e no tablet">
         <div className="vs-dev vs-dev-imac"><div style={{ '--dd': '380ms' } as CSSProperties}>
-          <IMac src="/site/imac.jpg" width={3200} height={1800} eager alt="Computador de mesa com o VS Stage Pro: playlist, linha do tempo com as faixas e o mixer" />
+          <IMac src="/site/imac.jpg?v=3" width={3200} height={1800} eager alt="Computador de mesa com o VS Stage Pro tocando: playlist, linha do tempo com as partes coloridas, a mesa de som com knobs de LED e os VUs" />
         </div></div>
         <div className="vs-dev vs-dev-tab"><div style={{ '--dd': '560ms' } as CSSProperties}>
-          <Tablet src="/site/tablet.jpg" width={2732} height={2048} alt="Tablet com a Área do Produtor do teleprompter: prévia da TV do palco com um aviso no ar, o que aparece na tela e os avisos prontos" />
+          <Tablet src="/site/tablet.jpg?v=3" width={2732} height={2048} alt="Tablet com a Área do Produtor do teleprompter: prévia da TV do palco com um aviso no ar, o que aparece na tela e os avisos prontos" />
         </div></div>
         <div className="vs-dev vs-dev-mbook"><div style={{ '--dd': '480ms' } as CSSProperties}>
-          <MacBook src="/site/show.jpg" width={3200} height={2000} alt="Notebook no Modo Show do Show Prefeitura, com o relógio de LED" />
+          <MacBook src="/site/show.jpg?v=3" width={3200} height={2000} alt="Notebook no Modo Show do Show Prefeitura: a playlist com as partes da música, o relógio de LED e a mesa de som" />
         </div></div>
         <div className="vs-dev vs-dev-phone"><div style={{ '--dd': '660ms' } as CSSProperties}>
-          <IPhone src="/site/iphone-palco.jpg" width={1179} height={2556} alt="Celular com a Área do Músico e a partitura da música no ar" />
+          <IPhone src="/site/iphone-palco.jpg?v=3" width={1179} height={2556} alt="Celular com a Área do Músico no Modo show: a música no ar, a próxima e a cifra rolando sozinha" />
         </div></div>
       </div>
     </section>
@@ -355,7 +362,7 @@ function ShowScene() {
               <div className="vs-zoom-frame">
                 <img
                   className="vs-zoom-img"
-                  src="/site/show.jpg"
+                  src="/site/show.jpg?v=3"
                   width={3200}
                   height={2000}
                   alt="Modo Show: playlist em tela cheia, displays de Tocando e Próxima e o relógio de LED"
@@ -544,8 +551,8 @@ function TimelineSection() {
           o momento pedir, sempre no tempo e sem nenhum corte fora do lugar.
         </SectionHead>
         <div ref={keys.ref} className={`mt-7 flex flex-wrap items-center gap-4 ${keys.revealed ? 'is-in' : ''}`}>
-          <div className="vs-keycaps" aria-label="Atalhos do teclado: 1 a 9, L e P">
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'L', 'P'].map((k, i) => (
+          <div className="vs-keycaps" aria-label="Atalhos do teclado: L e N">
+            {['L', 'N'].map((k, i) => (
               <span key={k} className="vs-keycap" style={{ '--k': i } as CSSProperties}>{k}</span>
             ))}
           </div>
@@ -553,7 +560,7 @@ function TimelineSection() {
         </div>
         <div ref={grow} className="vs-grow mt-12">
           <div className="vs-screen">
-            <img src="/site/timeline.jpg" width={2480} height={1264} alt="Linha do tempo com as partes da música coloridas e as faixas de cada instrumento" loading="lazy" decoding="async" />
+            <img src="/site/timeline.jpg?v=3" width={2480} height={1264} alt="Linha do tempo com as partes da música coloridas e as faixas de cada instrumento" loading="lazy" decoding="async" />
           </div>
         </div>
         <Points items={TIMELINE_POINTS} led="green" className="mt-12 md:grid-cols-3" />
@@ -581,10 +588,10 @@ function FaderVideo() {
   return (
     <video
       ref={ref}
-      src="/site/faders.mp4?v=2"
-      poster="/site/faders-poster.jpg?v=2"
+      src="/site/faders.mp4?v=4"
+      poster="/site/faders-poster.jpg?v=4"
       width={2036}
-      height={534}
+      height={536}
       muted
       loop
       playsInline
@@ -601,8 +608,8 @@ function MixerSection() {
     <section id="mixer" className="vs-section pt-0" aria-labelledby="mixer-title">
       <div className="vs-wrap">
         <SectionHead id="mixer-title" kicker="Mixer" n={7} title="Uma mesa de som de verdade.">
-          Faders, medidores em dB, master e timecode com o visual de uma mesa analógica: qualquer técnico entende de primeira, e
-          qualquer músico aprende em minutos.
+          Faders, knobs com anel de LED, medidores em dB, VUs de ponteiro, loudness em LUFS e timecode, com o visual de uma mesa
+          analógica: qualquer técnico entende de primeira, e qualquer músico aprende em minutos.
         </SectionHead>
         <div ref={pan} className="vs-console mt-12">
           <div className="vs-console-inner"><FaderVideo /></div>
@@ -634,16 +641,40 @@ function MaestroSection() {
       <div className="vs-wrap">
         <SectionHead id="maestro-title" kicker="Maestro com IA" n={6} title="Um maestro que fala por você.">
           Escreva a regência e a inteligência artificial transforma o texto em voz, encaixada no tempo da música: a contagem, as
-          preparações, as viradas e os avisos que a banda precisa ouvir no fone. Você dirige o show sem tirar as mãos do teclado.
+          preparações, as viradas e os avisos que a banda precisa ouvir no fone. São três vozes de maestro e mais de mil falas
+          prontas, em botões por assunto. E agora o Maestro pode falar com a sua voz: grave alguns segundos no próprio programa,
+          digite o que quer dizer e a sua voz entra na timeline. Você dirige o show sem tirar as mãos do teclado.
         </SectionHead>
         <div ref={box.ref} className="mt-10 max-w-[40rem]">
           <MaestroTyping active={box.revealed} big />
         </div>
         <div ref={grow} className="vs-grow mt-10">
           <div className="vs-screen">
-            <img src="/site/maestro.jpg" width={3200} height={720} alt="Faixa Maestro IA na linha do tempo, com as falas em azul: um, dois, três, quatro e prepara o verso" loading="lazy" decoding="async" />
+            <img src="/site/maestro.jpg?v=3" width={2560} height={576} alt="Faixa Maestro IA na linha do tempo, com as falas marcadas: um, dois, três, quatro e prepara o verso" loading="lazy" decoding="async" />
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+function PadsSection() {
+  const grow = useScrollScene<HTMLDivElement>();
+  return (
+    <section id="pads" className="vs-section pt-0" aria-labelledby="pads-title">
+      <div className="vs-wrap">
+        <SectionHead id="pads-title" kicker="Pads ao vivo" n={7} title="Vinhetas e efeitos na ponta dos dedos.">
+          No Modo Show, a tecla P troca a mesa pelos pads: 9 por banco, em 10 bancos, para soltar a vinheta de abertura, os
+          aplausos, a subida e o efeito de voz na hora certa, com reverb, delay, roll no tempo da música e saída própria.
+        </SectionHead>
+        <div ref={grow} className="vs-grow mt-12">
+          <div className="vs-screen">
+            <img src="/site/pads.jpg?v=3" width={3200} height={2000} alt="Modo Show com os pads abertos: nove pads coloridos no banco A, um tocando a vinheta de abertura, os efeitos e o relógio de LED do show" loading="lazy" decoding="async" />
+          </div>
+        </div>
+        <Points items={PADS_POINTS} className="mt-12 md:grid-cols-2" />
       </div>
     </section>
   );
@@ -659,16 +690,16 @@ function BandSection() {
         <div className="vs-band-head">
           <SectionHead id="banda-title" kicker="Área do Músico" n={8} title="A banda inteira na mesma página.">
             Cada músico abre a Área do Músico no próprio celular ou tablet e acompanha você em tempo real: a música no ar, a
-            próxima, o tom e o BPM. No Modo show, a partitura dele ocupa a tela inteira e troca sozinha quando a música muda. Sem
-            papel voando, sem pasta, sem ninguém perguntando qual é a próxima.
+            próxima, o tom e o BPM. No Modo show, a cifra dele ocupa a tela, troca sozinha quando a música muda e rola sozinha na
+            velocidade que ele escolher. Sem papel voando, sem pasta, sem ninguém perguntando qual é a próxima.
           </SectionHead>
         </div>
         <div ref={ref} className="vs-band-phones flex justify-center gap-[4vw] lg:gap-8 pb-16">
           <div className="vs-phone-slot vs-phone-a">
-            <IPhone src="/site/iphone-palco.jpg" width={1179} height={2556} alt="Modo show do músico: displays de Tocando e Próxima e a partitura em foto" />
+            <IPhone src="/site/iphone-palco.jpg?v=3" width={1179} height={2556} alt="Modo show do músico: displays de Tocando e Próxima, o botão Rolar sozinho e a cifra da música no ar" />
           </div>
           <div className="vs-phone-slot vs-phone-b">
-            <IPhone src="/site/iphone-lista.jpg" width={1179} height={2556} time="20:46" alt="Área do Músico com a playlist do show, tom e BPM" />
+            <IPhone src="/site/iphone-lista.jpg?v=3" width={1179} height={2556} time="20:46" alt="Área do Músico com a playlist do show, tom e BPM" />
           </div>
         </div>
         <div className="vs-band-points"><Points items={BAND_POINTS} led="green" /></div>
@@ -682,17 +713,17 @@ function BandSection() {
 function TvSection() {
   const ref = useScrollScene<HTMLDivElement>();
   return (
-    <section id="tv" className="vs-section pt-0" aria-labelledby="tv-title">
+    <section id="teleprompter" className="vs-section pt-0" aria-labelledby="tv-title">
       <div className="vs-wrap">
-        <SectionHead id="tv-title" kicker="TV do palco" n={9} title="A letra na TV, um instante antes de cantar.">
+        <SectionHead id="tv-title" kicker="Teleprompter" n={9} title="A letra na TV, um instante antes de cantar.">
           O teleprompter usa os mesmos displays do programa: relógio, tempo de show, a música no ar e a próxima com tom e BPM, a
-          playlist do show e a letra, que aparece um instante antes da hora de cantar. O produtor técnico controla tudo pelo
-          tablet, conectado direto ao computador do diretor.
+          playlist do show e a letra, que aparece um instante antes da hora de cantar. A IA lê a letra da música e marca cada
+          trecho sozinha, e o produtor técnico controla tudo pelo tablet, conectado direto ao computador do diretor.
         </SectionHead>
         <div ref={ref} className="vs-tv-wrap mt-12">
           <div className="vs-tv">
             <div className="vs-tv-screen">
-              <img src="/site/tv.jpg" width={3200} height={1800} alt="Teleprompter na TV: playlist do show, relógio, tempo de show e a letra do refrão" loading="lazy" decoding="async" />
+              <img src="/site/tv.jpg?v=3" width={3200} height={1800} alt="Teleprompter na TV: playlist do show, relógio, tempo de show e a letra do refrão" loading="lazy" decoding="async" />
               <div className="vs-notice" aria-label="Exemplo de aviso ao vivo na TV">
                 <b>ATENÇÃO</b>
                 <span>Mais uma vez o refrão</span>
@@ -803,9 +834,12 @@ function CompareSection() {
           {COMPARISON.map((r) => (
             <div key={r.topic} className="vs-compare-row" role="row">
               <span role="cell" className="vs-display text-[1.2rem] leading-tight">{r.topic}</span>
-              <span role="cell" className="text-[0.95rem] leading-relaxed text-[color:var(--muted)]">{r.studio}</span>
+              {/* X vermelho no que o programa de estúdio não resolve; visto verde no VS Stage Pro */}
+              <span role="cell" className="text-[0.95rem] leading-relaxed text-[color:var(--muted)] flex gap-2.5">
+                <X size={15} strokeWidth={2.75} className="shrink-0 mt-[0.3rem] text-[color:var(--red)]" aria-label="Não tem" />{r.studio}
+              </span>
               <span role="cell" className="text-[0.98rem] leading-relaxed text-[color:var(--cream)] flex gap-2.5">
-                <span className="vs-led is-green mt-[0.45rem]" />{r.vs}
+                <Check size={15} strokeWidth={2.75} className="shrink-0 mt-[0.3rem] text-[color:var(--green)]" aria-label="Tem" />{r.vs}
               </span>
             </div>
           ))}
@@ -853,7 +887,7 @@ function PlansSection() {
           <div className="vs-plan vs-panel">
             <h3 className="vs-display text-[1.6rem]">Mensal</h3>
             <p><span className="vs-display text-[3.4rem] leading-none">{PRICES.monthly}</span><span className="text-[color:var(--cream-dim)]"> por mês</span></p>
-            <p className="vs-body">Sem fidelidade. Cancele quando quiser.</p>
+            <p className="vs-body">Sem fidelidade e sem cobrança automática.</p>
             <button type="button" onClick={goPlans} className="vs-key vs-key-steel mt-auto self-start">Assinar o mensal</button>
           </div>
           <div className="vs-plan vs-panel is-best">
@@ -915,11 +949,12 @@ const FOOTER_COLS: { title: string; links: { label: string; id?: string; go?: ()
     { label: 'Maestro', id: 'maestro' }, { label: 'Mixer', id: 'mixer' },
   ] },
   { title: 'Palco', links: [
-    { label: 'Área do Músico', id: 'banda' }, { label: 'TV do palco', id: 'tv' }, { label: 'Novidades', id: 'novidades' },
+    { label: 'Área do Músico', id: 'banda' }, { label: 'Teleprompter', id: 'teleprompter' }, { label: 'Novidades', id: 'novidades' },
     { label: 'Palco × estúdio', id: 'por-que' },
   ] },
   { title: 'Assinatura', links: [
     { label: 'Preços', id: 'precos' }, { label: 'Planos', go: goPlans }, { label: 'Teste grátis de 48 horas', go: goDownload },
+    { label: 'Área do Assinante', go: goSubscriberArea },
   ] },
 ];
 
