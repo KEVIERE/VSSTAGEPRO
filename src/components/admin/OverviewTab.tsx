@@ -31,7 +31,7 @@ import {
   num,
   relative,
 } from '@/components/admin/adminApi';
-import type {
+import type { OnlineApp,
   FeatureUse,
   InsightsData,
   Overview,
@@ -75,7 +75,7 @@ export default function OverviewTab() {
   const [days, setDays] = useState(30);
   const [data, setData] = useState<Overview | null>(null);
   const [insights, setInsights] = useState<InsightsData | null>(null);
-  const [onlineApps, setOnlineApps] = useState<import('@/components/admin/adminApi').OnlineApp[]>([]);
+  const [onlineApps, setOnlineApps] = useState<OnlineApp[]>([]);
   const [usage, setUsage] = useState<FeatureUse[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
