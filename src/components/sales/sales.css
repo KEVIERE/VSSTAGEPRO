@@ -96,9 +96,8 @@ html.vs-intro-lock, html.vs-intro-lock body { overflow: hidden; }
 .vs-key-steel:hover { filter: brightness(1.15); }
 .vs-key-sm { height: 2.375rem; padding: 0 1.05rem; font-size: 0.9375rem; border-radius: 0.5rem; }
 /* botões do topo: menores, para acompanhar os links finos */
-.vs-key-nav { height: 1.875rem; padding: 0 0.9rem; font-size: 0.8125rem; border-radius: 0.45rem; }
-/* no toque, as teclas pequenas chegam a 44 px de altura */
-@media (pointer: coarse) { .vs-key-sm { height: 2.75rem; } .vs-key-nav { height: 2.5rem; } }
+.vs-key-nav { height: 1.875rem; padding: 0 0.6rem; font-size: 0.8125rem; border-radius: 0.45rem; }
+@media (pointer: coarse) { .vs-key-nav { height: 2.5rem; padding: 0 0.75rem; font-size: 0.8125rem; } }
 
 .vs-led {
   display: inline-block; flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px;

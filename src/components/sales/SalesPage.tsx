@@ -113,7 +113,7 @@ function Nav() {
         <div className="justify-self-end flex items-center gap-2">
           {/* a assinatura em destaque (âmbar); o teste grátis discreto e fora do celular */}
           <button type="button" onClick={goDownload} className="vs-nav-link hidden sm:inline-flex">Download</button>
-          <button type="button" onClick={goDownload} className="vs-key vs-key-nav vs-key-steel hidden sm:inline-flex">Testar grátis</button>
+          <button type="button" onClick={goDownload} className="vs-key vs-key-nav vs-key-steel hidden sm:inline-flex whitespace-nowrap">Testar grátis</button>
           <button type="button" onClick={goPlans} className="vs-key vs-key-nav vs-key-amber">Assinar</button>
         </div>
       </div>
