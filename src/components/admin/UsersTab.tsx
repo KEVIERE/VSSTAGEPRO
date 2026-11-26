@@ -265,6 +265,7 @@ export default function UsersTab({ onCompose }: { onCompose?: (person: OutreachP
                   <th className="px-3 py-2.5 font-semibold">Situação</th>
                   <th className="px-3 py-2.5 font-semibold">Plano</th>
                   <th className="px-3 py-2.5 font-semibold">Acesso</th>
+                  <th className="px-3 py-2.5 font-semibold">Versão do app</th>
                   <th className="px-3 py-2.5 font-semibold">Último uso</th>
                   <th className="px-3 py-2.5 font-semibold text-right">Usos 30d</th>
                   <th className="px-4 py-2.5 font-semibold">Cadastro</th>
@@ -288,6 +289,16 @@ export default function UsersTab({ onCompose }: { onCompose?: (person: OutreachP
                     <td className="px-3 py-2.5"><StateBadge state={u.state} /></td>
                     <td className="px-3 py-2.5 text-logic-text-dim">{u.state === 'active' ? (u.plan === 'yearly' ? 'Anual' : u.plan === 'monthly' ? 'Mensal' : 'Manual') : '—'}</td>
                     <td className="px-3 py-2.5 text-logic-text-dim whitespace-nowrap">{accessUntil(u, partners.has(u.id))}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      {u.app_version ? (
+                        <span className="inline-flex items-center gap-1.5" title={u.app_version_at ? `Sinal recebido ${relative(u.app_version_at)}` : undefined}>
+                          <span className="font-semibold text-logic-text">{u.app_version}</span>
+                          {u.app_version_at && new Date(u.app_version_at).getTime() > Date.now() - 35 * 60e3 && (
+                            <span className="w-1.5 h-1.5 rounded-full bg-logic-lcd-green animate-pulse" aria-label="aberto agora" />
+                          )}
+                        </span>
+                      ) : <span className="text-logic-text-muted">—</span>}
+                    </td>
                     <td className="px-3 py-2.5 text-logic-text-dim whitespace-nowrap">{relative(u.last_seen_at ?? u.last_sign_in_at)}</td>
                     <td className="px-3 py-2.5 text-right tabular-nums">{num(u.uses_30d)}</td>
                     <td className="px-4 py-2.5 text-logic-text-muted whitespace-nowrap">{dateTime(u.created_at)}</td>
@@ -376,6 +387,7 @@ function UserDrawer({ user, partner, onClose, onChanged, onCompose }: { user: Ad
               <dt className="text-logic-text-muted">Confirmação de e-mail</dt><dd className={user.email_confirmed_at ? 'text-logic-lcd-green font-medium' : 'text-logic-lcd-amber font-medium'}>{user.email_confirmed_at ? dateTime(user.email_confirmed_at) : 'Não confirmado'}</dd>
               <dt className="text-logic-text-muted">Último login</dt><dd>{dateTime(user.last_sign_in_at)}</dd>
               <dt className="text-logic-text-muted">Último uso</dt><dd>{dateTime(user.last_seen_at)}</dd>
+              <dt className="text-logic-text-muted">Versão do app</dt><dd className="font-medium">{user.app_version ?? '—'}{user.app_version_at ? <span className="text-logic-text-muted font-normal"> · {relative(user.app_version_at)}</span> : null}</dd>
               <dt className="text-logic-text-muted">Teste até</dt><dd>{dateTime(user.trial_ends_at)}</dd>
               <dt className="text-logic-text-muted">Bônus até</dt><dd>{dateTime(user.comp_until)}</dd>
               <dt className="text-logic-text-muted">Assinou em</dt><dd>{dateTime(user.subscribed_at)}</dd>

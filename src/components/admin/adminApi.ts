@@ -68,6 +68,10 @@ export type AdminUser = {
   last_payment_method?: PaymentMethod | null;
   last_receipt_url?: string | null;
   subscribed_at: string | null;
+  /** Versão exata do programa do último sinal recebido (heartbeats dos últimos 30 dias). */
+  app_version?: string | null;
+  /** Quando esse sinal chegou — para saber se a versão informada é fresca. */
+  app_version_at?: string | null;
   state: UserState;
   is_admin: boolean;
 };
