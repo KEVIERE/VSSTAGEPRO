@@ -1,0 +1,23 @@
+name: Sincronizar manifest VPS (rollback)
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copiar manifest do Supabase para a VPS
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_deploy_key
+          chmod 600 ~/.ssh/vps_deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          curl -fsS 'https://eknjqqiamuztomdygalv.supabase.co/storage/v1/object/public/app-downloads/mac/manifest.json' > /tmp/manifest.json
+          python3 -c "import json; m=json.load(open('/tmp/manifest.json')); print('publicando:', m['version'], 'build', m['build'])"
+          scp -i ~/.ssh/vps_deploy_key /tmp/manifest.json "$VPS_USER@$VPS_HOST:/var/www/download.vsstagepro.com.br/mac/manifest.json"
+          ssh -i ~/.ssh/vps_deploy_key "$VPS_USER@$VPS_HOST" "cat /var/www/download.vsstagepro.com.br/mac/manifest.json | head -c 200"
