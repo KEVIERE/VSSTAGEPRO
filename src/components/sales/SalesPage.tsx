@@ -107,12 +107,12 @@ function Nav() {
           {NAV_LINKS.map((l) => (
             <a key={l.id} href={`#${l.id}`} onClick={(e) => scrollToId(e, l.id)} className="vs-nav-link">{l.label}</a>
           ))}
+          <button type="button" onClick={goDownload} className="vs-nav-link">Download</button>
           <a href={`${import.meta.env.BASE_URL}area-do-assinante`} className="vs-nav-link">Área do Assinante</a>
           <a href={supportWhatsAppUrl(SITE_SUPPORT_MESSAGE)} target="_blank" rel="noopener noreferrer" className="vs-nav-link">Suporte</a>
         </nav>
         <div className="justify-self-end flex items-center gap-2">
-          {/* a assinatura em destaque (âmbar); o teste grátis discreto e fora do celular */}
-          <button type="button" onClick={goDownload} className="vs-nav-link hidden sm:inline-flex">Download</button>
+          {/* só estas duas ações ficam destacadas e alinhadas à direita */}
           <button type="button" onClick={goDownload} className="vs-key vs-key-nav vs-key-steel hidden sm:inline-flex whitespace-nowrap">Testar grátis</button>
           <button type="button" onClick={goPlans} className="vs-key vs-key-nav vs-key-amber">Assinar</button>
         </div>
