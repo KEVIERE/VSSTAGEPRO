@@ -554,3 +554,13 @@ export function promoValueText(kind: PromoCode['kind'], value: number) {
   if (kind === 'free_days') return `${value} ${value === 1 ? 'dia' : 'dias'} grátis`;
   return value % 24 === 0 ? `+${value / 24} ${value === 24 ? 'dia' : 'dias'} de teste` : `+${value}h de teste`;
 }
+
+// (voltou a ser necessário na aba Usuários; antes vivia numa cópia local não publicada)
+export type PaymentMethod = 'pix' | 'credit_card';
+
+/** "PIX", "Cartão" ou "Cartão em 3x". */
+export function paymentMethodLabel(method: PaymentMethod | null | undefined, installments?: number | null): string | null {
+  if (method === 'pix') return 'PIX';
+  if (method === 'credit_card') return installments && installments > 1 ? `Cartão em ${installments}x` : 'Cartão';
+  return null;
+}
