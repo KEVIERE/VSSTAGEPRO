@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 // Pacotes de falas do Maestro: tudo contra um servidor local, sem tocar no servidor real.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -67,8 +68,21 @@ test('sem manifesto publicado: nenhum acesso à rede e a voz fica indisponível'
   await srv.close();
 });
 
-test('o arquivo que vai no app começa vazio', () => {
-  assert.deepEqual(require('../desktop/maestro-packs.json').voices, {});
+test('o arquivo que vai no app trava o Maestro 2 e o Maestro 3 publicados', () => {
+  const { voices } = require('../desktop/maestro-packs.json');
+  assert.deepEqual(Object.keys(voices).sort(), ['carla', 'will']);
+  for (const pin of Object.values(voices)) {
+    assert.match(pin.version, /^[a-z0-9][a-z0-9._-]*$/i);
+    assert.match(pin.sha256, /^[0-9a-f]{64}$/);
+    assert.ok(Number.isSafeInteger(pin.size) && pin.size > 0);
+  }
+});
+
+test('várias falas baixam ao mesmo tempo, e um erro para o pacote', () => {
+  const src = readFileSync(new URL('../desktop/maestroPacks.js', import.meta.url), 'utf8');
+  assert.match(src, /const PARALLEL_FILES = \d+;/);
+  assert.match(src, /maxSockets: PARALLEL_FILES/);
+  assert.match(src, /if \(failure\) throw failure;/);
 });
 
 test('manifesto travado mas ainda não publicado: 404 não vira erro nem baixa nada', async () => {

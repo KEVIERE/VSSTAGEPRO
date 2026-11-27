@@ -1,4 +1,15 @@
 {
   "schema": 1,
-  "voices": {}
+  "voices": {
+    "will": {
+      "version": "2026-11-27",
+      "size": 493566,
+      "sha256": "facfe9fb80d2cbeccb6f15db5a2879e21f937a7d94631282cefb95f1895db930"
+    },
+    "carla": {
+      "version": "2026-11-27",
+      "size": 494037,
+      "sha256": "8f9946fd407ef40ae1d0b3cd6ba0e2c90af863067d2fc8fadfeed40747198017"
+    }
+  }
 }

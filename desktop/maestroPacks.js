@@ -26,6 +26,8 @@ const MAX_MANIFEST_BYTES = 8 * 1024 * 1024;
 const MAX_FILES = 12_000;
 const MAX_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_PACK_BYTES = 6 * 1024 * 1024 * 1024;
+/** Falas baixadas ao mesmo tempo. */
+const PARALLEL_FILES = 6;
 /** Folga de disco além do que falta baixar. */
 const DISK_MARGIN = 200 * 1024 * 1024;
 /** Espera entre tentativas depois de falha: 30 s, 2 min, 10 min (e fica nos 10 min). */
@@ -258,7 +260,7 @@ function createMaestroPacks(opts = {}) {
       if (paused || stopped) { reject(new PausedError()); return; }
       const target = new URL(url);
       const lib = target.protocol === 'http:' ? http : https;
-      if (!agent) agent = new lib.Agent({ keepAlive: true, maxSockets: 1 });
+      if (!agent) agent = new lib.Agent({ keepAlive: true, maxSockets: PARALLEL_FILES });
       const headers = { 'User-Agent': USER_AGENT };
       if (from > 0) headers.Range = `bytes=${from}-`;
       const req = lib.get(target, { headers, agent }, (res) => {
@@ -524,13 +526,26 @@ function createMaestroPacks(opts = {}) {
       emit(voice);
       if (fellBack && linkable) await checkDisk(dir, missingBytes);
       if (!current) setPhase(voice, 'baixando');
-      for (const file of pending) {
-        await downloadFile(voice, pin.version, file, (n) => {
-          progress.received = Math.max(0, progress.received + n);
-          emit(voice);
-        });
-        if (current === pin.version) missing.get(voice)?.delete(file.path);
-      }
+      // várias falas ao mesmo tempo: são milhares de arquivos pequenos, e uma por vez levava
+      // perto de uma hora só pela espera de cada pedido; o primeiro erro (ou a pausa) para todas
+      let next = 0;
+      let failure = null;
+      const worker = async () => {
+        while (!failure && next < pending.length) {
+          const file = pending[next++];
+          try {
+            await downloadFile(voice, pin.version, file, (n) => {
+              progress.received = Math.max(0, progress.received + n);
+              emit(voice);
+            });
+            if (current === pin.version) missing.get(voice)?.delete(file.path);
+          } catch (err) {
+            if (!failure) failure = err;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(PARALLEL_FILES, pending.length) }, worker));
+      if (failure) throw failure;
     }
 
     if (changed || hashed || stamp === null) {

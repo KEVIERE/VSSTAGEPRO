@@ -1,19 +1,14 @@
 import { useSyncExternalStore } from 'react';
 import { Check, Loader2, Timer, X } from 'lucide-react';
-import ClickSoundChooser from '@/components/ClickSoundChooser';
 import { dismissClickTool, getClickToolStatus, subscribeClickTool } from '@/lib/clickTools';
 
 /**
- * Painel no canto da tela para os comandos do click (compasso antes do início e recriar
- * metrônomo), junto com a janela de sons do Recriar metrônomo.
+ * Painel no canto da tela para os comandos do click (compasso antes do início, gerar e trocar
+ * o som do click). A janela de sons (ClickSoundChooser) fica fora daqui, no App: a pilha do canto
+ * ignora o mouse (pointer-events-none), e dentro dela os botões da janela não respondiam.
  */
 export default function ClickStatus() {
-  return (
-    <>
-      <ClickSoundChooser />
-      <ClickToolPanel />
-    </>
-  );
+  return <ClickToolPanel />;
 }
 
 function ClickToolPanel() {

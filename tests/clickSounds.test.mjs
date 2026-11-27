@@ -190,5 +190,5 @@ test('Trocar som do click abre a janela de sons e usa o som e o 1 do compasso', 
   assert.match(chooser, /Importar seu som/, 'o último botão importa o som do usuário');
   assert.match(chooser, /type="file"/);
   assert.match(chooser, /importClickFile\(file\)/, 'o arquivo passa pelo ajuste automático');
-  assert.match(read('components', 'ClickStatus.tsx'), /<ClickSoundChooser \/>/, 'a janela está montada');
+  assert.match(fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8'), /<ClickSoundChooser \/>/, 'a janela está montada (no App, fora da pilha que ignora o mouse)');
 });

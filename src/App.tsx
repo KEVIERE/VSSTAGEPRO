@@ -82,6 +82,7 @@ import { usePendingRequests } from '@/lib/usePendingRequests';
 import JoinRequestsBanner from '@/components/JoinRequestsBanner';
 import StemSplitStatus from '@/components/StemSplitStatus';
 import ClickStatus from '@/components/ClickStatus';
+import ClickSoundChooser from '@/components/ClickSoundChooser';
 import { useProjectLyricsSync } from '@/lib/useProjectLyricsSync';
 import { startAudioOutputWatcher } from '@/lib/audioOutput';
 import { startSongLevelWatcher } from '@/lib/songLevelWatcher';
@@ -837,6 +838,8 @@ export function DirectorApp({ license }: { license: License }) {
           <StemSplitStatus />
           <ClickStatus />
         </div>
+        {/* janela de sons do click: fora da pilha do canto, que ignora o mouse */}
+        <ClickSoundChooser />
         <BounceDialog />
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
         {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}
