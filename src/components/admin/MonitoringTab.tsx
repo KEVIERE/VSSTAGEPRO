@@ -24,6 +24,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Trash2,
   Unlock,
   Users,
   Zap,
@@ -54,6 +55,7 @@ export default function MonitoringTab() {
   const [checkingHealth, setCheckingHealth] = useState(false);
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [clearingHistory, setClearingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -124,6 +126,20 @@ export default function MonitoringTab() {
     }
   };
 
+  const handleClearHistory = async () => {
+    if (!window.confirm('Apagar todo o histórico de tentativas de crack e anomalias? Os Macs bloqueados continuam bloqueados.')) return;
+    setClearingHistory(true);
+    try {
+      const { deleted } = await adminApi.clearTamperHistory();
+      setMsg({ ok: true, text: `Histórico limpo: ${deleted} registro(s) apagado(s).` });
+      await loadAll();
+    } catch (e) {
+      setMsg({ ok: false, text: friendlyError((e as Error).message) });
+    } finally {
+      setClearingHistory(false);
+    }
+  };
+
   const criticalTamperCount = tamper.filter((t) => t.tampered).length;
   const downServicesCount = health.filter((h) => h.status !== 'up').length;
 
@@ -147,6 +163,16 @@ export default function MonitoringTab() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleClearHistory}
+            disabled={clearingHistory}
+            className="px-3.5 h-9 rounded-lg bg-white/[0.08] hover:bg-white/[0.14] text-xs font-bold text-white border border-white/15 transition flex items-center gap-2 disabled:opacity-50"
+          >
+            {clearingHistory ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+            <span>Limpar histórico</span>
+          </button>
+
           <button
             type="button"
             onClick={runHealthCheckNow}
@@ -462,6 +488,22 @@ export default function MonitoringTab() {
                   },
                   {
                     step: 4,
+                    label: 'Abriram com Windows 10',
+                    count: funnel.app_opened_win10 ?? 0,
+                    icon: Laptop,
+                    color: 'from-sky-500 to-blue-500',
+                    desc: 'Instalações no Windows 10 que mandaram sinal no período.',
+                  },
+                  {
+                    step: 5,
+                    label: 'Abriram com Windows 11',
+                    count: funnel.app_opened_win11 ?? 0,
+                    icon: Laptop,
+                    color: 'from-cyan-500 to-sky-500',
+                    desc: 'Instalações no Windows 11 que mandaram sinal no período.',
+                  },
+                  {
+                    step: 6,
                     label: 'Usaram Ferramentas de Show',
                     count: funnel.stage_used,
                     icon: Play,
@@ -469,7 +511,7 @@ export default function MonitoringTab() {
                     desc: 'Deram Play na timeline, usaram Mixer, Modo Show ou Rede Local.',
                   },
                   {
-                    step: 5,
+                    step: 7,
                     label: 'Assinaturas Pagas',
                     count: funnel.subscribed,
                     icon: DollarSign,

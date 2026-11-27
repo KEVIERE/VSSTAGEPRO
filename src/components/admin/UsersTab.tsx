@@ -30,12 +30,15 @@ function EmailBadge({ confirmedAt }: { confirmedAt: string | null | undefined })
 }
 
 const PAGE = 50;
-const FILTERS: Array<{ id: '' | UserState; label: string }> = [
+// 'partner' e 'online' não são estados de licença: são filtros à parte que o banco entende.
+const FILTERS: Array<{ id: '' | UserState | 'partner' | 'online'; label: string }> = [
   { id: '', label: 'Todos' },
   { id: 'active', label: 'Assinantes' },
   { id: 'trial', label: 'Em teste' },
   { id: 'expired', label: 'Teste encerrado' },
   { id: 'promo', label: 'Bônus' },
+  { id: 'partner', label: 'Parceiros' },
+  { id: 'online', label: 'Em uso agora' },
   { id: 'blocked', label: 'Suspensos' },
 ];
 
@@ -184,7 +187,7 @@ function CompCountdown({ user, partner }: { user: AdminUser; partner: boolean })
 export default function UsersTab({ onCompose }: { onCompose?: (person: OutreachPerson) => void }) {
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  const [state, setState] = useState<'' | UserState>('');
+  const [state, setState] = useState<'' | UserState | 'partner' | 'online'>('');
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<AdminUser[]>([]);
   const [total, setTotal] = useState(0);

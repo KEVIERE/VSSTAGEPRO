@@ -72,6 +72,8 @@ export type AdminUser = {
   app_version?: string | null;
   /** Quando esse sinal chegou — para saber se a versão informada é fresca. */
   app_version_at?: string | null;
+  /** Programa aberto agora (heartbeat nos últimos 35 minutos). */
+  online_now?: boolean;
   state: UserState;
   is_admin: boolean;
 };
@@ -234,6 +236,10 @@ export type FunnelData = {
   app_opened: number;
   stage_used: number;
   subscribed: number;
+  /** Abriu o programa por plataforma (heartbeats distintos no período). */
+  app_opened_mac?: number;
+  app_opened_win10?: number;
+  app_opened_win11?: number;
 };
 
 export type TimelineEvent = {
@@ -594,6 +600,8 @@ export const adminApi = {
   serviceHealth: () => call<ServiceHealthEntry[]>('admin_service_health'),
   runHealthCheck: () => callEdgeFn<{ ok: true; results: Array<{ service: string; status: string; latencyMs: number; detail: string }> }>('health-check', {}),
   tamperAlerts: (limit = 50) => call<TamperAlert[]>('admin_tamper_alerts', { p_limit: limit }),
+  // Limpa o histórico de crack/anomalias (os Macs bloqueados continuam bloqueados).
+  clearTamperHistory: () => call<{ deleted: number }>('admin_tamper_clear', {}),
   blockHardware: (hwId: string, reason: string) => call<void>('admin_block_hardware', { p_hw_id: hwId, p_reason: reason }),
   unblockHardware: (hwId: string) => call<void>('admin_unblock_hardware', { p_hw_id: hwId }),
   funnel: (days = 30) => call<FunnelData>('admin_funnel', { p_days: days }),
