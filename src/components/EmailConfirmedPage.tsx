@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Apple, CheckCircle2, ChevronRight, ExternalLink, Loader2, Mic2, MonitorPlay, Radio, Sparkles, Timer } from 'lucide-react';
+import { CheckCircle2, ChevronRight, ExternalLink, Laptop, Loader2, Mic2, MonitorPlay, Radio, Sparkles, Timer } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import VsLogo from '@/components/VsLogo';
 
@@ -94,7 +94,7 @@ export default function EmailConfirmedPage() {
           <div className="mt-5 p-3.5 rounded-xl bg-logic-bg-elevated/80 border border-logic-border flex items-center justify-center gap-2.5 text-xs text-logic-text">
             <Timer size={16} className="text-logic-lcd-amber shrink-0" />
             <span>
-              <strong className="text-logic-lcd-amber">48 horas de teste grátis</strong> liberadas. O tempo só começa a contar quando você abrir o aplicativo no Mac!
+              <strong className="text-logic-lcd-amber">48 horas de teste grátis</strong> liberadas. O tempo só começa a contar quando você abrir o programa no computador (Mac ou Windows)!
             </span>
           </div>
 
@@ -105,8 +105,8 @@ export default function EmailConfirmedPage() {
               onClick={() => { window.location.href = '/#baixar'; }}
               className="w-full h-12 rounded-xl bg-gradient-to-r from-logic-lcd-green to-emerald-500 hover:from-emerald-400 hover:to-logic-lcd-green text-black font-bold text-sm flex items-center justify-center gap-2 transition shadow-lg shadow-logic-lcd-green/20 group"
             >
-              <Apple size={18} className="transition-transform group-hover:scale-110" />
-              <span>Baixar o VS Stage para Mac</span>
+              <Laptop size={18} className="transition-transform group-hover:scale-110" />
+              <span>Baixar o VS Stage para Mac ou Windows</span>
               <ChevronRight size={16} className="ml-0.5 opacity-70 group-hover:translate-x-0.5 transition-transform" />
             </button>
 

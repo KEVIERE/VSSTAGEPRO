@@ -150,7 +150,7 @@ function Hero({ on }: { on: boolean }) {
           <a href="#por-que" onClick={(e) => scrollToId(e, 'por-que')} className="vs-key vs-key-steel w-full sm:w-auto">Por que o VS Stage Pro no palco?</a>
         </div>
         <p className="mt-5 text-[0.85rem] text-[color:var(--muted)] vs-rise" style={{ '--d': '400ms' } as CSSProperties}>
-          Otimizado para macOS Sonoma, Sequoia e Apple Silicon (M1/M2/M3/M4). Teste grátis de 48 horas, sem cartão.
+          Para Mac (Apple Silicon ou Intel) e Windows 10 e 11 (64 bits). Teste grátis de 48 horas, sem cartão.
         </p>
       </div>
 
@@ -460,7 +460,7 @@ function AiScene() {
             <p className="vs-body mt-5 max-w-[34em] text-[1.05rem]">
               Não achou a multitrack daquela música que todo mundo canta? Mande só o áudio mixado. A IA separa a música e entrega
               o VS com voz, click, bateria, baixo, guitarra/violão, teclado e outros. Ela ainda divide a bateria em bumbo, caixa,
-              pratos e tons, mede o BPM e coloca tudo numa timeline própria. E tudo roda no seu Mac: a sua música não sai do
+              pratos e tons, mede o BPM e coloca tudo numa timeline própria. E tudo roda no seu computador: a sua música não sai do
               computador.
             </p>
             <ol className="mt-6">
@@ -991,7 +991,7 @@ function Footer() {
         </div>
         <div className="vs-footer-base">
           <p>© 2026 VS Stage Pro. Todos os direitos reservados.</p>
-          <p>Para macOS Sonoma e Sequoia, em Macs com Apple Silicon.</p>
+          <p>Para Mac (Apple Silicon ou Intel) e Windows 10 e 11 (64 bits).</p>
         </div>
       </div>
     </footer>

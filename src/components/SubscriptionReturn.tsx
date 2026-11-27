@@ -3,7 +3,6 @@
 // na InfinitePay (/payment_check) com os códigos que vieram na volta.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Apple,
   ArrowRight,
   CheckCircle2,
   Clock,
@@ -209,7 +208,7 @@ export default function SubscriptionReturn() {
                   <Laptop size={22} />
                 </div>
                 <div>
-                  <h2 className="text-xl font-black text-white">Como começar a usar no seu Mac</h2>
+                  <h2 className="text-xl font-black text-white">Como começar a usar no seu computador</h2>
                   <p className="text-xs text-logic-text-dim">Siga os 3 passos simples abaixo para abrir o programa.</p>
                 </div>
               </div>
@@ -225,7 +224,7 @@ export default function SubscriptionReturn() {
                       <span>Baixe o Aplicativo</span>
                     </h3>
                     <p className="text-xs text-logic-text-dim leading-relaxed">
-                      Se você ainda não instalou, baixe o instalador oficial para macOS (.dmg) compatível com Apple Silicon (M1 a M4) e processadores Intel.
+                      Se você ainda não instalou, baixe o instalador oficial: para Mac (.dmg), com Apple Silicon (M1 a M4) ou Intel, ou para Windows 10 e 11 de 64 bits (.exe).
                     </p>
                   </div>
 
@@ -234,7 +233,7 @@ export default function SubscriptionReturn() {
                     className="mt-6 w-full h-11 rounded-xl btn-neon-green text-black font-extrabold text-xs flex items-center justify-center gap-2 shadow-lg shadow-logic-lcd-green/20 hover:scale-[1.02] transition"
                   >
                     <Download size={15} />
-                    <span>Baixar para Mac</span>
+                    <span>Baixar para Mac ou Windows</span>
                   </a>
                 </div>
 
@@ -245,16 +244,16 @@ export default function SubscriptionReturn() {
                       2
                     </div>
                     <h3 className="text-base font-bold text-white mb-2 flex items-center gap-2">
-                      <span>Instale no seu Mac</span>
+                      <span>Instale no computador</span>
                     </h3>
                     <p className="text-xs text-logic-text-dim leading-relaxed">
-                      Dê dois cliques no arquivo <strong className="text-white">.dmg</strong> baixado e arraste o ícone do <strong className="text-white">VS Stage Pro</strong> para dentro da sua pasta <strong className="text-white">Aplicativos</strong>.
+                      No Mac, dê dois cliques no arquivo <strong className="text-white">.dmg</strong> e arraste o <strong className="text-white">VS Stage Pro</strong> para a pasta <strong className="text-white">Aplicativos</strong>. No Windows, dê dois cliques no <strong className="text-white">.exe</strong> e siga o instalador.
                     </p>
                   </div>
 
                   <div className="mt-6 p-3 rounded-xl bg-black/40 border border-white/10 text-2xs text-logic-text-dim flex items-center gap-2">
-                    <Apple size={16} className="text-white shrink-0" />
-                    <span>Arraste para Aplicativos</span>
+                    <Laptop size={16} className="text-white shrink-0" />
+                    <span>Mac: Aplicativos. Windows: instalador</span>
                   </div>
                 </div>
 
@@ -268,7 +267,7 @@ export default function SubscriptionReturn() {
                       <span>Faça Login no App</span>
                     </h3>
                     <p className="text-xs text-logic-text-dim leading-relaxed">
-                      Abra o VS Stage Pro no Mac e entre com o <strong className="text-white">mesmo e-mail e senha</strong> que você acabou de usar. O programa reconhece sua assinatura pelo servidor e libera tudo na hora!
+                      Abra o VS Stage Pro no computador e entre com o <strong className="text-white">mesmo e-mail e senha</strong> que você acabou de usar. O programa reconhece sua assinatura pelo servidor e libera tudo na hora!
                     </p>
                   </div>
 
@@ -389,12 +388,12 @@ function StatusCard({ view, checking, onCheck }: { view: View; checking: boolean
       tone = 'green';
       icon = <Laptop size={34} />;
       title = 'Volte para o VS Stage Pro';
-      text = 'Se você pagou, volte para o programa no Mac ou para a aba onde abriu o pagamento: a liberação é automática.';
+      text = 'Se você pagou, volte para o programa no computador ou para a aba onde abriu o pagamento: a liberação é automática.';
       break;
     default:
       icon = <HelpCircle size={34} />;
       title = 'Não encontramos um pagamento recente';
-      text = 'Se você acabou de pagar, volte para o programa no Mac ou para a aba onde abriu o pagamento: a liberação é automática. Se algo não liberou, fale com o suporte.';
+      text = 'Se você acabou de pagar, volte para o programa no computador ou para a aba onde abriu o pagamento: a liberação é automática. Se algo não liberou, fale com o suporte.';
       actions = <>{checkKey}{plansLink}</>;
   }
 

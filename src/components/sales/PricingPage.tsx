@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Apple,
   ArrowRight,
   Check,
   CheckCircle2,
@@ -70,7 +69,7 @@ const COMPARISON_FEATURES = [
   {
     category: 'Vantagens do Plano & Licenciamento',
     items: [
-      { name: 'Suporte a Apple Silicon (M1 a M4) & Intel', monthly: true, yearly: true },
+      { name: 'Mac (Apple Silicon e Intel) e Windows 10 e 11', monthly: true, yearly: true },
       { name: 'Cancelamento a qualquer momento sem taxas', monthly: true, yearly: true },
       { name: 'Economia garantida de R$ 311,00 por ano', monthly: false, yearly: true, note: 'R$ 29,08/mês no anual' },
       { name: 'Acesso prioritário a novas atualizações da temporada', monthly: false, yearly: true, note: 'Incluso no anual' },
@@ -82,7 +81,7 @@ const COMPARISON_FEATURES = [
 const PRICING_FAQS = [
   {
     q: 'O programa precisa de internet para funcionar no show?',
-    a: 'Não! O VS Stage Pro roda 100% offline no seu Mac durante o show. A internet só é necessária na hora de baixar o app e ativar sua conta ou renovação. No palco, você pode inclusive desligar a internet e usar roteador Wi-Fi local sem fio para conectar os celulares da banda.',
+    a: 'Não! O VS Stage Pro roda 100% offline no seu computador durante o show. A internet só é necessária na hora de baixar o app e ativar sua conta ou renovação. No palco, você pode inclusive desligar a internet e usar roteador Wi-Fi local sem fio para conectar os celulares da banda.',
   },
   {
     q: 'Posso cancelar a assinatura quando eu quiser?',
@@ -94,15 +93,15 @@ const PRICING_FAQS = [
   },
   {
     q: 'Como funciona o teste grátis de 48 horas?',
-    a: 'O teste de 48 horas é real e transparente: não exige cartão de crédito no momento do cadastro e o cronômetro só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu Mac. Você pode testar todos os recursos antes de assinar.',
+    a: 'O teste de 48 horas é real e transparente: não exige cartão de crédito no momento do cadastro e o cronômetro só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu computador. Você pode testar todos os recursos antes de assinar.',
   },
   {
     q: 'Quais são as formas de pagamento aceitas?',
     a: 'PIX ou cartão de crédito, os dois pela InfinitePay. A assinatura é liberada sozinha assim que o pagamento cai: o plano mensal libera 1 mês e o anual libera 1 ano, e para continuar basta pagar de novo. O PIX não tem taxa. No cartão, aceitamos as principais bandeiras e o parcelamento em até 12x.',
   },
   {
-    q: 'Se eu trocar de Mac ou formatar, perco minha assinatura?',
-    a: 'De forma alguma! Sua assinatura está vinculada ao seu e-mail de login. Se trocar de Mac ou formatar sua máquina, basta baixar o instalador no site e fazer login com seu e-mail e senha para reativar seu acesso.',
+    q: 'Se eu trocar de computador ou formatar, perco minha assinatura?',
+    a: 'De forma alguma! Sua assinatura está vinculada ao seu e-mail de login. Se trocar de computador ou formatar sua máquina, basta baixar o instalador no site e fazer login com seu e-mail e senha para reativar seu acesso.',
   },
 ];
 
@@ -310,8 +309,8 @@ export default function PricingPage() {
               href="#baixar"
               className="h-7 px-3.5 rounded-full btn-apple-blue text-white text-xs font-semibold tracking-tight transition-all active:scale-95 shadow-sm flex items-center justify-center gap-1.5"
             >
-              <Apple size={13} />
-              <span>Baixar para Mac</span>
+              <Laptop size={13} />
+              <span>Baixar para Mac e Windows</span>
             </a>
           </div>
         </div>
@@ -393,7 +392,7 @@ export default function PricingPage() {
                     'Modo Show à prova de acidentes e cliques errados',
                     'Rede local Wi-Fi sem internet (Área do Músico no celular)',
                     'Teleprompter em tela cheia na TV de palco',
-                    'Suporte a Apple Silicon (M1 a M4) e Intel',
+                    'Mac (Apple Silicon e Intel) e Windows 10 e 11',
                     'Cancelamento a qualquer momento sem multa',
                   ].map((feat) => (
                     <div key={feat} className="flex items-start gap-2.5 text-sm text-[#d2d2d7]">
@@ -529,8 +528,8 @@ export default function PricingPage() {
             </div>
             <div className="flex flex-col items-center">
               <Laptop size={26} className="text-emerald-400 mb-2" />
-              <div className="text-xs font-semibold text-white">Apple Silicon & Intel</div>
-              <div className="text-2xs text-apple-text-secondary mt-0.5">M1, M2, M3, M4 nativo</div>
+              <div className="text-xs font-semibold text-white">Mac e Windows</div>
+              <div className="text-2xs text-apple-text-secondary mt-0.5">Apple Silicon, Intel e Windows 10/11</div>
             </div>
             <div className="flex flex-col items-center">
               <MessageCircle size={26} className="text-[#ff9f0a] mb-2" />
@@ -670,7 +669,7 @@ export default function PricingPage() {
           </div>
           <div className="flex items-center gap-5">
             <a href="/" className="hover:text-white transition">Início</a>
-            <a href="#baixar" className="hover:text-white transition">Download Mac</a>
+            <a href="#baixar" className="hover:text-white transition">Download Mac e Windows</a>
             <a
               href={supportWhatsAppUrl('Olá! Preciso de suporte com o VS Stage Pro.')}
               target="_blank"
@@ -709,7 +708,7 @@ export default function PricingPage() {
                 onBack={() => setPixPlan(null)}
                 paidNote={(
                   <span>
-                    Abra o VS Stage Pro no seu Mac e entre com <span className="text-logic-text">{currentUserEmail ?? 'seu e-mail'}</span>.
+                    Abra o VS Stage Pro no seu computador e entre com <span className="text-logic-text">{currentUserEmail ?? 'seu e-mail'}</span>.
                     {' '}Ainda não instalou? <a href="#baixar" className="text-logic-lcd-amber underline">Baixe aqui</a>.
                   </span>
                 )}

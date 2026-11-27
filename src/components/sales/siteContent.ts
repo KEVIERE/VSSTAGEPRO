@@ -34,7 +34,7 @@ export const HIGHLIGHTS: Highlight[] = [
     img: '/site/tv.jpg?v=3', alt: 'Teleprompter na TV com a letra e a playlist do show',
   },
   {
-    title: 'Uma mesa de som de verdade, dentro do seu Mac.',
+    title: 'Uma mesa de som de verdade, dentro do seu computador.',
     text: 'Medidores em dB, anti-clip em cada canal e a IA igualando o volume dos VS.',
     img: '/site/mixer.jpg?v=3', alt: 'Mixer com faders, medidores e o master', position: 'left center',
   },
@@ -218,7 +218,7 @@ export const FAQS = [
   },
   {
     q: 'Roda no Windows ou só no Mac?',
-    a: 'O programa roda no Mac, com Apple Silicon (M1 a M4) ou Intel. A versão para Windows 10 e 11 está em teste e já pode ser baixada na página de download. A Área do Músico e o teleprompter abrem em qualquer celular, tablet ou TV com navegador.',
+    a: 'Roda nos dois. No Mac, com Apple Silicon (M1 a M4) ou Intel, e no Windows 10 e 11 (64 bits). Os instaladores ficam na página de download. A Área do Músico e o teleprompter abrem em qualquer celular, tablet ou TV com navegador.',
   },
   {
     q: 'Como funciona o teste grátis de 48 horas?',

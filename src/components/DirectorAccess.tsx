@@ -614,14 +614,14 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   if (isWebEnvironment && isAdmin === false) {
     return (
       <AccessStage>
-        <AccessCard label="Só no Mac" status={<AccessStatus tone="amber">Mac</AccessStatus>}>
+        <AccessCard label="Só no computador" status={<AccessStatus tone="amber">Mac e Windows</AccessStatus>}>
           <div className="px-6 pt-7 pb-6 text-center">
             <AccessTitle
-              title="Baixe o VS Stage para Mac"
-              subtitle="O editor completo do VS Stage Pro é feito para rodar no app do Mac, não direto no navegador. Baixe o programa para começar seu teste grátis."
+              title="Baixe o VS Stage para Mac ou Windows"
+              subtitle="O editor completo do VS Stage Pro roda no programa instalado no computador, não direto no navegador. Baixe o programa: o teste grátis de 48 horas começa quando você abrir ele."
             />
             <a href="#baixar" className="access-key">
-              <Laptop size={16} /> Baixar para Mac
+              <Laptop size={16} /> Baixar para Mac ou Windows
             </a>
           </div>
           <AccessFoot cols={1}>

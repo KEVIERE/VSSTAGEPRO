@@ -28,7 +28,7 @@ const TRUST_BADGES = [
   { icon: ShieldCheck, text: 'Download verificado com hash SHA-256' },
   { icon: Timer, text: '48h de teste grátis sem cartão de crédito' },
   { icon: Wifi, text: 'Motor 100% offline no palco via rede local' },
-  { icon: Laptop, text: 'Compatível com macOS 10.15 (Catalina) até macOS 15 (Sequoia)' },
+  { icon: Laptop, text: 'Mac com macOS 10.15 (Catalina) até macOS 15 (Sequoia) e Windows 10 e 11 (64 bits)' },
 ];
 
 type Status =
@@ -80,6 +80,10 @@ const STEPS = [
   },
 ];
 
+/** No PC com Windows o cartão recomendado é o do Windows; no Mac, o do processador. */
+const guessArch = (): MacBuild['arch'] | null =>
+  guessMacArch() ?? (/Win/i.test(navigator.platform || navigator.userAgent) ? 'win-x64' : null);
+
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(0)} MB`;
 
 /**
@@ -103,7 +107,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
   const [legacy, setLegacy] = useState<MacBuild | null>(null);
   const [winBuild, setWinBuild] = useState<MacBuild | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
-  const [suggested, setSuggested] = useState(guessMacArch);
+  const [suggested, setSuggested] = useState(guessArch);
   const [copied, setCopied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -120,7 +124,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
   // O chip pode ser confirmado depois de a página abrir (consulta assíncrona do navegador):
   // o destaque do instalador certo se ajusta sem recarregar.
   useEffect(() => {
-    const refresh = () => setSuggested(guessMacArch());
+    const refresh = () => setSuggested(guessArch());
     window.addEventListener(UA_ARCH_EVENT, refresh);
     return () => window.removeEventListener(UA_ARCH_EVENT, refresh);
   }, []);
@@ -212,7 +216,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.06] border border-white/10 mb-6">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="text-xs font-semibold tracking-wide text-[#86868b] uppercase">
-              Instalador Oficial para macOS
+              Instalador Oficial para Mac e Windows
             </span>
             {manifest?.version && (
               <span className="px-2 py-0.5 rounded-full bg-[#0071e3]/15 text-[#2997ff] text-[10px] font-bold">
@@ -227,7 +231,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           </h1>
 
           <p className="text-[#86868b] text-base sm:text-lg max-w-2xl mx-auto mt-5 leading-relaxed">
-            Escolha o tipo de processador do seu Mac abaixo. O tempo do teste grátis só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu computador.
+            Escolha abaixo o instalador do seu computador: Mac (Apple Silicon ou Intel) ou Windows 10 e 11. O tempo do teste grátis só começa a ser contado a partir do momento em que você abre o aplicativo instalado no seu computador.
           </p>
 
           {/* Badges de Confiança */}
@@ -284,7 +288,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                     {/* Badge Recomendado */}
                     {isSuggested && (
                       <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3.5 py-0.5 rounded-full bg-[#0071e3] text-white text-2xs font-bold tracking-wide uppercase shadow-md flex items-center gap-1.5">
-                        <span>Recomendado para o seu Mac</span>
+                        <span>{build.arch === 'win-x64' ? 'Recomendado para o seu PC' : 'Recomendado para o seu Mac'}</span>
                       </div>
                     )}
 
@@ -387,8 +391,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
             </div>
           )}
 
-          {/* Instaladores em teste: Mac Intel com macOS 10.15 (Catalina) e Windows */}
-          {/* (bloco unificado acima) */}
+          {/* Mac, Catalina e Windows ficam todos no mesmo bloco de cartões acima */}
 
         </div>
 
@@ -397,11 +400,14 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           <div className="flex items-center gap-2.5 mb-2">
             <FolderOpen size={20} className="text-[#ff9f0a]" />
             <h2 className="text-lg sm:text-xl font-extrabold text-white">
-              Como instalar no seu Mac (Passo a Passo)
+              Como instalar no Mac (Passo a Passo)
             </h2>
           </div>
           <p className="text-xs sm:text-sm text-[#86868b] mb-8">
             Siga os passos abaixo na primeira vez que for abrir o programa.
+          </p>
+          <p className="text-xs sm:text-sm text-[#86868b] -mt-5 mb-8">
+            <strong className="text-white">No Windows:</strong> dê dois cliques no arquivo .exe e siga o instalador. Se aparecer "O Windows protegeu o computador", clique em "Mais informações" e depois em "Executar assim mesmo".
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
