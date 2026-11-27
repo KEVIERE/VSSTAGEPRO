@@ -14,6 +14,7 @@ import SegmentDisplay from '@/components/SegmentDisplay';
 import DiskLagNotice from '@/components/DiskLagNotice';
 import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 import { useLiveFill } from '@/lib/frameClock';
+import ShowModeSwitch from '@/components/ShowModeSwitch';
 
 const FLOW_LABELS: Record<PlayFlow, string> = {
   'continuo': 'Contínuo',
@@ -280,6 +281,8 @@ function TransportBar() {
         </button>
       </div>
 
+      <ShowModeSwitch className="ml-2" />
+
       <div className="flex items-center gap-2 flex-1 min-w-0 ml-2">
         <div className="logic-lcd h-[52px] px-2.5 lg:px-3.5 flex flex-col justify-center gap-1 flex-1 basis-0 min-w-0 overflow-hidden">
           <div className="flex items-center justify-between gap-2 h-3">
@@ -388,3 +391,4 @@ function TransportBar() {
 
 // memo: sem props, o transporte só redesenha pelo que ele mesmo assina no store.
 export default memo(TransportBar);
+

@@ -14,14 +14,20 @@ import { clickCoverageNotice, clickWeakNotice, hasTempoChanges, medleyEstimateNo
 import { canReplaceTempoMap, isFinalRitOnly, mapOffShare, oldMapLooksEdited, shouldReplaceTempoMap, tempoMapSignature } from '@/lib/tempoFollow';
 import { BAR_CHECK_VERSION, mixIntoRuler, planBarPhase } from '@/lib/barPhase';
 import { gridClickBuffer, makeClickClip } from '@/lib/clickClip';
-import { clickClipsOf } from '@/lib/clickEdit';
+import { clickClipsOf, clickHits } from '@/lib/clickEdit';
 import { parseWavMetadata } from '@/lib/reaperMetadata';
-import { parseRpp, resolveMediaPath, splitShow, type ShowItem, type ShowSplit } from '@/lib/reaperProject';
+import { parseRpp, resolveMediaPath, splitShow, withoutItemMedia, type RppProject, type ShowItem, type ShowSplit } from '@/lib/reaperProject';
 import { REGION_COLORS, presetColor } from '@/lib/regions';
-import { askImportAgain } from '@/lib/appPrompt';
-import { classifyClipAudio, type AiRouteResult } from '@/lib/aiRouter';
+import { askImportAgain, askMidiImport, type MidiImportAnswer, type MidiImportOption } from '@/lib/appPrompt';
+import { MIDI_MAX_BYTES, MidiParseError, parseMidiFile, type MidiFileInfo } from '@/lib/midiFile';
+import { planMidiSong, planMidiWindow, summarizeMidi, type MidiSongPlan } from '@/lib/midiSong';
+import { classifyClipAudioDetailed, clipVoteSource, type AiVoteDetail } from '@/lib/aiRouter';
+import { looksLikeMetronome } from '@/lib/metronomeCheck';
+import { decideBeforeAi, loadLearned, loudestWindow, routeByLearned, routeCertainty, type BeforeAiDecision, type LearnedDestination } from '@/lib/routeReview';
+import { openRouteReview } from '@/lib/routeReviewActions';
 
 const AUDIO_EXTENSIONS = /\.(wav|mp3|aac|ogg|flac|m4a|aif|aiff|wma|opus)$/i;
+const MIDI_EXTENSIONS = /\.(mid|midi|smf)$/i;
 const DECODE_CONCURRENCY = 4;
 const CLICKISH_NAME = /cli[cqk]|klick|metr[oô]|\bclk|\bbpm|\btempo|\bbeat|\bguia\s*click|\bcount/i;
 
@@ -47,10 +53,21 @@ export interface ReaperSongData {
   sections: Array<{ name: string; start: number; end: number }>;
 }
 
+/** Arquivos MIDI que vieram junto do VS. A pessoa escolhe na importação se lê um deles. */
+export interface MidiSource {
+  files: File[];
+  /** Projeto do REAPER: onde a música fica no MIDI do projeto (segundos). */
+  window?: { start: number; end: number };
+  /** Músicas do mesmo projeto respondem uma vez só. */
+  shareKey?: string;
+  songCount?: number;
+}
+
 export interface SongGroup {
   name: string;
   files: File[];
   reaper?: ReaperSongData;
+  midi?: MidiSource;
   /** Aviso para mostrar no fim da importação (o que não veio do projeto). */
   notice?: string;
 }
@@ -63,9 +80,13 @@ interface SongImportResult {
   hasBpmSource: boolean;
   songId: string;
   bpmDone: boolean;
+  /** O andamento veio do MIDI escolhido: no lugar da medição, só a conferência com o click. */
+  midiTempo?: boolean;
 }
 
 const isAudio = (f: File) => AUDIO_EXTENSIONS.test(f.name);
+const isMidi = (f: File) => MIDI_EXTENSIONS.test(f.name) && !f.name.startsWith('._');
+const withMidi = (group: SongGroup, files: File[]): SongGroup => (files.length ? { ...group, midi: { files } } : group);
 const byName = (a: SongGroup, b: SongGroup) => a.name.localeCompare(b.name, 'pt-BR', { numeric: true, sensitivity: 'base' });
 const relPath = (f: File) => (f.webkitRelativePath || f.name).split('/');
 
@@ -73,20 +94,25 @@ const relPath = (f: File) => (f.webkitRelativePath || f.name).split('/');
 export function groupAsSingleSong(files: File[]): SongGroup[] {
   const audio = files.filter(isAudio);
   if (audio.length === 0) return [];
-  return [{ name: relPath(audio[0])[0] || 'Música Importada', files: audio }];
+  return [withMidi({ name: relPath(audio[0])[0] || 'Música Importada', files: audio }, files.filter(isMidi))];
 }
 
 /** Pasta mãe: cada subpasta de primeiro nível vira uma música; áudios soltos viram uma música com o nome da pasta mãe. */
 export function groupByParentFolder(files: File[]): SongGroup[] {
   const groups = new Map<string, File[]>();
+  const midi = new Map<string, File[]>();
+  const keyOf = (f: File) => { const parts = relPath(f); return parts.length > 2 ? parts[1] : parts[0] || 'Música Importada'; };
   for (const f of files.filter(isAudio)) {
-    const parts = relPath(f);
-    const key = parts.length > 2 ? parts[1] : parts[0] || 'Música Importada';
+    const key = keyOf(f);
     const list = groups.get(key) ?? [];
     list.push(f);
     groups.set(key, list);
   }
-  return Array.from(groups, ([name, list]) => ({ name, files: list })).sort(byName);
+  for (const f of files.filter(isMidi)) {
+    const key = keyOf(f);
+    midi.set(key, [...(midi.get(key) ?? []), f]);
+  }
+  return Array.from(groups, ([name, list]) => withMidi({ name, files: list }, midi.get(name) ?? [])).sort(byName);
 }
 
 interface FsEntry {
@@ -153,6 +179,7 @@ export async function groupDroppedEntries(entries: FsEntry[]): Promise<SongGroup
   const groups: SongGroup[] = [];
   const reaperGroups: SongGroup[] = [];
   const loose: File[] = [];
+  const looseMidi: File[] = [];
   let loneRpp = false;
   let reaperEmpty: string | null = null;
   for (const entry of entries) {
@@ -165,15 +192,16 @@ export async function groupDroppedEntries(entries: FsEntry[]): Promise<SongGroup
         continue;
       }
       const files = all.map((f) => f.file).filter(isAudio);
-      if (files.length) groups.push({ name: entry.name, files });
+      if (files.length) groups.push(withMidi({ name: entry.name, files }, all.map((f) => f.file).filter(isMidi)));
     } else if (entry.isFile) {
       const [file] = await readFolderFiles(entry).catch(() => [] as File[]);
       if (file && isAudio(file)) loose.push(file);
+      else if (file && isMidi(file)) looseMidi.push(file);
       else if (file && isRpp(file.name)) loneRpp = true;
     }
   }
   groups.sort(byName);
-  if (loose.length) groups.push({ name: 'Música Importada', files: loose });
+  if (loose.length) groups.push(withMidi({ name: 'Música Importada', files: loose }, looseMidi));
   // o show do REAPER entra na ordem da linha do tempo, antes das outras pastas
   const out = [...reaperGroups, ...groups];
   if (out.length === 0) {
@@ -232,8 +260,10 @@ export async function groupReaperProject(all: PathFile[]): Promise<{ groups: Son
   const rpp = rpps[0];
   const projectName = rpp.file.name.replace(/\.rpp$/i, '');
   let split: ShowSplit;
+  let project: RppProject;
   try {
-    split = splitShow(parseRpp(await rpp.file.text()), projectName);
+    project = parseRpp(await rpp.file.text());
+    split = splitShow(project, projectName);
   } catch (err) {
     console.warn('[import] projeto do REAPER não lido', rpp.path, err);
     return { groups: [], notice: `Não consegui ler o projeto "${rpp.file.name}".`, projectName };
@@ -242,6 +272,8 @@ export async function groupReaperProject(all: PathFile[]): Promise<{ groups: Son
   const audio = all.filter((f) => isAudio(f.file));
   const missing = new Set<string>();
   const groups: SongGroup[] = [];
+  // MIDI exportado do projeto; os itens MIDI das faixas saem (começam no item, não no 0:00)
+  const midiFiles = withoutItemMedia(project, dir, all.filter((f) => isMidi(f.file)));
   for (const song of split.songs) {
     const files: File[] = [];
     const placements: ShowItem[] = [];
@@ -259,8 +291,12 @@ export async function groupReaperProject(all: PathFile[]): Promise<{ groups: Son
       name: song.name,
       files,
       reaper: { placements, length: song.end - song.start, tempo: song.tempo, beatsPerBar: song.beatsPerBar, sections: song.sections },
+      ...(midiFiles.length ? { midi: { files: midiFiles, window: { start: song.start, end: song.end }, shareKey: `rpp:${rpp.path}` } } : {}),
     });
   }
+  // MIDI exportado do projeto (File > Export project MIDI): cada música usa o trecho dela e o
+  // projeto inteiro responde uma vez só
+  for (const g of groups) if (g.midi) g.midi.songCount = groups.length;
   const notice = reaperNotice(split, [...missing]);
   if (groups.length === 0) {
     return { groups, notice: notice ?? `O projeto "${rpp.file.name}" não tem áudio para importar.`, projectName };
@@ -351,6 +387,7 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
 
   const results: SongImportResult[] = [];
   const brokenSongs: string[] = [];
+  const midiAnswers = new Map<string, MidiChoice | null>();
   try {
     for (let k = 0; k < groups.length; k++) {
       if (cancelRequested) break;
@@ -370,9 +407,13 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
         }
       }
 
+      // MIDI junto do VS: a pessoa escolhe se lê (sem MIDI, nada muda)
+      const midi = await chooseMidi(groups[k], midiAnswers);
+      if (cancelRequested) break;
+
       const label = groups.length > 1 ? `Música ${k + 1} de ${groups.length}: ` : '';
       try {
-        const res = await importSong(groups[k].name, groups[k].files, label, groups[k].reaper);
+        const res = await importSong(groups[k].name, groups[k].files, label, groups[k].reaper, midi);
         if (cancelRequested) break;
         results.push(res);
       } catch (err) {
@@ -385,6 +426,8 @@ export async function importSongGroups(groups: SongGroup[]): Promise<void> {
       const notices = [...groups.map((g) => g.notice).filter((n): n is string => !!n), ...medleyNotices.splice(0)];
       reportSummary(results, brokenSongs, notices);
       releaseImportedAudio();
+      // áudio que nem o nome nem a IA decidiram bem: a pessoa confere numa janela (sem esperar)
+      openRouteReview(results.map((r) => r.songId).filter((id): id is string => !!id), { onlyLow: true });
       await measurePendingBpm(results);
     }
   } finally {
@@ -985,6 +1028,42 @@ function bpmCandidates(songId: string): { clickFirst: string[]; audioFallback: s
   return { clickFirst, audioFallback: drums?.id ?? null };
 }
 
+/**
+ * Botão direito na faixa Click, "Gerar click a partir da música": para VS que veio sem click. Ouve a
+ * música inteira (bateria ou banda), acha o andamento do início ao fim, com as trocas de BPM, põe na
+ * grade e cria o click em cima dela. Devolve os BPMs encontrados, ou o motivo de não ter dado.
+ */
+export async function generateSongClick(songId: string): Promise<{ ok: true; bpms: number[] } | { ok: false; reason: string }> {
+  const st = useStore.getState();
+  if (!st.songs.some((s) => s.id === songId)) return { ok: false, reason: 'abra uma música primeiro' };
+  if (clickClipsOf(st.clips, songId).length) return { ok: false, reason: 'esta música já tem click. Para trocar o som, use Trocar som do click' };
+  if (!st.clips.some((c) => c.songId === songId)) return { ok: false, reason: 'esta música não tem áudio para analisar' };
+  await ensureSongLoaded(songId);
+  const start = useStore.getState().songs.find((s) => s.id === songId)!;
+  // andamento que veio do MIDI escolhido é exato: o click sai da grade dele, sem ouvir a música de novo
+  if (start.tempoMapSource === 'midi') {
+    await addMedleyClick(songId);
+    if (!clickClipsOf(useStore.getState().clips, songId).length) return { ok: false, reason: 'não consegui criar o áudio do click' };
+    return { ok: true, bpms: start.tempoSegments?.length ? start.tempoSegments.map((x) => x.bpm) : [start.bpm] };
+  }
+  // ouve a banda inteira misturada na régua (sem guia, Maestro e click): um áudio só, como uma
+  // percussão leve, deixa as batidas vagas e o mapa inventa trocas de BPM que a música não tem
+  const mono = await bandRulerMono(songId, start.duration, () => false);
+  if (!(mono instanceof Float32Array)) return { ok: false, reason: 'não consegui abrir os áudios da banda desta música' };
+  const buffer = new AudioBuffer({ length: mono.length, sampleRate: BAND_RATE, numberOfChannels: 1 });
+  buffer.copyToChannel(new Float32Array(mono), 0);
+  const reading = await readTempoMap(buffer, start.beatsPerBar ?? 4, { isClick: false, keepSingle: true, offset: 0, duration: start.duration });
+  const map = reading?.map;
+  if (!map || !(map.bpm > 0)) return { ok: false, reason: 'não consegui achar o andamento desta música' };
+  setSongBpm(songId, map.bpm, 'audio', 0, map.tempoSegments?.length ? map.tempoSegments : undefined, 'audio');
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  if (!song) return { ok: false, reason: 'a música saiu do projeto durante a análise' };
+  await addMedleyClick(songId);
+  if (!clickClipsOf(useStore.getState().clips, songId).length) return { ok: false, reason: 'não consegui criar o áudio do click' };
+  const bpms = song.tempoSegments?.length ? song.tempoSegments.map((x) => x.bpm) : [song.bpm];
+  return { ok: true, bpms };
+}
+
 export async function remeasureSongBpm(songId: string): Promise<'ok' | 'no-source' | 'failed'> {
   if (!useStore.getState().clips.some((c) => c.songId === songId)) return 'no-source';
   await ensureSongLoaded(songId);
@@ -1119,7 +1198,8 @@ async function measurePendingBpm(results: SongImportResult[]) {
     if (!useStore.getState().songs.some((s) => s.id === r.songId)) continue;
     try {
       await ensureSongLoaded(r.songId);
-      await applyBpm(r.songId, { createClick: true });
+      if (r.midiTempo) await checkMidiAgainstClick(r.songId);
+      else await applyBpm(r.songId, { createClick: true });
     } catch (err) {
       console.warn('[import] BPM não medido', r.name, err);
     }
@@ -1130,7 +1210,7 @@ async function measurePendingBpm(results: SongImportResult[]) {
   releaseImportedAudio();
 }
 
-async function importSong(folderName: string, audioFiles: File[], label: string, reaper?: ReaperSongData): Promise<SongImportResult> {
+async function importSong(folderName: string, audioFiles: File[], label: string, reaper?: ReaperSongData, midi?: MidiChoice | null): Promise<SongImportResult> {
   const store = useStore.getState();
   const songId = `song-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   currentImportSongIds.add(songId);
@@ -1250,8 +1330,21 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
   // internet na primeira vez o modelo não baixa e o áudio cai em "Outros", como antes.
   const nameRouteOf = (entry: DecodedEntry) =>
     reaper ? routeReaperItem(entry.file, reaper.placements[entry.index]) : routeByName(entry.file.name);
-  const unnamed = decodedEntries.filter((e): e is DecodedEntry => !!e && !nameRouteOf(e));
-  const aiRoutes = new Map<number, AiRouteResult>();
+  // o que a pessoa ensinou na conferência das faixas: vale acima da IA e abaixo de um nome de
+  // instrumento explícito. Click aprendido só vai para o Click se o áudio for mesmo metrônomo.
+  const learnedList = loadLearned();
+  const learnedOf = (entry: DecodedEntry): LearnedDestination | null => {
+    if (learnedList.length === 0) return null;
+    const p = reaper?.placements[entry.index];
+    const names = [entry.file.name, ...(p ? [p.track.name, p.item.name] : [])];
+    const hit = routeByLearned(names, learnedList);
+    if (hit?.target === 'track-click' && !looksLikeMetronome(clipVoteSource(entry.audio))) return null;
+    return hit;
+  };
+  const decisions = new Map<number, BeforeAiDecision<NonNullable<ReturnType<typeof nameRouteOf>>>>();
+  for (const e of decodedEntries) if (e) decisions.set(e.index, decideBeforeAi(nameRouteOf(e), learnedOf(e)));
+  const unnamed = decodedEntries.filter((e): e is DecodedEntry => !!e && !decisions.get(e.index));
+  const aiRoutes = new Map<number, AiVoteDetail>();
   for (let k = 0; k < unnamed.length && !cancelRequested; k++) {
     const entry = unnamed[k];
     useStore.getState().setImportProgress({
@@ -1261,7 +1354,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
       current: k,
       total: unnamed.length,
     });
-    const r = await classifyClipAudio(entry.audio, entry.clipId).catch(() => null);
+    const r = await classifyClipAudioDetailed(entry.audio, entry.clipId).catch(() => null);
     if (r) aiRoutes.set(entry.index, r);
   }
   if (cancelRequested) {
@@ -1288,16 +1381,26 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     const { file, clipId, audio, duration, sampleRate, channels, waveformPeaks, index } = entry;
 
     const placement = reaper?.placements[index];
-    const route = nameRouteOf(entry);
-    const aiRoute = route ? null : aiRoutes.get(index) ?? null;
+    const decided = decisions.get(index) ?? null;
+    const route = decided?.kind === 'name' ? decided.route : null;
+    const learned = decided?.kind === 'learned' ? decided.route : null;
+    const aiDetail = decided ? null : aiRoutes.get(index) ?? null;
+    const aiRoute = aiDetail?.route ?? null;
+    const guesses = aiDetail?.guesses ?? [];
     let trackId: RoutingTarget;
     let childTrackName: string;
     let routingMethod: AudioClip['routingMethod'] = 'name';
     let routingConfidence = 1;
+    const routingCertainty = routeCertainty({ byName: !!route, learned: !!learned, ai: aiRoute, second: guesses.find((g) => g.target !== aiRoute?.target) ?? null, aiSwitched: !!aiDetail?.switched });
 
     if (route) {
       trackId = route.target;
       childTrackName = route.instrumentName;
+    } else if (learned) {
+      // escolha confirmada pela pessoa numa importação anterior
+      trackId = learned.target;
+      childTrackName = learned.instrumentName;
+      routingMethod = 'manual';
     } else if (aiRoute) {
       trackId = aiRoute.target;
       childTrackName = aiRoute.childName;
@@ -1318,7 +1421,7 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     // Quando o nome não bateu com nenhum instrumento (grupo "Extra"), o clipe mostra o
     // nome original do arquivo em vez de "Extra 1", "Extra 2"... — assim a pessoa sabe
     // o que é o áudio sem precisar abrir o arquivo. A faixa continua numerada normalmente.
-    const clipDisplayName = route || aiRoute ? numberedName : cleanClipName(file.name);
+    const clipDisplayName = route || learned || aiRoute ? numberedName : cleanClipName(file.name);
 
     // S\u00f3 reaproveita a faixa se o nome for EXATAMENTE id\u00eantico e se a faixa ainda N\u00c3O tiver sido
     // ocupada por outro clipe nesta mesma m\u00fasica.
@@ -1365,6 +1468,11 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
       markers,
       routingMethod,
       routingConfidence,
+      routingCertainty,
+      // nome aprendido: a reorganização das faixas do fim da importação não devolve pela abreviação fraca
+      ...(learned ? { routingLocked: true } : {}),
+      ...(guesses.length ? { routingGuesses: guesses } : {}),
+      ...(routingCertainty === 'low' ? { previewAt: loudestWindow(clipVoteSource(audio), 8) } : {}),
       waveformPeaks,
       ...(placement ? reaperClipFields(placement, duration) : {}),
     };
@@ -1402,18 +1510,38 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
   useStore.getState().selectSong(songId);
   useStore.getState().recalcTimeline();
 
+  // MIDI escolhido: andamento, compasso, marcações e tom dele. Com andamento, ele é o mapa da música
+  // e o click só confere (nada é trocado).
+  const midiPlan = midi ? applyMidiToSong(songId, midi, maxDuration) : null;
+  const midiTempo = !!midiPlan?.hasTempo;
+
   const hasBpmSource = useStore.getState().clips.some((c) => c.songId === songId);
   let bpmDone = false;
   if (hasBpmSource && !audioEngine.isRunning()) {
     useStore.getState().setImportProgress({
       clipId: 'bpm',
       status: 'detecting-bpm',
-      message: `${label}Medindo o BPM de "${folderName}"...`,
+      message: midiTempo ? `${label}Conferindo o MIDI de "${folderName}" com o click...` : `${label}Medindo o BPM de "${folderName}"...`,
       current: total - errors.size,
       total,
     });
-    await applyBpm(songId, { createClick: true });
+    if (midiTempo) await checkMidiAgainstClick(songId);
+    else await applyBpm(songId, { createClick: true });
     bpmDone = true;
+  }
+  // VS sem click: com o MIDI lido, o click sai na hora da grade dele (exata, sem ouvir a música).
+  // Sem MIDI, não gera sozinho (ouvir a música pode errar): só avisa onde gerar.
+  if (hasBpmSource && !clickClipsOf(useStore.getState().clips, songId).length) {
+    const sg = useStore.getState().songs.find((x) => x.id === songId);
+    if (sg && midiTempo && sg.tempoMapSource === 'midi') {
+      await addMedleyClick(songId);
+      if (clickClipsOf(useStore.getState().clips, songId).length) {
+        const bpms = sg.tempoSegments?.length ? sg.tempoSegments.map((x) => x.bpm) : [sg.bpm];
+        medleyNotices.push(`Click criado a partir do MIDI. ${bpmFoundNotice(sg.name, bpms)}`);
+      }
+    } else if (sg) {
+      medleyNotices.push(`"${sg.name}" veio sem click. Para criar, clique com o botão direito na track Click e escolha Gerar click a partir da música.`);
+    }
   }
 
   return {
@@ -1424,5 +1552,145 @@ async function importSong(folderName: string, audioFiles: File[], label: string,
     hasBpmSource,
     songId,
     bpmDone,
+    midiTempo,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Arquivo MIDI do VS
+
+interface MidiChoice {
+  info: MidiFileInfo;
+  fileName: string;
+  /** Segundos somados ao MIDI (SMPTE offset que a pessoa aceitou). */
+  shift: number;
+  window?: { start: number; end: number };
+}
+
+type MidiRead = { info: MidiFileInfo } | { error: string };
+const midiReads = new WeakMap<File, Promise<MidiRead>>();
+
+function readMidiFile(file: File): Promise<MidiRead> {
+  let job = midiReads.get(file);
+  if (!job) {
+    job = (async (): Promise<MidiRead> => {
+      if (file.size > MIDI_MAX_BYTES) return { error: 'arquivo grande demais' };
+      try {
+        return { info: parseMidiFile(await file.arrayBuffer()) };
+      } catch (err) {
+        if (!(err instanceof MidiParseError)) console.warn('[midi] não lido', file.name, err);
+        return { error: err instanceof MidiParseError ? err.message : 'o arquivo não abriu' };
+      }
+    })();
+    midiReads.set(file, job);
+  }
+  return job;
+}
+
+/**
+ * Pergunta se o MIDI do VS entra na música, mostrando o que tem nele. Músicas do mesmo projeto
+ * respondem uma vez. Sem MIDI, ou com a resposta Ignorar: null, e a importação segue como sempre.
+ */
+async function chooseMidi(group: SongGroup, answers: Map<string, MidiChoice | null>): Promise<MidiChoice | null> {
+  const src = group.midi;
+  if (!src?.files.length) return null;
+  const withWindow = (c: MidiChoice | null) => (c ? { ...c, window: src.window } : null);
+  if (src.shareKey && answers.has(src.shareKey)) return withWindow(answers.get(src.shareKey) ?? null);
+  const files = [...src.files].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { numeric: true }));
+  const reads = await Promise.all(files.map(readMidiFile));
+  const options: MidiImportOption[] = files.map((f, i) => {
+    const r = reads[i];
+    return 'info' in r ? { fileName: f.name, summary: summarizeMidi(r.info) } : { fileName: f.name, summary: null, error: r.error };
+  });
+  let choice: MidiChoice | null = null;
+  if (!options.some((o) => o.summary)) {
+    const names = files.map((f) => f.name).join(', ');
+    medleyNotices.push(`"${group.name}": ${files.length === 1 ? `o arquivo MIDI ${names} não pôde ser lido` : `os arquivos MIDI (${names}) não puderam ser lidos`} e ${files.length === 1 ? 'ficou' : 'ficaram'} de fora.`);
+  } else {
+    const answer: MidiImportAnswer = await askMidiImport({ songName: group.name, songCount: src.songCount ?? 1, options });
+    const read = answer ? reads[answer.index] : null;
+    if (answer && read && 'info' in read) {
+      choice = { info: read.info, fileName: files[answer.index].name, shift: answer.applySmpte ? options[answer.index].summary?.smpteShift ?? 0 : 0 };
+    }
+  }
+  if (src.shareKey) answers.set(src.shareKey, choice);
+  return withWindow(choice);
+}
+
+/** Põe na música o que o MIDI escolhido traz. O mapa dele fica com origem própria, que a conferência automática não troca. */
+function applyMidiToSong(songId: string, choice: MidiChoice, duration: number): MidiSongPlan | null {
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  if (!song) return null;
+  let plan: MidiSongPlan;
+  try {
+    plan = choice.window
+      ? planMidiWindow(choice.info, { ...choice.window, shift: choice.shift })
+      : planMidiSong(choice.info, { duration, shift: choice.shift });
+  } catch (err) {
+    console.warn('[midi] não aplicado', choice.fileName, err);
+    medleyNotices.push(`"${song.name}": não consegui usar o MIDI ${choice.fileName}; a música ficou como sem ele.`);
+    return null;
+  }
+  const patch: Partial<Song> = {};
+  if (plan.regions.length) {
+    patch.regions = plan.regions.map((r, i) => ({
+      id: `region-${songId}-midi-${i}`,
+      name: r.name,
+      start: r.start,
+      end: r.end,
+      color: presetColor(r.name) ?? REGION_COLORS[i % REGION_COLORS.length].value,
+      loop: false,
+    }));
+  }
+  if (plan.musicKey && !song.musicKey) patch.musicKey = plan.musicKey;
+  if (plan.hasTempo) {
+    // o MIDI manda no andamento: a dica do REAPER não entra mais na medição
+    reaperTempoHints.delete(songId);
+    Object.assign(patch, {
+      beatsPerBar: plan.beatsPerBar ?? 4,
+      tempoSegments: plan.tempoSegments,
+      tempoMapSource: 'midi' as const,
+      tempoMapSig: tempoMapSignature(plan.tempoSegments),
+    });
+  } else if (plan.beatsPerBar) {
+    patch.beatsPerBar = plan.beatsPerBar;
+  }
+  useStore.getState().updateSong(songId, patch);
+  // BPM digitado para o programa: nem o click nem o tempo 1 trocam (como o do REAPER)
+  if (plan.hasTempo) setSongBpm(songId, plan.bpm, 'manual', 0);
+  const parts: string[] = [];
+  if (plan.hasTempo) {
+    const bpms = plan.tempoSegments?.map((x) => x.bpm) ?? [plan.bpm];
+    parts.push(bpmFoundNotice(song.name, bpms).replace(/^"[^"]*": /, '').replace(/\.$/, ''));
+  } else {
+    parts.push('sem andamento no arquivo, o BPM vem do click');
+  }
+  if (plan.regions.length) parts.push(`${plan.regions.length} ${plan.regions.length === 1 ? 'marcação' : 'marcações'}`);
+  if (plan.musicKey && patch.musicKey) parts.push(`tom ${plan.musicKey}`);
+  if (!plan.hasTempo && !plan.beatsPerBar) parts.push('o compasso do MIDI precisa do andamento e ficou 4/4');
+  medleyNotices.push(`"${song.name}": MIDI lido (${parts.join(', ')}).`);
+  return plan;
+}
+
+/** Com click no VS, confere se a grade do MIDI passa pelas batidas dele. Não bate: só avisa, nada muda. */
+async function checkMidiAgainstClick(songId: string): Promise<void> {
+  let ids = medleySources(songId, true).clickClips;
+  if (!ids.length) ids = medleySources(songId).clickClips;
+  if (!ids.length) return;
+  let buffer: AudioBuffer | null = null;
+  try {
+    buffer = await clickRulerBuffer(ids, () => cancelRequested);
+  } catch (err) {
+    console.warn('[midi] click não conferido', err);
+    return;
+  }
+  if (!buffer) return;
+  const rate = buffer.sampleRate;
+  const hits = clickHits(buffer.getChannelData(0), rate).map((i) => i / rate);
+  if (hits.length < 8) return;
+  const song = useStore.getState().songs.find((s) => s.id === songId);
+  if (!song || song.tempoMapSource !== 'midi') return;
+  const off = mapOffShare(song, hits, song.duration, 0.02);
+  if (off <= 0.15) return;
+  medleyNotices.push(`"${song.name}": a grade do MIDI não bate com o click em ${Math.round(off * 100)}% das batidas. Ficou a do MIDI, como você escolheu. Se o click estiver certo, importe de novo e escolha Ignorar no MIDI.`);
 }

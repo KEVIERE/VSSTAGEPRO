@@ -2,12 +2,12 @@ import { create } from 'zustand';
 import { linkedTrackIds, linkedVolumes, nextTrackSelection, type TrackPickMode } from '@/lib/trackSelection';
 import { NEUTRAL_TRACK_COLOR } from '@/lib/trackColors';
 import { temporal } from 'zundo';
-import { routeByName } from '@/lib/nameRouter';
+import { keepsPersonRoute } from '@/lib/routeReview';
 import { computeNextSongId } from '@/lib/playFlow';
 import type {
   ProjectState, Track, AudioClip, Song, Block, PlaylistEntry,
   PlayFlow, RoutingTarget, ImportProgress, ExportConfig, SongRegion, MedleyPart, FadeCurve, SongTempoSegment,
-  MaestroNarration, MusicianAccount, MusicianBook,
+  MaestroNarration, MusicianAccount, MusicianBook, UserGroup, UserGroupId,
 } from '@/types';
 import { projectExtras } from '@/lib/projectHooks';
 import { clearAudioLibrary, clipPlayLength, getClipAudio, getClipPlayAudio, getClipSource, openClipAudio, putClipAudio, registerClipSource } from '@/lib/audioLibrary';
@@ -20,6 +20,8 @@ import type { SaveTarget } from '@/lib/projectSaver';
 import { keepSegmentPhase, mergeSameLineSegments, moveTempoChange, openLastSegment, tempoChangeIndex, type SnapStep } from '@/lib/grid';
 import { shiftSong } from '@/lib/clickEdit';
 import { MAESTRO_IA_TRACK_ID, pruneNarrationLinks, sortedNarrations } from '@/lib/narrations';
+import { FIXED_ROUTABLE_TRACKS, isUserGroupId, makeUserGroupTrack, newUserGroupId, normalizeUserGroups, normalizeWords, routableTrackIds, setActiveUserGroups, withTopOrder } from '@/lib/userGroups';
+import { routeByName as routeByNameWith, routeByFixedName } from '@/lib/nameRouter';
 
 export interface InstantPrep {
   done: number;
@@ -81,11 +83,9 @@ const DEFAULT_TRACKS: Track[] = [
   { id: 'track-outros', name: 'Outros', type: 'subgroup', color: NEUTRAL_TRACK_COLOR, volume: 0.8, pan: 0, mute: false, solo: false, antiClip: false, isSubgroup: true, parentId: null, children: [], height: 40, visible: true, outputChannel: 0, meterLevel: 0, clipIndicator: false, clipPeak: 0 },
 ];
 
-export const ROUTABLE_TRACKS: RoutingTarget[] = [
-  'track-guia', 'track-click', 'track-maestro', 'track-bateria', 'track-contrabaixo',
-  'track-percussoes', 'track-guitarras', 'track-violoes', 'track-sanfonas',
-  'track-teclados', 'track-solos', 'track-outros',
-];
+/** As pastas de fábrica. Com os multigrupos da pessoa, a ordem da tela vem de `routableTrackIds`. */
+export const ROUTABLE_TRACKS: RoutingTarget[] = FIXED_ROUTABLE_TRACKS;
+export { routableTrackIds };
 
 export const BLOCK_COLORS = [
   '#ffffff', '#ff453a', '#ff9f0a', '#ffd60a', '#30d158',
@@ -136,6 +136,7 @@ export const DEFAULT_PROJECT_NAME = 'Novo Projeto';
 const INITIAL_STATE: ProjectState & ProjectStateExt = {
   projectName: DEFAULT_PROJECT_NAME,
   tracks: DEFAULT_TRACKS.map((t) => ({ ...t })),
+  userGroups: [],
   magicRoutingActive: false,
   prevOutputChannels: null,
   saveDialogOpen: false,
@@ -299,6 +300,8 @@ interface StoreActions {
   duplicateTrack: (trackId: string) => string | null;
   /** Muda a trilha de lugar dentro da pasta dela (arrastar na coluna dos nomes). `slot` conta na ordem atual. */
   reorderChildTrack: (trackId: string, slot: number) => void;
+  /** Arrastar uma faixa de topo (pasta ou canal) para a posição `slot` da lista da timeline. */
+  reorderTopTrack: (trackId: string, slot: number) => void;
   setPlayFlow: (flow: PlayFlow) => void;
   cyclePlayFlow: () => void;
   play: () => void;
@@ -374,6 +377,8 @@ interface StoreActions {
   setTempoAt: (songId: string, atTime: number, bpm: number) => void;
   /** Remove a mudança de andamento manual mais próxima deste ponto, voltando o trecho ao segmento anterior. */
   removeTempoAt: (songId: string, atTime: number) => void;
+  /** Botão direito na placa: tira todas as mudanças de andamento; fica o andamento do começo, no mesmo lugar. */
+  removeAllTempoChanges: (songId: string) => void;
   /** Leva a mudança de andamento mais perto de `fromTime` para `toTime` (arrastar a plaquinha amarela). */
   /** Move a troca mantendo as batidas do trecho. `exact`: o trecho recomeça no ponto (Alt e "Ajustar"). */
   moveTempoAt: (songId: string, fromTime: number, toTime: number, exact?: boolean) => void;
@@ -442,6 +447,12 @@ interface StoreActions {
   setExportProgress: (progress: { active: boolean; message: string } | null) => void;
   recalcTimeline: () => void;
   reconcileTracks: () => void;
+  /** Multigrupo novo da pessoa (fica só neste projeto). Já reorganiza o que é dele. Devolve o id. */
+  createUserGroup: (input: { name: string; color: string; words: string[] }) => UserGroupId | null;
+  /** Nome, cor e palavras do multigrupo; reorganiza com as palavras novas (um passo de Desfazer). */
+  updateUserGroup: (id: UserGroupId, patch: { name?: string; color?: string; words?: string[] }) => void;
+  /** Apaga o multigrupo: as trilhas de dentro voltam para onde o roteamento normal mandaria. */
+  deleteUserGroup: (id: UserGroupId) => void;
   reconcileTracksAnnounced: () => void;
   setSaveDialogOpen: (v: boolean) => void;
   setOpenDialogOpen: (v: boolean) => void;
@@ -608,6 +619,7 @@ export function partializeHistory(state: Store) {
   return {
     projectName: state.projectName,
     tracks: state.tracks,
+    userGroups: state.userGroups,
     clips: state.clips,
     songs: state.songs,
     blocks: state.blocks,
@@ -700,6 +712,225 @@ export function hasUnsavedChanges(state: Store): boolean {
     if (key === 'tracks' ? !sameSavedTracks(now.tracks, saved.history.tracks) : now[key] !== saved.history[key]) return true;
   }
   return false;
+}
+
+/**
+ * Reorganiza as faixas pelo nome dos arquivos (a cada importação e ao mexer num multigrupo).
+ * Os multigrupos da pessoa entram no roteamento por palavra, acima das pastas de fábrica.
+ */
+function reconcileState(s: { tracks: Track[]; clips: AudioClip[]; userGroups?: UserGroup[] }): { tracks: Track[]; clips: AudioClip[] } {
+        const groups = (s.userGroups ?? []).filter((g) => s.tracks.some((t) => t.id === g.id && t.isSubgroup));
+        const routeByName = (name: string) => routeByNameWith(name, groups);
+
+        const protectedIds = new Set(['track-guia', 'track-click', 'track-maestro']);
+        const parents = s.tracks.filter((t) => t.isSubgroup);
+        const normalize = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+        // a faixa Maestro IA (falas geradas) fica como está, com os áudios dela
+        const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup || t.id === MAESTRO_IA_TRACK_ID);
+        // as criadas pela pessoa também ficam, com os clipes que ela pôs nelas
+        const customIds = customTrackIds(s.tracks);
+        const customTracks = s.tracks.filter((t) => customIds.has(t.id));
+        const prevChildByFullName = new Map<string, Track>();
+        for (const t of s.tracks) {
+          if (t.parentId && !t.isSubgroup && !customIds.has(t.id)) {
+            prevChildByFullName.set(`${t.parentId}|${normalize(t.name)}`, t);
+          }
+        }
+
+        // decide o destino final (subgrupo + nome de instrumento) de cada clipe
+        // reclassifica tudo pelo nome do arquivo — ignora marca "manual" para desfazer bagunças antigas
+        type Dest = { target: RoutingTarget; display: string } | 'guia' | 'click' | 'maestro';
+        const destByClip = new Map<string, Dest>();
+        for (const clip of s.clips) {
+          if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID || customIds.has(clip.trackId)) continue;
+          // mandado à mão para Guia, Click ou Maestro (ou para uma "Guia N" do grupo de Guias) fica lá
+          const onTrack = s.tracks.find((t) => t.id === clip.trackId);
+          const fixedRoot = protectedIds.has(clip.trackId) ? clip.trackId : onTrack?.parentId && protectedIds.has(onTrack.parentId) ? onTrack.parentId : null;
+          if (clip.routingMethod === 'manual' && fixedRoot) {
+            destByClip.set(clip.id, fixedRoot === 'track-guia' ? 'guia' : fixedRoot === 'track-click' ? 'click' : 'maestro');
+            continue;
+          }
+          // faixa decidida pela pessoa (Confirmar da conferência ou nome aprendido): fica onde está
+          if (keepsPersonRoute(clip) && onTrack) {
+            if (fixedRoot) {
+              destByClip.set(clip.id, fixedRoot === 'track-guia' ? 'guia' : fixedRoot === 'track-click' ? 'click' : 'maestro');
+              continue;
+            }
+            if (onTrack.parentId && !onTrack.isSubgroup && !protectedIds.has(onTrack.id)) {
+              destByClip.set(clip.id, { target: onTrack.parentId as RoutingTarget, display: onTrack.name.replace(/\s+\d+$/, '').trim() || 'Extra' });
+              continue;
+            }
+          }
+          const route = routeByName(clip.fileName) ?? routeByName(clip.name);
+          if (route) {
+            if (route.target === 'track-guia') { destByClip.set(clip.id, 'guia'); continue; }
+            if (route.target === 'track-click') { destByClip.set(clip.id, 'click'); continue; }
+            if (route.target === 'track-maestro') { destByClip.set(clip.id, 'maestro'); continue; }
+            destByClip.set(clip.id, { target: route.target, display: route.instrumentName });
+            continue;
+          }
+          // fallback: se o clipe já estava numa faixa filha válida (não é subgrupo nem fixa), preserva o nome
+          const cur = s.tracks.find((t) => t.id === clip.trackId);
+          if (cur && cur.parentId && !cur.isSubgroup && !protectedIds.has(cur.id)) {
+            const prettyBase = cur.name.replace(/\s+\d+$/, '').trim() || 'Extra';
+            destByClip.set(clip.id, { target: cur.parentId as RoutingTarget, display: prettyBase });
+            continue;
+          }
+          destByClip.set(clip.id, { target: 'track-outros', display: 'Extra' });
+        }
+
+        // Música com mais de uma guia: a Guia vira pasta ("Guia 1", "Guia 2"...), no mesmo padrão
+        // das outras. Uma vez pasta, continua pasta. A saída e o LR mágico seguem os da Guia.
+        const guia = s.tracks.find((t) => t.id === 'track-guia');
+        const guiasPorMusica = new Map<string, number>();
+        for (const c of s.clips) {
+          if (destByClip.get(c.id) === 'guia') guiasPorMusica.set(c.songId, (guiasPorMusica.get(c.songId) ?? 0) + 1);
+        }
+        const guiaPasta = !!guia && (guia.isSubgroup || [...guiasPorMusica.values()].some((n) => n > 1));
+        if (guiaPasta) {
+          for (const [clipId, dest] of destByClip) {
+            if (dest === 'guia') destByClip.set(clipId, { target: 'track-guia', display: 'Guia' });
+          }
+        }
+
+        // numera por música: na mesma música, 1º violão vira "Violão 1", 2º "Violão 2" etc
+        const clipsBySong = new Map<string, AudioClip[]>();
+        for (const c of s.clips) {
+          const arr = clipsBySong.get(c.songId) ?? [];
+          arr.push(c); clipsBySong.set(c.songId, arr);
+        }
+        // Trilha criada pela pessoa com nome da sequência ("Violão 2") faz parte dela: recebe o 2º
+        // violão da música quando está livre nela, e a numeração segue em "Violão 3", "Violão 4"...
+        // Ocupada nessa música (a pessoa pôs um áudio nela), o número é pulado.
+        const customBySlot = new Map<string, Track>();
+        for (const t of customTracks) customBySlot.set(`${t.parentId}|${normalize(t.name)}`, t);
+        const busyCustom = new Set(s.clips.filter((c) => customIds.has(c.trackId)).map((c) => `${c.songId}|${c.trackId}`));
+        const maxNByKey = new Map<string, number>();
+        const displayByKey = new Map<string, string>();
+        const assignmentByClip = new Map<string, { key: string; n: number }>();
+        for (const [, songClips] of clipsBySong) {
+          const counts = new Map<string, number>();
+          for (const c of songClips) {
+            const dest = destByClip.get(c.id);
+            if (!dest || dest === 'guia' || dest === 'click' || dest === 'maestro') continue;
+            const base = normalize(dest.display);
+            const key = `${dest.target}|${base}`;
+            if (!displayByKey.has(key)) displayByKey.set(key, dest.display);
+            const display = displayByKey.get(key)!;
+            let n = counts.get(key) ?? 0;
+            let slot: Track | undefined;
+            do {
+              n++;
+              slot = customBySlot.get(`${dest.target}|${normalize(`${display} ${n}`)}`);
+            } while (slot && busyCustom.has(`${c.songId}|${slot.id}`));
+            if (slot) busyCustom.add(`${c.songId}|${slot.id}`);
+            counts.set(key, n);
+            if (n > (maxNByKey.get(key) ?? 0)) maxNByKey.set(key, n);
+            assignmentByClip.set(c.id, { key, n });
+          }
+        }
+
+        // cria as faixas filhas: uma por (grupo, instrumento, número)
+        const newChildTracks: Track[] = [];
+        const trackIdByKeyN = new Map<string, string>();
+        let seq = 0;
+        const now = Date.now();
+        for (const [key, max] of maxNByKey) {
+          const target = key.split('|')[0];
+          const parent = s.tracks.find((p) => p.id === target);
+          const display = displayByKey.get(key) ?? 'Extra';
+          for (let n = 1; n <= max; n++) {
+            seq++;
+            const fullName = `${display} ${n}`;
+            const normName = normalize(fullName);
+            const slot = customBySlot.get(`${target}|${normName}`);
+            if (slot) {
+              trackIdByKeyN.set(`${key}|${n}`, slot.id);
+              continue;
+            }
+            const prev = prevChildByFullName.get(`${target}|${normName}`);
+            const id = prev?.id ?? `${target}-child-${now}-${seq}`;
+            newChildTracks.push({
+              id,
+              name: fullName,
+              type: 'audio',
+              color: prev?.color ?? parent?.color ?? NEUTRAL_TRACK_COLOR,
+              volume: prev?.volume ?? 0.8,
+              pan: prev?.pan ?? 0,
+              mute: prev?.mute ?? false,
+              solo: prev?.solo ?? false,
+              antiClip: prev?.antiClip ?? false,
+              isSubgroup: false,
+              parentId: target,
+              children: [],
+              height: prev?.height ?? 40,
+              visible: true,
+              outputChannel: prev?.outputChannel ?? 0,
+              outputStereo: prev?.outputStereo,
+              meterLevel: 0,
+              clipIndicator: false,
+              clipPeak: 0,
+            });
+            trackIdByKeyN.set(`${key}|${n}`, id);
+          }
+        }
+
+        // reaponta cada clipe para a nova faixa
+        const newClips = s.clips.map((c) => {
+          const dest = destByClip.get(c.id);
+          let newId = c.trackId;
+          if (dest === 'guia') newId = 'track-guia';
+          else if (dest === 'click') newId = 'track-click';
+          else if (dest === 'maestro') newId = 'track-maestro';
+          else {
+            const a = assignmentByClip.get(c.id);
+            if (a) newId = trackIdByKeyN.get(`${a.key}|${a.n}`) ?? c.trackId;
+          }
+          if (newId === c.trackId) return c;
+          return {
+            ...c,
+            trackId: newId,
+            ...(c.routingMethod !== 'manual' ? { routingMethod: 'name' as const, routingConfidence: 1 } : {}),
+          };
+        });
+
+        // monta os subgrupos com os filhos novos
+        const childrenByParent = new Map<string, string[]>();
+        for (const ch of newChildTracks) {
+          if (!ch.parentId) continue;
+          const arr = childrenByParent.get(ch.parentId) ?? [];
+          arr.push(ch.id);
+          childrenByParent.set(ch.parentId, arr);
+        }
+        const finalFixed = fixedTracks.map((t) => {
+          if (t.id === 'track-guia' && guiaPasta) {
+            return { ...t, isSubgroup: true, type: 'subgroup' as const, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
+          }
+          // faixa que não é pasta só guarda subfaixa que ainda existe (ex.: o Maestro IA)
+          if (!t.isSubgroup) {
+            if (t.children.length === 0) return t;
+            const kept = t.children.filter((id) => id === MAESTRO_IA_TRACK_ID || customIds.has(id));
+            return kept.length === t.children.length ? t : { ...t, children: kept };
+          }
+          return { ...t, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
+        });
+
+        // última linha de defesa: nenhum clipe pode terminar apontando para um subgrupo (pasta)
+        // (vai para a trilha do instrumento dentro dela, na sequência, sem ficar por cima de outro)
+        const subgroupIds = new Set(parents.map((p) => p.id));
+        if (guiaPasta) subgroupIds.add('track-guia');
+        let allTracks = [...finalFixed, ...newChildTracks, ...customTracks];
+        const guardedClips = [...newClips];
+        for (let i = 0; i < guardedClips.length; i++) {
+          const c = guardedClips[i];
+          if (!subgroupIds.has(c.trackId)) continue;
+          const placed = intoFolder(allTracks, guardedClips, c.trackId, c);
+          allTracks = placed.tracks;
+          guardedClips[i] = { ...c, trackId: placed.trackId };
+        }
+
+        return { tracks: withTimecodeFirst(allTracks), clips: guardedClips };
 }
 
 export const useStore = create<Store>()(
@@ -1109,6 +1340,14 @@ export const useStore = create<Store>()(
         if (children === parent.children) return s;
         return { tracks: s.tracks.map((t) => (t.id === parent.id ? { ...t, children } : t)) };
       }),
+      reorderTopTrack: (trackId, slot) => set((s) => {
+        // a lista como está na tela: só as faixas de topo que existem
+        const shown = routableTrackIds(s.tracks).filter((id) => s.tracks.some((t) => t.id === id && !t.parentId));
+        const next = reorderChildren(shown, trackId, slot);
+        if (next === shown) return s;
+        const tracks = withTopOrder(s.tracks, shown, next);
+        return tracks === s.tracks ? s : { tracks };
+      }),
       deleteTrack: (trackId) => set((s) => {
         const track = s.tracks.find((t) => t.id === trackId);
         if (!canDeleteTrack(track)) return s;
@@ -1205,7 +1444,7 @@ export const useStore = create<Store>()(
       newProject: () => {
         clearAudioLibrary();
         // as saídas são da placa conectada, não do projeto
-        set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })), outputChannelCount: get().outputChannelCount });
+        set({ ...INITIAL_STATE, tracks: DEFAULT_TRACKS.map((t) => ({ ...t, children: [] })), userGroups: [], outputChannelCount: get().outputChannelCount });
         // projeto novo ou aberto: o Desfazer recomeça (⌘Z não pode voltar ao projeto anterior no meio do show)
         useStore.temporal.getState().clear();
       },
@@ -1215,7 +1454,9 @@ export const useStore = create<Store>()(
         // projeto antigo com áudio direto numa pasta: vai para a trilha do instrumento dentro dela
         const placedOpen = placeOffFolders(data.tracks ?? DEFAULT_TRACKS.map((t) => ({ ...t })), [], data.clips ?? []);
         const opened = groupGuides(placedOpen.tracks, placedOpen.clips);
-        const tracks = opened.tracks;
+        // multigrupos da pessoa salvos no projeto (projeto antigo não tem: só os de fábrica)
+        const mine = normalizeUserGroups(data.userGroups, opened.tracks);
+        const tracks = mine.tracks;
         const loadedSongs = (data.songs ?? []).map((sg) => withoutLoops(migrateSongRegions(sg)));
         // projeto antigo não tem a saída do Master: continua na 1/2
         const loadedMaster = normalizeMasterOutput(data.masterOutputChannel, data.masterOutputStereo);
@@ -1232,6 +1473,7 @@ export const useStore = create<Store>()(
           blocks,
           songs,
           tracks,
+          userGroups: mine.groups,
           clips: opened.clips,
           lyricMaps: normalizeLyricMaps(data.lyricMaps),
           lyricStyle: normalizeLyricStyle(data.lyricStyle),
@@ -1604,7 +1846,7 @@ export const useStore = create<Store>()(
       resetClipRouting: (clipId) => {
         set((s) => ({
           clips: s.clips.map((c) => c.id === clipId
-            ? { ...c, routingMethod: 'name' as const, routingConfidence: 1 }
+            ? { ...c, routingMethod: 'name' as const, routingConfidence: 1, routingLocked: false }
             : c),
         }));
         get().reconcileTracks();
@@ -1816,6 +2058,19 @@ export const useStore = create<Store>()(
         return {
           songs: s.songs.map((sg) => sg.id === songId
             ? { ...sg, tempoSegments: finalSegments, bpm: finalSegments?.[0]?.bpm ?? merged[0]?.bpm ?? sg.bpm, tempoMapSource: 'manual' as const }
+            : sg),
+        };
+      }),
+
+      removeAllTempoChanges: (songId) => set((s) => {
+        const song = s.songs.find((sg) => sg.id === songId);
+        if (!song?.tempoSegments || song.tempoSegments.length <= 1) return s;
+        const first = [...song.tempoSegments].sort((a, b) => a.startTime - b.startTime)[0];
+        // o primeiro trecho passa a valer até o fim, com a mesma fase (as batidas do começo não saem do lugar)
+        const finalSegments = keepSegmentPhase({ ...first, endTime: Math.max(first.endTime, song.duration) }, song.beatsPerBar ?? 4, song.duration);
+        return {
+          songs: s.songs.map((sg) => sg.id === songId
+            ? { ...sg, tempoSegments: finalSegments, bpm: first.bpm, tempoMapSource: 'manual' as const }
             : sg),
         };
       }),
@@ -2164,205 +2419,77 @@ export const useStore = create<Store>()(
         return { songs };
       }),
 
-      reconcileTracks: () => set((s) => {
-        const protectedIds = new Set(['track-guia', 'track-click', 'track-maestro']);
-        const parents = s.tracks.filter((t) => t.isSubgroup);
-        const normalize = (name: string) => name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+      reconcileTracks: () => set((s) => reconcileState(s)),
 
-        // a faixa Maestro IA (falas geradas) fica como está, com os áudios dela
-        const fixedTracks = s.tracks.filter((t) => !t.parentId || t.isSubgroup || t.id === MAESTRO_IA_TRACK_ID);
-        // as criadas pela pessoa também ficam, com os clipes que ela pôs nelas
-        const customIds = customTrackIds(s.tracks);
-        const customTracks = s.tracks.filter((t) => customIds.has(t.id));
-        const prevChildByFullName = new Map<string, Track>();
-        for (const t of s.tracks) {
-          if (t.parentId && !t.isSubgroup && !customIds.has(t.id)) {
-            prevChildByFullName.set(`${t.parentId}|${normalize(t.name)}`, t);
-          }
-        }
-
-        // decide o destino final (subgrupo + nome de instrumento) de cada clipe
-        // reclassifica tudo pelo nome do arquivo — ignora marca "manual" para desfazer bagunças antigas
-        type Dest = { target: RoutingTarget; display: string } | 'guia' | 'click' | 'maestro';
-        const destByClip = new Map<string, Dest>();
-        for (const clip of s.clips) {
-          if (isTimecodeTrackId(clip.trackId) || clip.trackId === MAESTRO_IA_TRACK_ID || customIds.has(clip.trackId)) continue;
-          // mandado à mão para Guia, Click ou Maestro (ou para uma "Guia N" do grupo de Guias) fica lá
-          const onTrack = s.tracks.find((t) => t.id === clip.trackId);
-          const fixedRoot = protectedIds.has(clip.trackId) ? clip.trackId : onTrack?.parentId && protectedIds.has(onTrack.parentId) ? onTrack.parentId : null;
-          if (clip.routingMethod === 'manual' && fixedRoot) {
-            destByClip.set(clip.id, fixedRoot === 'track-guia' ? 'guia' : fixedRoot === 'track-click' ? 'click' : 'maestro');
-            continue;
-          }
-          const route = routeByName(clip.fileName) ?? routeByName(clip.name);
-          if (route) {
-            if (route.target === 'track-guia') { destByClip.set(clip.id, 'guia'); continue; }
-            if (route.target === 'track-click') { destByClip.set(clip.id, 'click'); continue; }
-            if (route.target === 'track-maestro') { destByClip.set(clip.id, 'maestro'); continue; }
-            destByClip.set(clip.id, { target: route.target, display: route.instrumentName });
-            continue;
-          }
-          // fallback: se o clipe já estava numa faixa filha válida (não é subgrupo nem fixa), preserva o nome
-          const cur = s.tracks.find((t) => t.id === clip.trackId);
-          if (cur && cur.parentId && !cur.isSubgroup && !protectedIds.has(cur.id)) {
-            const prettyBase = cur.name.replace(/\s+\d+$/, '').trim() || 'Extra';
-            destByClip.set(clip.id, { target: cur.parentId as RoutingTarget, display: prettyBase });
-            continue;
-          }
-          destByClip.set(clip.id, { target: 'track-outros', display: 'Extra' });
-        }
-
-        // Música com mais de uma guia: a Guia vira pasta ("Guia 1", "Guia 2"...), no mesmo padrão
-        // das outras. Uma vez pasta, continua pasta. A saída e o LR mágico seguem os da Guia.
-        const guia = s.tracks.find((t) => t.id === 'track-guia');
-        const guiasPorMusica = new Map<string, number>();
-        for (const c of s.clips) {
-          if (destByClip.get(c.id) === 'guia') guiasPorMusica.set(c.songId, (guiasPorMusica.get(c.songId) ?? 0) + 1);
-        }
-        const guiaPasta = !!guia && (guia.isSubgroup || [...guiasPorMusica.values()].some((n) => n > 1));
-        if (guiaPasta) {
-          for (const [clipId, dest] of destByClip) {
-            if (dest === 'guia') destByClip.set(clipId, { target: 'track-guia', display: 'Guia' });
-          }
-        }
-
-        // numera por música: na mesma música, 1º violão vira "Violão 1", 2º "Violão 2" etc
-        const clipsBySong = new Map<string, AudioClip[]>();
-        for (const c of s.clips) {
-          const arr = clipsBySong.get(c.songId) ?? [];
-          arr.push(c); clipsBySong.set(c.songId, arr);
-        }
-        // Trilha criada pela pessoa com nome da sequência ("Violão 2") faz parte dela: recebe o 2º
-        // violão da música quando está livre nela, e a numeração segue em "Violão 3", "Violão 4"...
-        // Ocupada nessa música (a pessoa pôs um áudio nela), o número é pulado.
-        const customBySlot = new Map<string, Track>();
-        for (const t of customTracks) customBySlot.set(`${t.parentId}|${normalize(t.name)}`, t);
-        const busyCustom = new Set(s.clips.filter((c) => customIds.has(c.trackId)).map((c) => `${c.songId}|${c.trackId}`));
-        const maxNByKey = new Map<string, number>();
-        const displayByKey = new Map<string, string>();
-        const assignmentByClip = new Map<string, { key: string; n: number }>();
-        for (const [, songClips] of clipsBySong) {
-          const counts = new Map<string, number>();
-          for (const c of songClips) {
-            const dest = destByClip.get(c.id);
-            if (!dest || dest === 'guia' || dest === 'click' || dest === 'maestro') continue;
-            const base = normalize(dest.display);
-            const key = `${dest.target}|${base}`;
-            if (!displayByKey.has(key)) displayByKey.set(key, dest.display);
-            const display = displayByKey.get(key)!;
-            let n = counts.get(key) ?? 0;
-            let slot: Track | undefined;
-            do {
-              n++;
-              slot = customBySlot.get(`${dest.target}|${normalize(`${display} ${n}`)}`);
-            } while (slot && busyCustom.has(`${c.songId}|${slot.id}`));
-            if (slot) busyCustom.add(`${c.songId}|${slot.id}`);
-            counts.set(key, n);
-            if (n > (maxNByKey.get(key) ?? 0)) maxNByKey.set(key, n);
-            assignmentByClip.set(c.id, { key, n });
-          }
-        }
-
-        // cria as faixas filhas: uma por (grupo, instrumento, número)
-        const newChildTracks: Track[] = [];
-        const trackIdByKeyN = new Map<string, string>();
-        let seq = 0;
-        const now = Date.now();
-        for (const [key, max] of maxNByKey) {
-          const target = key.split('|')[0];
-          const parent = s.tracks.find((p) => p.id === target);
-          const display = displayByKey.get(key) ?? 'Extra';
-          for (let n = 1; n <= max; n++) {
-            seq++;
-            const fullName = `${display} ${n}`;
-            const normName = normalize(fullName);
-            const slot = customBySlot.get(`${target}|${normName}`);
-            if (slot) {
-              trackIdByKeyN.set(`${key}|${n}`, slot.id);
-              continue;
-            }
-            const prev = prevChildByFullName.get(`${target}|${normName}`);
-            const id = prev?.id ?? `${target}-child-${now}-${seq}`;
-            newChildTracks.push({
-              id,
-              name: fullName,
-              type: 'audio',
-              color: prev?.color ?? parent?.color ?? NEUTRAL_TRACK_COLOR,
-              volume: prev?.volume ?? 0.8,
-              pan: prev?.pan ?? 0,
-              mute: prev?.mute ?? false,
-              solo: prev?.solo ?? false,
-              antiClip: prev?.antiClip ?? false,
-              isSubgroup: false,
-              parentId: target,
-              children: [],
-              height: prev?.height ?? 40,
-              visible: true,
-              outputChannel: prev?.outputChannel ?? 0,
-              outputStereo: prev?.outputStereo,
-              meterLevel: 0,
-              clipIndicator: false,
-              clipPeak: 0,
-            });
-            trackIdByKeyN.set(`${key}|${n}`, id);
-          }
-        }
-
-        // reaponta cada clipe para a nova faixa
-        const newClips = s.clips.map((c) => {
-          const dest = destByClip.get(c.id);
-          let newId = c.trackId;
-          if (dest === 'guia') newId = 'track-guia';
-          else if (dest === 'click') newId = 'track-click';
-          else if (dest === 'maestro') newId = 'track-maestro';
-          else {
-            const a = assignmentByClip.get(c.id);
-            if (a) newId = trackIdByKeyN.get(`${a.key}|${a.n}`) ?? c.trackId;
-          }
-          if (newId === c.trackId) return c;
-          return {
-            ...c,
-            trackId: newId,
-            ...(c.routingMethod !== 'manual' ? { routingMethod: 'name' as const, routingConfidence: 1 } : {}),
-          };
+      createUserGroup: ({ name, color, words }) => {
+        const clean = name.trim();
+        if (!clean) return null;
+        const s = get();
+        const id = newUserGroupId(clean, s.tracks.map((t) => t.id));
+        const group: UserGroup = { id, name: clean, color: color || NEUTRAL_TRACK_COLOR, words: normalizeWords(words) };
+        set((st) => {
+          const mid = { tracks: withTimecodeFirst([...st.tracks, makeUserGroupTrack(group)]), clips: st.clips, userGroups: [...(st.userGroups ?? []), group] };
+          return { ...mid, ...reconcileState(mid) };
         });
+        return id;
+      },
 
-        // monta os subgrupos com os filhos novos
-        const childrenByParent = new Map<string, string[]>();
-        for (const ch of newChildTracks) {
-          if (!ch.parentId) continue;
-          const arr = childrenByParent.get(ch.parentId) ?? [];
-          arr.push(ch.id);
-          childrenByParent.set(ch.parentId, arr);
-        }
-        const finalFixed = fixedTracks.map((t) => {
-          if (t.id === 'track-guia' && guiaPasta) {
-            return { ...t, isSubgroup: true, type: 'subgroup' as const, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
-          }
-          // faixa que não é pasta só guarda subfaixa que ainda existe (ex.: o Maestro IA)
-          if (!t.isSubgroup) {
-            if (t.children.length === 0) return t;
-            const kept = t.children.filter((id) => id === MAESTRO_IA_TRACK_ID || customIds.has(id));
-            return kept.length === t.children.length ? t : { ...t, children: kept };
-          }
-          return { ...t, children: mergeCustomChildren(t.children, childrenByParent.get(t.id) ?? [], customIds) };
+      updateUserGroup: (id, patch) => set((s) => {
+        const groups = s.userGroups ?? [];
+        const old = groups.find((g) => g.id === id);
+        if (!old) return s;
+        const next: UserGroup = {
+          ...old,
+          ...(patch.name !== undefined && patch.name.trim() ? { name: patch.name.trim() } : {}),
+          ...(patch.color ? { color: patch.color } : {}),
+          ...(patch.words ? { words: normalizeWords(patch.words) } : {}),
+        };
+        const tracks = s.tracks.map((t) => {
+          if (t.id === id) return { ...t, name: next.name, color: next.color };
+          // trilhas de dentro que estavam na cor do grupo acompanham a cor nova
+          if (t.parentId === id && t.color === old.color) return { ...t, color: next.color };
+          return t;
         });
+        const mid = { tracks, clips: s.clips, userGroups: groups.map((g) => (g.id === id ? next : g)) };
+        return { ...mid, ...reconcileState(mid) };
+      }),
 
-        // última linha de defesa: nenhum clipe pode terminar apontando para um subgrupo (pasta)
-        // (vai para a trilha do instrumento dentro dela, na sequência, sem ficar por cima de outro)
-        const subgroupIds = new Set(parents.map((p) => p.id));
-        if (guiaPasta) subgroupIds.add('track-guia');
-        let allTracks = [...finalFixed, ...newChildTracks, ...customTracks];
-        const guardedClips = [...newClips];
-        for (let i = 0; i < guardedClips.length; i++) {
-          const c = guardedClips[i];
-          if (!subgroupIds.has(c.trackId)) continue;
-          const placed = intoFolder(allTracks, guardedClips, c.trackId, c);
-          allTracks = placed.tracks;
-          guardedClips[i] = { ...c, trackId: placed.trackId };
-        }
-
-        return { tracks: withTimecodeFirst(allTracks), clips: guardedClips };
+      deleteUserGroup: (id) => set((s) => {
+        const groups = s.userGroups ?? [];
+        if (!groups.some((g) => g.id === id) && !s.tracks.some((t) => t.id === id)) return s;
+        // As trilhas de dentro voltam para a pasta de fábrica que o nome delas diz ("Trompete" vai
+        // para Outros, "Strings" para Teclados), com os áudios. A reorganização depois decide pelo
+        // nome do arquivo, como se o grupo nunca tivesse existido; áudio que a IA mandou continua
+        // na trilha dele. Tudo num passo só do Desfazer.
+        const fixedFor = (name: string): RoutingTarget => {
+          const r = routeByFixedName(name);
+          return r && !['track-guia', 'track-click', 'track-maestro'].includes(r.target) ? r.target : 'track-outros';
+        };
+        const newParent = new Map<string, RoutingTarget>();
+        for (const t of s.tracks) if (t.parentId === id) newParent.set(t.id, fixedFor(t.name.replace(/\s+\d+$/, '')));
+        const tracks = s.tracks
+          .filter((t) => t.id !== id)
+          .map((t) => {
+            const to = newParent.get(t.id);
+            return to ? { ...t, parentId: to, color: s.tracks.find((p) => p.id === to)?.color ?? t.color } : t;
+          })
+          .map((t) => {
+            // a lista de filhas de cada pasta acompanha a troca
+            if (!t.isSubgroup) return t;
+            const moved = [...newParent].filter(([, to]) => to === t.id).map(([child]) => child);
+            return moved.length ? { ...t, children: [...t.children, ...moved.filter((c) => !t.children.includes(c))] } : t;
+          });
+        const clips = s.clips.map((c) => (c.trackId === id
+          ? { ...c, trackId: 'track-outros', routingLocked: false }
+          : c));
+        const mid = { tracks, clips, userGroups: groups.filter((g) => g.id !== id) };
+        const gone = new Set<string>([id]);
+        return {
+          ...mid,
+          ...reconcileState(mid),
+          selectedTrackIds: s.selectedTrackIds.filter((x) => !gone.has(x)),
+          selectedTrackId: s.selectedTrackId && gone.has(s.selectedTrackId) ? null : s.selectedTrackId,
+        };
       }),
 
       reconcileTracksAnnounced: () => {
@@ -2387,3 +2514,10 @@ export const useStore = create<Store>()(
     }
   )
 );
+
+// O roteamento por nome e a IA (nameRouter, aiRouter, conferência) leem os multigrupos do projeto
+// aberto por aqui. Só memória: abrir, criar, editar, apagar e Desfazer mudam a lista.
+setActiveUserGroups(useStore.getState().userGroups);
+useStore.subscribe((s, prev) => {
+  if (s.userGroups !== prev.userGroups) setActiveUserGroups(s.userGroups);
+});

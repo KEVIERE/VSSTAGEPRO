@@ -1,3 +1,4 @@
+import { registerCommand } from '@/lib/shortcuts/runtime';
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, Loader2, Mic, Sparkles } from 'lucide-react';
@@ -103,28 +104,23 @@ export function NarrationLane({ song, zoomH, height = NARRATION_LANE_HEIGHT, vis
       if (t?.closest(`[data-narration-id="${selectedId}"]`)) return;
       setSelectedId(null);
     };
-    // Delete ou Backspace apaga a fala selecionada (com o áudio dela; Cmd+Z traz de volta).
-    // Roda antes dos outros atalhos para não apagar também os áudios selecionados.
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    // Delete ou Backspace (ou a tecla que o usuário escolheu) apaga a fala selecionada, com o
+    // áudio dela; o Desfazer traz de volta. Roda antes dos outros atalhos (fase de captura) para
+    // não apagar também os áudios selecionados.
+    const offKey = registerCommand('maestro.deleteCue', () => {
       const st = useStore.getState();
-      if (st.timelineLocked) return;
+      if (st.timelineLocked) return false;
       const n = song.narrations?.find((x) => x.id === selectedId);
-      if (!n) return;
-      e.preventDefault();
-      e.stopPropagation();
+      if (!n) return false;
       if (n.clipId) audioEngine.stopClipsLive([n.clipId]);
       removeNarration(song.id, n.id);
       audioEngine.invalidatePrepared(song.id);
       setSelectedId(null);
-    };
+    });
     window.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('keydown', onKey, true);
     return () => {
       window.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('keydown', onKey, true);
+      offKey();
     };
   }, [selectedId, song.id, song.narrations, removeNarration]);
 

@@ -23,6 +23,8 @@ import type { Track } from '@/types';
 import ClickMenuItems from '@/components/ClickMenuItems';
 import { canDeleteTrack, newTrackPlace } from '@/lib/customTracks';
 import { audioEngine } from '@/lib/audioEngine';
+import { isUserGroupId } from '@/lib/userGroups';
+import { openUserGroupDialog } from '@/lib/userGroupDialog';
 
 const DAW_COLORS = [
   '#30d158', // Verde
@@ -75,6 +77,7 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const tracks = useStore((s) => s.tracks);
   const count = useStore((s) => s.outputChannelCount);
   const renameTrack = useStore((s) => s.renameTrack);
+  const updateUserGroup = useStore((s) => s.updateUserGroup);
   const setTrackColor = useStore((s) => s.setTrackColorLinked);
   const moveTrackToFolder = useStore((s) => s.moveTrackToFolder);
   const setOutputChannel = useStore((s) => s.setOutputChannelLinked);
@@ -146,7 +149,9 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
   const handleRenameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (nameValue.trim()) {
-      renameTrack(track.id, nameValue.trim());
+      // faixa mãe de multigrupo: o nome do grupo acompanha (é ele que vai salvo no projeto)
+      if (isUserGroupId(track.id)) updateUserGroup(track.id, { name: nameValue.trim() });
+      else renameTrack(track.id, nameValue.trim());
     }
     setRenaming(false);
     onClose();
@@ -206,9 +211,22 @@ export default function TrackContextMenu({ track, x, y, onClose }: TrackContextM
           <span className="font-bold text-white truncate text-xs">{track.name}</span>
         </div>
         <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase tracking-wider bg-white/10 text-logic-text-dim shrink-0">
-          {track.isSubgroup ? 'Pasta' : 'Faixa'}
+          {isUserGroupId(track.id) ? 'Multigrupo' : track.isSubgroup ? 'Pasta' : 'Faixa'}
         </span>
       </div>
+
+      {/* MULTIGRUPO DO PROJETO: nome, cor, palavras e apagar */}
+      {isUserGroupId(track.id) && !renaming && (
+        <button
+          type="button"
+          onClick={() => { const id = track.id; onClose(); if (isUserGroupId(id)) openUserGroupDialog({ mode: 'edit', id }); }}
+          title="Nome, cor, palavras do nome do arquivo e apagar o multigrupo"
+          className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center gap-2 text-white/90 hover:text-white transition border-b border-white/10"
+        >
+          <FolderOpen size={13} className="text-logic-lcd-amber" />
+          <span>Editar multigrupo...</span>
+        </button>
+      )}
 
       {/* 1. RENOMEAR */}
       {renaming ? (

@@ -70,7 +70,7 @@ test('tocar e ligar ou desligar o roll: vale só na voz daquele pad', () => {
   assert.match(player, /export async function togglePadRoll\(slot: number\)/);
 });
 
-test('teclas: Shift + 1 a 9 (pela tecla física) e R no pad escolhido; 1 a 9 continuam tocando', () => {
+test('teclas: Shift + 1 a 9 (pela tecla física) e R no pad escolhido; 1 a 9 continuam tocando', async () => {
   assert.equal(padForRollKey('Digit1'), 0);
   assert.equal(padForRollKey('Digit9'), 8);
   assert.equal(padForRollKey('Numpad3'), 2);
@@ -78,8 +78,12 @@ test('teclas: Shift + 1 a 9 (pela tecla física) e R no pad escolhido; 1 a 9 con
   assert.equal(padForRollKey('KeyR'), null);
   assert.equal(padForKey('1'), 0, 'o atalho de tocar não mudou');
   assert.equal(padForKey('!'), null, 'Shift + 1 não toca o pad');
-  assert.match(panel, /const rollPad = e\.shiftKey \? padForRollKey\(e\.code\) : null;/);
-  assert.match(panel, /togglePadRoll\(rollPad !== null \? padSlot\(cur\.bank, rollPad\) : cur\.selected\)/);
+  // as teclas vêm do tratador único de atalhos: Shift + 1 a 9 (pela tecla física) e R
+  assert.match(panel, /registerCommand\(`show\.padRoll\$\{pad \+ 1\}`[\s\S]*?togglePadRoll\(padSlot\(cur\.bank, pad\)\)/);
+  assert.match(panel, /registerCommand\('show\.padRollSelected'[\s\S]*?togglePadRoll\(cur\.selected\)/);
+  const combo = await import('../src/lib/shortcuts/combo.ts');
+  assert.equal(combo.eventToCombo({ key: '!', code: 'Digit1', shiftKey: true }, 'mac'), 'Shift+1');
+  assert.equal(combo.eventToCombo({ key: '1', code: 'Numpad1' }, 'win'), '1');
 });
 
 test('tecla ROLL no painel: ao lado do CORTAR, nos ajustes do pad e aceso no próprio pad', () => {

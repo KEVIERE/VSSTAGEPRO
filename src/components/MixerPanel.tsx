@@ -1,4 +1,4 @@
-import { useStore, ROUTABLE_TRACKS } from '@/store';
+import { useStore, routableTrackIds } from '@/store';
 import { volumeToDb } from '@/lib/audioEngine';
 import { audioEngine } from '@/lib/audioEngine';
 import { ChevronDown, ChevronUp, Volume2, Wand2 } from 'lucide-react';
@@ -734,6 +734,8 @@ function PanKnob({ pan }: { pan: number }) {
 // Altura dos canais com o mixer no tamanho normal (300 px menos o trilho de cima e a borda).
 const BED_H = 271;
 const RAIL_H = 28;
+/** altura da barra de rolar da mesa: sempre reservada, para a barra aparecer quando os canais não cabem */
+const MIXER_SCROLL_H = 12;
 /** Última escala do mixer do Modo Show (só existe um), para a próxima abertura já nascer certa. */
 let lastFitBox: { scale: number; w: number } | null = null;
 
@@ -765,13 +767,15 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
   const grafite = skin === 'grafite';
   const faceRef = useRef<HTMLDivElement>(null);
   const channelsRef = useRef<HTMLDivElement>(null);
+  const leftSideRef = useRef<HTMLDivElement>(null);
+  const rightSideRef = useRef<HTMLDivElement>(null);
   // O mixer do Modo Show nasce na última escala medida: sem isso ele montava sem escala e o
   // setFitBox do efeito abaixo pedia um segundo render e outro layout no quadro de abrir.
   const [fitBox, setFitBox] = useState<{ scale: number; w: number } | null>(() => (fit && mixerVisible ? lastFitBox : null));
 
   // Só os ids dos canais de topo (subgrupos e tracks soltas; as filhas tocam pelo canal do pai).
   // Mexer no fader cria outro array de faixas, mas a lista de canais é a mesma: o mixer não redesenha.
-  const allChannels = useStore(useShallow((s) => ROUTABLE_TRACKS.filter((id) => s.tracks.some((t) => t.id === id && !t.parentId))));
+  const allChannels = useStore(useShallow((s) => routableTrackIds(s.tracks).filter((id) => s.tracks.some((t) => t.id === id && !t.parentId))));
 
   useLayoutEffect(() => {
     if (!fit || !mixerVisible) { setFitBox(null); return; }
@@ -782,8 +786,11 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
     const update = () => {
       const w = inner.offsetWidth;
       if (!w) return;
-      const maxH = Math.max(BED_H * 0.6, (host?.clientHeight ?? 900) * 0.6 - RAIL_H - 1);
-      const scale = Math.max(0.55, Math.min(face.clientWidth / w, maxH / BED_H));
+      const maxH = Math.max(BED_H * 0.6, (host?.clientHeight ?? 900) * 0.42 - RAIL_H - 1 - MIXER_SCROLL_H);
+      // o tamanho dos faders depende só da altura da mesa, nunca da quantidade de canais: com mais
+      // multigrupos o tamanho fica igual e o que não couber na largura rola para os lados
+      // no máximo do tamanho da mesa da timeline (escala 1), para a playlist continuar com espaço no palco
+      const scale = Math.max(0.55, Math.min(1, maxH / BED_H));
       const next = { scale: Math.floor(scale * 1000) / 1000, w };
       if (!lastFitBox || lastFitBox.scale !== next.scale || lastFitBox.w !== next.w) lastFitBox = next;
       setFitBox((prev) => (prev && prev.scale === next.scale && prev.w === next.w ? prev : next));
@@ -815,7 +822,7 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
     <div
       ref={faceRef}
       className="console-face console-screws flex flex-col shrink-0 border-t border-black overflow-hidden"
-      style={fitBox ? { height: `${RAIL_H + 1 + Math.ceil(BED_H * fitBox.scale)}px` } : { height: '300px', maxHeight: '60%' }}
+      style={fitBox ? { height: `${RAIL_H + 1 + MIXER_SCROLL_H + Math.ceil(BED_H * fitBox.scale)}px` } : { height: '300px', maxHeight: '60%' }}
     >
       {/* Trilho de cima */}
       <div
@@ -832,12 +839,15 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
       </div>
 
       {/* Canais */}
-      <div className={`console-bed flex-1 flex ${fitBox ? 'overflow-hidden' : 'overflow-x-auto overflow-y-hidden logic-scroll'} min-h-0`}>
+      {/* A marca (esquerda) e os VUs (direita) ficam sempre inteiros; com muitos canais só a fileira do
+          meio rola para os lados, na timeline e no Modo Show. */}
+      <div className="console-bed flex-1 flex overflow-hidden min-h-0">
         {/* sobra à esquerda: painel do aparelho, a lateral de metal colada nos canais e a placa da marca */}
-        <div className="vs-bed-side is-left flex-1 min-w-0 flex items-center justify-center">
+        <div ref={leftSideRef} className={`vs-bed-side is-left ${fit ? 'hidden' : `flex-1 ${skin === 'analogica' ? 'min-w-[168px]' : 'min-w-0'} flex`} items-center justify-center`}>
           {skin === 'analogica' && <BrandPlate />}
         </div>
-        {/* no Modo Show os canais ficam no tamanho natural e são escalados para caber certinho */}
+        <div className="vs-mixer-scroll flex min-w-0 shrink overflow-x-auto overflow-y-hidden">
+        {/* no Modo Show os canais ficam no tamanho natural e são escalados (até 80%) para caber */}
         <div className="shrink-0" style={fitBox ? { width: fitBox.w * fitBox.scale, height: BED_H * fitBox.scale } : { display: 'contents' }}>
         <div
           ref={channelsRef}
@@ -1087,8 +1097,9 @@ function MixerPanel({ fit = false }: { fit?: boolean } = {}) {
           )}
         </div>
         </div>
+        </div>
         {/* sobra à direita: na skin padrão, os VUs de ponteiro do master e o relógio (só com espaço) */}
-        <div className="vs-bed-side is-right flex-1 min-w-0 flex items-center justify-center">
+        <div ref={rightSideRef} className={`vs-bed-side is-right ${fit ? 'hidden' : `flex-1 ${skin === 'analogica' ? 'min-w-[180px]' : 'min-w-0'} flex`} items-center justify-center`}>
           {skin === 'analogica' && <MasterVuPanel />}
         </div>
       </div>

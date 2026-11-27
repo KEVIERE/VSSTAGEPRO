@@ -1370,10 +1370,10 @@ export function mapOffShare(song: Pick<Song, 'bpm' | 'beatsPerBar' | 'tempoSegme
   return errors.filter((d) => d > tol).length / hits.length;
 }
 
-/** Mapa salvo pode ser trocado pela leitura do click? Manual e REAPER nunca, nem o que a pessoa já recusou. */
+/** Mapa salvo pode ser trocado pela leitura do click? Manual, REAPER e MIDI nunca, nem o que a pessoa já recusou. */
 export function canReplaceTempoMap(song: Pick<Song, 'bpmSource' | 'tempoSegments' | 'tempoMapSource' | 'tempoMapSig' | 'tempoMapKept'> & { bpm?: number }): boolean {
   const source = song.tempoMapSource;
-  if (source === 'manual' || source === 'reaper') return false;
+  if (source === 'manual' || source === 'reaper' || source === 'midi') return false;
   // BPM digitado, marcado na régua ou vindo do REAPER (é o que os projetos antigos registram)
   if (song.bpmSource === 'manual') return false;
   if (song.tempoMapKept && song.bpm !== undefined && song.tempoMapKept === tempoKeepKey({ bpm: song.bpm, tempoSegments: song.tempoSegments })) return false;

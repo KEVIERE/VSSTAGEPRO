@@ -4,7 +4,7 @@
 // de roteamento, só quando o nome do arquivo não identificou o instrumento (ver
 // src/lib/aiRouter.ts e src/lib/importManager.ts). Roda fora da thread da tela.
 import * as tf from '@tensorflow/tfjs';
-import { YAMNET_MODEL_URL, YAMNET_SAMPLE_RATE, YAMNET_CLASS_NAMES, routeByYamnetScores } from '@/lib/yamnetCategories';
+import { YAMNET_MODEL_URL, YAMNET_SAMPLE_RATE, YAMNET_CLASS_NAMES, routeByYamnetScores, secondYamnetRoute } from '@/lib/yamnetCategories';
 import type { RoutingTarget } from '@/types';
 
 export interface WorkerRequest {
@@ -21,6 +21,10 @@ export interface WorkerResponse {
   yamnetClass: string;
   /** Os sons mais prováveis, para conferir o que a IA ouviu ("Singing 41%, Music 30%") */
   top?: string;
+  /** 2º palpite em outra faixa, para a conferência das faixas (não muda a decisão) */
+  second?: { targetTrackId: RoutingTarget; childName: string; confidence: number } | null;
+  /** Média do embedding do YAMNet no trecho (1024 números), para o motor de escuta (instrumentClassifier) */
+  embedding?: Float32Array;
   error?: string;
 }
 
@@ -69,6 +73,10 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
 
     // scoresTensor: [num_frames, 521] — média entre os frames dá o som predominante do clipe inteiro.
     const meanScores = scoresTensor.mean(0) as tf.Tensor1D;
+    // impressão digital do trecho para o motor de escuta: sai do mesmo cálculo, sem custo extra
+    const meanEmbedding = embeddingsTensor.mean(0) as tf.Tensor1D;
+    const embedding = new Float32Array(await meanEmbedding.data());
+    meanEmbedding.dispose();
     const top = await tf.topk(meanScores, 12, true);
     const topIndices = await top.indices.array() as number[];
     const topValues = await top.values.array() as number[];
@@ -87,14 +95,17 @@ self.addEventListener('message', async (e: MessageEvent<WorkerRequest>) => {
     }));
 
     const route = routeByYamnetScores(ranked);
+    const second = secondYamnetRoute(ranked, route);
     self.postMessage({
       clipId,
       targetTrackId: route?.target ?? null,
       childName: route?.childName ?? null,
       confidence: route?.confidence ?? 0,
       yamnetClass: route?.yamnetClass ?? ranked[0]?.className ?? '',
+      second: second ? { targetTrackId: second.target, childName: second.childName, confidence: second.confidence } : null,
       top: ranked.slice(0, 5).map((r) => `${r.className} ${Math.round(r.probability * 100)}%`).join(', '),
-    } as WorkerResponse);
+      embedding,
+    } as WorkerResponse, [embedding.buffer]);
   } catch (err) {
     self.postMessage({
       clipId,

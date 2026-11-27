@@ -1,7 +1,8 @@
 import TrackContextMenu from '@/components/TrackContextMenu';
-import { useStore, ROUTABLE_TRACKS } from '@/store';
+import { openUserGroupDialog } from '@/lib/userGroupDialog';
+import { useStore, routableTrackIds } from '@/store';
 import type { Track, AudioClip, ImportProgress, FadeCurve } from '@/types';
-import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered, Combine } from 'lucide-react';
+import { Check, ChevronRight, ChevronDown, ZoomIn, ZoomOut, Plus, GripVertical, Loader2, FoldVertical, UnfoldVertical, Scissors, Link2, Mic, ArrowLeftRight, Sparkles, X, ListOrdered, Combine, FolderPlus } from 'lucide-react';
 import { runConsolidateMaestroIa } from '@/lib/maestroConsolidate';
 import SaveCancelButton from '@/components/SaveCancelButton';
 import AiRouteSuggestion from '@/components/AiRouteSuggestion';
@@ -53,6 +54,7 @@ import { trackOrderOnScreen, trackPickMode } from '@/lib/trackSelection';
 import { esChannelOrder, esTrackColor, shade } from '@/components/EstudioPieces';
 import { OfTrackLabel, ofTrackColor } from '@/components/OficinaPieces';
 import { AnEdgeMeter, AnVolumeKnob } from '@/components/AnalogPieces';
+import { shortcutLabel, useCommand, useShortcutLabel } from '@/lib/shortcuts/runtime';
 
 /**
  * A coluna dos nomes das faixas e a régua de cima seguem a rolagem da timeline pelo próprio
@@ -397,7 +399,7 @@ const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded 
   const estudio = rowSkin === 'estudio';
   const oficina = rowSkin === 'oficina';
   const analogica = rowSkin === 'analogica';
-  const esOrder = useStore((s) => (estudio || oficina ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, track.id) : -1));
+  const esOrder = useStore((s) => (estudio || oficina ? esChannelOrder(s.tracks, routableTrackIds(s.tracks), track.id) : -1));
   const rowColor = estudio ? esTrackColor(groupColor ?? track.color, esOrder)
     : oficina ? ofTrackColor(groupColor ?? track.color, esOrder) : shownTrackColor(track.color);
 
@@ -594,12 +596,18 @@ const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded 
     <div
       data-selectable="track"
       data-track-row={track.id}
-      className={`console-row group relative flex items-center gap-1 pl-2 ${analogica ? 'pr-[12px]' : 'pr-1.5'} cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''}`}
+      className={`console-row group relative flex items-center gap-1 pl-2 ${analogica ? 'pr-[12px]' : 'pr-1.5'} cursor-pointer overflow-hidden ${isSelected ? 'is-selected' : ''} ${dragging ? 'opacity-40' : ''}`}
       style={{ height: `${trackHeight}px`, '--ch': rowColor } as React.CSSProperties}
       onClick={onPick}
+      onPointerDown={(e) => {
+        // pega pelo nome (fita crepe) ou pelo fundo da linha: fader, knob e teclas continuam como antes
+        const el = e.target as HTMLElement;
+        if (el !== e.currentTarget && !el.closest('[data-reorder-grip]')) return;
+        onReorderStart?.(e, track.id);
+      }}
       onDoubleClick={(e) => { if (isFolder) { e.stopPropagation(); onToggle?.(); } }}
       onContextMenu={onRowContextMenu}
-      title={rowTitle}
+      title={onReorderStart ? `${rowTitle}. Arraste pelo nome para cima ou para baixo para mudar a ordem.` : rowTitle}
     >
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="top" />}
       {!isFolder && <TrackHeightHandle trackId={track.id} edge="bottom" />}
@@ -621,17 +629,17 @@ const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded 
           {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
         </button>
       ) : (
-        <span className="w-4 shrink-0" />
+        <span data-reorder-grip className="w-4 shrink-0" />
       )}
 
-      {/* Nome na fita crepe, como no mixer */}
+      {/* Nome na fita crepe, como no mixer (também é a alça de arrastar a faixa) */}
       {oficina ? (
         // Oficina: ícone do instrumento na cor da faixa, o nome escrito normal e a contagem da pasta
-        <div className={`console-tape of-track-label flex-1 min-w-0 flex items-center gap-1.5 ${compact ? 'h-4' : 'h-[22px]'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
+        <div data-reorder-grip className={`console-tape of-track-label flex-1 min-w-0 flex items-center gap-1.5 ${onReorderStart ? 'cursor-grab active:cursor-grabbing' : ''} ${compact ? 'h-4' : 'h-[22px]'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
           <OfTrackLabel name={track.name} color={rowColor} compact={compact} />
         </div>
       ) : (
-      <div className={`console-tape console-lcdname flex-1 min-w-0 flex items-center gap-1 px-1.5 ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
+      <div data-reorder-grip className={`console-tape console-lcdname flex-1 min-w-0 flex items-center gap-1 px-1.5 ${onReorderStart ? 'cursor-grab active:cursor-grabbing' : ''} ${compact ? 'h-4' : 'h-5'}`} style={{ '--ch': rowColor } as React.CSSProperties}>
         <span className="truncate uppercase">{track.name}</span>
       </div>
       )}
@@ -700,8 +708,42 @@ const TrackRow = memo(function TrackRow({ track: trackProp, depth = 0, expanded 
 
 // memo, com o abrir e fechar estável: antes o toggle nascia a cada render do painel e a pasta, as
 // trilhas de dentro e as linhas delas redesenhavam junto com qualquer coisa da timeline.
-const FolderGroup = memo(function FolderGroup({ track, expanded = true, onToggleFolder, onContextMenu }: {
+/** Menu do espaço vazio da coluna das faixas: só "Novo multigrupo...". */
+function NewUserGroupMenu({ x, y, onClose }: { x: number; y: number; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const down = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); onClose(); } };
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('mousedown', down); document.removeEventListener('keydown', key); };
+  }, [onClose]);
+  return (
+    <div
+      ref={ref}
+      className="fixed z-[200] min-w-[12rem] py-1 rounded-md bg-logic-bg-panel/95 backdrop-blur-sm border border-logic-border-light shadow-2xl text-xs font-stage"
+      style={{ left: Math.min(x, window.innerWidth - 200), top: Math.min(y, window.innerHeight - 60) }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      <button
+        type="button"
+        autoFocus
+        className="w-full px-3 py-2 text-left hover:bg-white/10 flex items-center gap-2 text-white/90 hover:text-white transition"
+        title="Uma pasta nova neste projeto (Metais, Orquestra, Backs...), com canal no mixer"
+        onClick={() => { onClose(); openUserGroupDialog({ mode: 'create' }); }}
+      >
+        <FolderPlus size={13} className="text-logic-lcd-amber" />
+        <span>Novo multigrupo...</span>
+      </button>
+    </div>
+  );
+}
+
+const FolderGroup = memo(function FolderGroup({ track, expanded = true, onToggleFolder, onContextMenu, onTopReorderStart, topDragging }: {
   track: Track;
+  /** Arrastar a pasta inteira para cima ou para baixo (pela faixa mãe) */
+  onTopReorderStart?: (e: React.PointerEvent<HTMLDivElement>, trackId: string) => void;
+  topDragging?: boolean;
   expanded?: boolean;
   /** Abre ou fecha a pasta pelo id (a mesma função para todas as pastas). */
   onToggleFolder?: (folderId: string) => void;
@@ -756,7 +798,7 @@ const FolderGroup = memo(function FolderGroup({ track, expanded = true, onToggle
 
   return (
     <>
-      <TrackRow track={track} depth={0} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} />
+      <TrackRow track={track} depth={0} expanded={expanded} onToggle={onToggle} onContextMenu={onContextMenu} onReorderStart={onTopReorderStart} dragging={topDragging} />
       {expanded && track.children.length > 0 && (
         <div ref={listRef} className="relative">
           {track.children.map((childId, i) => (
@@ -1183,10 +1225,11 @@ function clipColorTable(tracks: Track[], skin: 'estudio' | 'oficina' | 'padrao')
   let table = bySkin.get(skin);
   if (table) return table;
   table = new Map();
+  const routable = routableTrackIds(tracks);
   for (const t of tracks) {
     table.set(t.id, skin === 'padrao'
       ? shownTrackColor(t.color)
-      : (skin === 'estudio' ? esTrackColor : ofTrackColor)(t.color, esChannelOrder(tracks, ROUTABLE_TRACKS, t.id)));
+      : (skin === 'estudio' ? esTrackColor : ofTrackColor)(t.color, esChannelOrder(tracks, routable, t.id)));
   }
   bySkin.set(skin, table);
   return table;
@@ -1377,7 +1420,7 @@ const ClipBlock = memo(function ClipBlock({ clip, isSelected, onTrimStart, onMov
         {clip.groupId && (
           <div
             className="absolute top-0.5 right-6 px-1.5 py-0.5 rounded bg-logic-accent/90 text-[9px] font-bold text-white tracking-wider flex items-center gap-0.5 z-10 pointer-events-none shadow"
-            title="Áudio agrupado (Cmd+G para agrupar, Cmd+U para desagrupar)"
+            title={`Áudio agrupado (${shortcutLabel('edit.group') || 'Agrupar'} para agrupar, ${shortcutLabel('edit.ungroup') || 'Desagrupar'} para desagrupar)`}
           >
             <Link2 size={8} />
             <span>GRP</span>
@@ -1436,7 +1479,7 @@ function FolderPreviewBlock({ folder, songId, preview, count, height, zoomH, vis
   // Estúdio e Oficina: o multigrupo recolhido fica na cor da faixa, pintado como os clipes dela
   const skin = useSkin();
   const filled = skin === 'estudio' || skin === 'oficina';
-  const order = useStore((s) => (filled ? esChannelOrder(s.tracks, ROUTABLE_TRACKS, folder.id) : -1));
+  const order = useStore((s) => (filled ? esChannelOrder(s.tracks, routableTrackIds(s.tracks), folder.id) : -1));
   const color = skin === 'estudio' ? esTrackColor(folder.color, order) : skin === 'oficina' ? ofTrackColor(folder.color, order) : shownTrackColor(folder.color);
   // quem monta segue o zoom de verdade; a posição vai pela variável do zoom (acompanha o zoom ao vivo)
   const left = preview.start * zoomH;
@@ -1968,6 +2011,8 @@ function TimelinePanel() {
   // Só a estrutura: fader, pan e LED de clip não redesenham a timeline inteira (ver useLayoutTracks)
   const tracks = useLayoutTracks();
   const [trackContextMenu, setTrackContextMenu] = useState<{ track: Track; x: number; y: number } | null>(null);
+  // botão direito no espaço vazio da coluna das faixas: "Novo multigrupo..."
+  const [emptyHeaderMenu, setEmptyHeaderMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleOpenTrackMenu = useCallback((e: React.MouseEvent, tr: Track) => {
     e.preventDefault();
@@ -2008,6 +2053,50 @@ function TimelinePanel() {
   const headerScrollRef = useRef<HTMLDivElement>(null);
   const trackHeadersRef = useRef<HTMLDivElement>(null);
   const timelinePanelRef = useRef<HTMLDivElement>(null);
+  // Arrastar as faixas de topo (pastas e canais) para cima ou para baixo: a faixa pega, a posição
+  // onde ela vai entrar e a altura da linha âmbar. Igual às trilhas de dentro da pasta.
+  const topListRef = useRef<HTMLDivElement>(null);
+  const [topDrag, setTopDrag] = useState<{ id: string; slot: number; y: number } | null>(null);
+  const reorderTopTrack = useStore((s) => s.reorderTopTrack);
+  const startTopReorder = useCallback((e: React.PointerEvent<HTMLDivElement>, trackId: string) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    if ((e.target as HTMLElement).closest('button, input, select, textarea')) return;
+    const list = topListRef.current;
+    if (!list) return;
+    const startY = e.clientY;
+    let active = false;
+    let slot = -1;
+    const blocks = () => [...list.querySelectorAll<HTMLElement>(':scope > [data-top-row]')];
+    const move = (ev: PointerEvent) => {
+      if (!active && Math.abs(ev.clientY - startY) < 5) return;
+      active = true;
+      ev.preventDefault();
+      const els = blocks();
+      const rows = els.map((r) => {
+        const b = r.getBoundingClientRect();
+        return { top: b.top, height: b.height };
+      });
+      if (rows.length === 0) return;
+      slot = dropSlot(rows, ev.clientY);
+      const top = list.getBoundingClientRect().top;
+      const last = rows[rows.length - 1];
+      const y = slot < rows.length ? rows[slot].top - top : last.top + last.height - top;
+      // soltar onde ela já está não muda nada: não mostra a linha
+      const ids = els.map((r) => r.dataset.topRow ?? '');
+      const changes = reorderChildren(ids, trackId, slot) !== ids;
+      setTopDrag({ id: trackId, slot: changes ? slot : -1, y });
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      setTopDrag(null);
+      if (active && slot >= 0) reorderTopTrack(trackId, slot);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }, [reorderTopTrack]);
   const [editingRegionId, setEditingRegionId] = useState<string | null>(null);
   // Editor da marcação de fala do Maestro por IA (texto, voz e ritmo)
   const [readingNarrationId, setReadingNarrationId] = useState<string | null>(null);
@@ -2121,7 +2210,7 @@ function TimelinePanel() {
     const result: Track[] = [];
     const tc = tracks.find((t) => t.id === TIMECODE_TRACK_ID);
     if (tc) result.push(tc);
-    for (const id of ROUTABLE_TRACKS) {
+    for (const id of routableTrackIds(tracks)) {
       const track = tracks.find((t) => t.id === id);
       if (!track) continue;
       result.push(track);
@@ -2201,57 +2290,26 @@ function TimelinePanel() {
     if (song) audioEngine.invalidatePrepared(song.id);
   }, [timelineLocked, removeClips, removeNarration, song]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
-
-      const ctrl = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
-
-      // Tecla Delete ou Backspace exclui clipes selecionados (falas do Maestro IA inclusive).
-      // O atalho geral do App também escuta o Delete: quem chegar primeiro apaga e o outro não
-      // faz nada (senão o segundo apagava de novo, ou o primeiro tirava só o áudio da fala).
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (e.defaultPrevented) return;
-        if (useStore.getState().selectedClipIds.length > 0 && !timelineLocked) {
-          e.preventDefault();
-          handleDeleteSelectedClips();
-          return;
-        }
-      }
-
-      // Atalho S (Split): corta o áudio no meio/cursor
-      if ((!ctrl && key === 's') || (ctrl && key === 't')) {
-        e.preventDefault();
-        handleSplitAtCursor();
-        return;
-      }
-
-      if (!ctrl) return;
-
-      if (key === 'a') {
-        e.preventDefault();
-        selectAllSongClips();
-      } else if (key === 'g') {
-        e.preventDefault();
-        if (e.shiftKey) {
-          // Atalho ⌘+Shift+G (ou Ctrl+Shift+G): Emendar / Unir clipes de áudio (Glue). Falas do
-          // Maestro IA emendadas viram um áudio comum, num passo só do desfazer.
-          void glueSelectedClips();
-        } else if (selectedClipIds.length >= 2) {
-          groupClips(selectedClipIds);
-        }
-      } else if (key === 'u') {
-        e.preventDefault();
-        if (selectedClipIds.length > 0) {
-          ungroupClips(selectedClipIds);
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectAllSongClips, selectedClipIds, groupClips, ungroupClips, handleSplitAtCursor, handleDeleteSelectedClips, timelineLocked]);
+  // Atalhos da timeline (tratador único em src/lib/shortcuts; a tecla é a que o usuário escolheu).
+  // Delete/Backspace: esta ação vem antes da reserva do App (prioridade 1), e a régua das falas
+  // do Maestro IA vem antes das duas; quem apaga primeiro fica com a tecla e as outras não rodam.
+  useCommand('edit.deleteClips', () => {
+    if (useStore.getState().selectedClipIds.length === 0 || timelineLocked) return false;
+    handleDeleteSelectedClips();
+  }, { priority: 1 });
+  // Split: corta o áudio no cursor
+  useCommand('edit.split', () => { handleSplitAtCursor(); });
+  useCommand('edit.selectAllClips', () => { selectAllSongClips(); });
+  useCommand('edit.group', () => {
+    const ids = useStore.getState().selectedClipIds;
+    if (ids.length >= 2) groupClips(ids);
+  });
+  // Emendar / Unir clipes (Glue). Falas do Maestro IA emendadas viram um áudio comum, num passo só do desfazer.
+  useCommand('edit.glue', () => { void glueSelectedClips(); });
+  useCommand('edit.ungroup', () => {
+    const ids = useStore.getState().selectedClipIds;
+    if (ids.length > 0) ungroupClips(ids);
+  });
 
   const handleTrimStart = (e: React.PointerEvent<HTMLDivElement>, clip: AudioClip, side: "start" | "end" = "end") => {
     if (timelineLocked || e.button !== 0) return;
@@ -3240,6 +3298,15 @@ function TimelinePanel() {
   const openCountAtCursor = useCallback(() => {
     if (songIdNow) setCountTarget({ kind: 'new', start: cursorTime(songIdNow) ?? 0 });
   }, [songIdNow]);
+  const splitKey = useShortcutLabel('edit.split');
+  // Botões da timeline que também ganham atalho (sem tecla padrão: o usuário escolhe)
+  useCommand('timeline.cutMedley', () => { if (!song || timelineLocked) return false; handleCutMedleyAtCursor(); });
+  useCommand('timeline.addRegion', () => { if (!song || timelineLocked) return false; handleAddRegionAtCursor(); });
+  useCommand('timeline.zoomInH', () => { zoomButton(1.35); });
+  useCommand('timeline.zoomOutH', () => { zoomButton(0.75); });
+  useCommand('timeline.zoomFit', () => { if (!song) return false; handleFitSongToScreen(); });
+  useCommand('maestro.newCue', () => { if (!song) return false; addNarrationAtCursor(); });
+  useCommand('maestro.countIn', () => { if (!songIdNow) return false; openCountAtCursor(); });
   const editTempoAt = useCallback(({ time, bpm, x, y }: { time: number; bpm: number; x: number; y: number }) => {
     // a mudança fica exatamente no início do trecho com esse andamento
     const seg = grid?.tempoSegments?.reduce((best, sg) => (Math.abs(sg.startTime - time) < Math.abs(best.startTime - time) ? sg : best));
@@ -3272,7 +3339,7 @@ function TimelinePanel() {
                 className="console-key flex-1 h-full flex items-center justify-center gap-1 px-1 text-[12px] disabled:pointer-events-none"
                 onClick={handleSplitAtCursor}
                 disabled={!song || timelineLocked}
-                title="Dividir áudios selecionados no cursor (Split - atalho S). Com a música parada ou em pausa."
+                title={`Dividir áudios selecionados no cursor (Split${splitKey ? ` - atalho ${splitKey}` : ''}). Com a música parada ou em pausa.`}
               >
                 <Scissors size={11} className="shrink-0" />
                 <span className="leading-none">Dividir</span>
@@ -3395,6 +3462,12 @@ function TimelinePanel() {
             {/* Coluna da esquerda (Tracks): LARGURA FIXA, 100% IMÓVEL HORIZONTALMENTE */}
             <div
               ref={trackHeadersRef}
+              onContextMenu={(e) => {
+                // as linhas das faixas abrem o menu delas (e param o clique aqui)
+                if (e.defaultPrevented) return;
+                e.preventDefault();
+                setEmptyHeaderMenu({ x: e.clientX, y: e.clientY });
+              }}
               className={`bg-[#1e1e24] border-r border-logic-border-dark shrink-0 overflow-x-hidden ${FOLLOW_SCROLL_CSS ? 'overflow-y-hidden' : 'overflow-y-auto'} no-scrollbar select-none relative z-20 shadow-[4px_0_16px_rgba(0,0,0,0.6)]`}
               style={{ width: `${HEADER_W}px` }}
             >
@@ -3402,30 +3475,47 @@ function TimelinePanel() {
               {/* A primeira linha é a de timecode, alinhada com a primeira linha de áudios à direita.
                   A MedleyLane e a RegionLane ficam no cabeçalho fixo de cima, não aqui. */}
               <TimecodeTrackRow songId={song.id} />
-              {ROUTABLE_TRACKS.map((id) => {
+              {/* Faixas de topo: arrastar a faixa mãe pelo nome muda a ordem (pasta vai com as de dentro) */}
+              <div ref={topListRef} className="relative">
+              {routableTrackIds(tracks).map((id) => {
                 const track = tracks.find((t) => t.id === id);
                 if (!track) return null;
+                const dragging = topDrag?.id === track.id;
                 if (track.isSubgroup) {
                   return (
-                    <FolderGroup
-                      key={track.id}
-                      track={track}
-                      expanded={!collapsedFolders.has(track.id)}
-                      onToggleFolder={toggleFolder}
-                      onContextMenu={handleOpenTrackMenu}
-                    />
+                    <div key={track.id} data-top-row={track.id}>
+                      <FolderGroup
+                        track={track}
+                        expanded={!collapsedFolders.has(track.id)}
+                        onToggleFolder={toggleFolder}
+                        onContextMenu={handleOpenTrackMenu}
+                        onTopReorderStart={startTopReorder}
+                        topDragging={dragging}
+                      />
+                    </div>
                   );
                 }
                 if (track.id === 'track-maestro') {
                   return (
-                    <div key={track.id}>
-                      <TrackRow track={track} depth={0} onContextMenu={handleOpenTrackMenu} />
+                    <div key={track.id} data-top-row={track.id}>
+                      <TrackRow track={track} depth={0} onContextMenu={handleOpenTrackMenu} onReorderStart={startTopReorder} dragging={dragging} />
                       <MaestroIaHeader songId={song.id} onAdd={addNarrationAtCursor} onCount={openCountAtCursor} />
                     </div>
                   );
                 }
-                return <TrackRow key={track.id} track={track} depth={0} onContextMenu={handleOpenTrackMenu} />;
+                return (
+                  <div key={track.id} data-top-row={track.id}>
+                    <TrackRow track={track} depth={0} onContextMenu={handleOpenTrackMenu} onReorderStart={startTopReorder} dragging={dragging} />
+                  </div>
+                );
               })}
+              {topDrag && topDrag.slot >= 0 && (
+                <div
+                  className="absolute left-1 right-1 h-[2px] -translate-y-1/2 rounded-full z-40 pointer-events-none bg-[#ffab1f] shadow-[0_0_6px_rgba(255,171,31,0.8)]"
+                  style={{ top: `${topDrag.y}px` }}
+                />
+              )}
+              </div>
               </div>
               <div
                 className="absolute top-0 right-0 bottom-0 w-1.5 -mr-0.5 z-50 cursor-col-resize group/widthHandle"
@@ -3598,6 +3688,8 @@ function TimelinePanel() {
           </div>
         </div>
       )}
+
+      {emptyHeaderMenu && <NewUserGroupMenu x={emptyHeaderMenu.x} y={emptyHeaderMenu.y} onClose={() => setEmptyHeaderMenu(null)} />}
 
       {trackContextMenu && (
         <TrackContextMenu

@@ -681,6 +681,16 @@
            hover:bg-logic-bg-panel-light transition-colors duration-75 cursor-pointer;
   }
 
+  /* barra de rolar da mesa de som: larga e visível quando os canais não cabem na largura */
+  .vs-mixer-scroll::-webkit-scrollbar { height: 12px; }
+  .vs-mixer-scroll::-webkit-scrollbar-track { background: #0b0c0f; border-top: 1px solid rgba(0, 0, 0, 0.8); }
+  .vs-mixer-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #5b5e66, #3a3c42);
+    border: 2px solid #0b0c0f;
+    border-radius: 6px;
+  }
+  .vs-mixer-scroll::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #7a7e88, #4a4d55); }
+
   .logic-scroll::-webkit-scrollbar {
     width: 6px;
     height: 6px;

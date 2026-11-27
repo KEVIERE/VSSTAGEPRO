@@ -195,6 +195,10 @@ declare global {
       onManualUpdateCheck?: (cb: () => void) => () => void;
       /** Menu Visualizar → Modo Show (⌘M) do app do Mac */
       onMenuShowMode?: (cb: () => void) => () => void;
+      /** Atalhos do usuário para os itens do menu do Mac/Windows (id do comando → accelerator). */
+      setMenuShortcuts?: (map: Record<string, string>) => void;
+      /** Item do menu do Mac/Windows que chama um comando da lista de atalhos. */
+      onMenuCommand?: (cb: (id: string) => void) => () => void;
       hasLocalDemucs?: () => Promise<boolean>;
       /** Vozes do Maestro por IA instaladas no Mac. */
       maestroVoices?: () => Promise<Array<{ id: string; name: string; gender: string; locale: string; engine?: 'qwen' | 'mac'; clone?: boolean; modes?: CloneMode[] }>>;
@@ -332,6 +336,11 @@ declare global {
       licenseCacheClear?: () => Promise<void>;
       /** quem é este Mac (um Mac por vez em cada conta) */
       deviceInfo?: () => Promise<{ id: string; name: string }>;
+      /** Entrar com o Google: abre o retorno local e diz o endereço (ou o erro de porta ocupada). */
+      googleAuthPrepare?: () => Promise<{ redirectTo?: string; error?: string }>;
+      /** Abre o Google no navegador padrão e espera o retorno. */
+      googleAuthWait?: (authUrl: string) => Promise<{ status: 'ok' | 'error' | 'cancelled' | 'timeout'; code?: string; error?: string; description?: string }>;
+      googleAuthCancel?: () => Promise<void>;
     };
     __VS_LOCAL__?: number;
     __VS_HOST__?: string;

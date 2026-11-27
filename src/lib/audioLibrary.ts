@@ -20,6 +20,8 @@ interface ClipEntry {
   source: Blob | null;
   buffer: ClipAudio | null;
   failure: LoadFailure | null;
+  /** Quando o áudio entrou sem o clipe estar na timeline ainda (null depois que ele aparece lá). */
+  pendingSince: number | null;
 }
 
 export function toClipAudio(buffer: AudioBuffer): ClipAudio {
@@ -182,7 +184,7 @@ function trimToBudget() {
 function entryFor(clipId: string, songId: string): ClipEntry {
   let e = entries.get(clipId);
   if (!e) {
-    e = { songId, source: null, buffer: null, failure: null };
+    e = { songId, source: null, buffer: null, failure: null, pendingSince: Date.now() };
     entries.set(clipId, e);
   }
   e.songId = songId;
@@ -279,10 +281,24 @@ export function hasPermanentFailure(songId: string): boolean {
   return false;
 }
 
+/**
+ * Quanto tempo o áudio de um clipe que ainda está sendo montado (click gerado, stem, gravação) fica
+ * guardado sem o clipe estar na timeline. Quem monta registra o áudio antes de pôr o clipe na
+ * store, com esperas no meio (toClipAudioAsync, o click de cada parte do medley): a limpeza que
+ * rodasse nesse meio apagava o áudio, e o clipe entrava na timeline sem som nenhum para sempre.
+ */
+export const PENDING_CLIP_GRACE_MS = 5 * 60_000;
+
 /** Solta o áudio aberto de faixas removidas; esquece o arquivo só quando nem o Desfazer pode trazê-las de volta. */
-export function pruneAudioLibrary(liveClipIds: Set<string>, historyClipIds: Set<string>) {
+export function pruneAudioLibrary(liveClipIds: Set<string>, historyClipIds: Set<string>, now = Date.now()) {
   for (const [id, e] of entries) {
-    if (liveClipIds.has(id) || loading.has(e.songId)) continue;
+    if (liveClipIds.has(id)) {
+      e.pendingSince = null;
+      continue;
+    }
+    if (loading.has(e.songId)) continue;
+    // ainda sendo montado: o clipe vai entrar na timeline logo
+    if (e.pendingSince !== null && now - e.pendingSince < PENDING_CLIP_GRACE_MS) continue;
     if (historyClipIds.has(id)) e.buffer = null;
     else entries.delete(id);
   }

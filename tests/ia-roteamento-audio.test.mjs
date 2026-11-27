@@ -80,7 +80,7 @@ test('nomes abreviados dos VS', () => {
 
 test('importação ouve os áudios sem nome antes de criar as faixas', () => {
   const src = readFileSync(new URL('../src/lib/importManager.ts', import.meta.url), 'utf8');
-  assert.match(src, /classifyClipAudio\(entry\.audio/);
+  assert.match(src, /classifyClipAudio(Detailed)?\(entry\.audio/);
   assert.match(src, /routingMethod = 'ai'/);
   const ai = readFileSync(new URL('../src/lib/aiRouter.ts', import.meta.url), 'utf8');
   assert.match(ai, /ensureSongLoaded\(clip\.songId\)/, 'reclassificar carrega o áudio da música');

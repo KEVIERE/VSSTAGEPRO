@@ -150,7 +150,7 @@ test('Estúdio: peças próprias no mixer, timecode, timeline, clipes e pads', a
   const tl = read('src', 'components', 'TimelinePanel.tsx');
   assert.match(tl, /color=\{filled && !isMuted \? shade\(routingColor, oficina \? 0\.7 : 0\.62\) : routingColor\}/, 'onda escura no clipe colorido');
   assert.match(tl, /color-mix\(in srgb, \$\{routingColor\} \$\{isSelected \? 82 : 66\}%, #2a2b2e\)/, 'Oficina: clipe na cor, em tom médio');
-  assert.match(tl, /\(skin === 'estudio' \? esTrackColor : ofTrackColor\)\(t\.color, esChannelOrder\(tracks, ROUTABLE_TRACKS, t\.id\)\)/, 'clipe na mesma cor do canal');
+  assert.match(tl, /\(skin === 'estudio' \? esTrackColor : ofTrackColor\)\(t\.color, esChannelOrder\(tracks, routable, t\.id\)\)/, 'clipe na mesma cor do canal');
   assert.match(mixer, /const color = esTrackColor\(track\.color, index\);/);
   assert.match(mixer, /\{skin === 'estudio' && <EsRowLabels \/>\}/, 'nomes das linhas na lateral do mixer');
   assert.match(read('src', 'components', 'SamplePadPanel.tsx'), /<EsKnob value=\{pct \* 2 - 1\} bipolar=\{false\}/);

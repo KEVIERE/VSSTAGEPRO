@@ -1,3 +1,4 @@
+import { shortcutLabel } from '@/lib/shortcuts/runtime';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Magnet, RefreshCw, Loader2, CheckCheck, Scissors } from 'lucide-react';
@@ -543,6 +544,7 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
 }) {
   const moveTempoAt = useStore((s) => s.moveTempoAt);
   const removeTempoAt = useStore((s) => s.removeTempoAt);
+  const removeAllTempoChanges = useStore((s) => s.removeAllTempoChanges);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -566,7 +568,7 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
     <div
       ref={ref}
       className="fixed z-[300] min-w-52 py-1 bg-logic-bg-panel border border-logic-border-light shadow-2xl rounded text-xs text-logic-text"
-      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.min(y, window.innerHeight - 120) }}
+      style={{ left: Math.min(x, window.innerWidth - 230), top: Math.min(y, window.innerHeight - 160) }}
       onContextMenu={(e) => e.preventDefault()}
       // o menu fica fora da régua na tela, mas os eventos do React sobem até ela: sem isto o
       // clique num item viraria "mover o cursor" na régua
@@ -586,8 +588,17 @@ function TempoChangeMenu({ song, grid, x, y, time, onEdit, onClose }: {
         <span className="text-[10px] opacity-60 font-mono">{offMs === 0 ? 'já está' : `${offMs > 0 ? '+' : ''}${offMs} ms`}</span>
       </button>
       <div className="h-px bg-logic-border-dark my-1" />
-      <button className={`${item} text-logic-lcd-red`} onClick={() => { onClose(); removeTempoAt(song.id, time); }}>
-        <span>Excluir mudança</span>
+      <button className={`${item} text-logic-lcd-red`} onClick={() => { onClose(); removeTempoAt(song.id, time); }} title="Remove só esta mudança de andamento">
+        <span>Remover</span>
+      </button>
+      <button
+        className={`${item} text-logic-lcd-red`}
+        disabled={segs.length < 2}
+        onClick={() => { onClose(); removeAllTempoChanges(song.id); }}
+        title="Remove todas as mudanças de andamento da música; fica o BPM do começo"
+      >
+        <span>Remover todos os marcadores</span>
+        <span className="text-[10px] opacity-60 font-mono">{Math.max(0, segs.length - 1)}</span>
       </button>
     </div>,
     document.body,
@@ -837,7 +848,7 @@ export const GridToolbar = memo(function GridToolbar({ song, onSelectAll }: { so
         className="console-key flex items-center gap-1 px-2 h-[20px] text-[12px] disabled:pointer-events-none"
         onClick={onSelectAll}
         disabled={!song}
-        title="Selecionar todos os áudios da música (Ctrl/Cmd + A)"
+        title={`Selecionar todos os áudios da música${shortcutLabel('edit.selectAllClips') ? ` (${shortcutLabel('edit.selectAllClips')})` : ''}`}
       >
         <CheckCheck size={10} />
         <span className="hidden lg:inline">Selecionar todos</span>

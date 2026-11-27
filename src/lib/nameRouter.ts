@@ -1,4 +1,5 @@
-import type { RoutingTarget } from '@/types';
+import type { RoutingTarget, UserGroup } from '@/types';
+import { activeUserGroups, matchUserGroupWord, wordDisplayName } from './userGroups.ts';
 
 interface RouteResult {
   target: RoutingTarget;
@@ -12,6 +13,8 @@ interface Keyword {
   childName: string;
   weight: number;
   requiresContext?: RoutingTarget;
+  /** Só vale quando nenhuma outra regra bateu ("Key of David - Guia" continua Guia). */
+  fallback?: boolean;
 }
 
 // "SL" é solo abreviado (ACC SL = sanfona solo)
@@ -79,6 +82,10 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bmellotron/i, target: 'track-teclados', childName: 'Mellotron', weight: 10 },
   { pattern: /\bteclado/i, target: 'track-teclados', childName: 'Teclado', weight: 10 },
   { pattern: /\bsynth\b/i, target: 'track-teclados', childName: 'Synth', weight: 8 },
+  // "KEY" sozinho é teclado; "Keys" continua criando a trilha "Keys" (regra de baixo) e "KEY CHANGE" (mudança de tom) não é instrumento.
+  // Só quando nada mais bateu: "Key" também aparece em título ("Key of David - Guia", "Key Gtr")
+  { pattern: /\bkey\b(?![\s_-]*(change|chg|mod|up|down|shift)\b)/i, target: 'track-teclados', childName: 'Teclado', weight: 8, fallback: true },
+  { pattern: /\bdx[\s_-]?7\b/i, target: 'track-teclados', childName: 'Synth', weight: 9 },
   { pattern: /\bsynthesizer/i, target: 'track-teclados', childName: 'Synth', weight: 10 },
   { pattern: /\bmainstage/i, target: 'track-teclados', childName: 'Synth', weight: 9 },
   { pattern: /\bkeys\b/i, target: 'track-teclados', childName: 'Keys', weight: 7 },
@@ -185,6 +192,9 @@ const KEYWORDS: Keyword[] = [
   { pattern: /\bbx\b/i, target: 'track-contrabaixo', childName: 'Contrabaixo', weight: 5 },
   { pattern: /\bsub\b/i, target: 'track-contrabaixo', childName: 'Contrabaixo', weight: 4, requiresContext: 'track-contrabaixo' },
 
+  // "PERC" e "percuss" já têm regra mais abaixo; aqui só o plural, para não somar duas vezes ("Bateria Perc" é Bateria)
+  { pattern: /\bpercs\b/i, target: 'track-percussoes', childName: 'Percussão', weight: 9 },
+  { pattern: /\bbalde\b/i, target: 'track-percussoes', childName: 'Balde', weight: 9 },
   { pattern: /\bbong[oô]s?\b/i, target: 'track-percussoes', childName: 'Bongô', weight: 11 },
   { pattern: /\bbogos?\b/i, target: 'track-percussoes', childName: 'Bongô', weight: 10 },
   { pattern: /\bbogo\b/i, target: 'track-percussoes', childName: 'Bongô', weight: 8 },
@@ -302,7 +312,38 @@ export function cleanClipName(fileName: string): string {
   return stripExt(fileName).trim() || fileName;
 }
 
-export function routeByName(fileName: string): RouteResult | null {
+// Guia, Click e Maestro: um grupo da pessoa só tira o áudio deles quando a própria palavra do
+// grupo é de lá ("voz" num grupo Vozes) e o nome não diz Guia, Click ou Maestro com todas as
+// letras. "Lead Vocal" continua Guia com um grupo Backs ("vocal").
+const PROTECTED_TARGETS = new Set<RoutingTarget>(['track-guia', 'track-click', 'track-maestro']);
+const PROTECTED_WORDS = /(^|[^\p{L}\p{N}])(guia|guias|guide|lead|principal|click|clicks|clique|metronomo|metronome|maestro|cue|cues|contagem)(?=$|[^\p{L}\p{N}])/iu;
+
+/**
+ * Faixa pelo nome do arquivo. Os multigrupos do projeto aberto vêm primeiro: com o grupo
+ * Metais, "Trompete" vai para Metais em vez de Outros. Sem grupo da pessoa, é o de sempre.
+ * `groups` serve para os testes e para o store; sem ele, valem os do projeto aberto.
+ */
+export function routeByName(fileName: string, groups: readonly UserGroup[] = activeUserGroups()): RouteResult | null {
+  const fixed = routeByFixedName(fileName);
+  if (groups.length === 0) return fixed;
+  const hit = matchUserGroupWord(fileName, groups);
+  if (!hit) return fixed;
+  const own = routeByFixedName(hit.word);
+  if (fixed && PROTECTED_TARGETS.has(fixed.target)) {
+    if (!own || own.target !== fixed.target) return fixed;
+    if (PROTECTED_WORDS.test(stripExt(fileName).normalize('NFD').replace(/\p{M}/gu, ''))) return fixed;
+  }
+  // nome da trilha: o instrumento que o nome diz ("Trompete 2" com a palavra "metais" vira Trompete),
+  // senão o da palavra ("sax" vira Saxofone), senão a própria palavra
+  const fromName = fixed && !PROTECTED_TARGETS.has(fixed.target) && fixed.instrumentName !== 'Extra' ? fixed.instrumentName : null;
+  const fromWord = own && !PROTECTED_TARGETS.has(own.target) && own.instrumentName !== 'Extra' ? own.instrumentName : null;
+  const base = (fromName ?? fromWord ?? wordDisplayName(hit.word)).replace(/\s+Solo$/, '');
+  const instrumentName = hasSoloInName(fileName) && !/\bsolo$/i.test(base) ? `${base} Solo` : base;
+  return { target: hit.group.id, confidence: 1, instrumentName };
+}
+
+/** Só as pastas de fábrica, sem os grupos da pessoa. */
+export function routeByFixedName(fileName: string): RouteResult | null {
   const baseName = stripExt(fileName);
   const isSolo = hasSoloInName(fileName);
 
@@ -329,7 +370,7 @@ export function routeByName(fileName: string): RouteResult | null {
   };
 
   for (const kw of KEYWORDS) {
-    if (kw.requiresContext) continue;
+    if (kw.requiresContext || kw.fallback) continue;
     consider(kw);
   }
   // 2) segundo passe: aplica modificadores que exigem contexto
@@ -338,6 +379,8 @@ export function routeByName(fileName: string): RouteResult | null {
     if (!matchedTargets.has(kw.requiresContext)) continue;
     consider(kw);
   }
+  // 3) regra de reserva: só quando nada bateu
+  if (scores.size === 0) for (const kw of KEYWORDS) if (kw.fallback) consider(kw);
 
   if (scores.size === 0) return null;
 

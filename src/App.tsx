@@ -12,7 +12,7 @@ import { startInstantStartBuilder } from '@/lib/instantStart';
 import { pruneAudioLibrary, retainSongs } from '@/lib/audioLibrary';
 import { createClipUrlReleaser, isBlobUrl } from '@/lib/clipBlobUrls';
 import { computeNextSongId } from '@/lib/playFlow';
-import { togglePlayPause, stopPlayback, startPlayback, watchPlaylistForNextSong, seekToPosition } from '@/lib/transportControl';
+import { watchPlaylistForNextSong } from '@/lib/transportControl';
 import { beginGesture, endGesture } from '@/lib/undoGestures';
 import MenuBar from '@/components/MenuBar';
 import AudioDeviceDialog from '@/components/AudioDeviceDialog';
@@ -62,8 +62,13 @@ import DirectorAccess, { TrialBadge } from '@/components/DirectorAccess';
 import MissingAudioDialog from '@/components/MissingAudioDialog';
 import UnsavedChangesDialog from '@/components/UnsavedChangesDialog';
 import ImportDuplicateDialog from '@/components/ImportDuplicateDialog';
+import MidiImportDialog from '@/components/MidiImportDialog';
+import RouteReviewDialog from '@/components/RouteReviewDialog';
+import UserGroupDialog from '@/components/UserGroupDialog';
 import { confirmLeaveProject, watchUnsavedChanges } from '@/lib/unsavedChanges';
-import { copyClips, duplicateClips, pasteClips } from '@/lib/clipClipboard';
+import { installShortcuts, shortcutsDialogBusy } from '@/lib/shortcuts/runtime';
+import { registerAppCommands } from '@/lib/shortcuts/appCommands';
+import KeyCommandsDialog from '@/components/KeyCommandsDialog';
 import { trackFeature, useFeatureTracking } from '@/lib/featureUsage';
 import type { License } from '@/components/DirectorAccess';
 import LocalNetworkDialog from '@/components/network/LocalNetworkDialog';
@@ -375,6 +380,8 @@ function App() {
 // O ⌘M pode chegar pelo menu do app do Mac e pelo teclado ao mesmo tempo: um aperto troca uma vez só.
 let lastShowToggle = 0;
 function toggleShowMode() {
+  // janela de atalhos aberta (ou gravando): o ⌘M do menu do sistema não troca o Modo Show
+  if (shortcutsDialogBusy()) return;
   const now = Date.now();
   if (now - lastShowToggle < 300) return;
   lastShowToggle = now;
@@ -394,7 +401,6 @@ export function DirectorApp({ license }: { license: License }) {
   const pendingRequests = joinRequests.pending.length;
   const lyricsSync = useProjectLyricsSync(broadcast.show);
   const referenceSync = useReferenceAutoSync(broadcast.show);
-  const toggleMixer = useStore((s) => s.toggleMixer);
   // Troca do Modo Show na hora: adiar com startTransition não servia, porque tocando a store
   // muda a cada 100 ms (prioridade síncrona) e descartava a montagem adiada; só atrasava a troca.
   const playlistMaximized = useStore((s) => s.playlistMaximized);
@@ -443,119 +449,14 @@ export function DirectorApp({ license }: { license: License }) {
   useEffect(() => { if (localOpen) trackFeature('local_network'); }, [localOpen]);
   useEffect(() => { if (broadcast.onAir) trackFeature('broadcast'); }, [broadcast.onAir]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const ctrl = e.ctrlKey || e.metaKey;
-      const key = e.key.toLowerCase();
-      const temporal = useStore.temporal.getState();
-      const el = e.target as HTMLElement | null;
-      const isTextInput = !!el && (
-        el.tagName === 'TEXTAREA' ||
-        (el.tagName === 'INPUT' && !['button', 'checkbox', 'radio', 'range', 'submit'].includes((el as HTMLInputElement).type?.toLowerCase())) ||
-        el.isContentEditable
-      );
-
-      // Barra de espaço para Play/Pause tem prioridade absoluta:
-      // se o foco estiver em um botão ou select, desmarca o foco e toca a música,
-      // nunca reabrindo menus ou clicando no botão.
-      if (e.code === 'Space') {
-        if (isTextInput) return;
-        e.preventDefault();
-        el?.blur?.();
-        if (e.repeat) return;
-        if (useStore.getState().playlistMaximized) startPlayback();
-        else togglePlayPause();
-        return;
-      }
-
-      if (ctrl && key === 's') {
-        e.preventDefault();
-        if (!e.repeat) saveCurrentProject();
-        return;
-      }
-      if (isTextInput || el?.tagName === 'SELECT') return;
-
-      // Home leva o cursor ao início da música, End ao fim (sem música aberta, nada acontece)
-      if ((e.key === 'Home' || e.key === 'End') && !ctrl && !e.altKey && !e.shiftKey) {
-        const st = useStore.getState();
-        const songId = st.transport.isPlaying ? st.transport.currentSongId : (st.selectedSongId ?? st.transport.currentSongId);
-        const song = songId ? st.songs.find((sg) => sg.id === songId) : undefined;
-        if (!song) return;
-        e.preventDefault();
-        if (e.repeat) return;
-        // End com a música tocando acabava com ela na hora (e a próxima podia entrar): no show,
-        // um End sem querer não pode pular a música. Tocando, só o Home vale.
-        if (e.key === 'End' && st.transport.isPlaying) return;
-        seekToPosition(song.id, e.key === 'Home' ? 0 : Math.max(0, song.duration));
-        return;
-      }
-
-      if (ctrl && key === 'c') {
-        const count = copyClips();
-        if (count > 0) e.preventDefault();
-        return;
-      }
-      if (ctrl && key === 'v') {
-        const pasted = pasteClips();
-        if (pasted.length > 0) e.preventDefault();
-        return;
-      }
-      if (ctrl && key === 'd') {
-        const dups = duplicateClips();
-        if (dups.length > 0) e.preventDefault();
-        return;
-      }
-
-      if (ctrl && key === 'z' && !e.shiftKey) {
-        e.preventDefault();
-        temporal.undo();
-      } else if ((ctrl && key === 'z' && e.shiftKey) || (ctrl && key === 'y')) {
-        e.preventDefault();
-        temporal.redo();
-      } else if (e.key === 'Escape') {
-        // uma janela ou menu aberto por cima já tratou o Esc: fecha só ele, não sai do Modo Show
-        if (e.defaultPrevented) return;
-        e.preventDefault();
-        const st = useStore.getState();
-        if (st.playlistMaximized) st.togglePlaylistMaximized();
-        else stopPlayback();
-      } else if (ctrl && key === 'm' && !e.shiftKey && !e.altKey) {
-        // ⌘M abre e fecha o Modo Show (no Mac, Minimizar passou para ⌥⌘M)
-        e.preventDefault();
-        if (!e.repeat) toggleShowMode();
-      } else if (key === 'm' && !ctrl) {
-        e.preventDefault();
-        toggleMixer();
-      } else if (e.key === 'Delete' || e.key === 'Backspace') {
-        // a timeline (ou a régua das falas do Maestro IA) já apagou com esta tecla: não apaga de novo
-        if (e.defaultPrevented) return;
-        const store = useStore.getState();
-        // Se a timeline estiver travada pelo cadeado, não permite deletar clipes
-        if (store.timelineLocked) return;
-        // No Modo Show a timeline não aparece: apagar daqui tiraria áudio da música no ar sem ninguém ver
-        if (store.playlistMaximized) return;
-
-        // Se houver clipes selecionados na timeline, a tecla Delete/Backspace exclui os clipes selecionados.
-        // Áudio de uma fala do Maestro IA leva a fala junto (a store cuida disso, num passo só do desfazer).
-        if (store.selectedClipIds.length > 0) {
-          e.preventDefault();
-          const targetIds = [...store.selectedClipIds];
-          audioEngine.stopClipsLive(targetIds);
-          store.removeClips(targetIds);
-          const selSongId = store.selectedSongId ?? store.playlist[0]?.songId;
-          if (selSongId) audioEngine.invalidatePrepared(selSongId);
-          return;
-        }
-
-        // Caso contrário, se o foco não estiver em um elemento editável, mantém comportamento de excluir música
-        if (store.selectedSongId && !e.target) {
-          store.removeSong(store.selectedSongId);
-        }
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [toggleMixer]);
+  // Teclado: um tratador só (src/lib/shortcuts) consulta os atalhos do usuário. Aqui ficam as
+  // ações que valem no programa inteiro; a timeline, os pads e as partes registram as delas.
+  useEffect(() => installShortcuts(), []);
+  useEffect(() => registerAppCommands({
+    toggleShowMode,
+    openPrompter: () => setPrompterOpen(true),
+    openAiSeparator: () => setAiSeparatorOpen(true),
+  }), []);
 
   // ⌘M pelo menu Visualizar → Modo Show do app do Mac
   useEffect(() => window.vsDesktop?.onMenuShowMode?.(toggleShowMode), []);
@@ -940,6 +841,7 @@ export function DirectorApp({ license }: { license: License }) {
         <ShowManagerDialog open={showManagerOpen} onClose={() => setShowManagerOpen(false)} broadcast={broadcast} />
         {/* fica aqui (e não na barra de menu) para abrir também no Modo Show */}
         <AudioDeviceDialog open={audioDeviceDialogOpen} onClose={() => useStore.getState().setAudioDeviceDialogOpen(false)} />
+        <KeyCommandsDialog />
         {localOpen && <LocalNetworkDialog local={local} referenceSync={referenceSync} onClose={() => setLocalOpen(false)} />}
         {prompterOpen && (
           <PrompterDialog
@@ -957,6 +859,9 @@ export function DirectorApp({ license }: { license: License }) {
         <MissingAudioDialog />
         <UnsavedChangesDialog />
         <ImportDuplicateDialog />
+        <MidiImportDialog />
+        <RouteReviewDialog />
+        <UserGroupDialog />
       </div>
     </ErrorBoundary>
   );

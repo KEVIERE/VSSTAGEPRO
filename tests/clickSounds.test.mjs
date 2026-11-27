@@ -175,10 +175,10 @@ test('o programa lembra o último som escolhido', () => {
   }
 });
 
-test('Recriar metrônomo abre a janela de sons e usa o som e o 1 do compasso', () => {
+test('Trocar som do click abre a janela de sons e usa o som e o 1 do compasso', () => {
   const menu = read('components', 'ClickMenuItems.tsx');
   assert.match(menu, /item\.kind === 'remake'\) openClickChooser\(songId\)/, 'o menu abre a janela');
-  assert.match(menu, /Recriar metrônomo\.\.\./);
+  assert.match(menu, /Trocar som do click\.\.\./);
   const tools = read('lib', 'clickTools.ts');
   assert.match(tools, /const accents = barStartFlags\(song, times\.map\(\(t\) => click\.startTime \+ t\)\);/);
   assert.match(tools, /generateClickAt\(times, playLen \/ sr, sr, sound, accents\)/, 'o som e os acentos vão para o gerador');

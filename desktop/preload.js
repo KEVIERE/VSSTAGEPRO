@@ -146,6 +146,10 @@ contextBridge.exposeInMainWorld('vsDesktop', {
   licenseCacheSave: call('licenseCacheSave'),
   licenseCacheClear: call('licenseCacheClear'),
   deviceInfo: call('deviceInfo'),
+  // Entrar com o Google pelo navegador padrão (ver googleAuth.js).
+  googleAuthPrepare: call('googleAuthPrepare'),
+  googleAuthWait: call('googleAuthWait'),
+  googleAuthCancel: call('googleAuthCancel'),
   projectFileUrl: (filePath) => `vsstage://project/${encodeURIComponent(filePath)}`,
   onSeparationProgress: (cb) => {
     const listener = (_event, data) => cb(data);
@@ -166,6 +170,21 @@ contextBridge.exposeInMainWorld('vsDesktop', {
     const listener = () => cb();
     ipcRenderer.on('menu:showMode', listener);
     return () => ipcRenderer.removeListener('menu:showMode', listener);
+  },
+  // Atalhos de teclado do usuário: os itens do menu do programa mostram (e usam) a tecla escolhida.
+  setMenuShortcuts: (map) => {
+    const clean = {};
+    if (map && typeof map === 'object') {
+      for (const [id, acc] of Object.entries(map)) {
+        if (typeof id === 'string' && typeof acc === 'string' && id.length <= 64 && acc.length <= 64) clean[id] = acc;
+      }
+    }
+    ipcRenderer.send('menu:setShortcuts', clean);
+  },
+  onMenuCommand: (cb) => {
+    const listener = (_event, id) => { if (typeof id === 'string') cb(id); };
+    ipcRenderer.on('menu:command', listener);
+    return () => ipcRenderer.removeListener('menu:command', listener);
   },
   onOpenProjectFile: (cb) => {
     const listener = (_event, file) => cb(file);

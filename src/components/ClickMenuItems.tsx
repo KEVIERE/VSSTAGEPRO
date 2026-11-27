@@ -8,8 +8,9 @@ interface ClickMenuItemsProps {
 }
 
 const ITEMS: { kind: ClickToolKind; label: string; tip: string }[] = [
+  { kind: 'generate', label: 'Gerar click a partir da música...', tip: 'Para VS sem click: ouve a música do início ao fim, acha o BPM (e as trocas de andamento), põe na grade e cria o click' },
   { kind: 'bar', label: 'Adicionar um compasso antes do início', tip: 'Empurra o VS inteiro 1 compasso para a direita e põe 1 compasso de click antes' },
-  { kind: 'remake', label: 'Recriar metrônomo...', tip: 'Usa o click desta faixa como guia e troca o som, batida por batida, pelo som de metrônomo que você escolher' },
+  { kind: 'remake', label: 'Trocar som do click...', tip: 'Usa o click desta faixa como guia e troca o som, batida por batida, pelo som de metrônomo que você escolher' },
 ];
 
 /** Os comandos do click, nos menus de botão direito da faixa Click e do clipe de click. */

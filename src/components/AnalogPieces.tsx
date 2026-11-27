@@ -155,17 +155,40 @@ export function AnVolumeKnob({ value, onChange, onReset, size = 30, disabled }: 
       onPointerDown={down}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => { e.stopPropagation(); if (!disabled) onReset(); }}
-      onWheel={(e) => { if (!disabled) { e.stopPropagation(); onChange(clamp(knobToVolume(volumeToKnob(value) - Math.sign(e.deltaY) * 0.0133))); } }}
+      // a rodinha rola a timeline; só com Option (Alt no Windows) ela mexe no volume
+      onWheel={(e) => { if (!disabled && e.altKey) { e.stopPropagation(); markAltWheel(); onChange(clamp(knobToVolume(volumeToKnob(value) - Math.sign(e.deltaY || e.deltaX) * 0.0133))); } }}
       role="slider"
       aria-label="Volume da faixa"
       aria-valuemin={0}
       aria-valuemax={1.5}
       aria-valuenow={value}
-      title={`Volume: ${dbLabel} dB. Arraste para cima ou para baixo (Shift: fino). Duplo clique: 0 dB.`}
+      title={`Volume: ${dbLabel} dB. Arraste para cima ou para baixo (Shift: fino). ${ALT_NAME} + rodinha: ajusta. Duplo clique: 0 dB.`}
     >
       <VsKnobFace value={pct} />
     </div>
   );
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(`${navigator.platform} ${navigator.userAgent}`);
+const ALT_NAME = IS_MAC ? 'Option' : 'Alt';
+
+/**
+ * No Windows, soltar o Alt sem outra tecla no meio leva o foco para a barra de menu, e a rodinha
+ * não conta como tecla: depois de Alt + rodinha no volume, o Espaço iria para o menu. Quando o
+ * Alt usado na rodinha é solto, o programa fica com a tecla e o menu não abre.
+ */
+let altWheelUsed = false;
+let altGuardOn = false;
+function markAltWheel() {
+  altWheelUsed = true;
+  if (altGuardOn || typeof window === 'undefined') return;
+  altGuardOn = true;
+  window.addEventListener('keyup', (ev) => {
+    if (ev.key !== 'Alt') return;
+    if (altWheelUsed) ev.preventDefault();
+    altWheelUsed = false;
+  }, true);
+  window.addEventListener('keydown', (ev) => { if (ev.key !== 'Alt') altWheelUsed = false; }, true);
 }
 
 const METER = 'linear-gradient(to top, #3ee26e 0%, #3ee26e 62%, #ffd83d 78%, #ffd83d 93%, #ff4136 97%, #ff4136 100%)';

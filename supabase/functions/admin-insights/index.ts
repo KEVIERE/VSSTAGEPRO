@@ -136,6 +136,53 @@ Deno.serve(async (req) => {
     return json({ ok: true, newHours });
   }
 
+  // Ação "online": quem está com o programa aberto agora.
+  // O programa manda um heartbeat a cada poucos minutos (desktop/antiTamper.js → app-heartbeat);
+  // considera-se "aberto agora" quem mandou sinal nos últimos 15 minutos.
+  if (action === "online") {
+    const since = new Date(Date.now() - 15 * 60 * 1000).toISOString();
+    const { data: beats, error: hbErr } = await admin
+      .from("app_heartbeats")
+      .select("hw_id, ip, app_version, has_session, tampered, created_at")
+      .gte("created_at", since)
+      .order("created_at", { ascending: false });
+    if (hbErr) return json({ error: hbErr.message }, 500);
+
+    // último sinal por dispositivo
+    const byHw = new Map<string, Record<string, unknown>>();
+    for (const b of beats || []) {
+      const hw = String(b.hw_id);
+      if (!byHw.has(hw)) byHw.set(hw, b as Record<string, unknown>);
+    }
+
+    // liga cada dispositivo a uma conta (o heartbeat não manda user_id; usamos o IP +
+    // last_seen do usuário para sugerir a conta provável; sem conta, mostra o hw_id)
+    const { data: usersRes } = await admin.auth.admin.listUsers({ perPage: 2000 });
+    const users = usersRes?.users || [];
+    const byIp = new Map<string, typeof users[number]>();
+    for (const u of users) {
+      const meta = (u.user_metadata as Record<string, unknown>) || {};
+      if (meta.last_ip) byIp.set(String(meta.last_ip), u);
+    }
+
+    const online = [];
+    for (const [hw, b] of byHw.entries()) {
+      const u = byIp.get(String(b.ip));
+      online.push({
+        hwId: hw,
+        email: (u?.email as string | undefined) ?? null,
+        name: ((u?.user_metadata as Record<string, unknown>)?.name as string | undefined) ?? null,
+        ip: b.ip,
+        appVersion: b.app_version,
+        hasSession: Boolean(b.has_session),
+        tampered: Boolean(b.tampered),
+        lastSeenAt: b.created_at,
+      });
+    }
+    online.sort((a, b) => new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime());
+    return json({ online, onlineCount: online.length });
+  }
+
   // Ação Principal: Overview detalhado com Assinantes, Testes e Antifraude
   try {
     const [usersRes, licRes, payRes] = await Promise.all([

@@ -15,7 +15,7 @@ test('menu Editar: "Dividir Clipes no Cursor" recusa com a música tocando e fic
   assert.ok(item.indexOf('!playing') < item.indexOf('splitClipsAt('), 'recusa antes de dividir');
   assert.doesNotMatch(item, /getCurrentTime/, 'não corta mais no instante do áudio');
   assert.match(item, /st\.splitClipsAt\(targetIds, cursor\)\) \{\s*audioEngine\.invalidatePrepared\(sid\);/);
-  assert.match(item, /shortcut: splitBlocked \? 'Pare para dividir' : 'S'/);
+  assert.match(item, /shortcut: splitBlocked \? 'Pare para dividir' : sc\('edit\.split'\)/);
   assert.match(item, /disabled: splitBlocked/);
   assert.match(src, /disabled=\{item\.disabled\}/);
   assert.match(src, /onClick=\{\(\) => \{ if \(!item\.disabled\) item\.action\?\.\(\); \}\}/);

@@ -97,3 +97,29 @@ export const duplicateImportPrompt = createPromptChannel<DuplicateImportPrompt, 
 export function askImportAgain(songName: string): Promise<boolean> {
   return duplicateImportPrompt.ask((answer) => ({ songName, answer }), false);
 }
+
+export interface MidiImportOption {
+  fileName: string;
+  /** Resumo do que o arquivo traz; null quando ele não pôde ser lido. */
+  summary: import('./midiSong.ts').MidiSummary | null;
+  error?: string;
+}
+
+/** Resposta: qual MIDI ler (e se o SMPTE offset desloca o MIDI), ou null para ignorar. */
+export type MidiImportAnswer = { index: number; applySmpte: boolean } | null;
+
+export interface MidiImportPrompt {
+  songName: string;
+  /** Músicas que a resposta vale (projeto do REAPER com várias músicas). */
+  songCount: number;
+  options: MidiImportOption[];
+  answer: (r: MidiImportAnswer) => void;
+}
+
+/** "O VS veio com arquivo MIDI. Ler o MIDI?" (MidiImportDialog responde). */
+export const midiImportPrompt = createPromptChannel<MidiImportPrompt, MidiImportAnswer>();
+
+/** Sem a janela na tela, o MIDI fica de fora e a importação segue como sempre. */
+export function askMidiImport(prompt: Omit<MidiImportPrompt, 'answer'>): Promise<MidiImportAnswer> {
+  return midiImportPrompt.ask((answer) => ({ ...prompt, answer }), null);
+}

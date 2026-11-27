@@ -24,6 +24,11 @@ export interface Track {
   faderLocked?: boolean;
   /** Criada pela pessoa (botão direito > Nova trilha): a reorganização automática não mexe nela. */
   custom?: boolean;
+  /**
+   * Posição da faixa de topo (pasta ou canal) na ordem que a pessoa arrumou arrastando na timeline.
+   * Ausente = ordem padrão (projeto novo, projeto antigo, multigrupo criado depois).
+   */
+  topOrder?: number;
   meterLevel: number;
   clipIndicator: boolean;
   /** Pico (linear) que causou o último clip, mantido até o usuário resolver */
@@ -135,6 +140,14 @@ export interface AudioClip {
   markers: Marker[];
   routingMethod: 'name' | 'ai' | 'manual';
   routingConfidence: number;
+  /** Certeza do roteamento na importação: baixa quando nem o nome nem a IA decidiram bem (vai para "Conferir faixas"). */
+  routingCertainty?: 'high' | 'low';
+  /** 1º e 2º palpites da IA na importação, com a confiança de cada um. */
+  routingGuesses?: Array<{ target: RoutingTarget; childName: string; confidence: number }>;
+  /** Onde começa o trecho de 8 s mais forte do arquivo (segundos): o botão de ouvir da conferência toca ali. */
+  previewAt?: number;
+  /** A pessoa decidiu a faixa (Confirmar da conferência ou nome aprendido): a reorganização das faixas não tira o áudio de lá. */
+  routingLocked?: boolean;
   waveformPeaks: number[];
   /** Segundos cortados do início do áudio (o arquivo continua inteiro) */
   trimStart?: number;
@@ -207,8 +220,8 @@ export interface Song {
   medley?: MedleyPart[];
   /** Segmentos de andamento dinâmico (múltiplos BPMs / aceleração) */
   tempoSegments?: SongTempoSegment[];
-  /** De onde veio o mapa de andamento. Projeto antigo não tem este registro. */
-  tempoMapSource?: 'click' | 'audio' | 'manual' | 'reaper';
+  /** De onde veio o mapa de andamento. Projeto antigo não tem este registro. 'midi': o arquivo MIDI do VS, escolhido na importação. */
+  tempoMapSource?: 'click' | 'audio' | 'manual' | 'reaper' | 'midi';
   /** Assinatura do mapa quando foi medido: se ele mudou depois, foi editado à mão. */
   tempoMapSig?: string;
   /** Mapa que a pessoa recusou trocar (desfez a correção): nenhum computador troca de novo. */
@@ -256,7 +269,8 @@ export interface ImportProgress {
   total?: number;
 }
 
-export type RoutingTarget =
+/** As pastas que o programa traz de fábrica. */
+export type FixedRoutingTarget =
   | 'track-guia'
   | 'track-click'
   | 'track-maestro'
@@ -269,6 +283,23 @@ export type RoutingTarget =
   | 'track-teclados'
   | 'track-solos'
   | 'track-outros';
+
+/** Multigrupo criado pela pessoa (Orquestra, Metais, Backs...): uma pasta como as de fábrica. */
+export type UserGroupId = `track-grupo-${string}`;
+
+export type RoutingTarget = FixedRoutingTarget | UserGroupId;
+
+/**
+ * Multigrupo criado pela pessoa. Fica só no projeto em que foi criado (salvo dentro do .vss);
+ * nada vai para o computador fora dele. Arquivo com uma das palavras no nome vai para ele.
+ */
+export interface UserGroup {
+  id: UserGroupId;
+  name: string;
+  color: string;
+  /** Palavras do nome do arquivo que mandam o áudio para este grupo (sem acento, minúsculas). */
+  words: string[];
+}
 
 export interface TransportState {
   isPlaying: boolean;
@@ -349,6 +380,8 @@ export interface MusicianBook {
 export interface ProjectState {
   projectName: string;
   tracks: Track[];
+  /** Multigrupos criados pela pessoa (projeto antigo não tem: fica vazio). */
+  userGroups?: UserGroup[];
   clips: AudioClip[];
   songs: Song[];
   blocks: Block[];

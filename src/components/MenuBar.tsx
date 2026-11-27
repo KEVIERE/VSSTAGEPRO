@@ -16,10 +16,11 @@ import type { LocalBroadcast } from '@/lib/useLocalBroadcast';
 import { audioEngine } from '@/lib/audioEngine';
 import { clipPlayLength } from '@/lib/audioLibrary';
 import { glueSelectedClips } from '@/lib/clipGlue';
+import { openRouteReviewForSong } from '@/lib/routeReviewActions';
 import { SKINS, chooseSkin, currentSkin, subscribeSkin, type SkinId } from '@/lib/skins';
 
-// O programa é Mac-only: atalhos sempre no padrão do teclado Mac (⌘), nunca Ctrl.
-const SAVE_SHORTCUT = '⌘S';
+import { openUserGroupDialog } from '@/lib/userGroupDialog';
+import { getBindings, openKeyCommands, shortcutLabel, subscribeBindings, useCommand } from '@/lib/shortcuts/runtime';
 
 interface MenuItem {
   label?: string;
@@ -85,6 +86,16 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
   const [recentOpen, setRecentOpen] = useState(false);
   const [skinsOpen, setSkinsOpen] = useState(false);
   const [autoOpen, setAutoOpen] = useState(autoOpenEnabled);
+  // Os atalhos dos itens vêm da janela "Atalhos de teclado" (⌘ no Mac, Ctrl no Windows) e
+  // redesenham a barra quando o usuário troca algum.
+  useSyncExternalStore(subscribeBindings, getBindings);
+  const sc = shortcutLabel;
+  // Itens deste menu que ganham atalho do usuário (as janelas são daqui)
+  useCommand('file.importVS', () => { setImportOpen(true); });
+  useCommand('file.backups', () => { setBackupsOpen(true); });
+  useCommand('file.autoOpenLast', () => { const v = !autoOpenEnabled(); setAutoOpenEnabled(v); setAutoOpen(v); });
+  useCommand('tools.localNetwork', () => { modeSwitch.choose('local'); });
+  useCommand('tools.showOnline', () => { if (local.mode === 'online') onOpenShowManager(); else modeSwitch.choose('online'); });
   const hover = useHoverDismiss(openMenu !== null, () => setOpenMenu(null));
   const hoverProps = (label: string) => ({
     onMouseEnter: () => {
@@ -125,32 +136,33 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
     {
       label: 'Arquivo',
       items: [
-        { label: 'Importar VS...', action: handleImportVS },
+        { label: 'Importar VS...', shortcut: sc('file.importVS'), action: handleImportVS },
         {
           label: 'Criar VS a partir de Música (IA)...',
+          shortcut: sc('file.aiCreateVS'),
           action: () => {
             setOpenMenu(null);
             onOpenAiSeparator?.();
           },
         },
         { separator: true },
-        { label: 'Novo Projeto', action: handleNewProject },
-        { label: 'Salvar Projeto...', action: openSave },
-        { label: 'Abrir Projeto...', action: openOpen },
+        { label: 'Novo Projeto', shortcut: sc('file.new'), action: handleNewProject },
+        { label: 'Salvar Projeto...', shortcut: sc('file.saveAs'), action: openSave },
+        { label: 'Abrir Projeto...', shortcut: sc('file.open'), action: openOpen },
         { label: 'Aberto Recentemente', recent: true },
-        { label: 'Salvar', shortcut: SAVE_SHORTCUT, action: () => { setOpenMenu(null); saveCurrentProject(); } },
-        { label: 'Histórico de Backups...', action: () => { setBackupsOpen(true); setOpenMenu(null); } },
+        { label: 'Salvar', shortcut: sc('file.save'), action: () => { setOpenMenu(null); saveCurrentProject(); } },
+        { label: 'Histórico de Backups...', shortcut: sc('file.backups'), action: () => { setBackupsOpen(true); setOpenMenu(null); } },
         {
-          label: 'Abrir o Último Projeto ao Iniciar', checked: autoOpen,
+          label: 'Abrir o Último Projeto ao Iniciar', checked: autoOpen, shortcut: sc('file.autoOpenLast'),
           action: () => { setAutoOpenEnabled(!autoOpen); setAutoOpen(!autoOpen); setOpenMenu(null); },
         },
         { separator: true },
-        { label: 'Dispositivo de Áudio...', action: openAudio },
+        { label: 'Dispositivo de Áudio...', shortcut: sc('settings.audioDevice'), action: openAudio },
         { separator: true },
-        { label: 'Teleprompter...', action: () => { onOpenPrompter(); setOpenMenu(null); } },
-        { label: 'Rede Local...', checked: local.mode === 'local', action: () => { setOpenMenu(null); modeSwitch.choose('local'); } },
+        { label: 'Teleprompter...', shortcut: sc('tools.teleprompter'), action: () => { onOpenPrompter(); setOpenMenu(null); } },
+        { label: 'Rede Local...', checked: local.mode === 'local', shortcut: sc('tools.localNetwork'), action: () => { setOpenMenu(null); modeSwitch.choose('local'); } },
         {
-          label: 'Show Online...', checked: local.mode === 'online',
+          label: 'Show Online...', checked: local.mode === 'online', shortcut: sc('tools.showOnline'),
           action: () => { setOpenMenu(null); if (local.mode === 'online') onOpenShowManager(); else modeSwitch.choose('online'); },
         },
       ],
@@ -158,12 +170,15 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
     {
       label: 'Editar',
       items: [
-        { label: 'Desfazer', shortcut: '⌘Z', action: undo },
-        { label: 'Refazer', shortcut: '⌘⇧Z', action: redo },
+        { label: 'Desfazer', shortcut: sc('edit.undo'), action: undo },
+        { label: 'Refazer', shortcut: sc('edit.redo'), action: redo },
+        { separator: true },
+        // multigrupo do projeto (Metais, Orquestra, Backs...): pasta nova com canal no mixer
+        { label: 'Novo multigrupo...', action: () => { setOpenMenu(null); openUserGroupDialog({ mode: 'create' }); } },
         { separator: true },
         {
           label: 'Selecionar Todos os Clipes',
-          shortcut: '⌘A',
+          shortcut: sc('edit.selectAllClips'),
           action: () => {
             const st = useStore.getState();
             const sid = st.selectedSongId ?? st.playlist[0]?.songId;
@@ -176,7 +191,7 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
         },
         {
           label: 'Dividir Clipes no Cursor',
-          shortcut: splitBlocked ? 'Pare para dividir' : 'S',
+          shortcut: splitBlocked ? 'Pare para dividir' : sc('edit.split'),
           disabled: splitBlocked,
           action: () => {
             const st = useStore.getState();
@@ -198,7 +213,7 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
         },
         {
           label: 'Excluir Clipes Selecionados',
-          shortcut: 'Del',
+          shortcut: sc('edit.deleteClips'),
           action: () => {
             const st = useStore.getState();
             if (st.selectedClipIds.length > 0 && !st.timelineLocked) {
@@ -213,7 +228,7 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
         },
         {
           label: 'Agrupar Clipes',
-          shortcut: '⌘G',
+          shortcut: sc('edit.group'),
           action: () => {
             const st = useStore.getState();
             if (st.selectedClipIds.length >= 2) st.groupClips(st.selectedClipIds);
@@ -222,7 +237,7 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
         },
         {
           label: 'Emendar Clipes (Unir)',
-          shortcut: '⇧⌘G',
+          shortcut: sc('edit.glue'),
           action: () => {
             void glueSelectedClips();
             setOpenMenu(null);
@@ -230,7 +245,7 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
         },
         {
           label: 'Desagrupar Clipes',
-          shortcut: '⌘U',
+          shortcut: sc('edit.ungroup'),
           action: () => {
             const st = useStore.getState();
             if (st.selectedClipIds.length > 0) st.ungroupClips(st.selectedClipIds);
@@ -238,21 +253,32 @@ function MenuBar({ onOpenShowManager, onOpenPrompter, onOpenLocal, broadcast, lo
           },
         },
         { separator: true },
-        { label: 'Duplicar Música', shortcut: '⌘D', action: () => { if (selectedSongId) duplicatePlaylistEntry(selectedSongId); setOpenMenu(null); } },
-        { label: 'Excluir Música', action: () => { if (selectedSongId) removeSong(selectedSongId); setOpenMenu(null); } },
+        {
+          label: 'Conferir Faixas desta Música...',
+          action: () => {
+            const st = useStore.getState();
+            openRouteReviewForSong(st.selectedSongId ?? st.playlist[0]?.songId);
+            setOpenMenu(null);
+          },
+        },
+        { label: 'Duplicar Música', shortcut: sc('playlist.duplicateSong'), action: () => { if (selectedSongId) duplicatePlaylistEntry(selectedSongId); setOpenMenu(null); } },
+        { label: 'Excluir Música', shortcut: sc('playlist.removeSong'), action: () => { if (selectedSongId) removeSong(selectedSongId); setOpenMenu(null); } },
+        { separator: true },
+        { label: 'Atalhos de Teclado...', shortcut: sc('app.keyCommands'), action: () => { setOpenMenu(null); openKeyCommands(); } },
       ],
     },
     {
       label: 'Visualizar',
       items: [
-        { label: 'Mostrar/Ocultar Mixer', shortcut: 'M', action: () => { toggleMixer(); setOpenMenu(null); } },
-        { label: 'Mostrar/Ocultar Playlist', action: () => { togglePlaylist(); setOpenMenu(null); } },
-        { label: 'Maximizar Playlist', action: () => { togglePlaylistMaximized(); setOpenMenu(null); } },
-        { label: 'Mostrar/Ocultar Controles de Clipe', action: () => { toggleDawMode(); setOpenMenu(null); } },
+        { label: 'Mostrar/Ocultar Mixer', shortcut: sc('view.mixer'), action: () => { toggleMixer(); setOpenMenu(null); } },
+        { label: 'Mostrar/Ocultar Playlist', shortcut: sc('view.playlist'), action: () => { togglePlaylist(); setOpenMenu(null); } },
+        { label: 'Maximizar Playlist', shortcut: sc('view.showMode'), action: () => { togglePlaylistMaximized(); setOpenMenu(null); } },
+        { label: 'Mostrar/Ocultar Controles de Clipe', shortcut: sc('view.clipControls'), action: () => { toggleDawMode(); setOpenMenu(null); } },
         { separator: true },
         {
           label: timelineLocked ? 'Destravar Timeline' : 'Travar Timeline (Cadeado)',
           checked: timelineLocked,
+          shortcut: sc('timeline.lock'),
           action: () => { toggleTimelineLocked(); setOpenMenu(null); },
         },
         { separator: true },

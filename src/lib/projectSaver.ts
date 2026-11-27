@@ -55,6 +55,8 @@ export type SavedManifest = {
   lyricMaps?: ProjectState['lyricMaps'];
   lyricStyle?: ProjectState['lyricStyle'];
   musicianBook?: ProjectState['musicianBook'];
+  /** Multigrupos criados pela pessoa neste projeto (nome, cor, palavras). As faixas mães e as de dentro vão em `tracks`. */
+  userGroups?: ProjectState['userGroups'];
   /** Pads do Modo Show (os sons vão como áudios do pacote, "pad:N"). */
   samplePads?: import('@/lib/samplePads').SavedPads;
   assets?: Array<{ clipId: string; path: string; offset: number; size: number }>;
@@ -174,6 +176,8 @@ function manifestFrom(state: ProjectState, clips: AudioClip[]): SavedManifest {
     lyricMaps: state.lyricMaps,
     lyricStyle: state.lyricStyle ?? null,
     musicianBook: state.musicianBook ?? null,
+    // projeto sem multigrupo sai igual ao de antes, byte a byte
+    ...(state.userGroups && state.userGroups.length ? { userGroups: state.userGroups } : {}),
     // pads do Modo Show e outras partes que vivem fora do estado principal
     ...extraManifestFields(),
   };

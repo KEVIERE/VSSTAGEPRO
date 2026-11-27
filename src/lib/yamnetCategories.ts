@@ -1,4 +1,5 @@
 import type { RoutingTarget } from '@/types';
+import { PERCUSSION_ROUTE } from './metronomeCheck.ts';
 
 // Mapa oficial de índice → nome de classe do YAMNet (modelo do Google, 521 classes do
 // AudioSet). Índices conferidos contra o yamnet_class_map.csv oficial do repositório
@@ -677,6 +678,11 @@ const SINGING_HINT = 0.03;
 const SPEECH_WITH_MUSIC = 0.3;
 /** Trecho quase todo em silêncio (stem vazio): não decide nada. */
 const SILENCE_MAX = 0.5;
+/** "Wood block", "Plop", "Tick"... também saem de percussão tocada (bloco, cowbell, aro). O click
+ * de verdade não tem música (medido: "Music" até 8%); percussão de VS tem (medido: 76% a 84%).
+ * Com música junto, ou com bateria ou percussão mais forte que o som de click, é Percussões. */
+const CLICK_WITH_MUSIC = 0.3;
+const PLAYED_PERCUSSION = new Set(['Percussion', 'Drum', 'Drum kit', 'Snare drum', 'Bass drum', 'Cowbell', 'Rattle (instrument)', 'Maraca', 'Tambourine', 'Shaker']);
 
 /**
  * Converte o resultado bruto do YAMNet (lista de classes com probabilidade, já
@@ -701,6 +707,13 @@ export function routeByYamnetScores(
     if (SPEECH_CLASSES.has(className) && probability < SPEECH_MIN_SCORE) continue;
     if (mutedOut && route.target !== 'track-click') return null;
     if (probability < MIN_SCORE || probability < strongestUnmapped * 0.5) return null;
+    if (route.target === 'track-click') {
+      const music = scores.find((x) => x.className === 'Music')?.probability ?? 0;
+      const played = Math.max(0, ...scores.filter((x) => PLAYED_PERCUSSION.has(x.className)).map((x) => x.probability));
+      if (music >= CLICK_WITH_MUSIC || played > probability) {
+        return { ...PERCUSSION_ROUTE, confidence: probability, yamnetClass: className };
+      }
+    }
     if (SPEECH_CLASSES.has(className)) {
       const singing = Math.max(0, ...scores.filter((x) => SINGING_CLASSES.has(x.className)).map((x) => x.probability));
       const music = scores.find((x) => x.className === 'Music')?.probability ?? 0;
@@ -709,6 +722,29 @@ export function routeByYamnetScores(
       }
     }
     return { ...route, confidence: probability, yamnetClass: className };
+  }
+  return null;
+}
+
+/**
+ * 2º palpite, só para mostrar na conferência das faixas (não muda a decisão): o som específico
+ * mais forte, depois do 1º, que vai para outra faixa. Bloco e "Plop" com música junto contam
+ * como Percussões, igual ao 1º palpite. null quando não há outro som com faixa.
+ */
+export function secondYamnetRoute(
+  scores: { className: string; probability: number }[],
+  first: { target: RoutingTarget } | null
+): YamnetRoute | null {
+  const music = scores.find((x) => x.className === 'Music')?.probability ?? 0;
+  for (const { className, probability } of scores) {
+    if (GENERIC_CLASSES.has(className)) continue;
+    let route: { target: RoutingTarget; childName: string } | undefined = CATEGORY_MAP[className];
+    if (!route) continue;
+    if (SPEECH_CLASSES.has(className) && probability < SPEECH_MIN_SCORE) continue;
+    if (route.target === 'track-click' && music >= CLICK_WITH_MUSIC) route = PERCUSSION_ROUTE;
+    if (first && route.target === first.target) continue;
+    if (probability < 0.01) return null;
+    return { target: route.target, childName: route.childName, confidence: probability, yamnetClass: className };
   }
   return null;
 }

@@ -1,19 +1,25 @@
 import { adminApi } from '@/components/admin/adminApi';
 import { authRedirect } from '@/lib/authRedirect';
-import { useEffect, useState } from 'react';
-import { BadgeCheck, CheckCircle2, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, QrCode, RefreshCw, Tag, Timer, User, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BadgeCheck, CheckCircle2, CloudOff, CreditCard, Eye, EyeOff, Gift, KeyRound, Laptop, Loader2, LogOut, Lock, Mail, Phone, RefreshCw, Tag, Timer, User, WifiOff, X } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { clearLocalSession, emailLinkType, supabase } from '@/lib/supabaseClient';
+import { clearLocalSession, emailLinkType, rpcWithStoredSession, storedSession, supabase } from '@/lib/supabaseClient';
+import { REFUSED_TEXT, REPLACED_TEXT, lastSeenText, otherDeviceLabel, readDeviceVerdict, type DeviceVerdict } from '@/lib/deviceLock';
+import { useStore } from '@/store';
+import { NEED_INTERNET_TEXT, decideOffline, type LicenseCache, type NeedInternetReason } from '@/lib/offlineLicense';
 import { AccessCard, AccessFoot, AccessNotice, AccessStage, AccessStatus, AccessTitle, FootKey, TrialClock } from '@/components/access/AccessChrome';
 import { friendlyError } from '@/lib/friendlyError';
 import SubscribeDialog from '@/components/SubscribeDialog';
 import { LICENSE_REFRESH_EVENT } from '@/lib/licenseEvents';
-import { maskPhone, normalizePhone, signInWithGoogle } from '@/lib/authFlow';
+import { cancelGoogleSignIn, hasDesktopGoogle, maskPhone, normalizePhone, signInWithGoogle } from '@/lib/authFlow';
+import { formatBrasiliaDate } from '@/lib/pixFormat';
 import { forgetVoices } from '@/lib/maestroVoice';
 import { trackMetaLead } from '@/lib/metaPixel';
 
 export type License = {
   status: 'anonymous' | 'trial' | 'active' | 'expired' | 'blocked';
+  /** 'blocked': motivo do bloqueio. 'expired' (servidor novo): 'paid_period_over' (já pagou)
+   *  ou 'trial_over' (nunca pagou). */
   reason?: string | null;
   days_left?: number;
   hours_left?: number;
@@ -24,7 +30,64 @@ export type License = {
   current_period_end?: string | null;
   /** Parceiro / Endorse: acesso completo dado pelo admin, sem pagamento */
   partner?: boolean;
+  /** Sem internet: a licença veio da última conferência guardada no Mac (quando foi, em ms) */
+  offline_checked_at?: number;
+  /** Sem internet: até quando a última conferência vale (ms) */
+  offline_until?: number;
+  /** Sem internet: o prazo normal passou nesta hora e o programa está na folga de 3 dias (ms) */
+  offline_grace_from?: number;
+  /** Vencido: a conta já pagou alguma vez (servidor antigo não manda) */
+  paid_before?: boolean;
+  /** Mesmo valor de paid_before */
+  had_paid?: boolean;
+  /** Vencido: até quando valeu o último período pago */
+  paid_until?: string | null;
+  /** Vencido: o último plano pago */
+  last_plan?: 'monthly' | 'yearly' | null;
 };
+
+// Um Mac por vez: a conta está aberta em outro Mac (conflict) ou este foi desconectado (replaced).
+type DeviceStop = Exclude<DeviceVerdict, { status: 'ok' }>;
+class DeviceLockError extends Error {
+  verdict: DeviceStop;
+  constructor(verdict: DeviceStop) {
+    super('device_lock');
+    this.verdict = verdict;
+  }
+}
+
+// Respostas do servidor que valem guardar para usar sem internet.
+const CACHEABLE = new Set<License['status']>(['trial', 'active', 'expired', 'blocked']);
+
+// Sem internet o supabase-js tenta renovar o acesso por até ~30 s antes de responder.
+// A tela não espera isso: com o Mac sem rede segue na hora; com rede lenta, espera no máximo isto.
+const NET_WAIT_MS = 6000;
+const SESSION_WAIT_MS = 2500;
+function waitAtMost<T>(p: Promise<T>, ms: number): Promise<T | 'timeout'> {
+  const wait = typeof navigator !== 'undefined' && navigator.onLine === false ? 0 : ms;
+  return Promise.race([p, new Promise<'timeout'>((r) => window.setTimeout(() => r('timeout'), wait))]);
+}
+
+// Conferência da conta em andamento. Abrir o programa pedia a mesma conferência duas vezes quase
+// juntas (getSession e INITIAL_SESSION), e voltar para a janela pedia outra: cada uma com a sua
+// fila de idas ao servidor. Agora, para a mesma conta, quem pede enquanto uma está no ar espera
+// a resposta dela, e a resposta é aplicada uma vez só (`applied`). Quem acabou de mudar algo no
+// servidor (pagou, desconectou o outro Mac, resgatou código, internet de volta) pede `fresh`: vai
+// uma conferência nova, e a que estava no ar não passa mais por cima dela. Outra conta também
+// abre uma nova e a resposta da conta anterior deixa de valer.
+type LicenseFlight<T> = { key: string; ask: Promise<T>; applied: boolean };
+function shareLicenseFlight<T>(holder: { current: LicenseFlight<T> | null }, key: string, start: () => Promise<T>, fresh = false): LicenseFlight<T> {
+  const cur = holder.current;
+  if (cur && cur.key === key && !fresh) return cur;
+  if (cur) cur.applied = true;
+  const flight: LicenseFlight<T> = { key, ask: start(), applied: false };
+  holder.current = flight;
+  const done = () => { if (holder.current === flight) holder.current = null; };
+  flight.ask.then(done, done);
+  return flight;
+}
+
+const formatCheckDate = (ms: number) => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 // Código digitado na tela de entrada: é resgatado assim que a conta entra
 // (fica guardado caso o cadastro peça confirmação de e-mail antes).
@@ -140,6 +203,20 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   const [errorIsAlreadyRegistered, setErrorIsAlreadyRegistered] = useState(false);
   const [errorHasNoAccount, setErrorHasNoAccount] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  // Entrar com o Google no programa: o Google abriu no navegador e a tela espera o retorno.
+  const [googleWaiting, setGoogleWaiting] = useState(false);
+  const startGoogle = () => {
+    setError(null);
+    setInfo(null);
+    if (hasDesktopGoogle()) setGoogleWaiting(true);
+    signInWithGoogle()
+      .catch((err) => {
+        const code = (err as Error).message;
+        // quem desistiu pelo próprio botão não precisa de aviso
+        if (code !== 'google_cancelled') setError(friendlyError(code));
+      })
+      .finally(() => setGoogleWaiting(false));
+  };
   const [promo, setPromo] = useState('');
   const [promoOpen, setPromoOpen] = useState(false);
   const [gatePassed, setGatePassed] = useState(() => {
@@ -150,8 +227,19 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   // de invalidar a sessão — se a rede falhar ou demorar, a tela de "Sair"/"Entrar
   // com outra conta" fica parada sem nenhum aviso. Aqui a saída é sempre instantânea:
   // o estado da tela é zerado na hora do clique, sem esperar nenhuma resposta de rede.
-  const doSignOut = () => {
-    clearLocalSession();
+  // scope 'local': sair aqui não encerra a sessão do outro Mac (recusou ou foi desconectado)
+  const doSignOut = (scope: 'global' | 'local' = 'global') => {
+    // libera a vaga deste Mac na conta, para o próximo Mac entrar sem pergunta
+    if (deviceRef.current) rpcWithStoredSession('device_release', { p_device: deviceRef.current.id });
+    clearLocalSession(scope);
+    window.vsDesktop?.licenseCacheClear?.().catch(() => {});
+    lastCheckRef.current = null;
+    usableLicenseRef.current = null;
+    setHeldOpen(false);
+    setNeedInternet(null);
+    setDeviceConflict(null);
+    setDeviceError(null);
+    setNotice(null);
     setSession(null);
     setLicense(null);
     setView('signin');
@@ -165,24 +253,165 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   // cliente. No app do Mac (window.vsDesktop) isso não entra em jogo: é sempre liberado.
   const isWebEnvironment = !window.vsDesktop;
   const [isAdmin, setIsAdmin] = useState<boolean | null>(isWebEnvironment ? null : true);
+  // Sem internet e sem conferência que valha: o motivo aparece na tela (nunca libera o editor).
+  const [needInternet, setNeedInternet] = useState<NeedInternetReason | null>(null);
+  // Última resposta do servidor nesta abertura: vale como conferência se o Mac não tiver a guardada.
+  const lastCheckRef = useRef<LicenseCache | null>(null);
+  // Última licença que liberava o editor: segura o show quando a conta trava com música tocando.
+  const usableLicenseRef = useRef<License | null>(null);
+  // Assinante sem internet com o prazo vencido e o programa aberto: segue aberto, com aviso.
+  const [heldOpen, setHeldOpen] = useState(false);
+  // Avisos de vencimento fechados nesta abertura (pela chave do aviso).
+  const [dismissedWarn, setDismissedWarn] = useState<string | null>(null);
+  // Um Mac por vez: quem é este Mac e a pergunta quando a conta está aberta em outro.
+  const deviceRef = useRef<{ id: string; name: string } | null>(null);
+  const [deviceConflict, setDeviceConflict] = useState<{ otherName: string | null; otherSeen: string | null } | null>(null);
+  const [takingOver, setTakingOver] = useState(false);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
+  // Aviso na tela de entrada (este Mac foi desconectado, ou recusou desconectar o outro).
+  const [notice, setNotice] = useState<{ tone: 'green' | 'red'; text: string } | null>(null);
 
-  const loadLicense = async (): Promise<License> => {
+  const getDevice = async () => {
+    if (deviceRef.current) return deviceRef.current;
+    const d = await window.vsDesktop?.deviceInfo?.().catch(() => null);
+    if (d?.id) deviceRef.current = d;
+    return deviceRef.current;
+  };
+
+  // No navegador ou em programa antigo não há regra; erro de rede ou banco sem a regra: não bloqueia.
+  const claimDevice = async (take = false): Promise<DeviceVerdict> => {
+    const device = await getDevice();
+    if (!device) return { status: 'ok' };
+    const { data, error: err } = await supabase.rpc('device_claim', { p_device: device.id, p_name: device.name, p_take: take });
+    if (err) {
+      if (take) throw err;
+      return { status: 'ok' };
+    }
+    return readDeviceVerdict(data);
+  };
+
+  const applyDevice = (v: DeviceStop) => {
+    if (!storedSession()) return;
+    // no meio de uma música não derruba o show: a próxima conferência tenta de novo
+    if (useStore.getState().transport.isPlaying) return;
+    if (v.status === 'replaced') {
+      doSignOut('local');
+      setNotice({ tone: 'red', text: REPLACED_TEXT });
+      return;
+    }
+    setLicense(null);
+    setNeedInternet(null);
+    setDeviceError(null);
+    setDeviceConflict({ otherName: v.otherName, otherSeen: v.otherSeen });
+  };
+
+  const takeOver = async () => {
+    setTakingOver(true);
+    setDeviceError(null);
+    try {
+      const v = await claimDevice(true);
+      if (v.status !== 'ok') throw new Error('device_take_failed');
+      setDeviceConflict(null);
+      await loadLicense(NET_WAIT_MS, true).catch(() => {});
+    } catch {
+      setDeviceError('Não deu para desconectar o outro computador agora. Confira a internet e tente de novo.');
+    } finally {
+      setTakingOver(false);
+    }
+  };
+
+  const refuseTakeOver = () => {
+    doSignOut('local');
+    setNotice({ tone: 'green', text: REFUSED_TEXT });
+  };
+
+  // Não deu para conferir no servidor: decide pela última conferência (ver offlineLicense.ts).
+  const applyLastCheck = async () => {
+    const userId = storedSession()?.user.id;
+    if (!userId) return;
+    const saved = (await window.vsDesktop?.licenseCacheLoad?.().catch(() => null)) ?? null;
+    const d = decideOffline(saved ?? lastCheckRef.current, userId, Date.now());
+    // Assinante com o programa já aberto nunca trava por prazo: segue até fechar, com aviso.
+    // A conferência fica para a próxima abertura (bloqueio do admin vem do servidor, não daqui).
+    const sameAccount = !(d.kind === 'need_internet' && (d.reason === 'other_account' || d.reason === 'never_checked'));
+    if ((d.kind === 'need_internet' || d.kind === 'expired') && sameAccount && usableLicenseRef.current?.status === 'active') {
+      setHeldOpen(true);
+      return;
+    }
+    if (d.kind === 'need_internet') {
+      setLicense(null);
+      setNeedInternet(d.reason);
+      return;
+    }
+    setNeedInternet(null);
+    if (d.kind === 'expired') setLicense({ status: 'expired', offline_checked_at: d.checkedAt });
+    else if (d.kind === 'blocked') setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt });
+    else setLicense({ ...(d.license as License), offline_checked_at: d.checkedAt, offline_until: d.until, offline_grace_from: d.graceFrom });
+  };
+
+  const askServer = async (): Promise<License> => {
+    // O selo de parceiro sai junto com a conferência, não depois dela: uma ida ao servidor a
+    // menos para o assinante. Só vale para conta ativa, como antes; erro é "sem selo".
+    const partnerAsk: Promise<boolean> = Promise.resolve(supabase.rpc('my_partner_status')).then(
+      ({ data: p }) => (p as { partner?: boolean } | null)?.partner === true,
+      () => false,
+    );
     const { data, error: err } = await supabase.rpc('license_status');
     if (err) throw err;
     const lic = { ...(data as License) };
+    if (lic.status === 'trial' || lic.status === 'active') {
+      // um Mac por vez: confere se a conta não está aberta em outro Mac
+      const verdict = await claimDevice().catch((): DeviceVerdict => ({ status: 'ok' }));
+      if (verdict.status !== 'ok') throw new DeviceLockError(verdict);
+    }
     if (lic.status === 'active') {
       // parceiro (endorse): o acesso já vem liberado pelo servidor; aqui só descobre o selo
-      try {
-        const { data: p } = await supabase.rpc('my_partner_status');
-        if ((p as { partner?: boolean } | null)?.partner) lic.partner = true;
-      } catch { /* sem o selo, o acesso continua igual */ }
+      if (await partnerAsk) lic.partner = true;
     }
+    return lic;
+  };
+
+  // Uma conferência por vez para a mesma conta (ver shareLicenseFlight).
+  const licenseFlightRef = useRef<LicenseFlight<License> | null>(null);
+
+  // A resposta do servidor sempre manda: libera, bloqueia ou encerra, e fica guardada no Mac.
+  const loadLicense = async (waitMs = NET_WAIT_MS, fresh = false): Promise<License> => {
+    const flight = shareLicenseFlight(licenseFlightRef, storedSession()?.user.id ?? '', askServer, fresh);
+    const { ask } = flight;
+    // quem esperou junto não aplica de novo a mesma resposta (nem o mesmo "outro Mac")
+    const settle = (lic: License) => { if (flight.applied) return; flight.applied = true; applyServer(lic); };
+    const deviceStop = (v: DeviceStop) => { if (flight.applied) return; flight.applied = true; applyDevice(v); };
+    const answer = await waitAtMost(ask, waitMs).catch(async (err) => {
+      if (err instanceof DeviceLockError) deviceStop(err.verdict);
+      else await applyLastCheck();
+      throw err;
+    });
+    if (answer === 'timeout') {
+      // se o servidor responder depois, vale a resposta dele
+      ask.then(settle).catch((err) => { if (err instanceof DeviceLockError) deviceStop(err.verdict); });
+      await applyLastCheck();
+      throw new Error('license_timeout');
+    }
+    settle(answer);
+    return answer;
+  };
+
+  const applyServer = (lic: License) => {
+    if (!storedSession()) return; // saiu da conta enquanto esperava
+    setHeldOpen(false);
     setLicense(lic);
+    setNeedInternet(null);
+    setDeviceConflict(null);
+    const userId = storedSession()?.user.id;
+    if (userId && CACHEABLE.has(lic.status)) {
+      const now = Date.now();
+      lastCheckRef.current = { userId, license: lic, checkedAt: now, maxSeen: now };
+      window.vsDesktop?.licenseCacheSave?.(userId, lic).catch(() => {});
+    }
 
     // Registra presença e IP do computador silenciosamente para antifraude e contagem de versões
     const appVersion = window.__VS_VERSION__ || (window.vsDesktop ? 'Desktop App' : 'Navegador Web');
     adminApi.pingPresence(appVersion).catch(() => {});
-    return lic;
   };
 
   const checkAdmin = async () => {
@@ -198,20 +427,27 @@ export default function DirectorAccess({ children }: { children: (license: Licen
 
   useEffect(() => {
     let alive = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!alive) return;
+    let started = false;
+    // sem internet o acesso vencido não renova: segue com a sessão guardada no aparelho
+    waitAtMost(supabase.auth.getSession(), SESSION_WAIT_MS).then((got) => {
+      if (!alive || started) return;
+      started = true;
+      const data = { session: (got === 'timeout' ? null : got.data.session) ?? storedSession() };
       setSession(data.session);
       setReady(true);
       if (data.session) {
         if (emailLinkType === 'signup') setJustConfirmed(true);
         (async () => {
-          try { await loadLicense(); } catch { /* manter tela de login */ }
+          // o login não respondeu: o servidor também não vai; usa o guardado já (se ele responder depois, vale ele)
+          try { await loadLicense(got === 'timeout' ? 0 : NET_WAIT_MS); } catch { /* manter tela de login */ }
         })();
         checkAdmin();
       }
     });
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, signal) => {
       (async () => {
+        // "sem sessão" por falta de internet não é saída da conta: só SIGNED_OUT tira a pessoa
+        const s = signal ?? (event === 'SIGNED_OUT' ? null : storedSession());
         setSession(s);
         // entrou ou saiu da conta: as vozes de nuvem do Maestro mudam (precisam do login)
         forgetVoices();
@@ -219,7 +455,11 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           try { await loadLicense(); } catch { /* silencioso */ }
           checkAdmin();
         } else {
+          // saiu da conta por fora (outro Mac, acesso revogado): a licença da sessão anterior não vale mais
+          usableLicenseRef.current = null;
+          setHeldOpen(false);
           setLicense(null);
+          setNeedInternet(null);
           setIsAdmin(isWebEnvironment ? null : true);
         }
       })();
@@ -235,11 +475,16 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   useEffect(() => {
     if (!session) return;
     const refresh = () => { loadLicense().catch(() => {}); };
-    window.addEventListener(LICENSE_REFRESH_EVENT, refresh);
+    // pagamento pedindo conferência ou internet de volta: uma nova, sem esperar a que estava no ar
+    const refreshNow = () => { loadLicense(NET_WAIT_MS, true).catch(() => {}); };
+    window.addEventListener(LICENSE_REFRESH_EVENT, refreshNow);
     window.addEventListener('focus', refresh);
+    // a internet voltou: confere de novo em segundo plano
+    window.addEventListener('online', refreshNow);
     return () => {
-      window.removeEventListener(LICENSE_REFRESH_EVENT, refresh);
+      window.removeEventListener(LICENSE_REFRESH_EVENT, refreshNow);
       window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refreshNow);
     };
   }, [session]);
 
@@ -263,7 +508,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     redeemPromo(code)
       .then((res) => setPromoNotice({ ok: true, text: `Código ${code} aplicado: ${promoText(res)}.` }))
       .catch((err) => setPromoNotice({ ok: false, text: `Código ${code}: ${friendlyError((err as Error).message)}` }))
-      .finally(() => { loadLicense().catch(() => {}); });
+      .finally(() => { loadLicense(NET_WAIT_MS, true).catch(() => {}); });
   }, [session]);
 
   useEffect(() => {
@@ -289,6 +534,21 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     return () => window.clearTimeout(timer);
   }, [license?.status, license?.ends_at]);
 
+  // Sem internet, a última conferência tem prazo: ao chegar nele, decide de novo
+  // (teste encerrado ou "conecte à internet"), mesmo com o programa aberto.
+  useEffect(() => {
+    const until = license?.offline_until;
+    if (!until) return;
+    let timer = 0;
+    const check = () => {
+      const ms = until - Date.now();
+      if (ms <= 0) { applyLastCheck().catch(() => {}); return; }
+      timer = window.setTimeout(check, Math.min(ms, MAX_TIMER_MS));
+    };
+    check();
+    return () => window.clearTimeout(timer);
+  }, [license?.offline_until]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -296,6 +556,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     setErrorIsAlreadyRegistered(false);
     setErrorHasNoAccount(false);
     setInfo(null);
+    setNotice(null);
     try {
       const code = promo.trim().toUpperCase();
       if (code) {
@@ -321,7 +582,8 @@ export default function DirectorAccess({ children }: { children: (license: Licen
           password,
           options: {
           data: { name: name.trim(), phone: normalizedPhone },
-          emailRedirectTo: authRedirect('/'),
+          // confirmou o e-mail: vai direto para a página de downloads do Mac
+          emailRedirectTo: authRedirect('/#baixar'),
         },
         });
         if (err) throw err;
@@ -377,7 +639,16 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     </div>
   );
 
-  const showingEditor = !!session && gatePassed && license?.status !== 'blocked' && license?.status !== 'expired';
+  // Com música tocando, a licença nunca derruba o show: prazo sem internet vencido, teste
+  // encerrado ou conta bloqueada esperam a música parar para mostrar a tela de acesso. Até lá o
+  // editor continua com a última licença que valia (só a trava de um Mac por vez já fazia isso).
+  const isPlaying = useStore((s) => s.transport.isPlaying);
+  const locked = !!deviceConflict || (!!needInternet && !license) || license?.status === 'blocked' || license?.status === 'expired';
+  useEffect(() => {
+    if (!locked && license) usableLicenseRef.current = license;
+  }, [locked, license]);
+  const holdForShow = locked && isPlaying && !!session && gatePassed && usableLicenseRef.current !== null;
+  const showingEditor = (!!session && gatePassed && !locked) || holdForShow;
   useEffect(() => {
     if (!ready || showingEditor) return;
     const id = requestAnimationFrame(() => window.vsDesktop?.appReady());
@@ -455,6 +726,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </AccessNotice>
             )}
             {info && <AccessNotice tone="green"><p>{info}</p></AccessNotice>}
+            {notice && !info && !error && <AccessNotice tone={notice.tone}><p>{notice.text}</p></AccessNotice>}
 
             {view === 'forgot' ? (
               <Field icon={Mail} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail cadastrado" autoComplete="email" required autoFocus />
@@ -485,13 +757,6 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             )}
 
             <div className="flex items-center justify-between gap-3 flex-wrap">
-              <button
-                type="button" disabled={busy}
-                onClick={() => void signInWithGoogle().catch((err) => setError(friendlyError(err.message)))}
-                className={`w-full py-2 rounded-lg border border-logic-border text-logic-text-dim text-sm font-medium flex items-center justify-center gap-2 hover:bg-logic-bg-elevated transition disabled:opacity-50`}
-              >
-                <span className="text-logic-text">G</span> Entrar com o Google
-              </button>
               {view === 'signin' && (
                 <button
                   type="button" onClick={() => setRemember((v) => !v)} aria-pressed={remember}
@@ -528,6 +793,28 @@ export default function DirectorAccess({ children }: { children: (license: Licen
                   : view === 'forgot' ? 'Enviar link de recuperação' : (subscribeOpen ? 'Entrar e assinar' : 'Entrar')}
               </button>
             </div>
+            {view !== 'forgot' && (
+              // Conta criada com o Google não tem senha: entra pelo mesmo caminho.
+              googleWaiting ? (
+                <div className="console-key h-auto w-full px-3 py-2 text-[0.84rem] flex items-center justify-between gap-2 text-logic-text">
+                  <span className="flex items-center gap-2 text-left">
+                    <Loader2 size={14} className="animate-spin text-logic-lcd-amber shrink-0" />
+                    Termine no navegador. O VS Stage volta sozinho.
+                  </span>
+                  <button type="button" onClick={cancelGoogleSignIn} className="access-link shrink-0">
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button" disabled={busy}
+                  onClick={startGoogle}
+                  className="console-key h-10 w-full text-[0.9rem] flex items-center justify-center gap-2 text-logic-text disabled:opacity-50"
+                >
+                  <span className="font-bold text-logic-lcd-amber">G</span> Entrar com o Google
+                </button>
+              )
+            )}
             {view === 'signin' && (
               <div className="text-center pt-1">
                 <button
@@ -554,6 +841,73 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     );
   }
 
+  if (holdForShow && session && usableLicenseRef.current) {
+    return (
+      <>
+        {children(usableLicenseRef.current, session)}
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[400] max-w-[calc(100vw-2rem)] px-4 py-3 rounded-lg text-sm flex items-center gap-2.5 console-face shadow-2xl ring-1 ring-black text-logic-lcd-amber"
+        >
+          <span className="console-lamp is-on shrink-0" />
+          Sua conta precisa ser conferida. A música segue tocando; a tela de acesso aparece quando ela parar.
+        </div>
+      </>
+    );
+  }
+
+  if (deviceConflict) {
+    const seen = lastSeenText(deviceConflict.otherSeen, Date.now());
+    return (
+      <AccessStage>
+        <AccessCard label="Conta em outro Mac" status={<AccessStatus tone="amber">1 Mac por vez</AccessStatus>}>
+          <div className="px-6 pt-7 pb-6 text-center">
+            <AccessTitle
+              title="Sua conta já está aberta em outro computador"
+              subtitle={session.user.email}
+            />
+            <div className="console-display px-4 py-3 flex items-center justify-center gap-2.5 min-h-[3.25rem] text-[0.82rem]">
+              <Laptop size={14} className="text-logic-lcd-amber shrink-0" />
+              <span className="text-logic-text-dim">
+                Aberta em <span className="text-logic-text">{otherDeviceLabel(deviceConflict.otherName)}</span>{seen ? ` (${seen})` : ''}.
+              </span>
+            </div>
+            <p className="text-sm text-logic-text-dim mt-4 leading-relaxed">
+              A conta funciona em um Mac por vez. Aceita desconectar o outro computador para entrar neste?
+            </p>
+            {deviceError && <div className="mt-4"><AccessNotice tone="red"><p>{deviceError}</p></AccessNotice></div>}
+            <button type="button" onClick={takeOver} disabled={takingOver} autoFocus className="access-key mt-5">
+              {takingOver && <Loader2 size={16} className="animate-spin" />}
+              Sim, desconectar o outro e entrar aqui
+            </button>
+          </div>
+          <AccessFoot cols={1}>
+            <FootKey disabled={takingOver} onClick={refuseTakeOver}><X size={14} /> Não, manter o outro computador</FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
+    );
+  }
+
+  if (needInternet && !license) {
+    return (
+      <AccessStage>
+        <AccessCard label="Sem internet" status={<AccessStatus tone="amber">Offline</AccessStatus>}>
+          <div className="px-6 pt-7 pb-6 text-center">
+            <AccessTitle title="Conecte à internet" subtitle={session.user.email} />
+            <AccessNotice tone="red"><p>{NEED_INTERNET_TEXT[needInternet]}</p></AccessNotice>
+            <button type="button" onClick={() => { loadLicense(NET_WAIT_MS, true).catch(() => {}); }} className="access-key mt-5">
+              <RefreshCw size={16} /> Tentar de novo
+            </button>
+          </div>
+          <AccessFoot cols={1}>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
+          </AccessFoot>
+        </AccessCard>
+      </AccessStage>
+    );
+  }
+
   if (license?.status === 'blocked') {
     return (
       <AccessStage>
@@ -568,7 +922,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </p>
           </div>
           <AccessFoot cols={1}>
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
           </AccessFoot>
         </AccessCard>
       </AccessStage>
@@ -576,30 +930,40 @@ export default function DirectorAccess({ children }: { children: (license: Licen
   }
 
   if (license?.status === 'expired') {
+    // Quem já pagou e deixou vencer não vê "teste grátis terminou" (servidor antigo não manda esses campos).
+    const paidOver = license.reason === 'paid_period_over' || !!license.paid_before || !!license.had_paid;
+    const paidUntil = paidOver && license.paid_until && Number.isFinite(Date.parse(license.paid_until))
+      ? formatBrasiliaDate(license.paid_until) : null;
     return (
       <AccessStage>
         <SubscribeDialog
           embedded
-          label="Teste grátis encerrado"
+          label={paidOver ? 'Assinatura vencida' : 'Teste grátis encerrado'}
           status={<AccessStatus tone="red">0:00</AccessStatus>}
-          title="Seu teste grátis terminou"
-          subtitle="Faça sua assinatura para continuar usando o VS Stage Pro. Seus shows e projetos continuam salvos — ao assinar, tudo volta exatamente de onde parou."
+          title={paidOver ? (paidUntil ? `Sua assinatura venceu em ${paidUntil}` : 'Sua assinatura venceu') : 'Seu teste grátis terminou'}
+          subtitle={paidOver
+            ? 'Renove para continuar usando o VS Stage Pro. O pagamento (PIX ou cartão) não renova sozinho. Seus shows e projetos continuam salvos: ao renovar, tudo volta exatamente de onde parou.'
+            : 'Faça sua assinatura para continuar usando o VS Stage Pro. Seus shows e projetos continuam salvos: ao assinar, tudo volta exatamente de onde parou.'}
+          initialPlan={paidOver && license.last_plan ? license.last_plan : undefined}
+          payLabel={paidOver ? 'Renovar' : undefined}
           footer={(
             <>
-              <PromoRedeem onRedeemed={() => { loadLicense().catch(() => {}); }} />
+              <PromoRedeem onRedeemed={() => { loadLicense(NET_WAIT_MS, true).catch(() => {}); }} />
               <AccessFoot>
                 <FootKey
                   onClick={async () => {
                     // assinatura paga, bônus ou parceiro adicionado pelo admin: libera na hora
-                    const lic = await loadLicense().catch(() => null);
-                    if (lic?.status !== 'active') {
+                    const lic = await loadLicense(NET_WAIT_MS, true).catch(() => null);
+                    if (!lic) {
+                      setPromoNotice({ ok: false, text: 'Sem internet agora. Conecte o Mac à internet para conferir a assinatura.' });
+                    } else if (lic.status !== 'active') {
                       setPromoNotice({ ok: false, text: 'Ainda não encontramos assinatura ativa nesta conta. Se acabou de assinar, aguarde um instante e tente de novo.' });
                     }
                   }}
                 >
-                  <RefreshCw size={14} /> Já assinei
+                  <RefreshCw size={14} /> {paidOver ? 'Já renovei' : 'Já assinei'}
                 </FootKey>
-                <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+                <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
               </AccessFoot>
             </>
           )}
@@ -625,7 +989,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
             </a>
           </div>
           <AccessFoot cols={1}>
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Sair da conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Sair da conta</FootKey>
           </AccessFoot>
         </AccessCard>
       </AccessStage>
@@ -671,6 +1035,12 @@ export default function DirectorAccess({ children }: { children: (license: Licen
               </div>
             )}
             {endsAt !== null && statusText && <p className="text-xs text-logic-text-dim mt-3">{statusText}</p>}
+            {license?.offline_checked_at && (
+              <p className="text-xs text-logic-text-dim mt-3 inline-flex items-center gap-1.5">
+                <WifiOff size={12} className="text-logic-lcd-amber" />
+                Sem internet: usando a última conferência ({formatCheckDate(license.offline_checked_at)}).
+              </p>
+            )}
 
             <button type="button" onClick={passGate} disabled={loading} autoFocus className="access-key mt-5">
               {loading && <Loader2 size={16} className="animate-spin" />}
@@ -680,15 +1050,22 @@ export default function DirectorAccess({ children }: { children: (license: Licen
 
           <AccessFoot>
             {isActive ? (
-              <span className="console-key h-10 px-3 text-[0.95rem] flex items-center justify-center gap-2 text-logic-lcd-green pointer-events-none">
-                <span className="console-led is-on-green" /> <CheckCircle2 size={14} /> {license.partner ? 'Parceiro · Endorse' : 'Assinante'}
+              // Selo numa linha só: o cartão tem 420 px fixos, então cada tecla do rodapé tem uns
+              // 194 px; "Parceiro · Endorse" no tamanho das outras teclas passava disso e quebrava.
+              <span
+                title={license.partner ? 'Parceiro VS Stage Pro (Endorse): acesso completo liberado' : undefined}
+                className="console-key h-10 min-w-0 px-2 gap-1.5 text-[0.84rem] whitespace-nowrap flex items-center justify-center text-logic-lcd-green pointer-events-none"
+              >
+                <span className="console-led is-on-green shrink-0" />
+                {license.partner ? <BadgeCheck size={13} className="shrink-0" /> : <CheckCircle2 size={13} className="shrink-0" />}
+                <span>{license.partner ? 'Parceiro · Endorse' : 'Assinante'}</span>
               </span>
             ) : (
               <FootKey disabled={loading} onClick={() => { setSubscribeOpen(true); passGate(); }}>
                 <CreditCard size={14} /> Assinar agora
               </FootKey>
             )}
-            <FootKey onClick={doSignOut}><LogOut size={14} /> Trocar de conta</FootKey>
+            <FootKey onClick={() => doSignOut()}><LogOut size={14} /> Trocar de conta</FootKey>
           </AccessFoot>
         </AccessCard>
         {promoToast}
@@ -696,13 +1073,53 @@ export default function DirectorAccess({ children }: { children: (license: Licen
     );
   }
 
+  const warn = renewalWarning(license, heldOpen, Date.now());
   return (
     <>
       {children(license ?? { status: 'trial' }, session)}
       {subscribeOpen && license?.status === 'trial' && <SubscribeDialog onClose={() => setSubscribeOpen(false)} />}
+      {warn && dismissedWarn !== warn.key && (
+        <div
+          role="status"
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[390] max-w-[calc(100vw-2rem)] w-[560px] px-4 py-2.5 rounded-lg text-xs flex items-start gap-2.5 console-face shadow-2xl ring-1 ring-black text-logic-lcd-amber"
+        >
+          <span className="console-lamp is-on shrink-0 mt-0.5" />
+          <span className="flex-1 leading-snug">{warn.text}</span>
+          <button className="console-key h-6 w-6 shrink-0 grid place-items-center" onClick={() => setDismissedWarn(warn.key)} aria-label="Fechar o aviso" title="Fechar o aviso">
+            <X size={12} />
+          </button>
+        </div>
+      )}
       {promoToast}
     </>
   );
+}
+
+const shortDate = (ms: number) => new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const RENEW_WARN_MS = 3 * 24 * 3600 * 1000;
+
+/**
+ * Aviso de vencimento do assinante, do mais urgente ao menos:
+ * - prazo vencido sem internet com o programa aberto (segue até fechar);
+ * - na folga de 3 dias sem internet;
+ * - faltam 3 dias ou menos para o fim do período pago.
+ */
+function renewalWarning(license: License | null, heldOpen: boolean, now: number): { key: string; text: string } | null {
+  if (!license || license.status !== 'active') return null;
+  if (heldOpen) {
+    return { key: 'held', text: 'Não deu para conferir sua assinatura sem internet. O programa segue aberto até você fechar: conecte à internet um instante antes de fechar ou antes do próximo show.' };
+  }
+  if (license.offline_grace_from && license.offline_until) {
+    return { key: `grace:${license.offline_grace_from}`, text: `Sem internet, sua assinatura não pôde ser conferida. O programa libera até ${shortDate(license.offline_until)}: conecte à internet um instante para confirmar a renovação.` };
+  }
+  const end = license.current_period_end ? new Date(license.current_period_end).getTime() : NaN;
+  // só período pago que não renova sozinho (PIX ou cartão pela InfinitePay); a assinatura antiga
+  // ('active') renova sozinha e o servidor libera mesmo com a data antiga
+  if (!license.partner && license.plan !== 'promo' && license.subscription !== 'active' && Number.isFinite(end) && end > now && end - now <= RENEW_WARN_MS) {
+    const days = Math.max(1, Math.ceil((end - now) / (24 * 3600 * 1000)));
+    return { key: `renew:${end}`, text: `Sua assinatura vence ${days === 1 ? 'em menos de 1 dia' : `em ${days} dias`} (${shortDate(end)}). Renove e abra o programa com internet antes do show.` };
+  }
+  return null;
 }
 function formatRemaining(ms: number) {
   const totalMin = Math.max(0, Math.ceil(ms / 60000));
@@ -715,6 +1132,22 @@ function formatRemaining(ms: number) {
 }
 
 export function TrialBadge({ license }: { license: License | null }) {
+  const badge = <LicenseBadge license={license} />;
+  if (!license?.offline_checked_at) return badge;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span
+        title={`Sem internet: usando a última conferência da conta (${formatCheckDate(license.offline_checked_at)}). VS por IA na nuvem, Show Online e pagamento precisam de internet.`}
+        className="inline-flex items-center gap-1 px-2 h-5 rounded bg-white/5 text-logic-text-dim text-2xs font-bold"
+      >
+        <CloudOff size={11} /> Sem internet
+      </span>
+      {badge}
+    </span>
+  );
+}
+
+function LicenseBadge({ license }: { license: License | null }) {
   const [now, setNow] = useState(() => Date.now());
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -732,14 +1165,15 @@ export function TrialBadge({ license }: { license: License | null }) {
       </span>
     );
   }
-  // PIX não renova sozinho: nos últimos 7 dias mostra quanto falta e o atalho para renovar
+  // Período pago pela InfinitePay (PIX ou cartão) não renova sozinho: nos últimos 7 dias
+  // mostra quanto falta e o atalho para renovar. ('pix' é só o nome antigo do campo.)
   if (license?.status === 'active' && license.subscription === 'pix' && license.current_period_end) {
     const left = new Date(license.current_period_end).getTime() - now;
     if (left > 7 * 24 * 3600000) return null;
     return (
       <span className="inline-flex items-center gap-1.5">
         <span
-          title="A assinatura paga por PIX não renova sozinha"
+          title="O pagamento (PIX ou cartão) não renova sozinho"
           className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber/15 text-logic-lcd-amber text-2xs font-bold tabular-nums"
         >
           <Timer size={11} /> Assinatura: {formatRemaining(left)}
@@ -748,13 +1182,15 @@ export function TrialBadge({ license }: { license: License | null }) {
           type="button" onClick={() => setOpen(true)}
           className="inline-flex items-center gap-1 px-2 h-5 rounded bg-logic-lcd-amber text-black text-2xs font-bold hover:brightness-110 transition"
         >
-          <QrCode size={11} /> Renovar
+          <RefreshCw size={11} /> Renovar
         </button>
         {open && (
           <SubscribeDialog
             onClose={() => setOpen(false)}
             title="Renove sua assinatura"
-            subtitle="O PIX não renova sozinho. O tempo novo entra depois do que ainda falta."
+            subtitle="O pagamento (PIX ou cartão) não renova sozinho. O tempo novo entra depois do que ainda falta."
+            initialPlan={license.plan === 'monthly' || license.plan === 'yearly' ? license.plan : undefined}
+            payLabel="Renovar"
           />
         )}
       </span>

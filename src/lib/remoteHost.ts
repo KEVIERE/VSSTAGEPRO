@@ -1,7 +1,7 @@
 // VS Stage Remote, lado do programa do Mac: monta o estado do Modo Show para o celular e executa
 // os comandos que chegam dele, com as mesmas funções que os botões do programa usam.
 
-import { useStore, ROUTABLE_TRACKS, BLOCK_COLORS } from '@/store';
+import { useStore, routableTrackIds, BLOCK_COLORS } from '@/store';
 import { audioEngine } from '@/lib/audioEngine';
 import { startPlayback, stopPlayback, pausePlayback, seekToPosition } from '@/lib/transportControl';
 import {
@@ -188,7 +188,7 @@ export function buildRemoteState(): RemoteState {
     blockColors: [...BLOCK_COLORS],
     reply: lastReply,
     app: __APP_VERSION__,
-    tracks: ROUTABLE_TRACKS
+    tracks: routableTrackIds(st.tracks)
       .map((id) => st.tracks.find((tr) => tr.id === id))
       .filter((tr): tr is NonNullable<typeof tr> => !!tr && !tr.parentId)
       .map((tr) => ({
@@ -381,7 +381,7 @@ export function applyRemoteCommand(raw: unknown): void {
 
 /** Canais que o Remote mostra (os mesmos do mixer do Mac, na mesma ordem). */
 function remoteTrackIds(st: Store): string[] {
-  return ROUTABLE_TRACKS.filter((id) => st.tracks.some((tr) => tr.id === id && !tr.parentId));
+  return routableTrackIds(st.tracks).filter((id) => st.tracks.some((tr) => tr.id === id && !tr.parentId));
 }
 
 /**

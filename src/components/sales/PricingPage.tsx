@@ -21,6 +21,7 @@ import {
   Radio,
   ShieldCheck,
   Sparkles,
+  Tag,
   Timer,
   User,
   Wifi,
@@ -33,9 +34,10 @@ import WhatsAppButton from './WhatsAppButton';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 import { signInWithGoogle } from '@/lib/authFlow';
+import { trackMetaLead } from '@/lib/metaPixel';
 import PixCheckout from '@/components/PixCheckout';
 import { AccessCard } from '@/components/access/AccessChrome';
-import { trackMetaLead } from '@/lib/metaPixel';
+import { resolveAffiliateCoupon } from '@/lib/affiliateApi';
 
 export type Plan = 'monthly' | 'yearly';
 
@@ -53,7 +55,7 @@ const COMPARISON_FEATURES = [
       { name: 'Mixer com canal Timecode LTC blindado (−6dB)', monthly: true, yearly: true },
       { name: 'Botão Split Master L/R de emergência instantâneo', monthly: true, yearly: true },
       { name: 'Modo Show à prova de acidentes e cliques errados', monthly: true, yearly: true },
-      { name: 'Live Loop Pads no teclado (teclas 1-9, L, P)', monthly: true, yearly: true },
+      { name: 'Live Loop Pads no teclado (teclas L e N)', monthly: true, yearly: true },
       { name: 'Projetos, repertórios e músicas sem limite', monthly: true, yearly: true },
     ],
   },
@@ -70,7 +72,7 @@ const COMPARISON_FEATURES = [
     category: 'Vantagens do Plano & Licenciamento',
     items: [
       { name: 'Mac (Apple Silicon e Intel) e Windows 10 e 11', monthly: true, yearly: true },
-      { name: 'Cancelamento a qualquer momento sem taxas', monthly: true, yearly: true },
+      { name: 'Sem fidelidade: você paga só quando quiser continuar', monthly: true, yearly: true },
       { name: 'Economia garantida de R$ 311,00 por ano', monthly: false, yearly: true, note: 'R$ 29,08/mês no anual' },
       { name: 'Acesso prioritário a novas atualizações da temporada', monthly: false, yearly: true, note: 'Incluso no anual' },
       { name: 'Canal de suporte técnico prioritário', monthly: false, yearly: true, note: 'Prioritário' },
@@ -85,7 +87,7 @@ const PRICING_FAQS = [
   },
   {
     q: 'Posso cancelar a assinatura quando eu quiser?',
-    a: 'Sim, com total liberdade! Não há fidelidade, multa ou contrato de permanência mínima. No plano mensal, você pode cancelar a qualquer momento diretamente pelo painel e o acesso continua liberado até o fim do período já pago.',
+    a: 'Sim. Não há fidelidade, multa nem cobrança automática. Cada pagamento libera 1 mês (mensal) ou 1 ano (anual); se não quiser continuar, basta não renovar. O acesso segue liberado até o fim do período pago.',
   },
   {
     q: 'Qual é a vantagem do Plano Anual?',
@@ -118,8 +120,10 @@ export default function PricingPage() {
   const [authSuccessMsg, setAuthSuccessMsg] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  // Plano do PIX aberto (mostra o QR Code)
+  // Plano escolhido com o pagamento aberto (link da InfinitePay)
   const [pixPlan, setPixPlan] = useState<Plan | null>(null);
+  // Veio pelo link de um afiliado: cupom já aplicado no primeiro pagamento
+  const [affiliateCoupon, setAffiliateCoupon] = useState<{ code: string; percent: number } | null>(null);
 
   const handleStartPix = async (plan: Plan) => {
     setSelectedPlan(plan);
@@ -153,6 +157,12 @@ export default function PricingPage() {
     return () => sub?.subscription?.unsubscribe();
   }, []);
 
+
+  useEffect(() => {
+    let alive = true;
+    resolveAffiliateCoupon(!!currentUserEmail).then((c) => { if (alive) setAffiliateCoupon(c); });
+    return () => { alive = false; };
+  }, [currentUserEmail]);
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -250,8 +260,7 @@ export default function PricingPage() {
         }
       }
 
-      // Sessão pronta: abre o checkout da InfinitePay, onde o cliente escolhe
-      // PIX ou cartão. Não há mais um segundo caminho pela Stripe.
+      // Sessão pronta: abre o checkout da InfinitePay, onde o cliente escolhe PIX ou cartão.
       setAuthModalOpen(false);
       setPixPlan(selectedPlan);
       return;
@@ -347,6 +356,14 @@ export default function PricingPage() {
 
         {/* Cards de Preço: Mensal vs Anual */}
         <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-12">
+          {affiliateCoupon && (
+            <div className="mb-8 mx-auto max-w-xl flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#ff9f0a]/10 border border-[#ff9f0a]/35 text-sm text-[#ffd08a]">
+              <Tag size={16} className="text-[#ff9f0a] shrink-0" />
+              <span>
+                Cupom <strong className="text-white">{affiliateCoupon.code}</strong> aplicado: {affiliateCoupon.percent}% de desconto no primeiro pagamento, mensal ou anual.
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-stretch">
             
             {/* CARD 1: PLANO MENSAL */}
@@ -375,7 +392,7 @@ export default function PricingPage() {
                     <span className="text-sm font-medium text-apple-text-secondary">/mês</span>
                   </div>
                   <p className="text-xs text-apple-text-tertiary mt-2">
-                    Cobrança recorrente mensal no cartão. Cancele quando quiser com 1 clique.
+                    Pagamento único por mês, no PIX ou no cartão. Sem cobrança automática: para continuar, é só pagar o mês seguinte.
                   </p>
                 </div>
 
@@ -393,7 +410,7 @@ export default function PricingPage() {
                     'Rede local Wi-Fi sem internet (Área do Músico no celular)',
                     'Teleprompter em tela cheia na TV de palco',
                     'Mac (Apple Silicon e Intel) e Windows 10 e 11',
-                    'Cancelamento a qualquer momento sem multa',
+                    'Sem fidelidade: você paga só quando quiser continuar',
                   ].map((feat) => (
                     <div key={feat} className="flex items-start gap-2.5 text-sm text-[#d2d2d7]">
                       <div className="w-4 h-4 rounded-full bg-white/10 text-white flex items-center justify-center shrink-0 mt-0.5">
@@ -684,7 +701,7 @@ export default function PricingPage() {
 
       <WhatsAppButton message="Olá! Tenho dúvidas sobre os planos do VS Stage Pro." />
 
-      {/* PIX: QR Code e confirmação automática, no módulo da mesa (igual ao programa) */}
+      {/* Pagamento: link da InfinitePay e confirmação automática, no módulo da mesa (igual ao programa) */}
       {pixPlan && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md apple-fade-in overflow-y-auto"
@@ -701,10 +718,11 @@ export default function PricingPage() {
             )}
           >
             <div className="px-6 pt-6 pb-6">
-              <h2 className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">Pague com PIX, cartão ou Apple Pay</h2>
+              <h2 className="font-stage font-bold text-[1.6rem] leading-tight text-logic-text text-center mb-5">Pague com PIX ou cartão</h2>
               <PixCheckout
-                key={pixPlan}
+                key={`${pixPlan}-${affiliateCoupon?.code ?? ''}`}
                 plan={pixPlan}
+                couponCode={affiliateCoupon?.code}
                 onBack={() => setPixPlan(null)}
                 paidNote={(
                   <span>
@@ -874,17 +892,17 @@ export default function PricingPage() {
                   </div>
                 )}
 
-                {(authMode !== 'forgot') && (
-                    <button
-                      type="button" disabled={authBusy}
-                      onClick={() => void signInWithGoogle().catch((err) => setAuthError(friendlyError(err.message)))}
-                      className="w-full py-2.5 rounded-xl border border-white/[0.14] text-white/[0.9] text-sm font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition disabled:opacity-50 mb-3"
-                    >
-                      <span className="text-white/[0.8]">G</span> Continuar com o Google
-                    </button>
-                  )}
-
+                {authMode !== 'forgot' && (
                   <button
+                    type="button" disabled={authBusy}
+                    onClick={() => void signInWithGoogle().catch((err) => setAuthError(friendlyError(err.message)))}
+                    className="w-full py-2.5 rounded-xl border border-white/[0.14] text-white/[0.9] text-sm font-semibold flex items-center justify-center gap-2 hover:bg-white/10 transition disabled:opacity-50 mb-3"
+                  >
+                    <span className="text-white/[0.8]">G</span> Continuar com o Google
+                  </button>
+                )}
+
+                <button
                   type="submit"
                   disabled={authBusy || !authEmail.trim() || (authMode !== 'forgot' && authPassword.length < 6)}
                   className="w-full h-12 rounded-xl btn-apple-blue text-white font-semibold text-sm flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50 mt-2"

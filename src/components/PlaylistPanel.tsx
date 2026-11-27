@@ -2,7 +2,7 @@ import { memo, useState, useRef, useEffect, useLayoutEffect, useMemo, useSyncExt
 import { useStore, BLOCK_COLORS } from '@/store';
 import {
   ListMusic, Plus, Music2, Flag,
-  FlagTriangleRight, Link, Maximize2, Minimize2, SlidersHorizontal, Loader2, AlertTriangle, FolderDown, Gauge, AudioWaveform,
+  FlagTriangleRight, Link, SlidersHorizontal, Loader2, AlertTriangle, FolderDown, Gauge, AudioWaveform,
   ChevronRight, ChevronsDownUp, ChevronsUpDown, CheckCircle2, Search, X, LayoutGrid,
 } from 'lucide-react';
 import { getPadsState, subscribePads, togglePadsPanel } from '@/lib/samplePads';
@@ -19,6 +19,7 @@ import { useLiveFill } from '@/lib/frameClock';
 import { stopPlayback } from '@/lib/transportControl';
 import SegmentDisplay from '@/components/SegmentDisplay';
 import type { Block, PlaylistEntry, Song } from '@/types';
+import { useCommand } from '@/lib/shortcuts/runtime';
 
 const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files');
 const NARROW_TOWER_W = 104;
@@ -294,6 +295,10 @@ function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpenAiSeparator?: (
   const fileDragDepth = useRef(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  // atalho do usuário para Pesquisar música: faz o mesmo que a lupa (abre e já põe o cursor no campo)
+  useCommand('playlist.search', () => {
+    setSearchOpen((open) => { if (open) setSearchQuery(''); return !open; });
+  });
 
   // O estado de agora para as ações das linhas (as funções delas não mudam entre os desenhos).
   const live = useRef({ dragIndex, dragBlockId, dropPos, playlist, blocks, renamingId, renameValue, renameBlockValue, toggleRow });
@@ -651,13 +656,7 @@ function PlaylistPanel({ onOpenAiSeparator, maximized }: { onOpenAiSeparator?: (
           >
             <Link size={14} />
           </button>
-          <button
-            className={hdrKey()}
-            onClick={togglePlaylistMaximized}
-            title={playlistMaximized ? 'Sair do modo show (Esc)' : 'Modo show: playlist em tela cheia'}
-          >
-            {playlistMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-          </button>
+          {/* o Modo Show liga e desliga pelo interruptor da barra de cima e do painel do show */}
           <ImportVSDialog open={importOpen} onClose={() => setImportOpen(false)} onOpenAiSeparator={onOpenAiSeparator} />
         </div>
       </div>

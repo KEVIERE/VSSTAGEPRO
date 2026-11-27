@@ -138,7 +138,8 @@ async function checkForUpdate(_supabaseUrl) {
     const direction = wrongChip
       ? 'upgrade'
       : cmp !== 0 ? (cmp > 0 ? 'upgrade' : 'downgrade') : (Number(manifest.build) > currentBuild() ? 'upgrade' : 'downgrade');
-    return { version: manifest.version, build, base, direction, required: manifest.required === true, archSwap: wrongChip };
+    return { version: manifest.version, build, base, direction, // o programa de teste (sem instalador) nunca fica bloqueado: ele não instala atualização
+      required: manifest.required === true && app.isPackaged, archSwap: wrongChip };
   } catch {
     return null;
   }

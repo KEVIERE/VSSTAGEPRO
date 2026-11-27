@@ -42,12 +42,14 @@ test('assinatura do Remote só é recalculada quando alguma entrada muda', () =>
 });
 
 test('Home e End levam o cursor ao início e ao fim da música', () => {
-  const app = read('src', 'App.tsx');
-  const filtro = app.indexOf("if (isTextInput || el?.tagName === 'SELECT') return;");
-  const atalho = app.indexOf("(e.key === 'Home' || e.key === 'End')");
-  assert.ok(filtro > 0 && atalho > filtro, 'depois do filtro de campos de texto');
-  assert.match(app, /if \(!song\) return;/);
-  assert.match(app, /seekToPosition\(song\.id, e\.key === 'Home' \? 0 : Math\.max\(0, song\.duration\)\)/);
+  // as teclas passaram para o tratador único de atalhos (src/lib/shortcuts)
+  const cmds = read('src', 'lib', 'shortcuts', 'appCommands.ts');
+  assert.match(cmds, /on\('transport\.goToStart'[\s\S]*?if \(!song\) return false;[\s\S]*?seekToPosition\(song\.id, 0\)/);
+  assert.match(cmds, /on\('transport\.goToEnd'[\s\S]*?if \(!song\) return false;[\s\S]*?seekToPosition\(song\.id, Math\.max\(0, song\.duration\)\)/);
+  // campo de texto e lista de escolha (SELECT) não disparam
+  const core = read('src', 'lib', 'shortcuts', 'dispatchCore.ts');
+  assert.match(core, /if \(inText && !def\.inText\) continue;/);
+  assert.match(core, /if \(inSelect && !def\.inSelect\) continue;/);
 });
 
 test('ClipBlock em memo com handlers estáveis', () => {

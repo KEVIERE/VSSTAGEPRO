@@ -488,3 +488,23 @@ export function resolveMediaPath<T>(ref: string, rppDir: string, files: Array<{ 
   }
   return best?.file ?? null;
 }
+
+const MIDI_REF = /\.(mid|midi|smf)$/i;
+
+/**
+ * Arquivos MIDI da pasta que não são itens das faixas do projeto. Um item MIDI começa no ponto do
+ * item, não no 0:00 do projeto, então não serve de mapa (o mapa exato já vem do próprio .rpp);
+ * o que sobra é o MIDI exportado do projeto inteiro (File > Export project MIDI).
+ */
+export function withoutItemMedia<T>(project: RppProject, rppDir: string, midi: Array<{ path: string; file: T }>): T[] {
+  if (!midi.length) return [];
+  const used = new Set<T>();
+  for (const track of project.tracks) {
+    for (const item of track.items) {
+      if (!item.file || (item.sourceType !== 'MIDI' && !MIDI_REF.test(item.file))) continue;
+      const hit = resolveMediaPath(item.file, rppDir, midi);
+      if (hit) used.add(hit);
+    }
+  }
+  return midi.map((f) => f.file).filter((f) => !used.has(f));
+}

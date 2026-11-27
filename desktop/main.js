@@ -13,6 +13,7 @@ const selfUpdate = require('./selfUpdate');
 const { initAntiTamper, getHardwareIdAsync } = require('./antiTamper');
 const licenseCache = require('./licenseCache');
 const { deviceInfo } = require('./deviceInfo');
+const { GoogleAuthFlow } = require('./googleAuth');
 
 // Módulos de IA, voz e letra: carregam na primeira vez que a tela pede, não antes da abertura
 // aparecer (antes eram lidos e compilados todos antes da splash). Cada um recebe a preparação
@@ -439,6 +440,20 @@ handle('licenseCacheSave', async (userId, license) => { await hardwareIdReady();
 handle('licenseCacheClear', () => licenseCache.clear());
 // Quem é este Mac, para a regra de um Mac por vez em cada conta (ver deviceInfo.js).
 handle('deviceInfo', () => deviceInfo());
+// Entrar com o Google: abre no navegador padrão e volta por 127.0.0.1 (ver googleAuth.js).
+const googleAuth = new GoogleAuthFlow({
+  openExternal: (url) => shell.openExternal(url),
+  focusWindow: () => {
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    if (process.platform === 'darwin') app.focus({ steal: true });
+    win.focus();
+  },
+});
+handle('googleAuthPrepare', () => googleAuth.prepare());
+handle('googleAuthWait', (url) => googleAuth.wait(url));
+handle('googleAuthCancel', () => googleAuth.cancel());
 handle('openAction', async (action) => {
   if (action === 'router') {
     const gw = await defaultGateway();
@@ -704,6 +719,43 @@ handle('installUpdate', async (info) => {
   }
 });
 
+// Atalhos que o usuário escolheu na janela "Atalhos de teclado" (id do comando → accelerator).
+let menuShortcuts = {};
+const ACCEL_RE = /^(?:(?:CmdOrCtrl|Ctrl|Alt|Shift)\+)*(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Esc|Return|Tab|Backspace|Delete|Insert|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|[=\-,./;'`\[\]\\*])$/;
+
+/** Accelerator do item: o do usuário, ou o padrão. '' do usuário = item sem atalho. */
+function menuAcc(id, fallback) {
+  if (Object.prototype.hasOwnProperty.call(menuShortcuts, id)) return menuShortcuts[id] || undefined;
+  return fallback;
+}
+/** Item do sistema (role): só troca o atalho quando o usuário deu um; senão fica o do sistema. */
+function roleAcc(id) {
+  const acc = menuShortcuts[id];
+  return acc ? { accelerator: acc } : {};
+}
+function sendMenuCommand(id) {
+  if (win && !win.isDestroyed()) win.webContents.send('menu:command', id);
+}
+
+ipcMain.on('menu:setShortcuts', (event, map) => {
+  if (!win || win.isDestroyed() || event.sender !== win.webContents) return;
+  const clean = {};
+  if (map && typeof map === 'object') {
+    for (const [id, acc] of Object.entries(map)) {
+      if (typeof id !== 'string' || !/^[a-zA-Z.]{1,64}$/.test(id) || typeof acc !== 'string') continue;
+      if (acc === '' || ACCEL_RE.test(acc)) clean[id] = acc;
+    }
+  }
+  menuShortcuts = clean;
+  try {
+    buildMenu();
+  } catch (err) {
+    console.error('[menu] atalhos do usuário recusados', err);
+    menuShortcuts = {};
+    buildMenu();
+  }
+});
+
 function buildMenu() {
   const isMac = process.platform === 'darwin';
   const template = [
@@ -715,6 +767,7 @@ function buildMenu() {
         { role: 'about', label: 'Sobre o VS Stage Pro' },
         {
           label: 'Verificar Atualizações...',
+          accelerator: menuAcc('app.checkUpdates', undefined),
           // Verificação manual: pede pro renderer checar na hora (reaproveita o mesmo
           // fluxo da barra automática) e mostrar o resultado, mesmo quando já está atualizado.
           click: () => { if (win && !win.isDestroyed()) win.webContents.send('update:manualCheck'); },
@@ -743,6 +796,13 @@ function buildMenu() {
         { role: 'copy', label: 'Copiar' },
         { role: 'paste', label: 'Colar' },
         { role: 'selectAll', label: 'Selecionar Tudo' },
+        { type: 'separator' },
+        {
+          // como os Key Commands do Logic: ⌥K no Mac, Alt+K no Windows
+          label: 'Atalhos de Teclado...',
+          accelerator: menuAcc('app.keyCommands', 'Alt+K'),
+          click: () => sendMenuCommand('app.keyCommands'),
+        },
       ],
     },
     {
@@ -751,29 +811,31 @@ function buildMenu() {
         {
           label: 'Modo Show',
           // ⌘M abre e fecha o Modo Show (Esc também fecha); Minimizar foi para ⌥⌘M
-          accelerator: 'CmdOrCtrl+M',
+          accelerator: menuAcc('view.showMode', 'CmdOrCtrl+M'),
           click: () => { if (win && !win.isDestroyed()) win.webContents.send('menu:showMode'); },
         },
         { type: 'separator' },
-        { role: 'resetZoom', label: 'Tamanho Real' },
-        { role: 'zoomIn', label: 'Ampliar' },
-        { role: 'zoomOut', label: 'Reduzir' },
+        { role: 'resetZoom', label: 'Tamanho Real', ...roleAcc('view.zoomReset') },
+        { role: 'zoomIn', label: 'Ampliar', ...roleAcc('view.zoomIn') },
+        { role: 'zoomOut', label: 'Reduzir', ...roleAcc('view.zoomOut') },
         { type: 'separator' },
-        { role: 'togglefullscreen', label: 'Tela Cheia' },
+        { role: 'togglefullscreen', label: 'Tela Cheia', ...roleAcc('view.fullscreen') },
       ],
     },
     {
       label: 'Janela',
       submenu: [
-        { role: 'minimize', label: 'Minimizar', accelerator: 'Alt+CmdOrCtrl+M' },
+        { role: 'minimize', label: 'Minimizar', accelerator: menuShortcuts['window.minimize'] || 'Alt+CmdOrCtrl+M' },
         { role: 'zoom', label: 'Zoom' },
         ...(isMac ? [{ type: 'separator' }, { role: 'front', label: 'Trazer Todas para a Frente' }] : []),
       ],
     },
     { role: 'help', label: 'Ajuda', submenu: [{ label: 'Site do VS Stage Pro', click: () => shell.openExternal('https://vsstagepro.com.br') }] },
   ];
+  const built = Menu.buildFromTemplate(template);
   menuTemplate = template;
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  // durante a troca de projeto o menu fica desligado: volta com os atalhos novos no unlockMenu
+  if (!menuLocked) Menu.setApplicationMenu(built);
 }
 
 if (hasSingleInstance) app.whenReady().then(() => {
@@ -870,6 +932,7 @@ app.on('before-quit', (event) => {
     return;
   }
   server?.stop();
+  googleAuth.stop();
   // Só o que foi carregado tem algo rodando: sair não carrega módulo nenhum.
   ifLoaded(DOWNLOAD)?.stop();
   ifLoaded(PACKS)?.stop();

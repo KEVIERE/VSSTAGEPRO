@@ -22,7 +22,7 @@ import type { AudioClip } from '@/types';
 //   na janela de sons (ver ClickSoundChooser).
 // Cada um é um passo só de desfazer (Cmd+Z). O áudio antigo continua guardado para o desfazer.
 
-export type ClickToolKind = 'bar' | 'remake';
+export type ClickToolKind = 'bar' | 'remake' | 'generate';
 
 /** O que impede o comando do click agora (ou null se pode). */
 export function clickAddBlocker(songId: string | null, kind: ClickToolKind): string | null {
@@ -31,6 +31,11 @@ export function clickAddBlocker(songId: string | null, kind: ClickToolKind): str
   const song = s.songs.find((x) => x.id === songId);
   if (!song) return 'Abra uma música primeiro';
   const click = clickClipsOf(s.clips, songId)[0];
+  if (kind === 'generate') {
+    if (click) return 'Esta música já tem click. Para trocar o som, use Trocar som do click';
+    if (!s.clips.some((c) => c.songId === songId)) return 'Esta música não tem áudio para analisar';
+    return null;
+  }
   if (!click) return 'Esta música ainda não tem click';
   return null;
 }
@@ -163,7 +168,8 @@ export function isClickToolRunning(): boolean { return running; }
 
 const TITLES: Record<ClickToolKind, string> = {
   bar: 'Um compasso antes do início',
-  remake: 'Recriar metrônomo',
+  remake: 'Trocar som do click',
+  generate: 'Gerar click a partir da música',
 };
 
 /** Roda um comando do click pelo menu e mostra o resultado no painel. */
@@ -173,6 +179,18 @@ export async function startClickTool(songId: string, kind: ClickToolKind, sound:
   const title = TITLES[kind];
   setStatus({ state: 'working', title, percent: 5, message: 'Preparando...' });
   try {
+    if (kind === 'generate') {
+      setStatus({ state: 'working', title, percent: 20, message: 'Ouvindo a música do início ao fim para achar o andamento. Pode levar até 1 minuto...' });
+      const { generateSongClick, bpmFoundNotice } = await import('@/lib/importManager');
+      const name = useStore.getState().songs.find((x) => x.id === songId)?.name ?? '';
+      const res = await generateSongClick(songId);
+      if (!res.ok) throw new Error(res.reason);
+      setStatus({
+        state: 'done', title, percent: 100,
+        message: `Click criado na grade. ${bpmFoundNotice(name, res.bpms)} Confira as placas de BPM na régua: dá para arrastar ou editar.`,
+      });
+      return;
+    }
     if (kind === 'remake') {
       const beats = await remakeMetronome(songId, sound);
       rememberClickSound(sound);

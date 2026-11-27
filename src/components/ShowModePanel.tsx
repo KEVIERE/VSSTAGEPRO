@@ -1,9 +1,11 @@
+import { shortcutLabel } from '@/lib/shortcuts/runtime';
 import { memo, useEffect, useState, useRef, useMemo, useSyncExternalStore } from 'react';
 import {
   Play, Square, Gauge, AudioWaveform, Headphones,
   X, Repeat, Layers, ListOrdered, Search, Music2, Speaker,
 } from 'lucide-react';
 import SegmentDisplay from '@/components/SegmentDisplay';
+import ShowModeSwitch from '@/components/ShowModeSwitch';
 import { clockText, useSongRemaining } from '@/lib/useSongRemaining';
 import { useStore } from '@/store';
 import { startPlayback, stopPlayback } from '@/lib/transportControl';
@@ -59,11 +61,14 @@ function AudioDeviceButton() {
   return (
     <button
       onClick={() => useStore.getState().setAudioDeviceDialogOpen(true)}
-      className="console-key ml-auto flex items-center gap-1.5 min-w-0 max-w-[150px] h-7 px-2 text-[11px] font-semibold"
-      title={`Dispositivo de Áudio: ${name} · ${outputs} saídas`}
+      // só o ícone: o nome não cabia ao lado do interruptor do Modo Show e saía cortado em 3 letras.
+      // O nome completo aparece ao passar o mouse e na janela que abre no clique.
+      className="console-key relative ml-2 flex items-center justify-center shrink-0 h-7 w-8"
+      title={`Dispositivo de Áudio: ${name} · ${outputs} saídas. Clique para trocar.`}
+      aria-label={`Dispositivo de Áudio: ${name}`}
     >
-      <Speaker size={12} className="shrink-0" />
-      <span className="truncate">{name}</span>
+      <Speaker size={15} className="shrink-0" />
+      <span className={`absolute top-1 right-1 h-1.5 w-1.5 rounded-full ${connected ? 'bg-logic-lcd-green' : 'bg-logic-text-muted/60'}`} />
     </button>
   );
 }
@@ -411,13 +416,7 @@ function ShowModePanel({ showName }: { showName: string }) {
         <span className="console-display ml-2 flex items-center h-7 px-2 shrink-0" title="Hora certa">
           <SegmentDisplay text={clock} label={`Hora: ${clock}`} className="h-4 text-logic-lcd-amber" />
         </span>
-        <button
-          onClick={togglePlaylistMaximized}
-          className="console-key ml-2 flex items-center gap-1.5 h-8 px-3 text-[13px] shrink-0 hover:!bg-logic-lcd-red hover:!text-black"
-          title="Sair do modo show (Esc ou ⌘M)"
-        >
-          <X size={14} /> Sair
-        </button>
+<ShowModeSwitch className="ml-auto" />
       </div>
 
       <div className="relative mx-4 mt-3 shrink-0">
@@ -564,3 +563,9 @@ function ShowModePanel({ showName }: { showName: string }) {
 
 // memo: o App redesenha com a rede e as janelas; o Modo Show só pelo que ele mesmo assina.
 export default memo(ShowModePanel);
+
+/** " (Esc ou ⌘M)" com as teclas escolhidas pelo usuário; '' sem nenhuma. */
+function exitKeys(a: string, b: string): string {
+  const keys = [a, b].filter(Boolean);
+  return keys.length ? ` (${keys.join(' ou ')})` : '';
+}

@@ -245,8 +245,8 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           </div>
         </div>
 
-        {/* Cards de Download (Apple Silicon vs Intel) */}
-        <div className="max-w-4xl mx-auto mb-16">
+        {/* Cards de Download: os 4 lado a lado no computador, um abaixo do outro no celular */}
+        <div className="max-w-7xl mx-auto mb-16">
           {!manifest && !loadError && (
             <div className="p-12 rounded-2xl border border-white/10 bg-[#161618] text-center flex flex-col items-center justify-center">
               <Loader2 size={32} className="text-[#2997ff] animate-spin mb-3" />
@@ -266,7 +266,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
           )}
 
           {manifest && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch mb-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 items-stretch mb-8">
               {[...manifest.builds.filter((b) => b.arch === 'arm64' || b.arch === 'x64'), ...(legacy ? [legacy] : []), ...(winBuild ? [winBuild] : [])].map((build) => {
                 const chip = CHIP_HINT[build.arch];
                 const isSuggested = suggested === build.arch;
@@ -279,15 +279,16 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                 return (
                   <div
                     key={build.arch}
-                    className={`relative rounded-3xl p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 border ${
+                    className={`relative rounded-3xl p-6 sm:p-7 lg:p-5 xl:p-6 flex flex-col justify-between transition-all duration-300 border ${
                       isSuggested
-                        ? 'bg-gradient-to-b from-[#1a1c24] via-[#161618] to-[#101116] border-[#0071e3]/60 shadow-[0_0_40px_rgba(0,113,227,0.2)]'
+                        ? 'bg-gradient-to-b from-[#16233a] via-[#141a26] to-[#101116] border-2 border-[#2997ff] shadow-[0_0_0_4px_rgba(41,151,255,0.15),0_0_60px_rgba(0,113,227,0.45)] lg:-translate-y-2 z-10'
                         : 'bg-[#161618] border-white/10 hover:border-white/20'
                     }`}
                   >
                     {/* Badge Recomendado */}
                     {isSuggested && (
-                      <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 px-3.5 py-0.5 rounded-full bg-[#0071e3] text-white text-2xs font-bold tracking-wide uppercase shadow-md flex items-center gap-1.5">
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 whitespace-nowrap px-4 py-1 rounded-full bg-[#0071e3] text-white text-xs font-extrabold tracking-wide uppercase shadow-[0_4px_16px_rgba(0,113,227,0.6)] ring-2 ring-[#2997ff]/60 flex items-center gap-1.5">
+                        <CheckCircle2 size={14} className="shrink-0" />
                         <span>{build.arch === 'win-x64' ? 'Recomendado para o seu PC' : 'Recomendado para o seu Mac'}</span>
                       </div>
                     )}
@@ -304,7 +305,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                         </span>
                       </div>
 
-                      <h3 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">
+                      <h3 className="text-xl sm:text-2xl lg:text-lg xl:text-xl font-extrabold text-white tracking-tight leading-tight">
                         {chip.title}
                       </h3>
                       <p className="text-xs font-semibold text-[#2997ff] mt-1">
@@ -318,7 +319,7 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                       <div className="mt-4 pt-4 border-t border-white/[0.06] space-y-1.5 text-2xs text-[#6e6e73]">
                         <div className="flex items-center justify-between">
                           <span>Arquivo:</span>
-                          <span className="font-mono text-[#86868b]">{build.file}</span>
+                          <span className="font-mono text-[#86868b] text-right break-all ml-2">{build.file}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span>Segurança:</span>
@@ -374,14 +375,14 @@ function MacDownloadPageContent({ session, onSignOut }: { session: Session; onSi
                         <button
                           onClick={() => start(build)}
                           disabled={busy}
-                          className={`relative overflow-hidden w-full h-14 rounded-full font-bold text-sm tracking-tight flex items-center justify-center gap-2.5 transition-all duration-300 active:scale-[0.98] ${
-                            suggested
+                          className={`relative overflow-hidden w-full min-h-14 py-2 px-4 rounded-full font-bold text-sm lg:text-xs xl:text-sm tracking-tight leading-tight text-center flex items-center justify-center gap-2 transition-all duration-300 active:scale-[0.98] ${
+                            isSuggested
                               ? 'bg-[#0071e3] hover:bg-[#0077ed] text-white shadow-lg shadow-[#0071e3]/30'
                               : 'bg-white/[0.08] hover:bg-white/[0.14] text-white border border-white/15'
                           }`}
                         >
-                          <Download size={18} />
-                          <span>Baixar para {chip.title} (.dmg)</span>
+                          <Download size={18} className="shrink-0" />
+                          <span>Baixar para {chip.title} ({build.arch === 'win-x64' ? '.exe' : '.dmg'})</span>
                         </button>
                       )}
                     </div>

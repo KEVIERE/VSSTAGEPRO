@@ -5,6 +5,7 @@ import type { Song, SongRegion } from '@/types';
 import { nextRepeat, regionAt, repeatLabel, sortedRegions } from '@/lib/regions';
 import { audioEngine } from '@/lib/audioEngine';
 import { useLiveFill } from '@/lib/frameClock';
+import { registerCommand } from '@/lib/shortcuts/runtime';
 
 export function SectionPads({ song }: { song: Song }) {
   const regions = useMemo(() => sortedRegions(song.regions), [song.regions]);
@@ -16,29 +17,27 @@ export function SectionPads({ song }: { song: Song }) {
   const sectionKeys = useStore((s) => s.sectionKeys);
   const toggleSectionKeys = useStore((s) => s.toggleSectionKeys);
 
+  // L (loop da parte) e N (pular parte), ou as teclas que o usuário escolheu: valem só com o
+  // botão de atalhos das partes ligado. As teclas 1 a 9 são dos pads do Modo Show; P abre os pads.
   useEffect(() => {
     if (!sectionKeys) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const songOf = () => useStore.getState().songs.find((x) => x.id === song.id);
+    const offLoop = registerCommand('show.regionLoop', (e) => {
+      if (e.repeat) return false;
       const st = useStore.getState();
-      const sg = st.songs.find((x) => x.id === song.id);
-      if (!sg) return;
-      const list = sortedRegions(sg.regions);
-      // as teclas 1 a 9 são dos pads do Modo Show; P abre os pads
-      if (e.key === 'l' || e.key === 'L') {
-        const cur = regionAt(list, st.transport.currentTime);
-        if (!cur) return;
-        e.preventDefault();
-        st.updateSongRegion(sg.id, cur.id, { loop: !cur.loop });
-      } else if (e.key === 'n' || e.key === 'N') {
-        e.preventDefault();
-        skipSection(sg);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+      const sg = songOf();
+      if (!sg) return false;
+      const cur = regionAt(sortedRegions(sg.regions), st.transport.currentTime);
+      if (!cur) return false;
+      st.updateSongRegion(sg.id, cur.id, { loop: !cur.loop });
+    });
+    const offSkip = registerCommand('show.regionSkip', (e) => {
+      if (e.repeat) return false;
+      const sg = songOf();
+      if (!sg) return false;
+      skipSection(sg);
+    });
+    return () => { offLoop(); offSkip(); };
   }, [sectionKeys, song.id]);
 
   if (regions.length === 0) return null;

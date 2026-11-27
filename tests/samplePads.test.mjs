@@ -202,13 +202,16 @@ test('tela: knob do pad, fader geral, visores, pitch, efeitos, saída e pads ace
   for (const fx of ['REVERB', 'DELAY', 'REVERSO', 'LOOP']) assert.match(panel, new RegExp(`label="${fx}"`));
   assert.match(panel, /onClick=\{fadeAllPads\}/);
   assert.match(panel, /return visible \? <SamplePadPanel \/> : <MixerPanel fit \/>;/);
-  assert.match(panel, /if \(e\.key === 'p' \|\| e\.key === 'P'\) \{/);
+  // P abre e fecha os pads (tecla padrão do tratador único de atalhos, com Shift também)
+  assert.match(panel, /registerCommand\('show\.padsPanel', \(\) => \{ togglePadsPanel\(\); \}\)/);
+  assert.match(read('lib', 'shortcuts', 'registry.ts'), /id: 'show\.padsPanel'[^\n]*defaults: \['P'\], loose: 'shift'/);
 });
 
 test('as teclas 1 a 9 saíram das partes da música; pular a parte é N; o site anuncia L e N', () => {
   const sections = read('components', 'SectionPads.tsx');
   assert.doesNotMatch(sections, /\[1-9\]/);
-  assert.match(sections, /e\.key === 'n' \|\| e\.key === 'N'/);
+  assert.match(sections, /registerCommand\('show\.regionSkip'/);
+  assert.match(read('lib', 'shortcuts', 'registry.ts'), /id: 'show\.regionSkip'[^\n]*defaults: \['N'\]/);
   assert.match(read('components', 'sales', 'SalesPage.tsx'), /\['L', 'N'\]/);
   assert.match(read('components', 'PlaylistPanel.tsx'), /onClick=\{togglePadsPanel\}/);
   assert.match(read('lib', 'padStorage.ts'), /const DB_NAME = 'vs-stage-pads';/);

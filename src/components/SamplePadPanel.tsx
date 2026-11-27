@@ -17,11 +17,12 @@ import {
 } from '@/lib/padPlayer';
 import {
   BANK_COUNT, BANK_LABELS, DEFAULT_PAD_FX, PAD_COLORS, ROLL_KNOB_MIN, filterLabel, isTrimmed, rollKnob, rollLabel, PAD_COUNT, PITCH_RANGE, bankCounts, clampPitch, dropTargets, formatPadTime,
-  getPadsState, lastPlaying, padForKey, padForRollKey, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchedDuration,
+  getPadsState, lastPlaying, padOutputLabel, padOutputOptions, padSlot, pitchLabel, pitchedDuration,
   setPadsState, slotPad, subscribePads, togglePadsPanel, usablePadOutput, type PadInfo, type PadOutput,
 } from '@/lib/samplePads';
 import { useStore } from '@/store';
 import { afterPaint } from '@/lib/afterPaint';
+import { registerCommand } from '@/lib/shortcuts/runtime';
 
 const AUDIO_TYPES = 'audio/*,.wav,.mp3,.aif,.aiff,.m4a,.flac,.ogg';
 
@@ -71,31 +72,33 @@ export function PadsOrMixer() {
   useEffect(() => {
     // tecla apertada → pad que ela tocou (para soltar o mesmo pad, mesmo se o banco mudar no meio)
     const held = new Map<string, number>();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (e.key === 'p' || e.key === 'P') {
-        e.preventDefault();
-        if (!e.repeat) togglePadsPanel();
-        return;
-      }
+    // As teclas vêm do tratador único (src/lib/shortcuts): P, 1 a 9, Shift + 1 a 9 e R são o
+    // padrão, e o usuário pode trocar. A tecla só é tomada quando os pads estão à vista.
+    const offs: Array<() => void> = [];
+    offs.push(registerCommand('show.padsPanel', () => { togglePadsPanel(); }));
+    // ROLL de um pad só: Shift + 1 a 9 (o pad do banco) ou R (o pad escolhido)
+    for (let pad = 0; pad < 9; pad++) {
+      offs.push(registerCommand(`show.padRoll${pad + 1}`, (e) => {
+        const cur = getPadsState();
+        if (!cur.visible) return false;
+        if (!e.repeat) void togglePadRoll(padSlot(cur.bank, pad));
+      }));
+      offs.push(registerCommand(`show.pad${pad + 1}`, (e) => {
+        const cur = getPadsState();
+        if (!cur.visible) return false;
+        if (e.repeat) return;
+        const slot = padSlot(cur.bank, pad);
+        if (e.code) held.set(e.code, slot);
+        triggerPad(slot);
+      }));
+    }
+    offs.push(registerCommand('show.padRollSelected', (e) => {
       const cur = getPadsState();
-      // ROLL de um pad só: Shift + 1 a 9 (o pad do banco) ou R (o pad escolhido)
-      const rollPad = e.shiftKey ? padForRollKey(e.code) : null;
-      if (cur.visible && (rollPad !== null || e.key === 'r' || e.key === 'R')) {
-        e.preventDefault();
-        if (!e.repeat) void togglePadRoll(rollPad !== null ? padSlot(cur.bank, rollPad) : cur.selected);
-        return;
-      }
-      const pad = padForKey(e.key);
-      if (!cur.visible || pad === null) return;
-      e.preventDefault();
-      if (e.repeat) return;
-      const slot = padSlot(cur.bank, pad);
-      held.set(e.code, slot);
-      triggerPad(slot);
-    };
+      if (!cur.visible) return false;
+      if (!e.repeat) void togglePadRoll(cur.selected);
+    }));
+    offs.push(registerCommand('show.padsFade', () => { fadeAllPads(); }));
+    offs.push(registerCommand('show.padsStop', () => { stopAllPads(); }));
     // soltou a tecla: no modo segurar o som para (depois de pelo menos 0,2 s)
     const onKeyUp = (e: KeyboardEvent) => {
       const slot = held.get(e.code);
@@ -103,10 +106,9 @@ export function PadsOrMixer() {
       held.delete(e.code);
       releasePad(slot);
     };
-    window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKeyUp);
     return () => {
-      window.removeEventListener('keydown', onKey);
+      for (const off of offs) off();
       window.removeEventListener('keyup', onKeyUp);
     };
   }, []);

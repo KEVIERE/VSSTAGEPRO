@@ -55,6 +55,23 @@ export const supabase = createClient(url, anonKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 });
 
+// Cliente só para entrar com o Google no programa de computador: fluxo PKCE, guardado na memória
+// (o verificador vive só enquanto a tela espera o retorno). A sessão obtida passa para o cliente
+// principal com setSession, e o cliente principal segue no fluxo de sempre (site e links de e-mail).
+let googlePkce: ReturnType<typeof createClient> | null = null;
+export function googlePkceClient() {
+  googlePkce ??= createClient(url, anonKey, {
+    auth: {
+      flowType: 'pkce',
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: 'vs-google-desktop',
+    },
+  });
+  return googlePkce;
+}
+
 // Chave que o supabase-js usa no localStorage para guardar a sessão (mesma fórmula
 // que a lib usa internamente: `sb-${primeiro-segmento-do-host}-auth-token`).
 const AUTH_STORAGE_KEY = `sb-${new URL(url).hostname.split('.')[0]}-auth-token`;

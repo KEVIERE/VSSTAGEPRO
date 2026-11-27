@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { useStore, ROUTABLE_TRACKS } from '@/store';
+import { shortcutLabel } from '@/lib/shortcuts/runtime';
+import { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
+import { useStore, routableTrackIds } from '@/store';
 import type { RoutingTarget } from '@/types';
 import { masterAudioClip, masterRoleForClip } from '@/lib/clipMastering';
 import { MASTER_PROFILES, type MasterProfile } from '@/lib/mastering';
 import { reclassifyClipWithAi } from '@/lib/aiRouter';
+import { openRouteReviewForSong } from '@/lib/routeReviewActions';
 import { canSplitClipStems, isDrumClip, isSplittingStems, startClipStemSplit } from '@/lib/clipStemSplit';
 import { glueSelectedClips } from '@/lib/clipGlue';
 import { copyClips, duplicateClips, hasCopiedClips, pasteClips } from '@/lib/clipClipboard';
@@ -67,6 +69,20 @@ export default function ContextMenu() {
     };
   }, [openMenu]);
 
+  // O menu mede a própria altura e largura ao abrir e sobe ou vai para a esquerda o quanto precisar
+  // para caber inteiro na janela (antes contava com 300 px fixos e o fim do menu ficava cortado).
+  const [fit, setFit] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!state.visible || !el) { setFit(null); return; }
+    const { width, height } = el.getBoundingClientRect();
+    const m = 8;
+    setFit({
+      left: Math.max(m, Math.min(state.x, window.innerWidth - width - m)),
+      top: Math.max(m, Math.min(state.y, window.innerHeight - height - m)),
+    });
+  }, [state.visible, state.x, state.y, state.clipId, menuKey]);
+
   if (editingNarrationId) {
     const song = songs.find((sg) => sg.id === editingNarrationId.songId);
     const narration = song?.narrations?.find((n) => n.id === editingNarrationId.narrationId);
@@ -88,7 +104,7 @@ export default function ContextMenu() {
     <div
       ref={ref}
       className="fixed z-[100] min-w-52 bg-logic-bg-panel border border-logic-border-light shadow-logic-raised rounded text-xs select-none"
-      style={{ left: state.x, top: Math.min(state.y, window.innerHeight - 300) }}
+      style={{ left: fit?.left ?? state.x, top: fit?.top ?? state.y, visibility: fit ? 'visible' : 'hidden' }}
     >
       {narrationOwner && (
         <>
@@ -144,7 +160,7 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
   const timelineLocked = useStore((s) => s.timelineLocked);
 
   const allTargets: { id: string; name: string; color: string; isChild: boolean }[] = [];
-  for (const routeId of ROUTABLE_TRACKS) {
+  for (const routeId of routableTrackIds(tracks)) {
     const parent = tracks.find((t) => t.id === routeId);
     if (!parent) continue;
     allTargets.push({ id: parent.id, name: parent.name, color: parent.color, isChild: false });
@@ -211,6 +227,16 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
         <span>Reclassificar com IA</span>
         <span className="text-[10px] opacity-75 font-normal">Ouvir o áudio</span>
       </button>
+
+      <button
+        className="w-full flex items-center px-3 py-1.5 text-left hover:bg-logic-accent hover:text-white transition-colors duration-75"
+        onClick={() => {
+          openRouteReviewForSong(clip?.songId);
+          onClose();
+        }}
+      >
+        Conferir faixas desta música
+      </button>
         </>
       )}
 
@@ -261,7 +287,7 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
         }}
       >
         <span>Copiar</span>
-        <span className="text-[10px] opacity-75 font-mono">⌘C</span>
+        <span className="text-[10px] opacity-75 font-mono">{shortcutLabel('edit.copyClips')}</span>
       </button>
 
       {hasCopiedClips() && (
@@ -273,7 +299,7 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
           }}
         >
           <span>Colar no Cursor</span>
-          <span className="text-[10px] opacity-75 font-mono">⌘V</span>
+          <span className="text-[10px] opacity-75 font-mono">{shortcutLabel('edit.pasteClips')}</span>
         </button>
       )}
 
@@ -285,7 +311,7 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
         }}
       >
         <span>Duplicar</span>
-        <span className="text-[10px] opacity-75 font-mono">⌘D</span>
+        <span className="text-[10px] opacity-75 font-mono">{shortcutLabel('edit.duplicateClips')}</span>
       </button>
 
       <button
@@ -331,7 +357,7 @@ export function ClipMenuItems({ clipId, onClose, audioTools = true, removeItem =
         }}
       >
         <span>Emendar Clipes (Unir)</span>
-        <span className="text-[10px] opacity-75 font-mono">⇧⌘G</span>
+        <span className="text-[10px] opacity-75 font-mono">{shortcutLabel('edit.glue')}</span>
       </button>
 
       <button

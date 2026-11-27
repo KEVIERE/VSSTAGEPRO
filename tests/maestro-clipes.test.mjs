@@ -85,10 +85,15 @@ test('a store mantém a fala ligada ao clipe em toda ação de áudio', () => {
 });
 
 test('Delete: App e timeline não apagam duas vezes, e a timeline lê a seleção de agora', () => {
-  const app = fs.readFileSync(path.join(here, '..', 'src', 'App.tsx'), 'utf8');
-  assert.match(app, /e\.key === 'Delete' \|\| e\.key === 'Backspace'\) \{\s*\/\/[^\n]*\n\s*if \(e\.defaultPrevented\) return;/);
+  // tratador único (src/lib/shortcuts): a ação da timeline vem antes da reserva do App e, quando
+  // apaga, fica com a tecla (as outras não rodam); a reserva só age sem clipe apagado antes
+  const core = fs.readFileSync(path.join(here, '..', 'src', 'lib', 'shortcuts', 'dispatchCore.ts'), 'utf8');
+  assert.match(core, /if \(h\(e\) === false\) continue;\s*e\.preventDefault\(\);[\s\S]*?return id;/);
+  assert.match(core, /if \(def\.yieldIfHandled && e\.defaultPrevented\) continue;/);
+  const cmds = fs.readFileSync(path.join(here, '..', 'src', 'lib', 'shortcuts', 'appCommands.ts'), 'utf8');
+  assert.match(cmds, /on\('edit\.deleteClips', \(\) => \{\s*const store = st\(\);\s*if \(store\.timelineLocked\) return false;/);
   const panel = read('components', 'TimelinePanel.tsx');
-  assert.match(panel, /if \(e\.key === 'Delete' \|\| e\.key === 'Backspace'\) \{\s*if \(e\.defaultPrevented\) return;/);
+  assert.match(panel, /useCommand\('edit\.deleteClips', \(\) => \{\s*if \(useStore\.getState\(\)\.selectedClipIds\.length === 0 \|\| timelineLocked\) return false;\s*handleDeleteSelectedClips\(\);\s*\}, \{ priority: 1 \}\);/);
   assert.match(panel, /const liveIds = useStore\.getState\(\)\.selectedClipIds;/);
 });
 
