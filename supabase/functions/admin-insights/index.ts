@@ -159,6 +159,8 @@ Deno.serve(async (req) => {
 
     const activeSubscribers = [];
     const activeTrials = [];
+    // Cadastrou e ainda não abriu o programa: o teste de 48 h começa na primeira abertura.
+    const pendingTrials = [];
     const suspicious = [];
     const ipGroups = new Map<string, string[]>();
 
@@ -182,6 +184,7 @@ Deno.serve(async (req) => {
       }
 
       const sub = l?.subscription as string | undefined;
+      const notStarted = !l?.trial_started_at;
       const trialStarted = l?.trial_started_at ? new Date(String(l.trial_started_at)) : new Date(u.created_at);
       const trialHours = Number(l?.trial_hours || 48);
       const trialEnds = new Date(trialStarted.getTime() + trialHours * 3600 * 1000);
@@ -217,8 +220,22 @@ Deno.serve(async (req) => {
         });
       }
 
-      // 2. Em Teste Ativo (Trial)
-      if (!isBlocked && !access && (sub === "trial" || !sub || sub === "canceled") && now < trialEnds) {
+      // 2a. Cadastrou e não abriu o programa: fora da lista de teste (o relógio ainda não começou)
+      if (!isBlocked && !access && notStarted) {
+        pendingTrials.push({
+          userId: u.id,
+          email,
+          name,
+          phone,
+          createdAt: u.created_at,
+          emailConfirmedAt,
+          lastSeenAt: u.last_sign_in_at ?? null,
+          totalHours: trialHours,
+        });
+      }
+
+      // 2. Em Teste Ativo (Trial): só quem já abriu o programa
+      if (!isBlocked && !access && !notStarted && (sub === "trial" || !sub || sub === "canceled") && now < trialEnds) {
         const msLeft = trialEnds.getTime() - now.getTime();
         const hoursLeft = Math.max(0, Math.ceil(msLeft / (3600 * 1000)));
         const daysLeft = Math.floor(hoursLeft / 24);
@@ -308,15 +325,19 @@ Deno.serve(async (req) => {
     activeSubscribers.sort((a, b) => (a.daysRemaining ?? 999) - (b.daysRemaining ?? 999));
     // Testes que expiram mais cedo primeiro
     activeTrials.sort((a, b) => a.hoursRemaining - b.hoursRemaining);
+    // Cadastros mais recentes primeiro
+    pendingTrials.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
     return json({
       subscribers: activeSubscribers,
       trials: activeTrials,
+      pending: pendingTrials,
       suspicious,
       stats: {
         totalUsers: users.length,
         subscribersCount: activeSubscribers.length,
         trialsCount: activeTrials.length,
+        pendingCount: pendingTrials.length,
         suspiciousCount: suspicious.length,
       },
     });

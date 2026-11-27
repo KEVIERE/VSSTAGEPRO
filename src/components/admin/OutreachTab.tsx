@@ -29,6 +29,7 @@ import type { RunHandle } from '@/components/admin/outreachRunner';
 const STATES: Array<{ id: string; label: string }> = [
   { id: '', label: 'Toda a base' },
   { id: 'trial', label: 'Em teste' },
+  { id: 'pending', label: 'Não abriu o programa' },
   { id: 'expired', label: 'Teste encerrado' },
   { id: 'active', label: 'Assinantes' },
   { id: 'promo', label: 'Bônus' },

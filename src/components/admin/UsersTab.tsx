@@ -35,6 +35,7 @@ const FILTERS: Array<{ id: '' | UserState | 'partner' | 'online'; label: string 
   { id: '', label: 'Todos' },
   { id: 'active', label: 'Assinantes' },
   { id: 'trial', label: 'Em teste' },
+  { id: 'pending', label: 'Não abriu o programa' },
   { id: 'expired', label: 'Teste encerrado' },
   { id: 'promo', label: 'Bônus' },
   { id: 'partner', label: 'Parceiros' },
@@ -74,6 +75,7 @@ function accessUntil(u: AdminUser, partner = false) {
     return 'assinatura manual';
   }
   if (u.state === 'promo') return `bônus até ${dateTime(u.comp_until)}`;
+  if (u.state === 'pending') return 'cadastrou, ainda não abriu o programa (o teste começa na 1ª abertura)';
   if (u.state === 'trial') return `teste até ${dateTime(u.trial_ends_at)}`;
   if (u.state === 'expired') return `acabou ${relative(u.trial_ends_at)}`;
   return u.blocked_reason ? `motivo: ${u.blocked_reason}` : 'suspensa';

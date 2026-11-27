@@ -69,7 +69,7 @@ const shortDay = (iso: string) => {
   return `${d}/${m}`;
 };
 
-type ViewSection = 'subscribers' | 'trials' | 'suspicious' | 'analytics' | 'online';
+type ViewSection = 'subscribers' | 'trials' | 'pending' | 'suspicious' | 'analytics' | 'online';
 
 export default function OverviewTab() {
   const [days, setDays] = useState(30);
@@ -183,6 +183,15 @@ export default function OverviewTab() {
       (t.phone && t.phone.includes(filterText))
   );
 
+  // Cadastrou e ainda não abriu o programa: o teste de 48 h começa na primeira abertura.
+  const filteredPending = (insights?.pending || []).filter(
+    (p) =>
+      !filterText ||
+      p.email.toLowerCase().includes(filterText) ||
+      (p.name && p.name.toLowerCase().includes(filterText)) ||
+      (p.phone && p.phone.includes(filterText))
+  );
+
   const filteredSuspicious = (insights?.suspicious || []).filter(
     (s) =>
       !filterText ||
@@ -266,6 +275,14 @@ export default function OverviewTab() {
               <p className="text-2xs text-logic-text-dim mt-1">
                 {num(data.expired)} com teste já finalizado
               </p>
+              {(insights?.stats.pendingCount ?? 0) > 0 && (
+                <p
+                  className="text-2xs text-logic-text-muted mt-0.5 hover:text-white"
+                  onClick={(e) => { e.stopPropagation(); setActiveSection('pending'); }}
+                >
+                  + {num(insights?.stats.pendingCount ?? 0)} cadastraram e não abriram o programa
+                </p>
+              )}
             </div>
 
             <div
@@ -349,6 +366,22 @@ export default function OverviewTab() {
                 <span>Em Teste Grátis (48h)</span>
                 <span className="px-1.5 py-0.2 rounded-full text-2xs bg-black/20 text-current font-extrabold">
                   {insights?.stats.trialsCount ?? data.trial}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveSection('pending')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 whitespace-nowrap ${
+                  activeSection === 'pending'
+                    ? 'bg-white/15 text-white shadow'
+                    : 'text-logic-text-dim hover:text-white'
+                }`}
+              >
+                <Laptop size={14} />
+                <span>Não abriu o programa</span>
+                <span className="px-1.5 py-0.2 rounded-full text-2xs bg-black/20 text-current font-extrabold">
+                  {insights?.stats.pendingCount ?? 0}
                 </span>
               </button>
 
@@ -678,6 +711,67 @@ export default function OverviewTab() {
                               </button>
                             </div>
                           </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {/* ============================================================== */}
+          {/* SEÇÃO 2.5: CADASTROU E AINDA NÃO ABRIU O PROGRAMA              */}
+          {/* ============================================================== */}
+          {activeSection === 'pending' && (
+            <Panel
+              title={
+                <div className="flex items-center gap-2 text-white">
+                  <Laptop size={14} className="text-logic-text-muted" />
+                  <span>Cadastraram e ainda não abriram o programa ({filteredPending.length})</span>
+                </div>
+              }
+            >
+              <p className="text-2xs text-logic-text-dim px-1 pb-3">
+                O teste de 48 h dessas contas ainda não começou: ele liga sozinho na primeira vez que a pessoa abrir o programa no computador.
+              </p>
+              {filteredPending.length === 0 ? (
+                <Empty text="Ninguém esperando para abrir o programa." />
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-white/[0.08] bg-white/[0.02] text-2xs uppercase tracking-wider text-logic-text-muted font-bold">
+                        <th className="py-3 px-4">Conta</th>
+                        <th className="py-3 px-4">Cadastro</th>
+                        <th className="py-3 px-4">Teste guardado</th>
+                        <th className="py-3 px-4">Último acesso ao site</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/[0.06]">
+                      {filteredPending.map((p) => (
+                        <tr key={p.userId} className="hover:bg-white/[0.02] transition">
+                          <td className="py-3.5 px-4">
+                            <div className="flex flex-col">
+                              <span className="font-bold text-white text-[13px]">{p.name || 'Sem nome informado'}</span>
+                              <span className="text-2xs text-logic-text-dim mt-0.5">{p.email}</span>
+                              <EmailStatusBadge confirmedAt={p.emailConfirmedAt} />
+                              {p.phone && (
+                                <a
+                                  href={`https://wa.me/${p.phone.replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[11px] text-logic-lcd-green hover:underline flex items-center gap-1 mt-1 font-semibold"
+                                >
+                                  <MessageCircle size={11} />
+                                  <span>{p.phone}</span>
+                                </a>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 whitespace-nowrap text-2xs text-logic-text-dim">{dateTime(p.createdAt)}</td>
+                          <td className="py-3.5 px-4 whitespace-nowrap text-2xs text-logic-text-dim">{p.totalHours} h, começa ao abrir</td>
+                          <td className="py-3.5 px-4 whitespace-nowrap text-2xs text-logic-text-dim">{relative(p.lastSeenAt)}</td>
                         </tr>
                       ))}
                     </tbody>

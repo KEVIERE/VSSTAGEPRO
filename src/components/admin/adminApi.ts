@@ -1,7 +1,8 @@
 let _lastPingTime = 0;
 import { supabase } from '@/lib/supabaseClient';
 
-export type UserState = 'trial' | 'expired' | 'active' | 'promo' | 'blocked';
+/** 'pending': cadastrou e ainda não abriu o programa (o teste de 48 h começa na primeira abertura). */
+export type UserState = 'pending' | 'trial' | 'expired' | 'active' | 'promo' | 'blocked';
 
 /** Forma de pagamento que a InfinitePay confirmou (capture_method do payment_check). */
 export type PaymentMethod = 'pix' | 'credit_card';
@@ -153,6 +154,18 @@ export type TrialInsight = {
   totalHours: number;
 };
 
+/** Conta criada que ainda não abriu o programa (teste de 48 h esperando a primeira abertura). */
+export type PendingInsight = {
+  userId: string;
+  email: string;
+  name: string | null;
+  phone: string | null;
+  createdAt: string;
+  emailConfirmedAt: string | null;
+  lastSeenAt: string | null;
+  totalHours: number;
+};
+
 export type SuspiciousInsight = {
   userId: string;
   email: string;
@@ -180,11 +193,14 @@ export type OnlineApp = {
 export type InsightsData = {
   subscribers: SubscriberInsight[];
   trials: TrialInsight[];
+  /** Cadastrou e ainda não abriu o programa: o teste de 48 h não começou. */
+  pending?: PendingInsight[];
   suspicious: SuspiciousInsight[];
   stats: {
     totalUsers: number;
     subscribersCount: number;
     trialsCount: number;
+    pendingCount?: number;
     suspiciousCount: number;
   };
 };
@@ -709,6 +725,7 @@ export function relative(iso: string | null | undefined) {
 }
 
 export const STATE_LABEL: Record<UserState, string> = {
+  pending: 'Não abriu o programa',
   trial: 'Em teste',
   expired: 'Teste encerrado',
   active: 'Assinante',
@@ -717,6 +734,7 @@ export const STATE_LABEL: Record<UserState, string> = {
 };
 
 export const STATE_CLS: Record<UserState, string> = {
+  pending: 'bg-logic-bg-elevated text-logic-text-muted',
   trial: 'bg-logic-accent/15 text-logic-accent-hover',
   expired: 'bg-logic-lcd-amber/15 text-logic-lcd-amber',
   active: 'bg-logic-lcd-green/15 text-logic-lcd-green',

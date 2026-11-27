@@ -35,8 +35,9 @@ type GateText = { heading: string; signin: string; signup: string; button: strin
 
 const DOWNLOAD_TEXT: GateText = {
   heading: 'Acessar Downloads',
-  signin: 'Entre com seu e-mail para liberar o download e o teste de 48 horas.',
-  signup: 'Cadastre-se para baixar o instalador oficial e começar seu teste grátis.',
+  // o teste de 48 horas começa na primeira abertura do programa, não no cadastro
+  signin: 'Entre com seu e-mail para liberar o download. Seu teste grátis de 48 horas começa quando você abrir o programa no computador.',
+  signup: 'Cadastre-se para baixar o instalador oficial. Seu teste grátis de 48 horas só começa quando você abrir o programa no computador.',
   button: 'Entrar e Acessar Downloads',
 };
 
