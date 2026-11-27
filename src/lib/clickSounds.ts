@@ -1,20 +1,22 @@
 // Sons do metrônomo para o Recriar metrônomo. O "VS Stage" é a amostra gravada (clickSampleData,
-// tocada pelo clickGenerator). Madeira e Baqueta são feitos aqui mesmo, por conta.
-// Agradável e Bloco são toques gravados (clickRecordedSounds), já recortados no ataque.
+// tocada pelo clickGenerator), na tela "Padrão 1". Madeira é feita aqui mesmo, por conta.
+// Padrão 2, Agradável e Bloco são toques gravados (clickRecordedSounds), já recortados no ataque.
+// A Baqueta saiu: quem tinha ela guardada passa para o Padrão 2.
 // "Seu som" é o arquivo que o usuário importa, ajustado por clickImport e guardado aqui.
 // Todos começam no primeiro instante (o ataque fica em cima da batida) e saem no mesmo volume
 // da amostra padrão: mesma energia nos primeiros 50 ms. Sem AudioBuffer, para dar para testar.
 
 import {
-  AGRADAVEL_ACENTO_B64, AGRADAVEL_B64, BLOCO_B64, RECORDED_CLICK_RATE,
+  AGRADAVEL_ACENTO_B64, AGRADAVEL_B64, BLOCO_B64, PADRAO2_B64, RECORDED_CLICK_RATE,
 } from './clickRecordedSounds.ts';
 
-export type ClickSoundId = 'vs' | 'madeira' | 'baqueta' | 'agradavel' | 'bloco' | 'meu';
+export type ClickSoundId = 'vs' | 'padrao2' | 'madeira' | 'agradavel' | 'bloco' | 'meu';
 
 export const CLICK_SOUNDS: { id: ClickSoundId; label: string; tip: string; twoSounds?: boolean; custom?: boolean }[] = [
-  { id: 'vs', label: 'VS Stage', tip: 'O click padrão do VS Stage' },
+  // Padrão 1 e Padrão 2 lado a lado, na primeira linha da janela
+  { id: 'vs', label: 'Padrão 1', tip: 'O click padrão do VS Stage' },
+  { id: 'padrao2', label: 'Padrão 2', tip: 'Outro click padrão: curto, firme e fácil de ouvir com a banda' },
   { id: 'madeira', label: 'Madeira', tip: 'Bloco de madeira: seco, com corpo, fácil de ouvir com a banda' },
-  { id: 'baqueta', label: 'Baqueta', tip: 'Baqueta com baqueta, como a contagem do baterista' },
   {
     id: 'agradavel', label: 'Agradável', twoSounds: true,
     tip: 'Dois sons: agudo no 1 de cada compasso, grave nos outros tempos',
@@ -42,7 +44,7 @@ export function isClickSound(v: unknown): v is ClickSoundId {
 }
 
 export function clickSoundLabel(id: ClickSoundId): string {
-  return CLICK_SOUNDS.find((s) => s.id === id)?.label ?? 'VS Stage';
+  return CLICK_SOUNDS.find((s) => s.id === id)?.label ?? 'Padrão 1';
 }
 
 /** Energia (RMS) dos primeiros 50 ms da amostra padrão do VS Stage. */
@@ -129,27 +131,10 @@ function madeira(sr: number): Float32Array {
   return edges(out, sr, 0.3);
 }
 
-function baqueta(sr: number): Float32Array {
-  const len = Math.round(0.08 * sr);
-  const out = new Float32Array(len);
-  const n = noise(len, 23);
-  const body = biquad(biquad(Float32Array.from(n), sr, 'bandpass', 2900, 6), sr, 'bandpass', 2900, 6);
-  const shine = biquad(Float32Array.from(n), sr, 'bandpass', 4700, 5);
-  const snap = biquad(Float32Array.from(n), sr, 'highpass', 1500, 0.7);
-  for (let i = 0; i < len; i++) {
-    const t = i / sr;
-    out[i] = 6 * body[i] * Math.exp(-t / 0.016)
-      + 2.5 * shine[i] * Math.exp(-t / 0.01)
-      + 0.3 * snap[i] * Math.exp(-t / 0.003)
-      + 0.5 * Math.sin(2 * Math.PI * 2350 * t) * Math.exp(-t / 0.012);
-  }
-  return edges(out, sr, 0.2);
-}
+type SynthId = 'madeira';
+type RecordedId = 'padrao2' | 'agradavel' | 'bloco';
 
-type SynthId = 'madeira' | 'baqueta';
-type RecordedId = 'agradavel' | 'bloco';
-
-const SYNTHS: Record<SynthId, (sr: number) => Float32Array> = { madeira, baqueta };
+const SYNTHS: Record<SynthId, (sr: number) => Float32Array> = { madeira };
 
 // ---------- toques gravados ----------
 
@@ -203,6 +188,7 @@ export function resampleHit(data: Float32Array, from: number, to: number): Float
 }
 
 const RECORDED: Record<RecordedId, { normal: string; accent?: string }> = {
+  padrao2: { normal: PADRAO2_B64 },
   agradavel: { normal: AGRADAVEL_B64, accent: AGRADAVEL_ACENTO_B64 },
   bloco: { normal: BLOCO_B64 },
 };
@@ -260,7 +246,7 @@ export function clickSoundSamples(id: Exclude<ClickSoundId, 'vs'>, sampleRate: n
   const hit = cache.get(key);
   if (hit) return hit;
   let made: ClickSoundSamples;
-  if (id === 'agradavel' || id === 'bloco') made = recordedSamples(id, sampleRate);
+  if (id === 'padrao2' || id === 'agradavel' || id === 'bloco') made = recordedSamples(id, sampleRate);
   else {
     const mono = matchClickLevel(SYNTHS[id](sampleRate), sampleRate);
     made = { normal: [mono, mono] };
@@ -291,6 +277,7 @@ export function rememberedClickSound(): ClickSoundId {
   try {
     const v = globalThis.localStorage?.getItem(STORE_KEY);
     if (v === 'meu' && !savedCustomClick()) return DEFAULT_CLICK_SOUND;
+    if (v === 'baqueta') return 'padrao2'; // a Baqueta saiu da lista
     return isClickSound(v) ? v : DEFAULT_CLICK_SOUND;
   } catch {
     return DEFAULT_CLICK_SOUND;

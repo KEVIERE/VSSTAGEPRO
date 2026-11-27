@@ -41,7 +41,7 @@ const mainFreq = (d, sr) => {
 
 test('a lista tem o padrão do VS Stage, mais 4 sons e o seu som; Bip, Cowbell e Chimbal saíram', () => {
   assert.equal(CLICK_SOUNDS[0].id, 'vs', 'o padrão vem primeiro');
-  assert.deepEqual(CLICK_SOUNDS.map((s) => s.label), ['VS Stage', 'Madeira', 'Baqueta', 'Agradável', 'Bloco', 'Seu som']);
+  assert.deepEqual(CLICK_SOUNDS.map((s) => s.label), ['Padrão 1', 'Padrão 2', 'Madeira', 'Agradável', 'Bloco', 'Seu som']);
   assert.deepEqual(CLICK_SOUNDS.filter((s) => s.custom).map((s) => s.id), ['meu'], 'o último botão é o som importado');
   assert.ok(!isClickSound('bip'), 'quem tinha Bip guardado volta ao padrão');
   for (const s of CLICK_SOUNDS) assert.ok(s.tip.length > 10, `${s.id} explica o som`);
@@ -191,4 +191,32 @@ test('Trocar som do click abre a janela de sons e usa o som e o 1 do compasso', 
   assert.match(chooser, /type="file"/);
   assert.match(chooser, /importClickFile\(file\)/, 'o arquivo passa pelo ajuste automático');
   assert.match(fs.readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8'), /<ClickSoundChooser \/>/, 'a janela está montada (no App, fora da pilha que ignora o mouse)');
+});
+
+test('Padrão 2 (Click 1.wav) entra no lugar da Baqueta, lado a lado com o Padrão 1', () => {
+  assert.deepEqual(CLICK_SOUNDS.slice(0, 2).map((s) => s.id), ['vs', 'padrao2'], 'os dois padrões na primeira linha');
+  assert.ok(!isClickSound('baqueta'));
+  const hit = clickSoundSamples('padrao2', 48000);
+  assert.equal(hit.accent, undefined);
+  const [L] = hit.normal;
+  assert.ok(L.length > 0.1 * 48000 && L.length < 0.15 * 48000, `duração ${L.length}`);
+  let ss = 0;
+  const n = Math.round(0.05 * 48000);
+  for (let i = 0; i < n; i++) ss += L[i] * L[i];
+  assert.ok(Math.abs(Math.sqrt(ss / n) - CLICK_TARGET_RMS) < 0.02, 'mesmo volume do click padrão');
+  let first = 0;
+  while (Math.abs(L[first]) < 0.05) first++;
+  assert.ok(first < 48 * 3, 'o ataque fica em cima da batida');
+});
+
+test('quem tinha a Baqueta guardada passa para o Padrão 2', () => {
+  const mem = new Map();
+  const old = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+  try {
+    mem.set('vsstage.clickSound', 'baqueta');
+    assert.equal(rememberedClickSound(), 'padrao2');
+  } finally {
+    globalThis.localStorage = old;
+  }
 });

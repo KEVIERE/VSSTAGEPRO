@@ -134,7 +134,6 @@ function Chooser({ songId }: { songId: string }) {
                 <span className="flex items-center gap-1.5 min-w-0">
                   <span className={`console-led shrink-0 ${led(s.id)}`} />
                   {name(s.id, s.label)}
-                  {s.id === 'vs' && tag('PADRÃO')}
                   {s.twoSounds && tag('2 SONS')}
                 </span>
                 <span className={tipClass(s.id)}>{s.tip}</span>
