@@ -16,6 +16,7 @@ import {
   Sparkles,
   XCircle,
 } from 'lucide-react';
+import { metaPurchase } from '@/lib/metaPixel';
 import VsLogo from '@/components/VsLogo';
 import { supportWhatsAppUrl } from '@/lib/support';
 import { supabase } from '@/lib/supabaseClient';
@@ -71,7 +72,10 @@ export default function SubscriptionReturn() {
       idRef.current = c.id;
       const next = viewOf(c);
       setView(next);
-      if (next.kind === 'paid') refreshLicense();
+      if (next.kind === 'paid') {
+        refreshLicense();
+        metaPurchase(c);
+      }
     } catch (e) {
       const code = (e as Error).message;
       setView(code === 'unauthorized' || code === 'not_authenticated' ? { kind: 'nosession' } : { kind: 'unknown' });

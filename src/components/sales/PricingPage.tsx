@@ -34,7 +34,7 @@ import WhatsAppButton from './WhatsAppButton';
 import { clearLocalSession, supabase } from '@/lib/supabaseClient';
 import { friendlyError } from '@/lib/friendlyError';
 import { signInWithGoogle } from '@/lib/authFlow';
-import { trackMetaLead } from '@/lib/metaPixel';
+import { metaCompleteRegistration, metaViewContent } from '@/lib/metaPixel';
 import PixCheckout from '@/components/PixCheckout';
 import { AccessCard } from '@/components/access/AccessChrome';
 import { resolveAffiliateCoupon } from '@/lib/affiliateApi';
@@ -135,6 +135,9 @@ export default function PricingPage() {
     setPixPlan(plan);
   };
 
+  // Pixel da Meta: abriu a página de planos.
+  useEffect(() => { metaViewContent(); }, []);
+
   useEffect(() => {
     document.documentElement.style.overflow = 'auto';
     document.body.style.overflow = 'auto';
@@ -223,10 +226,7 @@ export default function PricingPage() {
             return;
           }
 
-          trackMetaLead({
-            eventId: signUpData.user?.id ? `lead_${signUpData.user.id}` : undefined,
-            source: 'pricing_page',
-          });
+          metaCompleteRegistration(signUpData.user?.id);
 
           if (signUpData.user && !signUpData.session) {
             setAuthSuccessMsg(

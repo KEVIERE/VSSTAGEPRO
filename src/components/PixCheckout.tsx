@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, CheckCircle2, CreditCard, ExternalLink, Loader2, MessageCircle, RefreshCw } from 'lucide-react';
 import { AccessNotice, FootKey } from '@/components/access/AccessChrome';
 import { createPix, getPixStatus, PIX_ERRORS, type PixCharge, type PixPlan } from '@/lib/pixCheckout';
+import { metaInitiateCheckout, metaPurchase } from '@/lib/metaPixel';
 import {
   cpfCnpjDigits, formatBRL, formatBrasiliaDate, formatBrasiliaDateTime, formatCountdown, maskCpfCnpj,
 } from '@/lib/pixFormat';
@@ -65,6 +66,9 @@ export default function PixCheckout({
     if (c.now) skewRef.current = Date.parse(c.now) - Date.now();
     currentIdRef.current = c.id;
     setCharge(c);
+    // Pixel da Meta: abriu o pagamento e, quando confirma, a venda.
+    metaInitiateCheckout(c);
+    metaPurchase(c);
     setPhase(c.status === 'pending' ? 'waiting' : c.status === 'paid' ? 'paid' : c.status === 'amount_mismatch' ? 'mismatch' : 'closed');
   };
   const showIfCurrent = (c: PixCharge) => {

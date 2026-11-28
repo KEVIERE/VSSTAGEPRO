@@ -23,6 +23,7 @@ import ShowModePanel from '@/components/ShowModePanel';
 import { loadOpenedProject, saveCurrentProject } from '@/lib/projectQuickSave';
 import { createCoalescedSave } from '@/lib/coalesceSave';
 import { openProjectFromPath } from '@/lib/projectSaver';
+import { metaPageView, metaRegistrationFromSession } from '@/lib/metaPixel';
 import { friendlyError } from '@/lib/friendlyError';
 import BounceDialog from '@/components/BounceDialog';
 import MixerPanel from '@/components/MixerPanel';
@@ -208,6 +209,8 @@ function App() {
   // Visitas do site para a aba "Acessos" do admin (o próprio admin não conta).
   useEffect(() => {
     if (route !== 'admin') trackSiteVisit(route);
+    // Pixel da Meta: só nas páginas públicas do site, nunca no programa do Mac.
+    metaPageView(route);
   }, [route]);
 
   // Trava scroll apenas quando o editor/DAW estiver aberto. Em páginas públicas
@@ -246,6 +249,8 @@ function App() {
       if (session?.user && (event === 'SIGNED_IN' || event === 'INITIAL_SESSION')) {
         // fora do fluxo do Supabase Auth: chamar o banco dentro do aviso pode travar a sessão
         window.setTimeout(() => { claimAffiliateRef().catch(() => {}); }, 0);
+        // Conta recém-criada (Google, telefone ou e-mail confirmado agora): cadastro no Pixel.
+        metaRegistrationFromSession(session.user);
       }
       if (event === "PASSWORD_RECOVERY") {
         try { sessionStorage.setItem("vs_password_recovery", "1"); } catch {}

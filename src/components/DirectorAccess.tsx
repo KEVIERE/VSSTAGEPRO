@@ -14,7 +14,7 @@ import { LICENSE_REFRESH_EVENT } from '@/lib/licenseEvents';
 import { cancelGoogleSignIn, hasDesktopGoogle, maskPhone, normalizePhone, signInWithGoogle } from '@/lib/authFlow';
 import { formatBrasiliaDate } from '@/lib/pixFormat';
 import { forgetVoices } from '@/lib/maestroVoice';
-import { trackMetaLead } from '@/lib/metaPixel';
+import { metaCompleteRegistration } from '@/lib/metaPixel';
 
 export type License = {
   status: 'anonymous' | 'trial' | 'active' | 'expired' | 'blocked';
@@ -592,10 +592,7 @@ export default function DirectorAccess({ children }: { children: (license: Licen
         if (signUpData.user && signUpData.user.identities?.length === 0) {
           throw new Error('already_registered');
         }
-        trackMetaLead({
-          eventId: signUpData.user?.id ? `lead_${signUpData.user.id}` : undefined,
-          source: 'director_access',
-        });
+        metaCompleteRegistration(signUpData.user?.id);
         if (!signUpData.session) {
           setInfo('Enviamos um e-mail de confirmação. Clique no link para ativar sua conta.');
           setBusy(false);
